@@ -15,7 +15,7 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 - **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter, and special animations for holiday related messages!!
 - (and so much more!!)
 
-# Become a Stellar Supporter!!
+# Become a Supporter!!
 For just $4.99 a month, you'll not only be helping me afford food, but you'll also gain these supporter benefits!!
 - Supporter Profile Badge and Animation!!
 - The Ability to Edit Posts!! (with limitations)
