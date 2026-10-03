@@ -12,8 +12,29 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 - **VRM Mode** - Import your own VRM model into VRM mode, with face, hand, and full body tracking via your camera!! Take upload ready photos and videos, or even livestream to any platform straight from Stellar!!
 - **Blogs** - View user's Standard.Site/Leaflet blogs, and even create your own!!
 - **Reviews** - View, like, and comment on user's Popfeed reviews!!
-- **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter!!
+- **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter, and special animations for holiday related messages!!
 - (and so much more!!)
+
+# Become a Stellar Supporter!!
+For just $4.99 a month, you'll not only be helping me afford food, but you'll also gain these supporter benefits!!
+- Supporter Profile Badge and Animation!!
+- The Ability to Edit Posts!! (with limitations)
+- Save Posts as Drafts!!
+- Build your own local Feeds!! (experimental)
+- Save posts into local Bookmark Folders!!
+- Pin DMs!!
+- Use the Launchpad's Calendar, Notes, Calculator, and Timer features!! (experimental)
+- Create Polls on Stellar!!
+- View Trending Topics in Search!!
+- Use the In-App Multitasking Browser while you explore Stellar!!
+- Receive App Notifications!! (android only) (checks every 15 minutes)
+- Add Notes to Profiles!!
+- Remove the "Stellar Supporters" row from the Hub!!
+
+You can become a Supporter by donating $4.99 or more to any of these platforms!! Just remember to include your Stellar/Bluesky handle in the note :3
+- https://cash.app/$RechoRaccoon
+- https://paypal.biz/rechoraccoon
+- https://ko-fi.com/rechoraccoon
 
 # Install on Android
 Download and run Stellar.apk from the [latest releases](https://github.com/RechoRaccoon/Stellar/releases)
