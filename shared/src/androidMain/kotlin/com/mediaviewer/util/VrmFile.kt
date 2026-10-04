@@ -86,7 +86,14 @@ data class VrmData(
      *  (`FilamentAsset.getFirstEntityByName`) — see AvatarRetargeter.kt's
      *  own doc comment for why, and how confident that bridge actually is.
      */
-    val nodeNames: Map<Int, String>
+    val nodeNames: Map<Int, String>,
+    /** Morph targets present in the glTF meshes but referenced by no VRM
+     *  expression. Some "ARKit-ready" models ship the 52 ARKit shapes as
+     *  raw morph targets without wiring them into expressions — those
+     *  surface here, keyed by the morph target's name from the
+     *  primitive's `extras.targetNames`. Weight is always 1.0: there is
+     *  no VRM bind to scale by. */
+    val orphanMorphTargets: Map<String, List<MorphTargetBind>> = emptyMap()
 )
 
 /**
@@ -150,12 +157,13 @@ object VrmParser {
             root.at("nodes")?.asJsonArrayOrNull?.forEachIndexed { nodeIndex, node ->
                 node.asJsonObjectOrNull?.at("name")?.asStringOrNull?.let { nodeNames[nodeIndex] = it }
             }
-            val extensions = root.at("extensions")?.asJsonObjectOrNull ?: return null
-            when {
+            val extensions = root.at("extensions")?.asJsonObjectOrNull ?: return@runCatching null
+            val vrmData = when {
                 extensions.has("VRMC_vrm") -> parseVrm1(extensions.getAsJsonObject("VRMC_vrm"), nodeNames)
                 extensions.has("VRM") -> parseVrm0(root, extensions.getAsJsonObject("VRM"), nodeNames)
-                else -> null
+                else -> return@runCatching null
             }
+            vrmData.copy(orphanMorphTargets = extractOrphanMorphTargets(root, vrmData))
         }.onFailure {
             Log.e(TAG, "Could not parse VRM extension block", it)
         }.getOrNull()
@@ -256,6 +264,49 @@ object VrmParser {
         val index = at("index")?.asIntOrNull ?: return null
         val weightPercent = at("weight")?.asFloatOrNull ?: 100.0f
         return MorphTargetBind(nodeIndex, index, weightPercent / 100.0f)
+    }
+
+    /**
+     * Morph targets that exist in the glTF meshes but are referenced by no
+     * VRM expression. Names come from each primitive's
+     * `extras.targetNames` — the standard morph-target naming convention,
+     * written by Blender, VRoid Studio, Unity's glTF exporter, and the
+     * tools that inject ARKit shape sets into VRM files.
+     *
+     * Only the first primitive carrying targets is read per mesh. VRM
+     * avatar meshes are single-primitive in practice, and morph-target
+     * indexing is per-primitive while VRM binds (and this pipeline) number
+     * morphs per mesh — so multi-primitive meshes can't be indexed
+     * reliably through that numbering anyway.
+     */
+    private fun extractOrphanMorphTargets(root: JsonObject, vrmData: VrmData): Map<String, List<MorphTargetBind>> {
+        // glTF mesh index -> node index (same lookup parseVrm0 builds).
+        val meshIndexToNodeIndex = mutableMapOf<Int, Int>()
+        root.at("nodes")?.asJsonArrayOrNull?.forEachIndexed { nodeIndex, node ->
+            node.asJsonObjectOrNull?.at("mesh")?.asIntOrNull?.let { meshIndexToNodeIndex[it] = nodeIndex }
+        }
+        // (nodeIndex, morphTargetIndex) pairs already driven by expressions.
+        val referenced = vrmData.expressions.values.flatten()
+            .map { it.nodeIndex to it.morphTargetIndex }.toSet()
+
+        val orphans = mutableMapOf<String, MutableList<MorphTargetBind>>()
+        root.at("meshes")?.asJsonArrayOrNull?.forEachIndexed { meshIndex, mesh ->
+            val nodeIndex = meshIndexToNodeIndex[meshIndex] ?: return@forEachIndexed
+            val primitive = mesh.asJsonObjectOrNull?.at("primitives")?.asJsonArrayOrNull
+                ?.mapNotNull { it.asJsonObjectOrNull }
+                ?.firstOrNull { ((it.at("targets")?.asJsonArrayOrNull?.size()) ?: 0) > 0 }
+                ?: return@forEachIndexed
+            val targetNames = primitive.at("extras.targetNames")?.asJsonArrayOrNull
+                ?.mapNotNull { it.asStringOrNull }
+                ?: return@forEachIndexed
+            targetNames.forEachIndexed { targetIndex, name ->
+                if (name.isBlank()) return@forEachIndexed
+                if ((nodeIndex to targetIndex) in referenced) return@forEachIndexed
+                orphans.getOrPut(name) { mutableListOf() }
+                    .add(MorphTargetBind(nodeIndex, targetIndex, 1.0f))
+            }
+        }
+        return orphans
     }
 }
 

@@ -599,7 +599,7 @@ object AvatarRetargeter {
      * as "ARKit face tracking"-ready carry them as custom expressions — so a
      * custom expression matching one of these names can be driven 1:1.
      */
-    private val ARKIT_BLENDSHAPES = setOf(
+    internal val ARKIT_BLENDSHAPES = setOf(
         "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight",
         "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
         "eyeBlinkLeft", "eyeBlinkRight",
@@ -630,14 +630,24 @@ object AvatarRetargeter {
         /** Lowercase ARKit blendshape names this model carries as custom expressions. */
         val arkitNames: Set<String>,
         /** All expression names, lowercase — for preset/custom coexistence checks. */
-        val expressionNames: Set<String>
+        val expressionNames: Set<String>,
+        /** ARKit-named orphan morphs (canonical name → binds). Expression-level
+         *  ARKit customs take precedence — same-named orphans are excluded so
+         *  nothing drives twice. */
+        val orphanArkitMorphs: List<Pair<String, List<MorphTargetBind>>>,
+        /** Lowercase ARKit names from orphans — for the anti-double-drive guards. */
+        val orphanArkitNames: Set<String>,
+        /** Union of expression-level and orphan ARKit names. */
+        val allArkitNames: Set<String>
     )
 
     private fun expressionCache(target: RetargetTarget, vrmData: VrmData): ExpressionCache {
         target.expressionCache?.takeIf { it.vrmData === vrmData }?.let { return it }
         val rm = target.engine.renderableManager
         val nodes = ArrayList<Triple<Int, Int, Int>>()
-        for (nodeIndex in vrmData.expressions.values.flatten().map { it.nodeIndex }.toSet()) {
+        val morphNodeIndices = (vrmData.expressions.values.flatten() +
+            vrmData.orphanMorphTargets.values.flatten()).map { it.nodeIndex }.toSet()
+        for (nodeIndex in morphNodeIndices) {
             val entity = target.nodeIndexToEntity[nodeIndex] ?: continue
             val instance = rm.getInstance(entity)
             if (instance == 0) continue
@@ -645,6 +655,15 @@ object AvatarRetargeter {
             if (count > 0) nodes.add(Triple(nodeIndex, entity, count))
         }
         val names = vrmData.expressions.keys.map { it.lowercase() }.toSet()
+        val arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER)
+        val orphanArkitMorphs = vrmData.orphanMorphTargets.mapNotNull { (name, binds) ->
+            val canonical = ARKIT_BLENDSHAPES.firstOrNull { it.equals(name, ignoreCase = true) }
+                ?: return@mapNotNull null
+            // An expression-level ARKit custom for the same name wins —
+            // driving both would apply the region twice.
+            if (canonical.lowercase() in arkitNames) null else canonical to binds
+        }
+        val orphanArkitNames = orphanArkitMorphs.map { it.first.lowercase() }.toSet()
         val cache = ExpressionCache(
             vrmData = vrmData,
             nodes = nodes,
@@ -652,8 +671,11 @@ object AvatarRetargeter {
             lastWritten = HashMap(),
             hasBlinkBoth = "blink" in names,
             hasBlinkSplit = ("blinkleft" in names || "blink_l" in names) && ("blinkright" in names || "blink_r" in names),
-            arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER),
-            expressionNames = names
+            arkitNames = arkitNames,
+            expressionNames = names,
+            orphanArkitMorphs = orphanArkitMorphs,
+            orphanArkitNames = orphanArkitNames,
+            allArkitNames = arkitNames + orphanArkitNames
         )
         target.expressionCache = cache
         return cache
@@ -715,12 +737,30 @@ object AvatarRetargeter {
         for (buffer in cache.buffers.values) buffer.fill(0f)
         for ((expressionName, binds) in vrmData.expressions) {
             val intensity = when (expressionName.lowercase()) {
-                // An ARKit eye-blink custom takes the blink and the preset
-                // stays off — driving both would close each lid twice.
-                "blink" -> if ("eyeblinkleft" in cache.arkitNames || "eyeblinkright" in cache.arkitNames) 0f else blinkBoth * eyeScale
-                "blinkleft", "blink_l" -> if ("eyeblinkleft" in cache.arkitNames) 0f else blinkLeft * eyeScale
-                "blinkright", "blink_r" -> if ("eyeblinkright" in cache.arkitNames) 0f else blinkRight * eyeScale
+                // An ARKit eye-blink morph (expression custom or orphan target)
+                // takes the blink and the preset stays off — driving both
+                // would close each lid twice.
+                "blink" -> if ("eyeblinkleft" in cache.allArkitNames || "eyeblinkright" in cache.allArkitNames) 0f else blinkBoth * eyeScale
+                "blinkleft", "blink_l" -> if ("eyeblinkleft" in cache.allArkitNames) 0f else blinkLeft * eyeScale
+                "blinkright", "blink_r" -> if ("eyeblinkright" in cache.allArkitNames) 0f else blinkRight * eyeScale
                 else -> arkitIntensityForExpression(expressionName, scores, cache, left, right)
+            }.coerceIn(0f, 1f)
+            if (intensity <= 0.001f) continue
+            for (bind in binds) {
+                val node = cache.nodes.firstOrNull { it.first == bind.nodeIndex } ?: continue
+                val weights = cache.buffers.getOrPut(bind.nodeIndex) { FloatArray(node.third) }
+                if (bind.morphTargetIndex in weights.indices) weights[bind.morphTargetIndex] += intensity * bind.weight
+            }
+        }
+        // Orphan morph targets (in the file, in no VRM expression):
+        // ARKit-named ones drive 1:1, like expression-level ARKit customs.
+        // Eye blinks reuse the blinkCurve'd values so a resting face still
+        // reads as open (raw MediaPipe blink scores sit ~0.1–0.3).
+        for ((canonicalName, binds) in cache.orphanArkitMorphs) {
+            val intensity = when {
+                canonicalName.equals("eyeBlinkLeft", ignoreCase = true) -> blinkLeft
+                canonicalName.equals("eyeBlinkRight", ignoreCase = true) -> blinkRight
+                else -> scores[canonicalName] ?: 0f
             }.coerceIn(0f, 1f)
             if (intensity <= 0.001f) continue
             for (bind in binds) {
@@ -796,8 +836,10 @@ object AvatarRetargeter {
     ): Float {
         fun score(name: String) = scores[name] ?: 0f
         fun avg(vararg names: String) = names.sumOf { score(it).toDouble() }.toFloat() / names.size
-        /** True when the model has its own ARKit morphs for this region — the heuristic preset yields to them. */
-        fun arkitHas(vararg names: String) = names.any { it.lowercase() in cache.arkitNames }
+        /** True when the model has its own ARKit morphs for this region
+         *  (expression customs or orphan morph targets) — the heuristic
+         *  preset yields to them. */
+        fun arkitHas(vararg names: String) = names.any { it.lowercase() in cache.allArkitNames }
         /** True when the model has a standard preset under any of these names — a custom alias yields to it. */
         fun hasExpression(vararg names: String) = names.any { it.lowercase() in cache.expressionNames }
 
@@ -813,7 +855,7 @@ object AvatarRetargeter {
             // "Smug", "Unamused") stay unmapped — a wrong guess reads worse
             // than no mapping.
             "smile" -> if (hasExpression("happy", "joy") || arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
-            "shocked" -> if (hasExpression("surprised", "surprise")) 0f else maxOf(score("jawOpen"), avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight"))
+            "shocked" -> if (hasExpression("surprised", "surprise") || arkitHas("jawOpen")) 0f else maxOf(score("jawOpen"), avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight"))
             "tongue out", "tongueout", "tongue_out" -> score("tongueOut")
             "blink" -> avg("eyeBlinkLeft", "eyeBlinkRight")
             "blinkleft", "blink_l" -> score("eyeBlinkLeft")

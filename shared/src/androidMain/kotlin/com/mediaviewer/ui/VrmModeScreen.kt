@@ -1668,6 +1668,19 @@ private fun VrmTrackingOverlay(
             parsedVrmData.expressions.keys.sorted().joinToString(", ")
     }
 
+    // Orphan morph targets (in the file, in no VRM expression) — proves
+    // whether an ARKit shape set exists outside the expression system.
+    val orphanLine = parsedVrmData?.let { vrm ->
+        val orphans = vrm.orphanMorphTargets
+        if (orphans.isEmpty()) "orphan morphs: none"
+        else {
+            val arkitOnes = orphans.keys
+                .filter { name -> AvatarRetargeter.ARKIT_BLENDSHAPES.any { it.equals(name, ignoreCase = true) } }
+                .sorted()
+            "orphan morphs: ${orphans.size} (${arkitOnes.size} ARKit-named)\n" + arkitOnes.joinToString(", ")
+        }
+    }
+
     // Retarget bridge health — how many of the file's glTF nodes actually
     // resolved to Filament entities by name (see AvatarRetargeter's doc
     // comment). If this reads 0/N, expressions AND bone rotation are both
@@ -1702,7 +1715,7 @@ private fun VrmTrackingOverlay(
 
     Box(modifier) {
         Text(
-            text = listOfNotNull(cameraLine, faceLine, textureLine, handLine, poseLine, vrmDataLine, retargetLine, headRotationLine, armRotationLine, legRotationLine).joinToString("\n\n"),
+            text = listOfNotNull(cameraLine, faceLine, textureLine, handLine, poseLine, vrmDataLine, orphanLine, retargetLine, headRotationLine, armRotationLine, legRotationLine).joinToString("\n\n"),
             color = tint,
             fontSize = 12.sp,
             modifier = Modifier
