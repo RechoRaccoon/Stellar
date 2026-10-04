@@ -1662,7 +1662,10 @@ private fun VrmTrackingOverlay(
     // parsing succeeded on the same file being rendered above.
     val vrmDataLine = when {
         parsedVrmData == null -> null
-        else -> "vrm file: ${parsedVrmData.specVersion} — ${parsedVrmData.humanBones.size} bones, ${parsedVrmData.expressions.size} expressions"
+        // Expression names listed so ARKit-ready models can be checked
+        // against the 52 ARKit blendshape names on-device.
+        else -> "vrm file: ${parsedVrmData.specVersion} — ${parsedVrmData.humanBones.size} bones, ${parsedVrmData.expressions.size} expressions\n" +
+            parsedVrmData.expressions.keys.sorted().joinToString(", ")
     }
 
     // Retarget bridge health — how many of the file's glTF nodes actually
