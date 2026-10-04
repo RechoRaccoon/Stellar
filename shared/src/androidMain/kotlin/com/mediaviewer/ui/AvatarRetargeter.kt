@@ -628,7 +628,9 @@ object AvatarRetargeter {
         val hasBlinkBoth: Boolean,
         val hasBlinkSplit: Boolean,
         /** Lowercase ARKit blendshape names this model carries as custom expressions. */
-        val arkitNames: Set<String>
+        val arkitNames: Set<String>,
+        /** All expression names, lowercase — for preset/custom coexistence checks. */
+        val expressionNames: Set<String>
     )
 
     private fun expressionCache(target: RetargetTarget, vrmData: VrmData): ExpressionCache {
@@ -650,7 +652,8 @@ object AvatarRetargeter {
             lastWritten = HashMap(),
             hasBlinkBoth = "blink" in names,
             hasBlinkSplit = ("blinkleft" in names || "blink_l" in names) && ("blinkright" in names || "blink_r" in names),
-            arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER)
+            arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER),
+            expressionNames = names
         )
         target.expressionCache = cache
         return cache
@@ -695,7 +698,7 @@ object AvatarRetargeter {
         for (name in vrmData.expressions.keys) {
             when (name.lowercase()) {
                 "happy", "joy", "angry", "anger", "sad", "sorrow", "surprised", "surprise" ->
-                    emotion = maxOf(emotion, arkitIntensityForExpression(name, scores, cache.arkitNames, left, right))
+                    emotion = maxOf(emotion, arkitIntensityForExpression(name, scores, cache, left, right))
             }
         }
         val eyeScale = (1f - emotion).coerceIn(0f, 1f)
@@ -717,7 +720,7 @@ object AvatarRetargeter {
                 "blink" -> if ("eyeblinkleft" in cache.arkitNames || "eyeblinkright" in cache.arkitNames) 0f else blinkBoth * eyeScale
                 "blinkleft", "blink_l" -> if ("eyeblinkleft" in cache.arkitNames) 0f else blinkLeft * eyeScale
                 "blinkright", "blink_r" -> if ("eyeblinkright" in cache.arkitNames) 0f else blinkRight * eyeScale
-                else -> arkitIntensityForExpression(expressionName, scores, cache.arkitNames, left, right)
+                else -> arkitIntensityForExpression(expressionName, scores, cache, left, right)
             }.coerceIn(0f, 1f)
             if (intensity <= 0.001f) continue
             for (bind in binds) {
@@ -774,16 +777,19 @@ object AvatarRetargeter {
      * Models advertised as "ARKit face tracking"-ready carry ARKit's 52
      * blendshapes as custom expressions ([ARKIT_BLENDSHAPES]). Those are
      * driven 1:1 by name, and take precedence over the heuristic preset
-     * covering the same region, so nothing is applied twice. An
-     * author-defined custom expression matching neither a preset nor an
-     * ARKit name simply never activates — there is no ARKit input that
-     * should drive an arbitrary custom expression by default.
+     * covering the same region, so nothing is applied twice.
+     *
+     * Common custom emotion names with unambiguous ARKit counterparts
+     * ("Smile", "Shocked", "Tongue Out") are mapped too, yielding to the
+     * standard preset when a model has both. An author-defined custom
+     * expression matching none of the above simply never activates — there
+     * is no ARKit input that should drive an arbitrary custom expression
+     * by default.
      */
     private fun arkitIntensityForExpression(
         expressionName: String,
         scores: Map<String, Float>,
-        /** Lowercase ARKit blendshape names this model carries ([ExpressionCache.arkitNames]). */
-        arkitNames: Set<String>,
+        cache: ExpressionCache,
         /** blinkCurve'd eye scores (raw when remapBlink is off) — reused for ARKit eye-blink customs. */
         blinkLeft: Float,
         blinkRight: Float
@@ -791,13 +797,24 @@ object AvatarRetargeter {
         fun score(name: String) = scores[name] ?: 0f
         fun avg(vararg names: String) = names.sumOf { score(it).toDouble() }.toFloat() / names.size
         /** True when the model has its own ARKit morphs for this region — the heuristic preset yields to them. */
-        fun arkitHas(vararg names: String) = names.any { it.lowercase() in arkitNames }
+        fun arkitHas(vararg names: String) = names.any { it.lowercase() in cache.arkitNames }
+        /** True when the model has a standard preset under any of these names — a custom alias yields to it. */
+        fun hasExpression(vararg names: String) = names.any { it.lowercase() in cache.expressionNames }
 
         val intensity = when (expressionName.lowercase()) {
             "happy", "joy" -> if (arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
             "angry", "anger" -> if (arkitHas("browDownLeft", "browDownRight")) 0f else avg("browDownLeft", "browDownRight")
             "sad", "sorrow" -> if (arkitHas("mouthFrownLeft", "mouthFrownRight")) 0f else avg("mouthFrownLeft", "mouthFrownRight")
             "surprised", "surprise" -> if (arkitHas("browInnerUp", "browOuterUpLeft", "browOuterUpRight")) 0f else avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight")
+            // Common custom emotion names (VRM 0.x models especially — e.g.
+            // "Smile", "Shocked", "Tongue Out"): direct ARKit counterparts.
+            // Yield to the standard preset when the model has both, so the
+            // expression isn't applied twice. Ambiguous customs ("Confused",
+            // "Smug", "Unamused") stay unmapped — a wrong guess reads worse
+            // than no mapping.
+            "smile" -> if (hasExpression("happy", "joy") || arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
+            "shocked" -> if (hasExpression("surprised", "surprise")) 0f else maxOf(score("jawOpen"), avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight"))
+            "tongue out", "tongueout", "tongue_out" -> score("tongueOut")
             "blink" -> avg("eyeBlinkLeft", "eyeBlinkRight")
             "blinkleft", "blink_l" -> score("eyeBlinkLeft")
             "blinkright", "blink_r" -> score("eyeBlinkRight")
