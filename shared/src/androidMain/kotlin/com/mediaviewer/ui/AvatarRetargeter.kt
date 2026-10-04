@@ -857,7 +857,7 @@ object AvatarRetargeter {
             // than no mapping.
             "smile" -> if (hasExpression("happy", "joy") || arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
             "shocked" -> if (hasExpression("surprised", "surprise") || arkitHas("jawOpen")) 0f else maxOf(score("jawOpen"), avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight"))
-            "tongue out", "tongueout", "tongue_out" -> score("tongueOut")
+            "tongue out", "tongueout", "tongue_out" -> if (arkitHas("tongueOut")) 0f else score("tongueOut")
             "blink" -> avg("eyeBlinkLeft", "eyeBlinkRight")
             "blinkleft", "blink_l" -> score("eyeBlinkLeft")
             "blinkright", "blink_r" -> score("eyeBlinkRight")

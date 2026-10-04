@@ -1605,7 +1605,7 @@ private fun VrmTrackingOverlay(
 ) {
     // Just a handful of representative blendshapes — enough to see live
     // movement (blink, jaw, smile) without dumping all 52 scores on screen.
-    val debugBlendshapeNames = listOf("jawOpen", "eyeBlinkLeft", "eyeBlinkRight", "mouthSmileLeft", "mouthSmileRight")
+    val debugBlendshapeNames = listOf("jawOpen", "eyeBlinkLeft", "eyeBlinkRight", "mouthSmileLeft", "mouthSmileRight", "tongueOut")
     val cameraLine = when {
         cameraError != null -> "camera: FAILED\n$cameraError"
         cameraFrameCount > 0 -> "camera: streaming ($cameraFrameCount frames)"
