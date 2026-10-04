@@ -593,6 +593,31 @@ object AvatarRetargeter {
 
     /** Per-model expression bookkeeping, built once per loaded model
      *  instead of re-deriving it (and reallocating every array) each frame. */
+    /**
+     * The 52 ARKit facial blendshape names. MediaPipe's Face Landmarker
+     * produces its scores under these same names, and VRM models advertised
+     * as "ARKit face tracking"-ready carry them as custom expressions — so a
+     * custom expression matching one of these names can be driven 1:1.
+     */
+    private val ARKIT_BLENDSHAPES = setOf(
+        "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight",
+        "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
+        "eyeBlinkLeft", "eyeBlinkRight",
+        "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
+        "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight",
+        "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight",
+        "jawForward", "jawLeft", "jawOpen", "jawRight",
+        "mouthClose", "mouthDimpleLeft", "mouthDimpleRight",
+        "mouthFrownLeft", "mouthFrownRight", "mouthFunnel",
+        "mouthLeft", "mouthLowerDownLeft", "mouthLowerDownRight",
+        "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight",
+        "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper",
+        "mouthSmileLeft", "mouthSmileRight", "mouthStretchLeft", "mouthStretchRight",
+        "mouthUpperUpLeft", "mouthUpperUpRight",
+        "noseSneerLeft", "noseSneerRight", "tongueOut"
+    )
+    private val ARKIT_BLENDSHAPES_LOWER = ARKIT_BLENDSHAPES.map { it.lowercase() }.toSet()
+
     internal class ExpressionCache(
         val vrmData: VrmData,
         /** Every node any expression drives, with its entity + morph count. */
@@ -601,7 +626,9 @@ object AvatarRetargeter {
         val buffers: HashMap<Int, FloatArray>,
         val lastWritten: HashMap<Int, FloatArray>,
         val hasBlinkBoth: Boolean,
-        val hasBlinkSplit: Boolean
+        val hasBlinkSplit: Boolean,
+        /** Lowercase ARKit blendshape names this model carries as custom expressions. */
+        val arkitNames: Set<String>
     )
 
     private fun expressionCache(target: RetargetTarget, vrmData: VrmData): ExpressionCache {
@@ -622,7 +649,8 @@ object AvatarRetargeter {
             buffers = HashMap(),
             lastWritten = HashMap(),
             hasBlinkBoth = "blink" in names,
-            hasBlinkSplit = ("blinkleft" in names || "blink_l" in names) && ("blinkright" in names || "blink_r" in names)
+            hasBlinkSplit = ("blinkleft" in names || "blink_l" in names) && ("blinkright" in names || "blink_r" in names),
+            arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER)
         )
         target.expressionCache = cache
         return cache
@@ -667,7 +695,7 @@ object AvatarRetargeter {
         for (name in vrmData.expressions.keys) {
             when (name.lowercase()) {
                 "happy", "joy", "angry", "anger", "sad", "sorrow", "surprised", "surprise" ->
-                    emotion = maxOf(emotion, arkitIntensityForExpression(name, scores))
+                    emotion = maxOf(emotion, arkitIntensityForExpression(name, scores, cache.arkitNames, left, right))
             }
         }
         val eyeScale = (1f - emotion).coerceIn(0f, 1f)
@@ -684,10 +712,12 @@ object AvatarRetargeter {
         for (buffer in cache.buffers.values) buffer.fill(0f)
         for ((expressionName, binds) in vrmData.expressions) {
             val intensity = when (expressionName.lowercase()) {
-                "blink" -> blinkBoth * eyeScale
-                "blinkleft", "blink_l" -> blinkLeft * eyeScale
-                "blinkright", "blink_r" -> blinkRight * eyeScale
-                else -> arkitIntensityForExpression(expressionName, scores)
+                // An ARKit eye-blink custom takes the blink and the preset
+                // stays off — driving both would close each lid twice.
+                "blink" -> if ("eyeblinkleft" in cache.arkitNames || "eyeblinkright" in cache.arkitNames) 0f else blinkBoth * eyeScale
+                "blinkleft", "blink_l" -> if ("eyeblinkleft" in cache.arkitNames) 0f else blinkLeft * eyeScale
+                "blinkright", "blink_r" -> if ("eyeblinkright" in cache.arkitNames) 0f else blinkRight * eyeScale
+                else -> arkitIntensityForExpression(expressionName, scores, cache.arkitNames, left, right)
             }.coerceIn(0f, 1f)
             if (intensity <= 0.001f) continue
             for (bind in binds) {
@@ -739,20 +769,35 @@ object AvatarRetargeter {
      * 1.0's preset names (`"happy"`, `"aa"`, `"blinkLeft"`, ...) and VRM
      * 0.x's (`"joy"`, `"a"`, ...) case-insensitively, since
      * [com.mediaviewer.util.VrmParser] doesn't normalize between them (see
-     * its own doc comment) — an author-defined custom expression name that
-     * happens not to match anything below simply never activates, which is
-     * the correct fallback (there's no ARKit input that should drive an
-     * arbitrary custom expression by default anyway).
+     * its own doc comment).
+     *
+     * Models advertised as "ARKit face tracking"-ready carry ARKit's 52
+     * blendshapes as custom expressions ([ARKIT_BLENDSHAPES]). Those are
+     * driven 1:1 by name, and take precedence over the heuristic preset
+     * covering the same region, so nothing is applied twice. An
+     * author-defined custom expression matching neither a preset nor an
+     * ARKit name simply never activates — there is no ARKit input that
+     * should drive an arbitrary custom expression by default.
      */
-    private fun arkitIntensityForExpression(expressionName: String, scores: Map<String, Float>): Float {
+    private fun arkitIntensityForExpression(
+        expressionName: String,
+        scores: Map<String, Float>,
+        /** Lowercase ARKit blendshape names this model carries ([ExpressionCache.arkitNames]). */
+        arkitNames: Set<String>,
+        /** blinkCurve'd eye scores (raw when remapBlink is off) — reused for ARKit eye-blink customs. */
+        blinkLeft: Float,
+        blinkRight: Float
+    ): Float {
         fun score(name: String) = scores[name] ?: 0f
         fun avg(vararg names: String) = names.sumOf { score(it).toDouble() }.toFloat() / names.size
+        /** True when the model has its own ARKit morphs for this region — the heuristic preset yields to them. */
+        fun arkitHas(vararg names: String) = names.any { it.lowercase() in arkitNames }
 
         val intensity = when (expressionName.lowercase()) {
-            "happy", "joy" -> avg("mouthSmileLeft", "mouthSmileRight")
-            "angry", "anger" -> avg("browDownLeft", "browDownRight")
-            "sad", "sorrow" -> avg("mouthFrownLeft", "mouthFrownRight")
-            "surprised", "surprise" -> avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight")
+            "happy", "joy" -> if (arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
+            "angry", "anger" -> if (arkitHas("browDownLeft", "browDownRight")) 0f else avg("browDownLeft", "browDownRight")
+            "sad", "sorrow" -> if (arkitHas("mouthFrownLeft", "mouthFrownRight")) 0f else avg("mouthFrownLeft", "mouthFrownRight")
+            "surprised", "surprise" -> if (arkitHas("browInnerUp", "browOuterUpLeft", "browOuterUpRight")) 0f else avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight")
             "blink" -> avg("eyeBlinkLeft", "eyeBlinkRight")
             "blinkleft", "blink_l" -> score("eyeBlinkLeft")
             "blinkright", "blink_r" -> score("eyeBlinkRight")
@@ -760,21 +805,32 @@ object AvatarRetargeter {
             // accuracy (real lip-sync would drive these from audio, not
             // ARKit's face-shape blendshapes at all; this just gives some
             // mouth movement while talking instead of a static mouth).
-            "aa", "a" -> score("jawOpen")
-            "ih", "i" -> avg("mouthStretchLeft", "mouthStretchRight")
-            "ou", "u" -> score("mouthPucker")
-            "ee", "e" -> avg("mouthSmileLeft", "mouthSmileRight") * 0.5f
-            "oh", "o" -> score("mouthFunnel")
-            "lookup" -> avg("eyeLookUpLeft", "eyeLookUpRight")
-            "lookdown" -> avg("eyeLookDownLeft", "eyeLookDownRight")
+            "aa", "a" -> if (arkitHas("jawOpen")) 0f else score("jawOpen")
+            "ih", "i" -> if (arkitHas("mouthStretchLeft", "mouthStretchRight")) 0f else avg("mouthStretchLeft", "mouthStretchRight")
+            "ou", "u" -> if (arkitHas("mouthPucker")) 0f else score("mouthPucker")
+            "ee", "e" -> if (arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight") * 0.5f
+            "oh", "o" -> if (arkitHas("mouthFunnel")) 0f else score("mouthFunnel")
+            "lookup" -> if (arkitHas("eyeLookUpLeft", "eyeLookUpRight")) 0f else avg("eyeLookUpLeft", "eyeLookUpRight")
+            "lookdown" -> if (arkitHas("eyeLookDownLeft", "eyeLookDownRight")) 0f else avg("eyeLookDownLeft", "eyeLookDownRight")
             // ARKit names each eye from the subject's own perspective, same
             // convention VRM uses — "lookLeft" is the avatar's left, i.e.
             // that eye looking outward + the other eye looking inward.
-            "lookleft" -> avg("eyeLookOutLeft", "eyeLookInRight")
-            "lookright" -> avg("eyeLookInLeft", "eyeLookOutRight")
-            // "relaxed"/"neutral" and any author-defined custom name: no
-            // ARKit input maps to these by default.
-            else -> 0f
+            "lookleft" -> if (arkitHas("eyeLookOutLeft", "eyeLookInRight")) 0f else avg("eyeLookOutLeft", "eyeLookInRight")
+            "lookright" -> if (arkitHas("eyeLookInLeft", "eyeLookOutRight")) 0f else avg("eyeLookInLeft", "eyeLookOutRight")
+            // ARKit-named custom expressions: driven 1:1 by name. Eye blinks
+            // reuse the blinkCurve'd values so a resting face still reads as
+            // open (raw MediaPipe blink scores sit ~0.1–0.3 with eyes open).
+            // "relaxed"/"neutral" and any other custom name: no ARKit input
+            // maps to these by default.
+            else -> {
+                val key = ARKIT_BLENDSHAPES.firstOrNull { it.equals(expressionName, ignoreCase = true) }
+                when {
+                    key == null -> 0f
+                    key.equals("eyeBlinkLeft", ignoreCase = true) -> blinkLeft
+                    key.equals("eyeBlinkRight", ignoreCase = true) -> blinkRight
+                    else -> score(key)
+                }
+            }
         }
         return intensity.coerceIn(0f, 1f)
     }
