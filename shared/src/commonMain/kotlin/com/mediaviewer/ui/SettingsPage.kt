@@ -1528,6 +1528,7 @@ internal const val STELLAR_CONTACT_EMAIL = "RechoRaccoonBusiness@proton.me"
 @Composable
 internal fun AboutPageContent() {
     val recho = Color(0xFF00FF07)
+    val rose = Color(0xFFE0245E)
     val dim = Color.White.copy(alpha = 0.6f)
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val tap = rememberHapticTap()
@@ -1564,6 +1565,9 @@ internal fun AboutPageContent() {
                 color = recho, fontSize = 12.sp, lineHeight = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
+
+            Header("Special thanks")
+            Line("Rose (SomeDudeGT)", "publishing builds on GitHub", rose)
 
             Header("Agents")
             Small("Claude Opus 5.5, Claude Sonnet, and Muse by Meta (RJ).")
