@@ -329,104 +329,120 @@ private const val POP_SECONDS = 0.32f
  */
 @Composable
 private fun BubblesEffect(playKey: Int, modifier: Modifier, backdrop: GlassBackdrop?) {
-    val view = rememberPlatformView()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    var time by remember(playKey) { mutableFloatStateOf(0f) }
-    var done by remember(playKey) { androidx.compose.runtime.mutableStateOf(false) }
+    val timeState = remember(playKey) { mutableFloatStateOf(0f) }
+    val doneState = remember(playKey) { androidx.compose.runtime.mutableStateOf(false) }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        if (w <= 0f || h <= 0f || done) return@BoxWithConstraints
-        val bubbles = remember(playKey, w, h) {
-            val rnd = Random(com.mediaviewer.platform.nanoTime() xor (playKey.toLong() shl 20))
-            val unit = w / 400f
-            val count = 14
-            // They pop in a shuffled order, spaced out, after floating a while.
-            val order = (0 until count).shuffled(rnd)
-            List(count) { i ->
-                Bubble(
-                    id = i,
-                    x0 = (0.1f + rnd.nextFloat() * 0.8f) * w,
-                    restY = (0.14f + rnd.nextFloat() * 0.6f) * h,
-                    radius = (20f + rnd.nextFloat() * 24f) * unit,
-                    delay = rnd.nextFloat() * 2.6f,
-                    rise = 4.2f + rnd.nextFloat() * 2.2f,
-                    swayX = (10f + rnd.nextFloat() * 18f) * unit,
-                    swayY = (6f + rnd.nextFloat() * 10f) * unit,
-                    freq = 0.35f + rnd.nextFloat() * 0.45f,
-                    phase = rnd.nextFloat() * 6.28f,
-                    popsAt = 10.5f + order.indexOf(i) * 0.45f
-                )
+        if (w > 0f && h > 0f && !doneState.value) BubbleField(playKey, w, h, backdrop, timeState, doneState)
+    }
+}
+
+/** All the bubbles of one run, in a [w]×[h] pixel area. */
+@Composable
+private fun BubbleField(
+    playKey: Int, w: Float, h: Float, backdrop: GlassBackdrop?,
+    timeState: androidx.compose.runtime.MutableFloatState,
+    doneState: androidx.compose.runtime.MutableState<Boolean>
+) {
+    val view = rememberPlatformView()
+    var time by timeState
+    var done by doneState
+    val bubbles = remember(playKey, w, h) {
+        val rnd = Random(com.mediaviewer.platform.nanoTime() xor (playKey.toLong() shl 20))
+        val unit = w / 400f
+        val count = 14
+        // They pop in a shuffled order, spaced out, after floating a while.
+        val order = (0 until count).shuffled(rnd)
+        List(count) { i ->
+            Bubble(
+                id = i,
+                x0 = (0.1f + rnd.nextFloat() * 0.8f) * w,
+                restY = (0.14f + rnd.nextFloat() * 0.6f) * h,
+                radius = (20f + rnd.nextFloat() * 24f) * unit,
+                delay = rnd.nextFloat() * 2.6f,
+                rise = 4.2f + rnd.nextFloat() * 2.2f,
+                swayX = (10f + rnd.nextFloat() * 18f) * unit,
+                swayY = (6f + rnd.nextFloat() * 10f) * unit,
+                freq = 0.35f + rnd.nextFloat() * 0.45f,
+                phase = rnd.nextFloat() * 6.28f,
+                popsAt = 10.5f + order.indexOf(i) * 0.45f
+            )
+        }
+    }
+    LaunchedEffect(playKey, bubbles) {
+        val start = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { now -> time = (now - start) / 1_000_000_000f }
+            var left = false
+            for (b in bubbles) {
+                if (b.poppedAt < 0f && time >= b.popsAt) {
+                    b.poppedAt = time
+                    runCatching { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                }
+                if (b.poppedAt < 0f || time - b.poppedAt < POP_SECONDS) left = true
+            }
+            if (!left) break
+        }
+        done = true
+    }
+    for (b in bubbles) {
+        androidx.compose.runtime.key(b.id) { OneBubble(b, h, backdrop, timeState) }
+    }
+}
+
+@Composable
+private fun OneBubble(b: Bubble, h: Float, backdrop: GlassBackdrop?, timeState: androidx.compose.runtime.MutableFloatState) {
+    val view = rememberPlatformView()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val time by timeState
+    val popped = b.poppedAt
+    // Gone once its pop has played.
+    if (popped >= 0f && time - popped >= POP_SECONDS) return
+    if (time < b.delay) return
+    val sizeDp = with(density) { (b.radius * 2f).toDp() }
+    val place = Modifier
+        .offset {
+            val t = time
+            // Rises, easing to a stop where it will float…
+            val p = ((t - b.delay) / b.rise).coerceIn(0f, 1f)
+            val e = 1f - (1f - p) * (1f - p) * (1f - p)
+            val fromY = h + b.radius * 2f
+            // …then drifts about that spot.
+            val x = b.x0 + sin(t * b.freq + b.phase) * b.swayX
+            val y = fromY + (b.restY - fromY) * e + cos(t * b.freq * 0.8f + b.phase) * b.swayY * e
+            IntOffset((x - b.radius).roundToInt(), (y - b.radius).roundToInt())
+        }
+        .size(sizeDp)
+        .graphicsLayer {
+            if (popped >= 0f) {
+                // The pop: it swells a little and is gone.
+                val q = ((time - popped) / POP_SECONDS).coerceIn(0f, 1f)
+                val s = 1f + 0.35f * q
+                scaleX = s; scaleY = s; alpha = (1f - q) * (1f - q)
+            } else {
+                // A gentle wobble, like a real one.
+                val wob = sin(time * 2.2f + b.phase) * 0.035f
+                scaleX = 1f + wob; scaleY = 1f - wob
             }
         }
-        LaunchedEffect(playKey, bubbles) {
-            val start = withFrameNanos { it }
-            while (true) {
-                withFrameNanos { now -> time = (now - start) / 1_000_000_000f }
-                var left = false
-                for (b in bubbles) {
-                    if (b.poppedAt < 0f && time >= b.popsAt) {
+        .then(
+            if (popped < 0f) Modifier.pointerInput(b.id) {
+                detectTapGestures {
+                    if (b.poppedAt < 0f) {
                         b.poppedAt = time
-                        runCatching { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                        runCatching { view.crunchHaptic() }
                     }
-                    if (b.poppedAt < 0f || time - b.poppedAt < POP_SECONDS) left = true
                 }
-                if (!left) break
-            }
-            done = true
+            } else Modifier
+        )
+    if (backdrop != null && popped < 0f) {
+        LiquidGlassSurface(place, shape = CircleShape, tint = Color.White, backdrop = backdrop) {
+            Canvas(Modifier.matchParentSize()) { drawBubble(glass = true, popping = 0f) }
         }
-        for (b in bubbles) {
-            androidx.compose.runtime.key(b.id) {
-                val popped = b.poppedAt
-                // Gone once its pop has played.
-                if (popped >= 0f && time - popped >= POP_SECONDS) return@key
-                if (time < b.delay) return@key
-                val sizeDp = with(density) { (b.radius * 2f).toDp() }
-                val place = Modifier
-                    .offset {
-                        val t = time
-                        // Rises, easing to a stop where it will float…
-                        val p = ((t - b.delay) / b.rise).coerceIn(0f, 1f)
-                        val e = 1f - (1f - p) * (1f - p) * (1f - p)
-                        val fromY = h + b.radius * 2f
-                        // …then drifts about that spot.
-                        val x = b.x0 + sin(t * b.freq + b.phase) * b.swayX
-                        val y = fromY + (b.restY - fromY) * e + cos(t * b.freq * 0.8f + b.phase) * b.swayY * e
-                        IntOffset((x - b.radius).roundToInt(), (y - b.radius).roundToInt())
-                    }
-                    .size(sizeDp)
-                    .graphicsLayer {
-                        if (popped >= 0f) {
-                            // The pop: it swells a little and is gone.
-                            val q = ((time - popped) / POP_SECONDS).coerceIn(0f, 1f)
-                            val s = 1f + 0.35f * q
-                            scaleX = s; scaleY = s; alpha = (1f - q) * (1f - q)
-                        } else {
-                            // A gentle wobble, like a real one.
-                            val wob = sin(time * 2.2f + b.phase) * 0.035f
-                            scaleX = 1f + wob; scaleY = 1f - wob
-                        }
-                    }
-                    .then(
-                        if (popped < 0f) Modifier.pointerInput(b.id) {
-                            detectTapGestures {
-                                if (b.poppedAt < 0f) {
-                                    b.poppedAt = time
-                                    runCatching { view.crunchHaptic() }
-                                }
-                            }
-                        } else Modifier
-                    )
-                if (backdrop != null && popped < 0f) {
-                    LiquidGlassSurface(place, shape = CircleShape, tint = Color.White, backdrop = backdrop) {
-                        Canvas(Modifier.matchParentSize()) { drawBubble(glass = true, popping = 0f) }
-                    }
-                } else {
-                    Canvas(place) {
-                        drawBubble(glass = false, popping = if (popped >= 0f) ((time - popped) / POP_SECONDS).coerceIn(0f, 1f) else 0f)
-                    }
-                }
-            }
+    } else {
+        Canvas(place) {
+            drawBubble(glass = false, popping = if (popped >= 0f) ((time - popped) / POP_SECONDS).coerceIn(0f, 1f) else 0f)
         }
     }
 }
