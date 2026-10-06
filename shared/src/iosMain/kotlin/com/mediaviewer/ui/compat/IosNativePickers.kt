@@ -131,6 +131,7 @@ object IosNativePickers {
             when {
                 mime == "*/*" -> UTTypeItem
                 mime == "application/json" -> UTTypeJSON
+                mime.startsWith("image/") -> UTTypeImage
                 else -> UTType.typeWithMIMEType(mime)
             }
         }.ifEmpty { listOf(UTTypeItem) }

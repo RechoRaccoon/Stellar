@@ -22,7 +22,6 @@ import kotlinx.coroutines.withContext
  * The list always starts with Audiowide (the default) and the Original
  * system font; every font the user imports is copied into the app's own
  * storage and added underneath. Readable anywhere as Compose state.
- * (Importing fonts is Android only; iOS has Audiowide and Original.)
  */
 object FontStore {
     const val AUDIOWIDE = "audiowide"

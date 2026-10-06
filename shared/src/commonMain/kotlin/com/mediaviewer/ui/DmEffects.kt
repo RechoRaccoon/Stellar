@@ -206,14 +206,20 @@ private fun heartPath(): Path = Path().apply {
     close()
 }
 
-/** Hearts: they float up slowly, each turning about its upright axis — it
- *  narrows to its edge, shows its darker back, and comes round again —
- *  in the sender's own profile colors. */
+/** Hearts: they float up slowly, each turning about its upright axis.
+ *  Each is a puffy, glossy heart with real thickness: the turn is drawn as
+ *  a stack of slices from its back face to its front, so side-on it shows
+ *  its rounded edge instead of vanishing. No outline; bright versions of
+ *  the sender's own profile colors. */
 private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, duration: Float) {
     val rnd = Random(seed)
     val unit = size.width / 400f
-    val palette = colors.filter { it.alpha > 0f }.ifEmpty { listOf(Color(0xFFFF4FA1), Color(0xFFFF7EB9)) }
+    val palette = colors.filter { it.alpha > 0f }.ifEmpty { listOf(Color(0xFFFF4FA1), Color(0xFFFF7EB9)) }.map { brightHeart(it) }
     val heart = heartPath()
+    // How thick a heart is, as a share of its size, and how many slices
+    // draw that thickness.
+    val depth = 0.5f
+    val slices = 9
     repeat(18) { i ->
         val x0 = (0.07f + rnd.nextFloat() * 0.86f) * size.width
         val delay = rnd.nextFloat() * (duration - 5.6f).coerceAtLeast(0.5f)
@@ -221,7 +227,7 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
         val sway = (8f + rnd.nextFloat() * 16f) * unit
         val freq = 0.5f + rnd.nextFloat() * 0.7f
         val phase = rnd.nextFloat() * 6.28f
-        val s = (13f + rnd.nextFloat() * 13f) * unit
+        val s = (14f + rnd.nextFloat() * 13f) * unit
         val spinSpeed = (0.9f + rnd.nextFloat() * 0.8f) * (if (rnd.nextBoolean()) 1f else -1f)
         val base = palette[i % palette.size]
         val p = (t - delay) / rise
@@ -230,33 +236,62 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
         val y = size.height + s * 1.2f - p * (size.height + s * 2.4f)
         val angle = t * spinSpeed + phase
         val facing = cos(angle)
-        // Edge-on it's a sliver, never nothing; the back is the darker side.
-        val width = (kotlin.math.abs(facing)).coerceAtLeast(0.06f)
-        val front = facing >= 0f
-        val lit = lerp(base, Color.White, 0.18f + 0.22f * kotlin.math.abs(facing))
-        val body = if (front) lit else lerp(base, Color.Black, 0.38f)
+        val side = sin(angle)
+        // The face narrows as it turns, but never below a sliver.
+        val faceWidth = kotlin.math.abs(facing).coerceAtLeast(0.04f)
         val fade = (p * 8f).coerceAtMost(1f) * ((1f - p) * 5f).coerceAtMost(1f)
-        withTransform({
-            translate(x, y)
-            scale(s * width, s, pivot = Offset.Zero)
-        }) {
-            // The rim that gives it thickness as it turns.
-            drawPath(heart, lerp(base, Color.Black, 0.5f).copy(alpha = fade), style = Stroke(width = 0.16f))
-            drawPath(
-                heart,
-                Brush.linearGradient(
-                    listOf(lerp(body, Color.White, if (front) 0.35f else 0.05f), body, lerp(body, Color.Black, 0.3f)),
-                    start = Offset(-1f, -1f), end = Offset(1f, 1f)
-                ),
-                alpha = fade
-            )
-            // A soft shine on the front's upper left lobe.
-            if (front) drawOval(
-                Color.White.copy(alpha = 0.42f * fade * facing),
-                topLeft = Offset(-0.72f, -0.72f), size = Size(0.42f, 0.3f)
-            )
+        // Slices run from the far face to the near one; each is shifted
+        // sideways by where it sits in the heart's thickness, and the ones
+        // in the middle are a touch larger, so the edge is rounded.
+        for (k in 0 until slices) {
+            val f = k / (slices - 1f)              // 0 = far face, 1 = near face
+            val z = (f - 0.5f) * depth
+            val bulge = 1f - 0.16f * (2f * f - 1f) * (2f * f - 1f)
+            val shade = lerp(lerp(base, Color.Black, 0.28f), base, f)
+            withTransform({
+                translate(x + z * s * side * (if (facing >= 0f) 1f else -1f), y)
+                scale(s * faceWidth * bulge, s * bulge, pivot = Offset.Zero)
+            }) {
+                if (k < slices - 1) {
+                    drawPath(heart, shade, alpha = fade)
+                } else {
+                    // The near face: lit from the upper left, deeper toward
+                    // the lower right, with a soft inner glow and two shines.
+                    drawPath(
+                        heart,
+                        Brush.radialGradient(
+                            0f to lerp(base, Color.White, 0.6f), 0.45f to lerp(base, Color.White, 0.12f),
+                            1f to lerp(base, Color.Black, 0.12f),
+                            center = Offset(-0.38f, -0.42f), radius = 1.75f
+                        ),
+                        alpha = fade
+                    )
+                    drawOval(
+                        Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0f)),
+                            center = Offset(-0.5f, -0.5f), radius = 0.34f
+                        ),
+                        topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f), alpha = fade
+                    )
+                    drawOval(
+                        Color.White.copy(alpha = 0.3f * fade),
+                        topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f)
+                    )
+                }
+            }
         }
     }
+}
+
+/** A color made vivid enough for a heart: its hue kept, but never dark or
+ *  greyed out. */
+private fun brightHeart(c: Color): Color {
+    val max = maxOf(c.red, c.green, c.blue)
+    if (max <= 0.02f) return Color(0xFFFF4FA1)
+    // Scaled up to full brightness, then eased a little toward white.
+    val k = 1f / max
+    val full = Color((c.red * k).coerceIn(0f, 1f), (c.green * k).coerceIn(0f, 1f), (c.blue * k).coerceIn(0f, 1f))
+    return lerp(full, Color.White, 0.14f)
 }
 
 /** Rain: streaks slanting down from the top right to the bottom left,
@@ -345,7 +380,8 @@ private fun BubbleField(
     timeState: androidx.compose.runtime.MutableFloatState,
     doneState: androidx.compose.runtime.MutableState<Boolean>
 ) {
-    val view = rememberPlatformView()
+    // Every pop feels the same as tapping a profile tab.
+    val tap = com.mediaviewer.util.rememberHapticTap()
     var time by timeState
     var done by doneState
     val bubbles = remember(playKey, w, h) {
@@ -378,7 +414,7 @@ private fun BubbleField(
             for (b in bubbles) {
                 if (b.poppedAt < 0f && time >= b.popsAt) {
                     b.poppedAt = time
-                    runCatching { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                    runCatching { tap() }
                 }
                 if (b.poppedAt < 0f || time - b.poppedAt < POP_SECONDS) left = true
             }
@@ -393,7 +429,7 @@ private fun BubbleField(
 
 @Composable
 private fun OneBubble(b: Bubble, h: Float, backdrop: GlassBackdrop?, timeState: androidx.compose.runtime.MutableFloatState) {
-    val view = rememberPlatformView()
+    val tap = com.mediaviewer.util.rememberHapticTap()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val time by timeState
     val popped = b.poppedAt
@@ -431,7 +467,7 @@ private fun OneBubble(b: Bubble, h: Float, backdrop: GlassBackdrop?, timeState: 
                 detectTapGestures {
                     if (b.poppedAt < 0f) {
                         b.poppedAt = time
-                        runCatching { view.crunchHaptic() }
+                        tap()
                     }
                 }
             } else Modifier

@@ -31,30 +31,7 @@ import platform.Foundation.NSURLRequest
 import platform.WebKit.WKAudiovisualMediaTypeNone
 import platform.WebKit.WKWebView
 import platform.WebKit.WKWebViewConfiguration
-
-/** Custom emoji aren't on iOS yet: the panel explains that. */
-@Composable
-internal actual fun EmojiPanel(
-    store: EmojiStore,
-    height: Dp,
-    compact: Boolean,
-    liquidGlass: Boolean,
-    tint: Color,
-    onPickEmoji: (EmojiEntry) -> Unit,
-    onEditingChange: (Boolean) -> Unit,
-    modifier: Modifier
-) {
-    Box(
-        modifier.fillMaxWidth().height(if (compact) EmojiPanelCompactHeight else height)
-            .background(Color.Black.copy(alpha = 0.35f)).padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            "Custom emoji are coming to iOS soon.",
-            color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, textAlign = TextAlign.Center
-        )
-    }
-}
+import androidx.compose.ui.graphics.toComposeImageBitmap
 
 /** The system player (AVKit) with its standard controls. */
 @OptIn(ExperimentalForeignApi::class)
@@ -94,5 +71,7 @@ actual fun EmbeddedWebView(url: String, modifier: Modifier) {
     )
 }
 
-/** Textshot rendering on iOS arrives with the rest of Textshot. */
-actual fun renderTextshotPreview(text: String, store: EmojiStore): ImageBitmap? = null
+/** The Textshot preview: the very picture that gets posted, a little smaller. */
+actual fun renderTextshotPreview(text: String, store: EmojiStore): ImageBitmap? = runCatching {
+    com.mediaviewer.util.IosTextshotRenderer.render(text, 720, emoji = store::imageForChar).toComposeImageBitmap()
+}.getOrNull()

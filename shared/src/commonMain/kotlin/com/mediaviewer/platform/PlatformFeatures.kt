@@ -23,7 +23,9 @@ enum class PlatformFeature(val label: String) {
         // iOS: the same tagger model, run by the Swift app (ONNX Runtime).
         (this == AI_TAGGING && IosCapabilities.aiTagging) ||
         // iOS: GIFs made with Apple's own image and video frameworks.
-        (this == GIF_EXPORT && IosCapabilities.gifExport)
+        (this == GIF_EXPORT && IosCapabilities.gifExport) ||
+        // iOS: fonts imported from the Files app.
+        this == CUSTOM_FONT
 }
 
 /** What the iOS app turned out to be able to do, set once at launch when

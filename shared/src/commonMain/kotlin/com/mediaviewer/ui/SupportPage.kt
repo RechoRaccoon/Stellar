@@ -135,11 +135,7 @@ internal fun SupporterBenefitsPanel(tint: Color, modifier: Modifier = Modifier, 
             )
         }
         Spacer(Modifier.height(5.dp))
-        // In the popup the list scrolls inside the panel.
-        Column(
-            if (compact) Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState())
-            else Modifier.fillMaxWidth()
-        ) {
+        Column(Modifier.fillMaxWidth()) {
             SUPPORTER_BENEFITS.forEach { benefit ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
                     Text("•", color = pink, fontSize = size, lineHeight = line, fontWeight = FontWeight.Bold)
@@ -331,13 +327,7 @@ internal fun SupportPopupContent(openCount: Int, tint: Color, onClose: () -> Uni
             }
             Spacer(Modifier.size(34.dp))
         }
-        Spacer(Modifier.height(6.dp))
-        Image(
-            painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = "Stellar",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 120.dp).fillMaxWidth(0.34f)
-        )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             "You've opened Stellar $openCount times!! Help fund Stellar's development (and Recho's survival) by donating \$4.99 or more, and you'll unlock these exclusive benefits for a month!!",
             color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, lineHeight = 17.sp,

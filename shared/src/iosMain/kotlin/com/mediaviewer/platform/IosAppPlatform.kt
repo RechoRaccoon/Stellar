@@ -40,8 +40,9 @@ class IosAppPlatform(
         IosDownloads.saveAsGif(url, isVideo, postId, blobDid, blobCid)
     }
 
+    // (Fonts are imported through FontStore — Settings → App Font.)
     override fun importCustomFont(uri: PlatformUri): FontImport =
-        FontImport.Error("Custom fonts aren't available on iOS yet")
+        FontImport.Error("Import fonts from Settings › App Font")
 
     override fun deleteFile(path: String) { platform.posix.remove(path) }
 
@@ -53,8 +54,16 @@ class IosAppPlatform(
     override fun readTextFromUri(uri: PlatformUri): String? =
         readLocalFile(uri.toString().removePrefix("file://"))?.decodeToString()
 
-    override suspend fun renderTextshot(text: String): TextshotImage =
-        IosTextshot.render?.invoke(text) ?: throw UnsupportedOperationException("Textshot isn't available on iOS yet")
+    override suspend fun renderTextshot(text: String): TextshotImage {
+        val emoji = com.mediaviewer.util.EmojiStore.get(IosContext)
+        emoji.load()
+        val side = 1080
+        val picture = com.mediaviewer.util.IosTextshotRenderer.render(text, side, emoji = emoji::imageForChar)
+        val png = picture.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)?.bytes
+            ?: throw IOException("Couldn't make the Textshot picture")
+        // (Alt text never carries a custom emoji's name.)
+        return TextshotImage(PlatformBitmap(side, side, png), emoji.stripEmoji(text), emoji.containsEmoji(text))
+    }
 
     override suspend fun goLive(platform: LiveNowPlatform, channelUrl: String): Result<Unit> =
         Result.failure(UnsupportedOperationException("Live Link isn't available on iOS yet"))
@@ -67,6 +76,3 @@ class IosAppPlatform(
 
 /** Filled in by the iOS UI layer once its image loader exists. */
 object IosImagePreloader { var preload: ((List<String>) -> Unit)? = null }
-
-/** Filled in by the iOS UI layer (Textshot rendering needs its text engine). */
-object IosTextshot { var render: (suspend (String) -> TextshotImage)? = null }

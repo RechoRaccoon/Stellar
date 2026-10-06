@@ -143,9 +143,11 @@ fun EditProfileDialog(
             // Row 1: avatar | banner, same height.
             val rowH = 96.dp
             Row(Modifier.fillMaxWidth().height(rowH), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // (Square straight away when the supporter option below is on.)
+                val iconShape = if (supporter && style.squareIcon) RoundedCornerShape(percent = 24) else CircleShape
                 Box(
-                    Modifier.size(rowH).clip(CircleShape).background(fieldColor)
-                        .border(1.dp, tint.copy(0.5f), CircleShape)
+                    Modifier.size(rowH).clip(iconShape).background(fieldColor)
+                        .border(1.dp, tint.copy(0.5f), iconShape)
                         .clickable(enabled = !saving) { tap(); pickAvatar.launch(imagesOnly) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -226,7 +228,7 @@ fun EditProfileDialog(
                 OptionRow("Square Profile Icon", { gate { style = style.copy(squareIcon = !style.squareIcon) } }) {
                     Box(Modifier.supporterShine(!supporter, recolor = false)) {
                         Switch(
-                            checked = if (supporter) style.squareIcon else true,
+                            checked = supporter && style.squareIcon,
                             onCheckedChange = { gate { style = style.copy(squareIcon = it) } },
                             enabled = !saving,
                             modifier = Modifier.size(width = 36.dp, height = 22.dp).scale(0.7f),
