@@ -160,6 +160,7 @@ fun LoginScreen(
         if (drawBackground) SpaceSky(Color.Black, Modifier.matchParentSize())
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val logoWidth = (maxWidth * 0.8f).coerceAtMost(380.dp)
+            val pageHeight = maxHeight
             Column(
                 Modifier
                     .fillMaxSize()
@@ -323,7 +324,7 @@ fun LoginScreen(
                             createAccount(code)
                         }
                         // Tall enough for the whole check, instructions included.
-                        val checkHeight = (maxHeight - rememberTopCutoutClearance() - 170.dp).coerceAtLeast(480.dp)
+                        val checkHeight = (pageHeight - rememberTopCutoutClearance() - 170.dp).coerceAtLeast(480.dp)
                         Box(
                             Modifier.fillMaxWidth().height(checkHeight).clip(RoundedCornerShape(24.dp))
                                 .background(Color.Black).border(1.dp, LoginPink.copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
