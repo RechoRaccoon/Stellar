@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- App notifications (supporters): the check is put back on schedule
+         after the phone restarts, and Stellar may ask (once) to be left
+         running in the background so the check isn't held back for hours. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Item 8: the camera-notch button's "Camera" action launches the
          system camera app via an implicit intent (no permission needed for
          that itself), but VRM mode's own live preview needs direct camera
@@ -108,6 +113,52 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/live_link_widget_info" />
         </receiver>
+
+        <!-- App notifications: the repeating alarm that wakes the check,
+             and putting it back after a restart / an update of Stellar. -->
+        <receiver
+            android:name="com.mediaviewer.worker.StellarNotificationAlarm"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.mediaviewer.worker.ACTION_CHECK_NOTIFICATIONS" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Stellar's home-screen widgets (supporters): DMs, Upcoming
+             Events and a Note. All three are resizable lists. -->
+        <receiver
+            android:name="com.mediaviewer.widget.DmWidgetProvider"
+            android:label="@string/widget_dms_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/stellar_widget_dms_info" />
+        </receiver>
+        <receiver
+            android:name="com.mediaviewer.widget.EventsWidgetProvider"
+            android:label="@string/widget_events_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/stellar_widget_events_info" />
+        </receiver>
+        <receiver
+            android:name="com.mediaviewer.widget.NoteWidgetProvider"
+            android:label="@string/widget_note_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/stellar_widget_note_info" />
+        </receiver>
+        <service
+            android:name="com.mediaviewer.widget.StellarWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
 
         <!-- Item 8: lets the camera-notch button hand the system camera app
              a content:// Uri (under this app's own cache dir) to save the

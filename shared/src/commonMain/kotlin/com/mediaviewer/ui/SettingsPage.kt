@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -180,17 +179,17 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
         textAlign = TextAlign.Start,
         modifier = Modifier.padding(top = 2.dp).supporterShine()
     )
-    // App notifications (Android): unread DMs and new Inbox activity,
-    // checked in the background and shown as ordinary device notifications.
+    // Notifications: a banner inside Stellar while it's open (anywhere
+    // but the DMs / Inbox themselves), and — on Android — ordinary device
+    // notifications while it's closed, from a background check.
     val android = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
             RowLabel(
                 "DM Notifications", Modifier.weight(1f),
-                sub = if (android) "Get notified about new messages while Stellar is closed." else "Android only for now.",
-                dim = !android
+                sub = if (android) "New messages, in Stellar and while it's closed." else "New messages while Stellar is open."
             )
-            if (android) SupporterSwitch(local.notifyDms) {
+            SupporterSwitch(local.notifyDms) {
                 local.updateNotifyDms(it)
                 com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
             }
@@ -199,10 +198,9 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
         BubbleRow {
             RowLabel(
                 "Inbox Notifications", Modifier.weight(1f),
-                sub = if (android) "Likes, replies, follows and mentions." else "Android only for now.",
-                dim = !android
+                sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed." else "Likes, replies, follows and mentions while Stellar is open."
             )
-            if (android) SupporterSwitch(local.notifyInbox) {
+            SupporterSwitch(local.notifyInbox) {
                 local.updateNotifyInbox(it)
                 com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
             }
@@ -522,8 +520,50 @@ internal fun SettingsPageContent(
         val showSupporterSettings = com.mediaviewer.util.Supporter.active
         if (showSupporterSettings) SupporterSettingsSection(liquidGlass, tint, backdrop)
 
+        // ── Customize Hub ───────────────────────────────────────────────
+        if (bskyLoggedIn) {
+            // The arrow beside the title folds the whole section away.
+            val hubCollapsed = com.mediaviewer.util.UiToggles.customizeHubCollapsed
+            val hubArrowTap = rememberHapticTap()
+            val hubArrowTurn by androidx.compose.animation.core.animateFloatAsState(
+                if (hubCollapsed) -90f else 0f, label = "customizeHubArrow"
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = if (showSupporterSettings) 18.dp else 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Customize Hub", color = headerColorFor(tint),
+                    fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.12f))
+                        .clickable {
+                            hubArrowTap()
+                            com.mediaviewer.util.UiToggles.updateCustomizeHubCollapsed(!hubCollapsed)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (hubCollapsed) "Show Customize Hub" else "Hide Customize Hub",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = hubArrowTurn }
+                    )
+                }
+            }
+            AnimatedVisibility(
+                visible = !hubCollapsed,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+            ) {
+                CustomizeHubSection(extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+            }
+        }
+
         // ── UI Customization ────────────────────────────────────────────
-        SectionHeader("UI Customization", tint, first = !showSupporterSettings)
+        SectionHeader("UI Customization", tint, first = !showSupporterSettings && !bskyLoggedIn)
 
         ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
         ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
@@ -734,48 +774,6 @@ internal fun SettingsPageContent(
                         }
                     }
                 }
-            }
-        }
-
-        // ── Customize Hub ───────────────────────────────────────────────
-        if (bskyLoggedIn) {
-            // The arrow beside the title folds the whole section away.
-            val hubCollapsed = com.mediaviewer.util.UiToggles.customizeHubCollapsed
-            val hubArrowTap = rememberHapticTap()
-            val hubArrowTurn by androidx.compose.animation.core.animateFloatAsState(
-                if (hubCollapsed) -90f else 0f, label = "customizeHubArrow"
-            )
-            Row(
-                Modifier.fillMaxWidth().padding(top = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Customize Hub", color = headerColorFor(tint),
-                    fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.width(10.dp))
-                Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.12f))
-                        .clickable {
-                            hubArrowTap()
-                            com.mediaviewer.util.UiToggles.updateCustomizeHubCollapsed(!hubCollapsed)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (hubCollapsed) "Show Customize Hub" else "Hide Customize Hub",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = hubArrowTurn }
-                    )
-                }
-            }
-            AnimatedVisibility(
-                visible = !hubCollapsed,
-                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
-            ) {
-                CustomizeHubSection(extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
             }
         }
 
@@ -1376,7 +1374,7 @@ private fun AtProtocolAccountsBubble(
             CompactField(handleField, { handleField = it }, "handle", Modifier.weight(1f))
             Spacer(Modifier.width(6.dp))
             CompactField(
-                passwordField, { passwordField = it }, "app password", Modifier.weight(1f),
+                passwordField, { passwordField = it }, "password", Modifier.weight(1f),
                 password = true, imeAction = ImeAction.Done, onDone = { submit() }
             )
             Spacer(Modifier.width(6.dp))
@@ -1715,6 +1713,8 @@ private fun CustomizeHubSection(
         var defaultMenuOpen by remember { mutableStateOf(false) }
         var profilesPopupOpen by remember { mutableStateOf(false) }
         var urlPopupOpen by remember { mutableStateOf(false) }
+        var widgetMenuOpen by remember { mutableStateOf(false) }
+        val supporter = com.mediaviewer.util.Supporter.active
         SettingsBubble(liquidGlass, tint, backdrop) {
             BubbleRow {
                 RowLabel("Add", Modifier.weight(1f))
@@ -1762,6 +1762,25 @@ private fun CustomizeHubSection(
                             text = { Text("Other", fontWeight = FontWeight.SemiBold) },
                             onClick = { menuOpen = false; urlPopupOpen = true }
                         )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                // Widgets (supporters): pink for everyone else, and a tap
+                // opens the Support page.
+                Box {
+                    PillButton(
+                        "Widgets", { if (supporter) widgetMenuOpen = true else com.mediaviewer.util.Supporter.openPage() },
+                        modifier = Modifier.supporterShine(!supporter)
+                    )
+                    DropdownMenu(expanded = widgetMenuOpen, onDismissRequest = { widgetMenuOpen = false }) {
+                        hub.WIDGET_LABELS.forEach { (id, label) ->
+                            val added = rows.any { it.id == id }
+                            DropdownMenuItem(
+                                text = { Text(label, color = if (added) DimGray else Color.Unspecified) },
+                                onClick = { widgetMenuOpen = false; hub.addWidget(id) },
+                                enabled = !added
+                            )
+                        }
                     }
                 }
             }

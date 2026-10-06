@@ -26,7 +26,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -104,6 +103,7 @@ import com.mediaviewer.util.rememberHapticTap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.mediaviewer.ui.theme.VoteGreen
 
 /**
  * The Bluesky post composer — opened from the Hub's "+" -> "Post" bubble
@@ -153,6 +153,12 @@ import kotlinx.coroutines.withContext
  */
 
 private const val POST_CHAR_LIMIT = 300
+
+/** A video post's text is "title, blank line, description": that gap is
+ *  part of the post, so it counts toward the limit. */
+private const val VIDEO_TEXT_GAP = 2
+private fun videoPostLength(title: String, description: String): Int =
+    title.length + description.length + if (description.isBlank()) 0 else VIDEO_TEXT_GAP
 private const val MAX_IMAGES = 10
 
 /** The three mutually-exclusive "Adult Content" self-labels from Bluesky's
@@ -739,10 +745,23 @@ fun ComposePostScreen(
         val aspect = withContext(Dispatchers.IO) { probeVideoAspect(context, uri) }
         videoAspect = aspect
     }
+    // The video starts uploading (and Bluesky starts processing it) as soon
+    // as it's attached, so Post only has to publish it. Picking a custom
+    // thumbnail restarts it — the thumbnail is part of the uploaded file.
+    LaunchedEffect(videoUri, videoThumbUri, mode) {
+        val uri = videoUri
+        if (uri == null || mode != ComposeMode.VIDEO) {
+            LocalOverlays.cancelVideoUpload?.invoke()
+            return@LaunchedEffect
+        }
+        // (A moment for a thumbnail pick right after the video.)
+        kotlinx.coroutines.delay(400)
+        LocalOverlays.prepareVideoUpload?.invoke(uri, videoThumbUri)
+    }
 
     // ── Character budget for the field currently being typed in ────────
     val activeBudget: Pair<Int, Int> = when (mode) { // used -> limit
-        ComposeMode.VIDEO -> (videoTitle.text.length + videoDescription.text.length) to POST_CHAR_LIMIT
+        ComposeMode.VIDEO -> videoPostLength(videoTitle.text, videoDescription.text) to POST_CHAR_LIMIT
         ComposeMode.THREAD -> threadPosts.getOrNull(activeThreadIndex)?.text?.text?.length.orZero() to POST_CHAR_LIMIT
         ComposeMode.TEXTSHOT -> if (textshotPostFocused) textshotPostText.text.length to POST_CHAR_LIMIT
             else singleText.text.length to Int.MAX_VALUE
@@ -759,7 +778,7 @@ fun ComposePostScreen(
     }
 
     val canPost = when (mode) {
-        ComposeMode.VIDEO -> videoUri != null && (videoTitle.text.length + videoDescription.text.length) <= POST_CHAR_LIMIT
+        ComposeMode.VIDEO -> videoUri != null && videoPostLength(videoTitle.text, videoDescription.text) <= POST_CHAR_LIMIT
         ComposeMode.THREAD -> threadPosts.all { it.text.text.length <= POST_CHAR_LIMIT } &&
             threadPosts.any { it.text.text.isNotBlank() || it.images.isNotEmpty() || it.video != null }
         ComposeMode.TEXTSHOT -> singleText.text.isNotBlank()
@@ -976,7 +995,7 @@ fun ComposePostScreen(
                         HubDivider("Title")
                         GrowingTextField(
                             value = videoTitle,
-                            onValueChange = { videoTitle = capBudget(it, POST_CHAR_LIMIT - videoDescription.text.length) },
+                            onValueChange = { videoTitle = capBudget(it, POST_CHAR_LIMIT - videoDescription.text.length - if (videoDescription.text.isBlank()) 0 else VIDEO_TEXT_GAP) },
                             placeholder = "Title…",
                             focusRequester = videoTitleFocusRequester
                         )
@@ -984,7 +1003,7 @@ fun ComposePostScreen(
                         HubDivider("Description")
                         GrowingTextField(
                             value = videoDescription,
-                            onValueChange = { videoDescription = capBudget(it, POST_CHAR_LIMIT - videoTitle.text.length) },
+                            onValueChange = { videoDescription = capBudget(it, POST_CHAR_LIMIT - videoTitle.text.length - VIDEO_TEXT_GAP) },
                             placeholder = "Description…"
                         )
                         Spacer(Modifier.height(12.dp))
@@ -992,6 +1011,18 @@ fun ComposePostScreen(
                             videoUri = videoUri, thumbnailUri = videoThumbUri, aspect = videoAspect,
                             onTapThumbnail = { thumbnailPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                         )
+                        // How the upload that started on attach is going.
+                        val upload = com.mediaviewer.util.VideoUpload
+                        if (videoUri != null && upload.stage != com.mediaviewer.util.VideoUpload.Stage.IDLE) {
+                            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                val busy = upload.stage == com.mediaviewer.util.VideoUpload.Stage.UPLOADING || upload.stage == com.mediaviewer.util.VideoUpload.Stage.PROCESSING
+                                if (busy) {
+                                    CircularProgressIndicator(Modifier.size(12.dp), color = Color.White, strokeWidth = 1.5.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(upload.label, color = if (upload.stage == com.mediaviewer.util.VideoUpload.Stage.READY) VoteGreen else DimGray, fontSize = 12.sp)
+                            }
+                        }
                     }
 
                     // Item 4: every post re-flows from one canonical, lossless

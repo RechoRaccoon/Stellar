@@ -142,6 +142,13 @@ class MainActivity : ComponentActivity() {
     private val pendingProfileLink = mutableStateOf<String?>(null)
 
     private fun handleLinkIntent(intent: android.content.Intent?) {
+        // A tapped notification or home-screen widget: where to go inside
+        // Stellar (see AppLinks). Read once, then cleared from the intent
+        // so turning the phone doesn't open it again.
+        intent?.getStringExtra(com.mediaviewer.util.AppLinks.EXTRA)?.let { link ->
+            intent.removeExtra(com.mediaviewer.util.AppLinks.EXTRA)
+            com.mediaviewer.util.AppLinks.open(link)
+        }
         val data = intent?.data ?: return
         if (intent?.action != android.content.Intent.ACTION_VIEW) return
         val host = data.host?.lowercase() ?: return

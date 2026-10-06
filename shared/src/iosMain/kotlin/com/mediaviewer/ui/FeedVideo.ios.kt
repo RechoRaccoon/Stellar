@@ -1,6 +1,23 @@
 package com.mediaviewer.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import kotlinx.cinterop.readBytes
+import kotlinx.cinterop.reinterpret
+import platform.AVFoundation.AVPlayerItem
+import platform.AVFoundation.AVPlayerItemVideoOutput
+import platform.AVFoundation.addOutput
+import platform.AVFoundation.removeOutput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
@@ -42,7 +59,11 @@ import platform.darwin.NSObjectProtocol
  *  periodic time observer (10 a second) and reported to the listeners. */
 @OptIn(ExperimentalForeignApi::class)
 internal class AvFeedVideoPlayer(val url: String) : FeedVideoPlayer {
-    val player: AVPlayer = AVPlayer(uRL = NSURL.URLWithString(url)!!)
+    // (An archived post's video is a file in the app's own storage.)
+    val player: AVPlayer = AVPlayer(
+        uRL = if (url.startsWith("file://")) NSURL.fileURLWithPath(url.removePrefix("file://"))
+        else NSURL.URLWithString(url) ?: NSURL.fileURLWithPath(url)
+    )
     private val listeners = mutableListOf<FeedVideoListener>()
     private var lastPlaying = false
     private var lastBuffering = true
@@ -191,13 +212,98 @@ private class PlayerLayerView(player: AVPlayer) : UIView(frame = CGRectMake(0.0,
     }
 }
 
+/**
+ * Small copies of a playing video's frames, for the glass controls over it
+ * to blur (see NativeVideoBackdrop). The picture itself is still drawn by
+ * AVPlayerLayer; this only reads a 96×96 version a few times a second.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private class VideoFrameGrabber(private val player: AVPlayer) {
+    // "PixelFormatType" / "Width" / "Height" are the values of
+    // kCVPixelBufferPixelFormatTypeKey / WidthKey / HeightKey; 1111970369 is
+    // kCVPixelFormatType_32BGRA ('BGRA').
+    private val output = AVPlayerItemVideoOutput(
+        pixelBufferAttributes = mapOf<Any?, Any?>("PixelFormatType" to 1111970369, "Width" to 96, "Height" to 96)
+    )
+    private var item: AVPlayerItem? = null
+
+    fun grab(): androidx.compose.ui.graphics.ImageBitmap? {
+        val current = player.currentItem ?: return null
+        if (current !== item) {
+            item?.removeOutput(output)
+            current.addOutput(output)
+            item = current
+        }
+        val time = output.itemTimeForHostTime(platform.QuartzCore.CACurrentMediaTime())
+        if (!output.hasNewPixelBufferForItemTime(time)) return null
+        val buffer = output.copyPixelBufferForItemTime(time, null) ?: return null
+        platform.CoreVideo.CVPixelBufferLockBaseAddress(buffer, platform.CoreVideo.kCVPixelBufferLock_ReadOnly)
+        try {
+            val base = platform.CoreVideo.CVPixelBufferGetBaseAddress(buffer) ?: return null
+            val w = platform.CoreVideo.CVPixelBufferGetWidth(buffer).toInt()
+            val h = platform.CoreVideo.CVPixelBufferGetHeight(buffer).toInt()
+            val rowBytes = platform.CoreVideo.CVPixelBufferGetBytesPerRow(buffer).toInt()
+            if (w <= 0 || h <= 0 || rowBytes < w * 4) return null
+            val bytes = base.reinterpret<kotlinx.cinterop.ByteVar>().readBytes(rowBytes * h)
+            val info = org.jetbrains.skia.ImageInfo(w, h, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.OPAQUE)
+            return org.jetbrains.skia.Image.makeRaster(info, bytes, rowBytes).toComposeImageBitmap()
+        } finally {
+            platform.CoreVideo.CVPixelBufferUnlockBaseAddress(buffer, platform.CoreVideo.kCVPixelBufferLock_ReadOnly)
+            platform.CoreVideo.CVPixelBufferRelease(buffer)
+        }
+    }
+
+    fun close() {
+        item?.removeOutput(output)
+        item = null
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
-    val av = (player as AvFeedVideoPlayer).player
+    val feedPlayer = player as AvFeedVideoPlayer
+    val av = feedPlayer.player
+    // Where the view is on screen, and a frame for the glass over it to blur.
+    var viewRect by remember { mutableStateOf(Rect.Zero) }
+    val backdropKey = remember { Any() }
+    DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
+    LaunchedEffect(feedPlayer) {
+        val grabber = VideoFrameGrabber(av)
+        try {
+            var frame = 0
+            while (true) {
+                withFrameNanos { }
+                frame++
+                // About 15 a second on a 60 Hz screen is plenty under a blur.
+                if (frame % 4 != 0) continue
+                val image = runCatching { grabber.grab() }.getOrNull()
+                val box = viewRect
+                if (box.width < 1f || box.height < 1f) continue
+                val existing = NativeVideoBackdrop.frames[backdropKey]
+                val picture = image ?: existing?.image ?: continue
+                // The picture is letterboxed inside the view (aspect fit).
+                val ratio = feedPlayer.aspectRatio.takeIf { it > 0f } ?: (box.width / box.height)
+                val fitW = minOf(box.width, box.height * ratio)
+                val fitH = fitW / ratio
+                val fit = Rect(
+                    box.left + (box.width - fitW) / 2f, box.top + (box.height - fitH) / 2f,
+                    box.left + (box.width + fitW) / 2f, box.top + (box.height + fitH) / 2f
+                )
+                if (image != null || existing?.rectInRoot != fit) {
+                    NativeVideoBackdrop.frames[backdropKey] = NativeVideoBackdrop.Frame(picture, fit)
+                }
+            }
+        } finally {
+            grabber.close()
+        }
+    }
     UIKitView(
         factory = { PlayerLayerView(av) },
-        modifier = modifier,
+        modifier = modifier.onGloballyPositioned {
+            val p = it.positionInRoot()
+            viewRect = Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height)
+        },
         update = { it.playerLayer.player = av },
         onRelease = { it.playerLayer.player = null },
         // Taps go to Compose (the tap-to-show-controls gesture above it).

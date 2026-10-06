@@ -64,5 +64,8 @@ class VrmSettingsStore(context: Context) {
         const val HEAD_FALLBACK = "head_fallback"  // body tracker places the head when the face is lost
         const val PERFORMANCE_MODE = "performance_mode" // flat buttons, no live blur over the avatar
         const val FRAME_RATE_CAP = "frame_rate_cap" // 120 (default), 60 or 30
+        const val CAPTURE_MODE = "capture_mode"    // 0 photo, 1 video, 2 live
+        const val BACKGROUND_MEDIA = "background_media" // picture/video behind the avatar: its file path, "" = none
+        const val BACKGROUND_MEDIA_VIDEO = "background_media_video"
     }
 }

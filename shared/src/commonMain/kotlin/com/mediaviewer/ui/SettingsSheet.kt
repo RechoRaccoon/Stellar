@@ -116,6 +116,7 @@ import com.mediaviewer.model.BskyFeedInfo
 import com.mediaviewer.model.DownloadProgress
 import com.mediaviewer.ui.theme.*
 import com.mediaviewer.viewmodel.MainViewModel
+import androidx.compose.material.icons.filled.Inventory2
 
 // Item 5: which panel of the Hub is currently showing. This is purely local
 // UI state for the sheet itself — separate from `appMode`, which tracks
@@ -522,7 +523,15 @@ fun SettingsSheet(
                             onStartFollowerScan = onStartFollowerScan, onDismissFollowerScanResult = onDismissFollowerScanResult,
                             onRefreshHub = onRefreshHub,
                             onReturnToFeed = { onReturnToFeed(explore = false) },
-                            onSwipeBackToFeed = { if (bskyLoggedIn) { onSwitchMode(AppMode.BLUESKY); onSwipeToFeed() } },
+                            // (A feed picked in the Feeds row but not opened yet:
+                            // scrolling past the end opens THAT feed in Explore,
+                            // not the one that was open before.)
+                            onSwipeBackToFeed = {
+                                if (bskyLoggedIn) {
+                                    if (pickedFeed != null) onReturnToFeed(explore = true)
+                                    else { onSwitchMode(AppMode.BLUESKY); onSwipeToFeed() }
+                                }
+                            },
                             hasVisitedFeed = hasVisitedFeed,
                             liveTwitchUrl = liveTwitchUrl, liveYoutubeUrl = liveYoutubeUrl,
                             liveActivePlatform = liveActivePlatform,
@@ -937,6 +946,9 @@ private fun AtProtocolPageContent(
         // Page two (supporters): everyone else sees the buttons in the
         // supporter pink, and tapping one opens the Support page.
         val supporter = com.mediaviewer.util.Supporter.active
+        val openArchived: () -> Unit = {
+            if (supporter) LocalOverlays.openArchive?.invoke() else com.mediaviewer.util.Supporter.openPage()
+        }
         fun open(app: LaunchApp): () -> Unit = {
             if (supporter) LocalOverlays.launchApp = app else com.mediaviewer.util.Supporter.openPage()
         }
@@ -945,14 +957,14 @@ private fun AtProtocolPageContent(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsGridButton("Archived", Icons.Default.Inventory2, Color.White, liquidGlass, Modifier.weight(1f), openArchived, panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
                 SettingsGridButton("Calendar", Icons.Default.CalendarMonth, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.CALENDAR), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
                 SettingsGridButton("Notes", Icons.Default.StickyNote2, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.NOTES), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                SettingsGridButton("Calculator", Icons.Default.Calculate, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.CALCULATOR), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsGridButton("Calculator", Icons.Default.Calculate, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.CALCULATOR), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
                 SettingsGridButton("Timer", Icons.Default.Timer, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.TIMER), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                // The last two spots are empty for now.
-                Spacer(Modifier.weight(1f).height(36.dp))
+                // The last spot is empty for now.
                 Spacer(Modifier.weight(1f).height(36.dp))
             }
         }
@@ -1212,23 +1224,14 @@ private fun AtProtocolPageContent(
                     val blogThumb = fb.blog.thumbnailUrl
                     val blogTint = if (blogThumb != null) rememberDominantColor(blogThumb)
                         else rememberAuthorProfileTint(fb.author.did, fb.author.avatarUrl)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Item 11: blog cards don't have one fixed width
-                        // (it follows each thumbnail's own aspect ratio at
-                        // HUB_BLOG_CARD_HEIGHT — see BlogBubble), so that
-                        // height doubles as this bubble's width budget. It's
-                        // exact for the common thumbnailless/square case and
-                        // a reasonable cap for thumbnail cards otherwise.
-                        HubAuthorBubble(displayName = fb.author.displayName, avatarUrl = fb.author.avatarUrl, liquidGlass = liquidGlass, tint = blogTint, cardWidth = HUB_BLOG_CARD_HEIGHT,
-                            onClick = { onOpenProfile(fb.author) })
-                        Spacer(Modifier.height(6.dp))
-                        BlogBubble(
-                            blog = fb.blog, liquidGlass = liquidGlass, fallbackAvatarUrl = fb.author.avatarUrl,
-                            fallbackTint = blogTint,
-                            onOpenBlog = { onOpenBlog(fb) },
-                            titleFontSize = 10.sp, fixedHeight = HUB_BLOG_CARD_HEIGHT
-                        )
-                    }
+                    // Every card is the same portrait page: cover (when
+                    // there is one), who wrote it and when, the title, the
+                    // tagline and the start of the text — a small version
+                    // of how the blog reads once it's opened.
+                    HubBlogCard(
+                        blog = fb.blog, author = fb.author, tint = blogTint, liquidGlass = liquidGlass,
+                        onOpen = { onOpenBlog(fb) }, onOpenAuthor = { onOpenProfile(fb.author) }
+                    )
                 }
             }
         }
@@ -1313,7 +1316,13 @@ private fun AtProtocolPageContent(
                 else -> {
                     // A Bluesky list, Stellar Supporters, or a Profiles row
                     // (accounts kept on this device) — all the same section.
-                    if (row.hasMembers) {
+                    if (row.id == com.mediaviewer.util.HubLayout.WIDGET_EVENTS) {
+                        // Add → Widgets → Upcoming Events (supporters).
+                        if (com.mediaviewer.util.Supporter.active) HubUpcomingEventsSection(
+                            liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                            onOpenCalendar = { LocalOverlays.launchApp = LaunchApp.CALENDAR }
+                        )
+                    } else if (row.hasMembers) {
                         val key = row.contentKey
                         HubListSection(
                             row = row, state = hubLists[key], liquidGlass = liquidGlass, tint = dominantColor,

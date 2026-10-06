@@ -54,6 +54,7 @@ fun LocalOverlayHost(
     val dmHidden by viewModel.dmHiddenBehindFeed.collectAsState()
     val myLists by viewModel.userLists.collectAsState()
     val selectedFeed by viewModel.selectedFeedUri.collectAsState()
+    val archiveBusy by viewModel.archiveBusy.collectAsState()
 
     SideEffect {
         LocalOverlays.onEditCurrentPost = viewModel::editCurrentPost
@@ -62,6 +63,14 @@ fun LocalOverlayHost(
         LocalOverlays.scanDmStreak = viewModel::scanDmStreak
         LocalOverlays.resolveFeedCard = { actor, kind, rkey -> viewModel.sharedFeedCard(actor, kind, rkey) }
         LocalOverlays.openSharedFeed = viewModel::openFeedFromDm
+        LocalOverlays.openDmSharedPost = viewModel::openDmSharedPost
+        LocalOverlays.archiveCurrentPost = viewModel::archiveCurrentPost
+        LocalOverlays.openArchive = viewModel::openArchive
+        LocalOverlays.restoreArchivedPost = viewModel::restoreArchivedCurrentPost
+        LocalOverlays.deleteArchivedPost = viewModel::deleteArchivedCurrentPost
+        LocalOverlays.archiveBusy = archiveBusy
+        LocalOverlays.prepareVideoUpload = viewModel::prepareVideoUpload
+        LocalOverlays.cancelVideoUpload = viewModel::cancelVideoUpload
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
         LocalOverlays.savedFeedUris = savedFeedUris
@@ -70,6 +79,31 @@ fun LocalOverlayHost(
 
     // The timer keeps running (and rings) wherever you are in the app.
     TimerWatcher()
+
+    // In-app notifications (supporters): over every page.
+    InAppNoticeBanner(tint, Modifier.zIndex(11.7f))
+
+    // A tapped notification / widget / banner asking for a place in the app
+    // (see AppLinks): opened once the saved sign-in has been restored.
+    val pendingLink = com.mediaviewer.util.AppLinks.pending
+    val appReady by viewModel.appInitialized.collectAsState()
+    val signedIn by viewModel.bskyLoggedIn.collectAsState()
+    LaunchedEffect(pendingLink, appReady, signedIn) {
+        if (pendingLink == null || !appReady || !signedIn) return@LaunchedEffect
+        val link = com.mediaviewer.util.AppLinks.take() ?: return@LaunchedEffect
+        val supporter = com.mediaviewer.util.Supporter.active
+        when {
+            link.startsWith("dm:") -> viewModel.openDmFromLink(link.removePrefix("dm:"))
+            link == "dms" -> viewModel.openDmInbox()
+            link == "inbox" -> viewModel.openInbox()
+            link == "calendar" -> if (supporter) LocalOverlays.launchApp = LaunchApp.CALENDAR
+            link == "notes" -> if (supporter) LocalOverlays.launchApp = LaunchApp.NOTES
+            link.startsWith("note:") -> if (supporter) {
+                LocalOverlays.openNoteId = link.removePrefix("note:")
+                LocalOverlays.launchApp = LaunchApp.NOTES
+            }
+        }
+    }
 
     // A feed dropped on the Hub's DMs button → the "Share with" popup.
     val shareFeed = LocalOverlays.shareFeed
@@ -82,8 +116,10 @@ fun LocalOverlayHost(
 
     // A feed opened from a DM sits in front of the DMs: Back returns to them.
     // (Going to the Hub instead leaves the DMs for good.)
-    if (dmHidden) BackHandler { viewModel.closeProfileFeed() }
+    val searchHidden by viewModel.searchHiddenBehindFeed.collectAsState()
+    if (dmHidden || searchHidden) BackHandler { viewModel.closeProfileFeed() }
     LaunchedEffect(hubShowing, dmHidden) { if (hubShowing && dmHidden) viewModel.dropHiddenDm() }
+    LaunchedEffect(hubShowing, searchHidden) { if (hubShowing && searchHidden) viewModel.dropHiddenSearch() }
 
     // ── Launchpad apps (full pages over the Hub) ──
     LocalOverlays.launchApp?.let { app ->

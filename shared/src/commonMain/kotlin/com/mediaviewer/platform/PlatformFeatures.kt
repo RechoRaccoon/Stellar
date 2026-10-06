@@ -17,5 +17,7 @@ enum class PlatformFeature(val label: String) {
     APP_RESTART("Restart app");
 
     /** True where this feature works on the current platform. */
-    val isAvailable: Boolean get() = currentPlatform == PlatformKind.ANDROID
+    val isAvailable: Boolean get() = currentPlatform == PlatformKind.ANDROID ||
+        // iOS: on-device translation through Apple's own framework (iOS 18+).
+        (this == TRANSLATION && com.mediaviewer.util.TranslationManager.isAvailable)
 }

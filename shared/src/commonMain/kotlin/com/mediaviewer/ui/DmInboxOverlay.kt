@@ -729,7 +729,7 @@ private fun DmThreadView(
             @Composable
             fun MessageFieldContent() {
                 Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                    androidx.compose.foundation.text.BasicTextField(
+                    BasicTextField(
                         value = text, onValueChange = { text = it },
                         singleLine = true,
                         textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
@@ -991,7 +991,12 @@ private fun DmBubble(
                 Column(
                     Modifier.fillMaxWidth().clip(innerShape)
                         .background(Color.Black.copy(0.22f))
-                        .clickable(onClick = { tap(); onOpenSharedPostsFeed() })
+                        .clickable(onClick = {
+                            tap()
+                            // Opens this very post, from what's already loaded.
+                            val open = LocalOverlays.openDmSharedPost
+                            if (open != null) open(msg.id) else onOpenSharedPostsFeed()
+                        })
                         .padding(10.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

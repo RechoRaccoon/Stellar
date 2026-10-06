@@ -81,6 +81,7 @@ import com.mediaviewer.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.*
+import androidx.compose.foundation.combinedClickable
 
 private val SWIPE_ANIM = tween<IntOffset>(200, easing = FastOutSlowInEasing)
 
@@ -2446,11 +2447,13 @@ private fun AuthorRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
+            // (A supporter's icon can be a rounded square — Edit Profile.)
+            val iconShape = if (appMode == AppMode.BLUESKY) profileIconShape(author.did) else CircleShape
             if (author.avatarUrl != null) {
                 AsyncImage(model = author.avatarUrl, contentDescription = null,
-                    contentScale = ContentScale.Crop, modifier = Modifier.size(22.dp).clip(CircleShape))
+                    contentScale = ContentScale.Crop, modifier = Modifier.size(22.dp).clip(iconShape))
             } else {
-                Box(Modifier.size(22.dp).clip(CircleShape).background(Color.White.copy(0.12f)))
+                Box(Modifier.size(22.dp).clip(iconShape).background(Color.White.copy(0.12f)))
             }
             Text(author.displayName, color = Color.White, fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1,
@@ -3131,6 +3134,13 @@ private fun ActionRow(
                 }
                 return
             }
+            // An archived post (Launchpad → Archived): the whole bar is one
+            // "Add to Profile" button. Holding it offers to delete the
+            // archived copy for good instead (tap again to confirm).
+            if (com.mediaviewer.util.PostArchive.isArchived(item)) {
+                ArchivedPostBar()
+                return
+            }
             // Item 3: with the old upload placeholder removed from this bar
             // (it moved to the Hub's Return to Feed bar — see
             // ReturnToFeedBar/HubUploadBubble in SettingsSheet.kt), every
@@ -3261,6 +3271,14 @@ private fun MoreBubbleMenu(
     val supporter = com.mediaviewer.util.Supporter.active
     val actions = buildList {
         if (isOwnPost) {
+            // Archive (supporters): the post leaves your profile and is kept
+            // on this device (Launchpad → Archived) until you add it back.
+            add(BubbleAction(
+                "Archive",
+                iconContent = { m, c ->
+                    Icon(Icons.Default.Inventory2, contentDescription = "Archive", tint = c, modifier = m.supporterShine(!supporter))
+                }
+            ) { if (supporter) LocalOverlays.archiveCurrentPost?.invoke() else com.mediaviewer.util.Supporter.openPage() })
             // Edit (supporters): the same pen as editing your own profile.
             // Everyone else sees it in the supporter pink; tapping it opens
             // the Support page.
@@ -3297,6 +3315,44 @@ private fun MoreBubbleMenu(
         onDismissRequest = onDismissRequest,
         gapAboveAnchor = 6.dp
     )
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ArchivedPostBar() {
+    val tap = rememberHapticTap()
+    val busy = LocalOverlays.archiveBusy
+    var confirmDelete by remember { mutableStateOf(false) }
+    LaunchedEffect(confirmDelete) { if (confirmDelete) { kotlinx.coroutines.delay(3000); confirmDelete = false } }
+    Box(
+        Modifier.fillMaxSize().combinedClickable(
+            enabled = !busy,
+            interactionSource = remember { MutableInteractionSource() }, indication = null,
+            onClick = {
+                tap()
+                if (confirmDelete) { confirmDelete = false; LocalOverlays.deleteArchivedPost?.invoke() }
+                else LocalOverlays.restoreArchivedPost?.invoke()
+            },
+            onLongClick = { tap(); confirmDelete = true }
+        ),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (busy) CircularProgressIndicator(Modifier.size(15.dp), color = Color.White, strokeWidth = 1.5.dp)
+            else Icon(
+                if (confirmDelete) Icons.Default.DeleteForever else Icons.Default.Unarchive, contentDescription = null,
+                tint = if (confirmDelete) Color(0xFFFF5A7A) else Color.White, modifier = Modifier.size(20.dp)
+            )
+            Text(
+                when {
+                    busy -> "Adding to Profile…"
+                    confirmDelete -> "Tap again to delete from Archive"
+                    else -> "Add to Profile"
+                },
+                color = if (confirmDelete) Color(0xFFFF5A7A) else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
 }
 
 @Composable

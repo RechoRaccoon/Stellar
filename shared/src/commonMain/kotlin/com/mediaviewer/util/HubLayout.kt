@@ -39,6 +39,11 @@ object HubLayout {
      *  Supporters list, in Posts mode unless switched to Profiles. */
     const val SUPPORTERS = "supporters"
     const val SWITCH_ACCOUNTS = "switch"
+    /** Customize Hub → Add → Widgets (supporters). */
+    const val WIDGET_EVENTS = "widget:events"
+    private const val WIDGET_PREFIX = "widget:"
+    /** Every widget row there is: id → name. */
+    val WIDGET_LABELS = linkedMapOf(WIDGET_EVENTS to "Upcoming Events")
     private const val LIST_PREFIX = "list:"
     private const val PROFILES_PREFIX = "profiles:"
 
@@ -72,11 +77,13 @@ object HubLayout {
         val isList: Boolean get() = listUri != null
         /** A local, private set of accounts. */
         val isProfiles: Boolean get() = id.startsWith(PROFILES_PREFIX)
+        /** A widget row (Add → Widgets), e.g. Upcoming Events. */
+        val isWidget: Boolean get() = id.startsWith(WIDGET_PREFIX)
         /** Has members and their posts: gets the Profiles/Posts button. */
         val hasMembers: Boolean get() = isList || isProfiles
         /** What its loaded content is stored under (MainViewModel.hubLists). */
         val contentKey: String get() = listUri ?: id
-        val label: String get() = BUILT_IN_LABELS[id] ?: name.ifBlank { if (isProfiles) "Profiles" else "List" }
+        val label: String get() = BUILT_IN_LABELS[id] ?: WIDGET_LABELS[id] ?: name.ifBlank { if (isProfiles) "Profiles" else "List" }
     }
 
     val BUILT_IN_LABELS = linkedMapOf(
@@ -186,6 +193,18 @@ object HubLayout {
         return true
     }
 
+    /** Adds a widget row at the bottom (or switches it back on). Returns
+     *  false when it was already there. */
+    fun addWidget(id: String): Boolean {
+        if (!WIDGET_LABELS.containsKey(id)) return false
+        if (rows.any { it.id == id }) {
+            update(rows.map { if (it.id == id) it.copy(enabled = true) else it })
+            return false
+        }
+        update(rows + Row(id = id))
+        return true
+    }
+
     /** Adds a Profiles row (accounts picked in Customize Hub → Add →
      *  Profiles) at the bottom. Private and on-device: no Bluesky list is
      *  made. Returns the new row's id. */
@@ -257,7 +276,7 @@ object HubLayout {
         for (r in input) {
             if (!seen.add(r.id)) continue
             val builtIn = BUILT_IN_LABELS.containsKey(r.id)
-            if (!builtIn && !r.isList && !r.isProfiles) continue
+            if (!builtIn && !r.isList && !r.isProfiles && !(r.isWidget && WIDGET_LABELS.containsKey(r.id))) continue
             if (builtIn && r.id in removedDefaults) continue
             // Stellar Supporters always points at the real list.
             out += if (r.id == SUPPORTERS) r.copy(listUri = StellarOfficial.SUPPORTERS_LIST_URI, name = "Stellar Supporters") else r

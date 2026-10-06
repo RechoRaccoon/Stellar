@@ -51,6 +51,8 @@ object LocalOverlays {
     var feedBuilder by mutableStateOf<com.mediaviewer.util.LocalFeed?>(null)
     /** Launchpad page two: the open app. */
     var launchApp by mutableStateOf<LaunchApp?>(null)
+    /** A note to open straight away when Notes opens (a widget tap). */
+    var openNoteId by mutableStateOf<String?>(null)
     /** A feed dragged onto the Hub's DMs button, waiting to be shared. */
     var shareFeed by mutableStateOf<BskyFeedInfo?>(null)
 
@@ -109,6 +111,18 @@ object LocalOverlays {
     /** A feed/list link in a DM → its card. */
     var resolveFeedCard: (suspend (actor: String, kind: String, rkey: String) -> com.mediaviewer.model.ProfileListEntry?)? = null
     var openSharedFeed: ((com.mediaviewer.model.ProfileListEntry) -> Unit)? = null
+    /** Archive (supporters): archive the post on screen, open the
+     *  Archived page, put an archived post back, delete one for good. */
+    var archiveCurrentPost: (() -> Unit)? = null
+    var openArchive: (() -> Unit)? = null
+    var restoreArchivedPost: (() -> Unit)? = null
+    var deleteArchivedPost: (() -> Unit)? = null
+    var archiveBusy by mutableStateOf(false)
+    /** Composer: start / drop the attached video's upload. */
+    var prepareVideoUpload: ((video: com.mediaviewer.platform.PlatformUri, thumbnail: com.mediaviewer.platform.PlatformUri?) -> Unit)? = null
+    var cancelVideoUpload: (() -> Unit)? = null
+    /** A shared post tapped in a chat (the message's id). */
+    var openDmSharedPost: ((messageId: String) -> Unit)? = null
     var addSharedFeed: ((com.mediaviewer.model.ProfileListEntry) -> Unit)? = null
     /** Feeds already in your feeds list (a shared feed shows "Added"). */
     var savedFeedUris by mutableStateOf<Set<String>>(emptySet())

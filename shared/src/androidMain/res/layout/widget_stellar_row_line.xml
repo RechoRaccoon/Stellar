@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One line of a note (the Note widget is a list of these, so a long note
+     scrolls inside the widget). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row_line"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="5dp"
+    android:paddingEnd="5dp"
+    android:paddingTop="1dp"
+    android:paddingBottom="1dp"
+    android:textColor="#F2FFFFFF"
+    android:textSize="13sp" />

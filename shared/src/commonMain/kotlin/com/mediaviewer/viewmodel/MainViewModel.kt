@@ -968,6 +968,7 @@ class MainViewModel(
         val wasBackground = !appInForeground
         appInForeground = foreground
         if (foreground && wasBackground && _bskyLoggedIn.value) {
+            adoptSavedSessionIfNewer()
             refreshInboxUnreadNow()
             refreshDmConvosQuick()
             // Hub list rows: reload any that went stale or came back empty
@@ -975,6 +976,25 @@ class MainViewModel(
             _hubLists.value.forEach { (uri, st) ->
                 val empty = st.members.isEmpty() && st.posts.isEmpty()
                 loadHubListIfNeeded(uri, force = empty || st.failed)
+            }
+        }
+    }
+
+    /**
+     * The background notification check (Android) signs in on its own and,
+     * when the access token has run out, renews the session — which gives
+     * the account a NEW refresh token. Coming back to the app, the tokens
+     * still in memory would then be dead ones, and the next renewal would
+     * fail and sign you out. So whatever is saved wins if it's different.
+     */
+    private fun adoptSavedSessionIfNewer() {
+        viewModelScope.launch {
+            val savedDid = prefs.bskyDid.first()
+            val access = prefs.bskyAccessJwt.first()
+            val refresh = prefs.bskyRefreshJwt.first()
+            if (savedDid == _bskyDid.value && !access.isNullOrBlank() && !refresh.isNullOrBlank() && refresh != bskyRefreshToken) {
+                bskyToken = access
+                bskyRefreshToken = refresh
             }
         }
     }
@@ -1027,7 +1047,12 @@ class MainViewModel(
             while (_bskyLoggedIn.value) {
                 if (appInForeground) {
                     if (!_inboxOpen.value) {
-                        bskyRepo.getNotificationUnreadCount(bskyToken, _bskyDid.value).onSuccess { _inboxUnreadCount.value = it }
+                        val before = _inboxUnreadCount.value
+                        bskyRepo.getNotificationUnreadCount(bskyToken, _bskyDid.value).onSuccess {
+                            _inboxUnreadCount.value = it
+                            // (Not on the very first check after opening the app.)
+                            if (tick > 0 && it > before) announceInboxActivity(it - before)
+                        }
                     }
                     // The chat list's unread counts: right at app start, then
                     // every 2 minutes (new messages in between are counted
@@ -1038,6 +1063,55 @@ class MainViewModel(
                 }
                 delay(if (com.mediaviewer.util.LocalData.batterySaverActive) 240_000 else 60_000)
             }
+        }
+    }
+
+    /** In-app notifications are a supporter benefit, switched by the same
+     *  two toggles as the device notifications. */
+    private fun inAppNotifications(dm: Boolean): Boolean =
+        com.mediaviewer.util.Supporter.active &&
+            (if (dm) com.mediaviewer.util.LocalData.notifyDms else com.mediaviewer.util.LocalData.notifyInbox)
+
+    private fun inboxReasonText(reason: String): String = when (reason) {
+        "like", "like-via-repost" -> "liked your post"
+        "repost", "repost-via-repost" -> "reposted your post"
+        "follow" -> "followed you"
+        "mention" -> "mentioned you"
+        "reply" -> "replied to you"
+        "quote" -> "quoted your post"
+        else -> "sent you a notification"
+    }
+
+    /** The Inbox's unread count just went up while you're somewhere else
+     *  in the app: says what the newest one is (one small request). */
+    private suspend fun announceInboxActivity(added: Int) {
+        if (_inboxOpen.value || !inAppNotifications(dm = false)) return
+        val newest = bskyRepo.listNotifications(bskyToken, _bskyDid.value, limit = 5).getOrNull()
+            ?.notifications?.filter { !it.isRead }?.maxByOrNull { it.indexedAt } ?: return
+        val who = newest.author.displayName?.ifBlank { null } ?: newest.author.handle
+        val what = inboxReasonText(newest.reason)
+        com.mediaviewer.util.InAppNotices.show(
+            title = if (added > 1) "$added new notifications" else who,
+            text = if (added > 1) "$who $what, and ${added - 1} more" else what.replaceFirstChar { it.uppercase() },
+            avatarUrl = newest.author.avatar,
+            link = "inbox"
+        )
+    }
+
+    /** Opens a chat by its id (a tapped notification or a home-screen
+     *  widget) — over whatever is showing. */
+    fun openDmFromLink(convoId: String) {
+        if (!_bskyLoggedIn.value || convoId.isBlank()) return
+        viewModelScope.launch {
+            _dmInboxOpen.value = true
+            var convo = _dmConversations.value.firstOrNull { it.convoId == convoId }
+            if (convo == null) {
+                // (A cold start: the chat list isn't in memory yet.)
+                convo = withContext(Dispatchers.IO) { bskyRepo.listConvos(bskyToken, _bskyDid.value).getOrNull() }
+                    ?.also { fresh -> if (_dmConversations.value.none { it.convoId.isNotBlank() }) _dmConversations.value = fresh }
+                    ?.firstOrNull { it.convoId == convoId }
+            }
+            if (convo != null) openDmThread(convo) else openDmInbox()
         }
     }
 
@@ -2215,6 +2289,89 @@ class MainViewModel(
         }
     }
 
+    /** Composer → a video was attached (or its thumbnail changed): the
+     *  upload starts now, so posting later is quick. */
+    fun prepareVideoUpload(video: com.mediaviewer.platform.PlatformUri, thumbnail: com.mediaviewer.platform.PlatformUri?) {
+        if (!_bskyLoggedIn.value) return
+        bskyRepo.prepareVideoUpload(bskyToken, _bskyDid.value, platform.context, video, thumbnail)
+    }
+
+    fun cancelVideoUpload() = bskyRepo.cancelVideoUpload()
+
+    /**
+     * A shared post tapped in a chat: that very post opens straight away,
+     * built from the messages already on screen (nothing is loaded again).
+     * Swiping moves through the other posts shared in the chat, newest
+     * first. The chat stays underneath and comes back when the feed is left.
+     * Like/repost state and counters are filled in right after, in one
+     * request, without moving the post you're on.
+     */
+    fun openDmSharedPost(messageId: String) {
+        val thread = _dmThread.value ?: return
+        val convo = thread.convo
+        val me = _bskyDid.value
+        val selfAuthor = _selfProfile.value?.author
+        var startId: String? = null
+        val built = ArrayList<MediaItem>()
+        thread.messages.sortedByDescending { it.sentAt }.forEach { m ->
+            val parsed = bskyRepo.sharedPostItems(m.embed)
+            if (parsed.isEmpty()) return@forEach
+            val senderDid = m.sender?.did
+            val sender = when {
+                senderDid == null -> convo.member
+                senderDid == me -> selfAuthor ?: AuthorInfo(did = me, handle = me, displayName = "You", avatarUrl = null)
+                convo.isGroup -> thread.members[senderDid] ?: convo.groupMembers.firstOrNull { it.did == senderDid } ?: convo.member
+                else -> convo.member
+            }
+            if (m.id == messageId) startId = parsed.first().id
+            parsed.forEach { built += it.copy(sentByAuthor = sender, sentByMessage = m.text, sentByConvoId = convo.convoId, sentByIsRepost = false) }
+        }
+        val shown = filterHidden(built).distinctBy { it.id }
+        val start = shown.indexOfFirst { it.id == startId }
+        if (start < 0) { openDmThreadSharedPostsFeed(); return }
+        tapHaptic()
+        if (profileFeedReturn == null || !isProfileFeedActive()) {
+            profileFeedReturn = ProfileFeedReturn(
+                _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
+                activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
+            )
+        }
+        val pseudo = AuthorInfo(me, PROFILE_FEED_HANDLE_PREFIX + "stellar-dm://" + convo.convoId, "Shared Posts", null)
+        val cur = _authorFeedState.value
+        _authorFeedState.value = cur?.copy(author = pseudo) ?: AuthorFeedSavedState(
+            author = pseudo, items = _mediaItems.value, currentIndex = _currentIndex.value,
+            cursor = feedCursor, feedUri = _selectedFeedUri.value
+        )
+        feedLoadGeneration++
+        val generation = feedLoadGeneration
+        feedCursor = null
+        isLoadingMore = false
+        activeFeedMode = ActiveFeedMode.EXTERNAL
+        activeFeedActorDid = null
+        // (No feed behind it to page through: everything is already here.)
+        externalFeedUri = null
+        _mediaItems.value = shown
+        _currentIndex.value = start
+        _navDirection.value = 0
+        _isLoading.value = false
+        _dmHiddenBehindFeed.value = true
+        _screenState.value = ScreenState.FEED
+        viewModelScope.launch(Dispatchers.IO) {
+            val fresh = bskyRepo.getPostsByUris(bskyToken, shown.map { it.postUri }.filter { it.isNotBlank() }.distinct()).getOrNull() ?: return@launch
+            if (fresh.isEmpty()) return@launch
+            val byId = fresh.associateBy { it.id }
+            withContext(Dispatchers.Main) {
+                if (generation != feedLoadGeneration || !_dmHiddenBehindFeed.value) return@withContext
+                _mediaItems.value = _mediaItems.value.map { old ->
+                    byId[old.id]?.copy(
+                        sentByAuthor = old.sentByAuthor, sentByMessage = old.sentByMessage,
+                        sentByConvoId = old.sentByConvoId, sentByIsRepost = false
+                    ) ?: old
+                }
+            }
+        }
+    }
+
     // ── Item 8: Hub "Friends" section (Profiles/Reviews) ────────────────────
     // "Friends" is the same set used for the "From Friends" feed and the DM-
     // thread shared-posts feed: mutuals/contacts the person has an existing
@@ -3308,6 +3465,8 @@ class MainViewModel(
                 e621Username = e621User; e621ApiKey = e621Key; _e621LoggedIn.value = true
             }
             if (!accessJwt.isNullOrBlank() && did != null && handle != null) {
+                // (An account on its own PDS talks to that server.)
+                bskyRepo.updateServiceUrl(com.mediaviewer.util.BskyServices.urlFor(did))
                 bskyToken = accessJwt; bskyRefreshToken = refreshJwt ?: ""
                 _bskyDid.value = did; bskyHandle = handle; _bskyLoggedIn.value = true
                 applyAccountSettings(did)
@@ -3359,32 +3518,91 @@ class MainViewModel(
 
     // ── Auth ──────────────────────────────────────────────────────────────────
 
+    /**
+     * Signs in. [identifier] is any AT Protocol handle (Bluesky's or a
+     * custom domain, on Bluesky's servers or any other PDS), a DID or an
+     * email; [password] an app password or the account's own. The account's
+     * server is looked up first, and that's where the password goes.
+     */
     fun loginBluesky(identifier: String, password: String) {
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
-            bskyRepo.login(identifier, password)
-                .onSuccess { session ->
-                    bskyToken        = session.accessJwt
-                    bskyRefreshToken = session.refreshJwt
-_bskyDid.value          = session.did
-                    applyAccountSettings(session.did)
-                    bskyHandle       = session.handle
-                    prefs.saveBskySession(session.accessJwt, session.refreshJwt, session.did, session.handle)
-                    _bskyLoggedIn.value = true
-                    _appMode.value = AppMode.BLUESKY
-                    prefs.setLastMode("BLUESKY")
-                    _screenState.value = ScreenState.FEED
-                    loadFeed()
-                    loadAvailableFeeds()
-                    prefetchUserLists()   // preload so list picker opens instantly
-                    startHubBackgroundWarmup()
-                    startDmLivePolling()
-                    startInboxPolling()
-                    loadSelfProfile()
-                }
-                .onFailure { _errorMessage.value = it.message ?: "Login failed" }
+            val flow = com.mediaviewer.util.LoginFlow
+            val result = runCatching {
+                val service = bskyRepo.resolveLoginService(identifier)
+                val session = bskyRepo.loginAt(service, identifier, password, flow.code.takeIf { flow.needsCode }).getOrThrow()
+                service to session
+            }
+            result.onSuccess { (service, session) ->
+                flow.reset()
+                startSession(session, service)
+            }.onFailure {
+                if (it is BlueskyRepository.SignInCodeRequired) flow.needsCode = true
+                _errorMessage.value = it.message ?: "Sign in failed"
+            }
             _isLoading.value = false
+        }
+    }
+
+    /** A fresh session (just signed in, or an account just created):
+     *  remembered, and the app opens on it. */
+    private suspend fun startSession(session: BskySession, service: String) {
+        com.mediaviewer.util.BskyServices.set(session.did, service)
+        bskyRepo.updateServiceUrl(service)
+        bskyToken        = session.accessJwt
+        bskyRefreshToken = session.refreshJwt
+        _bskyDid.value   = session.did
+        applyAccountSettings(session.did)
+        bskyHandle       = session.handle
+        prefs.saveBskySession(session.accessJwt, session.refreshJwt, session.did, session.handle)
+        _bskyLoggedIn.value = true
+        _appMode.value = AppMode.BLUESKY
+        prefs.setLastMode("BLUESKY")
+        _screenState.value = ScreenState.FEED
+        loadFeed()
+        loadAvailableFeeds()
+        prefetchUserLists()   // preload so list picker opens instantly
+        startHubBackgroundWarmup()
+        startDmLivePolling()
+        startInboxPolling()
+        loadSelfProfile()
+    }
+
+    // ── Create Account ──────────────────────────────────────────────────
+    /** The account made on the sign-in page, until its email is confirmed
+     *  (or that's skipped) and the app opens on it. */
+    private var pendingSignup: BskySession? = null
+
+    private fun connectLoginFlow() {
+        val flow = com.mediaviewer.util.LoginFlow
+        flow.needsVerification = { bskyRepo.signupNeedsVerification() }
+        flow.handleAvailable = { handle -> bskyRepo.isHandleAvailable(handle) }
+        flow.createAccount = { email, handle, password, verificationCode, birthDate ->
+            val created = bskyRepo.createAccount(email, handle, password, verificationCode)
+            created.fold(
+                onSuccess = { session ->
+                    pendingSignup = session
+                    // Best effort, both: the account exists either way.
+                    if (birthDate.isNotBlank()) bskyRepo.setBirthDate(session.accessJwt, birthDate)
+                    bskyRepo.requestEmailConfirmation(session.accessJwt)
+                    null
+                },
+                onFailure = { it.message ?: "Couldn't create the account" }
+            )
+        }
+        flow.resendEmail = {
+            val session = pendingSignup
+            if (session == null) "Start again" else bskyRepo.requestEmailConfirmation(session.accessJwt).exceptionOrNull()?.message
+        }
+        flow.confirmEmail = { email, code ->
+            val session = pendingSignup
+            if (session == null) "Start again" else bskyRepo.confirmEmail(session.accessJwt, email, code).exceptionOrNull()?.message
+        }
+        flow.finish = {
+            val session = pendingSignup
+            pendingSignup = null
+            if (session != null) viewModelScope.launch { startSession(session, com.mediaviewer.util.BskyServices.DEFAULT) }
         }
     }
 
@@ -3475,16 +3693,24 @@ _bskyDid.value          = session.did
      *  a message to show under the row on failure. */
     fun addBskyAccount(identifier: String, password: String, onResult: (String?) -> Unit) {
         val id = identifier.trim().removePrefix("@")
-        if (id.isBlank() || password.isBlank()) { onResult("Enter a handle and app password"); return }
+        if (id.isBlank() || password.isBlank()) { onResult("Enter a handle and password"); return }
         viewModelScope.launch {
-            val session = bskyRepo.login(id, password).getOrElse {
-                onResult(it.message ?: "Login failed")
+            val service = runCatching { bskyRepo.resolveLoginService(id) }.getOrElse {
+                onResult(it.message ?: "Sign in failed")
+                return@launch
+            }
+            val session = bskyRepo.loginAt(service, id, password).getOrElse {
+                onResult(
+                    if (it is BlueskyRepository.SignInCodeRequired) "This account asks for an emailed code. Use an app password here."
+                    else it.message ?: "Sign in failed"
+                )
                 return@launch
             }
             if (session.did == _bskyDid.value || _otherBskyAccounts.value.any { it.did == session.did }) {
                 onResult("@${session.handle} is already added")
                 return@launch
             }
+            com.mediaviewer.util.BskyServices.set(session.did, service)
             // Best-effort — only used to show the account nicely in lists.
             val profile = bskyRepo.getFullProfile(session.accessJwt, session.did).getOrNull()
             prefs.addOtherBskyAccount(
@@ -3531,7 +3757,7 @@ _bskyDid.value          = session.did
             // sitting unused and has almost certainly expired, and doing this
             // here means a dead session is reported now, instead of the app
             // restarting into a signed-out state.
-            val refreshed = bskyRepo.refreshToken(target.refreshJwt).getOrNull()
+            val refreshed = bskyRepo.refreshTokenAt(com.mediaviewer.util.BskyServices.urlFor(target.did), target.refreshJwt).getOrNull()
             if (refreshed == null) {
                 _errorMessage.value = "Couldn't sign in to @${target.handle}. Remove it and add it again."
                 _accountSwitching.value = false
@@ -3610,6 +3836,16 @@ _bskyDid.value          = session.did
                 true
             },
             onFailure = {
+                // The background notification check may have renewed the
+                // session since (see adoptSavedSessionIfNewer): if a newer
+                // one is saved, that's the live one — use it.
+                val savedRefresh = prefs.bskyRefreshJwt.first()
+                val savedAccess = prefs.bskyAccessJwt.first()
+                if (!savedRefresh.isNullOrBlank() && !savedAccess.isNullOrBlank() && savedRefresh != bskyRefreshToken && prefs.bskyDid.first() == _bskyDid.value) {
+                    bskyToken = savedAccess
+                    bskyRefreshToken = savedRefresh
+                    return true
+                }
                 // Refresh token itself is dead — force re-login
                 prefs.clearBskySession()
                 _bskyLoggedIn.value = false
@@ -5454,6 +5690,127 @@ _bskyDid.value          = session.did
         }
     }
 
+    // ── Profile customizations (supporters) ─────────────────────────────
+    /** Connects [com.mediaviewer.util.ProfileStyles] to the network. */
+    private fun connectProfileStyles() {
+        com.mediaviewer.util.ProfileStyles.init(platform.context)
+        com.mediaviewer.util.ProfileStyles.fetcher = { did -> bskyRepo.getProfileStyle(did) }
+        com.mediaviewer.util.ProfileStyles.saver = { style, onDone ->
+            if (!_bskyLoggedIn.value) onDone("Not signed in")
+            else viewModelScope.launch(Dispatchers.IO) {
+                var result = bskyRepo.saveProfileStyle(bskyToken, _bskyDid.value, style)
+                if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                    result = bskyRepo.saveProfileStyle(bskyToken, _bskyDid.value, style)
+                }
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) com.mediaviewer.util.ProfileStyles.setOwn(_bskyDid.value, style)
+                    onDone(result.exceptionOrNull()?.message)
+                }
+            }
+        }
+    }
+
+    // ── Archive (supporters) ────────────────────────────────────────────
+    /** True while a post is being archived or added back. */
+    private val _archiveBusy = MutableStateFlow(false)
+    val archiveBusy: StateFlow<Boolean> = _archiveBusy
+
+    /** More → Archive: the post on screen leaves your profile and is kept
+     *  on this device only (Launchpad → Archived). */
+    fun archiveCurrentPost() {
+        val item = currentItem.value ?: return
+        if (_appMode.value != AppMode.BLUESKY || _archiveBusy.value) return
+        if (item.postUri.isBlank() || item.author.did != _bskyDid.value) return
+        if (!com.mediaviewer.util.Supporter.active) { com.mediaviewer.util.Supporter.openPage(); return }
+        _archiveBusy.value = true
+        showToast("Archiving…")
+        viewModelScope.launch(Dispatchers.IO) {
+            com.mediaviewer.util.PostArchive.init(platform.context)
+            bskyRepo.archivePost(bskyToken, _bskyDid.value, platform.context, item)
+                .onSuccess { archived ->
+                    withContext(Dispatchers.Main) {
+                        com.mediaviewer.util.PostArchive.add(archived)
+                        val remaining = _mediaItems.value.filterNot { it.postUri == item.postUri }
+                        _mediaItems.value = remaining
+                        _currentIndex.value = _currentIndex.value.coerceAtMost((remaining.size - 1).coerceAtLeast(0))
+                    }
+                    showToast("Post archived")
+                }
+                .onFailure { _errorMessage.value = "Couldn't archive the post: ${it.message}" }
+            _archiveBusy.value = false
+        }
+    }
+
+    /** Launchpad → Archived: every archived post, in Explore's layout. The
+     *  Hub stays underneath and comes back when the page is left. */
+    fun openArchive() {
+        if (!_bskyLoggedIn.value) return
+        com.mediaviewer.util.PostArchive.init(platform.context)
+        tapHaptic()
+        if (profileFeedReturn == null || !isProfileFeedActive()) {
+            profileFeedReturn = ProfileFeedReturn(
+                _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
+                activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
+            )
+        }
+        val pseudo = AuthorInfo(_bskyDid.value, PROFILE_FEED_HANDLE_PREFIX + "stellar-archive://posts", "Archived", null)
+        val cur = _authorFeedState.value
+        _authorFeedState.value = cur?.copy(author = pseudo) ?: AuthorFeedSavedState(
+            author = pseudo, items = _mediaItems.value, currentIndex = _currentIndex.value,
+            cursor = feedCursor, feedUri = _selectedFeedUri.value
+        )
+        feedLoadGeneration++
+        feedCursor = null
+        isLoadingMore = false
+        activeFeedMode = ActiveFeedMode.EXTERNAL
+        activeFeedActorDid = null
+        // (Nothing to page through: the archive is all on this device.)
+        externalFeedUri = null
+        _mediaItems.value = com.mediaviewer.util.PostArchive.itemsFor(_bskyDid.value)
+        _currentIndex.value = 0
+        _navDirection.value = 0
+        _isLoading.value = false
+        _screenState.value = ScreenState.GRID
+    }
+
+    /** "Add to Profile" on an archived post: it goes back up as it was. */
+    fun restoreArchivedCurrentPost() {
+        val item = currentItem.value ?: return
+        if (_archiveBusy.value) return
+        val archived = com.mediaviewer.util.PostArchive.find(item) ?: return
+        _archiveBusy.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            var result = bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
+            if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                result = bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
+            }
+            result.onSuccess {
+                withContext(Dispatchers.Main) {
+                    bskyRepo.discardArchivedPost(platform.context, archived)
+                    val remaining = _mediaItems.value.filterNot { it.id == item.id }
+                    _mediaItems.value = remaining
+                    _currentIndex.value = _currentIndex.value.coerceAtMost((remaining.size - 1).coerceAtLeast(0))
+                    // Nothing left to look at: back to the grid (then the Hub).
+                    if (remaining.isEmpty()) _screenState.value = ScreenState.GRID
+                }
+                showToast("Added back to your profile")
+            }.onFailure { _errorMessage.value = "Couldn't add the post back: ${it.message}" }
+            _archiveBusy.value = false
+        }
+    }
+
+    /** Deletes the archived post on screen for good. */
+    fun deleteArchivedCurrentPost() {
+        val item = currentItem.value ?: return
+        val archived = com.mediaviewer.util.PostArchive.find(item) ?: return
+        bskyRepo.discardArchivedPost(platform.context, archived)
+        val remaining = _mediaItems.value.filterNot { it.id == item.id }
+        _mediaItems.value = remaining
+        _currentIndex.value = _currentIndex.value.coerceAtMost((remaining.size - 1).coerceAtLeast(0))
+        if (remaining.isEmpty()) _screenState.value = ScreenState.GRID
+        showToast("Archived post deleted")
+    }
+
     // ── "Show more/less like this" (item 4) ─────────────────────────────────
     // Sends Bluesky's own feed-personalization interaction signal for
     // whichever post is currently on screen back to the AppView, which
@@ -5784,6 +6141,19 @@ _bskyDid.value          = session.did
                     it.type?.endsWith("#logCreateMessage") == true && it.message?.sender?.did != _bskyDid.value
                 }
                 if (openHere && newIncoming > 0) viewModelScope.launch(Dispatchers.IO) { bskyRepo.markConvoRead(bskyToken, _bskyDid.value, convo.convoId) }
+                // In-app notification (supporters, DM Notifications on):
+                // shown anywhere in the app except the DM pages themselves.
+                if (!openHere && !mine && newIncoming > 0 && !_dmInboxOpen.value && inAppNotifications(dm = true)) {
+                    val sender = if (convo.isGroup) (convo.groupMembers.firstOrNull { it.did == msg.sender?.did } ?: bskyRepo.chatProfiles[msg.sender?.did ?: ""]) else convo.member
+                    val name = if (convo.isGroup) listOfNotNull(sender?.displayName?.ifBlank { null }, convo.member.displayName.ifBlank { null }).joinToString(" · ").ifBlank { "Group chat" }
+                        else convo.member.displayName.ifBlank { convo.member.handle }
+                    com.mediaviewer.util.InAppNotices.show(
+                        title = name,
+                        text = msg.text.ifBlank { if (msg.embed != null) "Shared a post" else "Sent you a message" },
+                        avatarUrl = (sender ?: convo.member).avatarUrl,
+                        link = "dm:" + convo.convoId
+                    )
+                }
                 convo.copy(
                     unreadCount = if (openHere) 0 else if (mine) 0 else convo.unreadCount + newIncoming,
                     lastActivityAt = msg.sentAt,
@@ -7698,6 +8068,11 @@ _bskyDid.value          = session.did
         _screenState.value = back.screen
         // A feed opened from a DM: the DM page comes back.
         _dmHiddenBehindFeed.value = false
+        // …and one opened from Search: the search comes back.
+        if (_searchHiddenBehindFeed.value) {
+            _searchHiddenBehindFeed.value = false
+            _searchOpen.value = true
+        }
         tapHaptic()
     }
 
@@ -8009,6 +8384,26 @@ _bskyDid.value          = session.did
     init {
         // Declared last, so everything above exists by the time it runs.
         com.mediaviewer.util.StellarSupporters.init(platform.context)
+        com.mediaviewer.util.BskyServices.init(platform.context)
+        com.mediaviewer.util.PostArchive.init(platform.context)
+        connectProfileStyles()
+        connectLoginFlow()
+        // The DMs home-screen widget (supporters) shows the chat list as the
+        // app has it: handed over a moment after every change.
+        viewModelScope.launch {
+            _dmConversations.collectLatest { list ->
+                delay(1500)
+                if (!_bskyLoggedIn.value || !com.mediaviewer.util.StellarSupporters.isSupporter(_bskyDid.value)) return@collectLatest
+                val chats = list.filter { it.convoId.isNotBlank() }.map {
+                    com.mediaviewer.platform.WidgetChat(
+                        convoId = it.convoId,
+                        name = it.member.displayName.ifBlank { it.member.handle },
+                        text = it.lastMessageText, unread = it.unreadCount, avatarUrl = it.member.avatarUrl
+                    )
+                }
+                withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
+            }
+        }
         com.mediaviewer.util.Onboarding.init(platform.context)
         refreshSupporters()
     }
@@ -8251,6 +8646,22 @@ _bskyDid.value          = session.did
 
     /** Opens a feed (or list) shared in a DM, in front of the DMs. */
     fun openFeedFromDm(entry: ProfileListEntry) = openFeedFromDm(entry, fromDm = true)
+
+    /** True while a feed opened from Search is showing: leaving the feed
+     *  brings the search (and its results) back. */
+    private val _searchHiddenBehindFeed = MutableStateFlow(false)
+    val searchHiddenBehindFeed: StateFlow<Boolean> = _searchHiddenBehindFeed
+
+    /** A feed tapped in Search → Feeds: opens like one on a profile. */
+    fun openFeedFromSearch(entry: ProfileListEntry) {
+        if (!_bskyLoggedIn.value || entry.uri.isBlank()) return
+        _searchOpen.value = false
+        openFeedFromDm(entry, fromDm = false)
+        _searchHiddenBehindFeed.value = true
+    }
+
+    /** Went somewhere else (the Hub) instead of back: the search is over. */
+    fun dropHiddenSearch() { _searchHiddenBehindFeed.value = false }
 
     private fun openFeedFromDm(entry: ProfileListEntry, fromDm: Boolean) {
         if (!_bskyLoggedIn.value || entry.uri.isBlank()) return

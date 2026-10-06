@@ -102,20 +102,51 @@ actual object LocalPlatform {
     actual fun syncNotifications(context: PlatformContext, requestPermission: Boolean) {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(com.mediaviewer.util.LocalData.PREFS, Context.MODE_PRIVATE)
-        val wanted = prefs.getBoolean(com.mediaviewer.util.LocalData.KEY_NOTIFY_DMS, false) ||
+        val notifications = prefs.getBoolean(com.mediaviewer.util.LocalData.KEY_NOTIFY_DMS, false) ||
             prefs.getBoolean(com.mediaviewer.util.LocalData.KEY_NOTIFY_INBOX, false)
-        if (wanted) {
-            if (requestPermission && Build.VERSION.SDK_INT >= 33) {
-                val activity = activityOf(context)
-                if (activity != null && activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    try { activity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7341) } catch (_: Exception) {}
-                }
+        if (notifications) {
+            val activity = activityOf(context)
+            val needsPermission = Build.VERSION.SDK_INT >= 33 && activity != null &&
+                activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (needsPermission && requestPermission) {
+                try { activity!!.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7341) } catch (_: Exception) {}
+            } else if (!needsPermission && activity != null) {
+                askToRunInBackground(activity, prefs)
             }
+        }
+        // (A DMs widget on the home screen needs the check too.)
+        if (com.mediaviewer.worker.StellarNotificationScheduler.wanted(app)) {
             com.mediaviewer.worker.StellarNotificationScheduler.schedule(app)
         } else {
             com.mediaviewer.worker.StellarNotificationScheduler.cancel(app)
+        }
+    }
+
+    /**
+     * Asked once, after notifications are switched on: Android's own "let
+     * this app run in the background?" prompt. Without it the phone's
+     * battery saver holds the check back for hours at a time on most
+     * phones, which is exactly how notifications went missing.
+     */
+    private fun askToRunInBackground(activity: Activity, prefs: android.content.SharedPreferences) {
+        if (Build.VERSION.SDK_INT < 23 || prefs.getBoolean("battery_prompted", false)) return
+        try {
+            val pm = activity.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(activity.packageName)) return
+            prefs.edit().putBoolean("battery_prompted", true).apply()
+            activity.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + activity.packageName))
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun updateWidgets(context: PlatformContext, dms: List<WidgetChat>?) {
+        val app = context.applicationContext
+        try {
+            if (dms != null) com.mediaviewer.widget.StellarWidgets.saveChats(app, dms)
+            else com.mediaviewer.widget.StellarWidgets.refreshAll(app)
+        } catch (_: Exception) {
         }
     }
 }

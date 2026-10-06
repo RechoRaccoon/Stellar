@@ -6,6 +6,15 @@ package com.mediaviewer.platform
  * alarm sound, Battery Saver's frame-rate cap, and Android's background
  * notification check.
  */
+/** One chat, as the DMs widget shows it. */
+data class WidgetChat(
+    val convoId: String,
+    val name: String,
+    val text: String,
+    val unread: Int,
+    val avatarUrl: String?
+)
+
 expect object LocalPlatform {
     /** Copies the picked file at [uri] into the app's private storage (so a
      *  draft or note keeps it even if the original is moved or deleted) and
@@ -29,4 +38,9 @@ expect object LocalPlatform {
      *  Supporter Settings toggles (Android only; a no-op elsewhere). Asks
      *  for the notification permission when it's being switched on. */
     fun syncNotifications(context: PlatformContext, requestPermission: Boolean)
+
+    /** Redraws Stellar's home-screen widgets (DMs, Upcoming Events, Note).
+     *  [dms] is the chat list as the app has it right now, or null when
+     *  only the on-device data (events, notes) changed. */
+    fun updateWidgets(context: PlatformContext, dms: List<WidgetChat>?)
 }

@@ -13,6 +13,32 @@ class BlueskyApi(baseUrl: String = "https://bsky.social/", profile: HttpProfile 
         "xrpc/com.atproto.server.createSession",
         body = json(request)
     )
+    // ── Creating an account, confirming its email ───────────────────────
+    suspend fun describeServer(): Response<com.mediaviewer.json.JsonObject> = call(
+        "GET",
+        "xrpc/com.atproto.server.describeServer"
+    )
+    suspend fun resolveHandle(handle: String): Response<com.mediaviewer.json.JsonObject> = call(
+        "GET",
+        "xrpc/com.atproto.identity.resolveHandle",
+        query = listOf("handle" to handle)
+    )
+    suspend fun createAccount(body: Map<String, String>): Response<BskySession> = call(
+        "POST",
+        "xrpc/com.atproto.server.createAccount",
+        body = json(body)
+    )
+    suspend fun requestEmailConfirmation(token: String): Response<Unit> = call(
+        "POST",
+        "xrpc/com.atproto.server.requestEmailConfirmation",
+        headers = listOf("Authorization" to token)
+    )
+    suspend fun confirmEmail(token: String, body: Map<String, String>): Response<Unit> = call(
+        "POST",
+        "xrpc/com.atproto.server.confirmEmail",
+        headers = listOf("Authorization" to token),
+        body = json(body)
+    )
     suspend fun refreshSession(
         refreshToken: String
     ): Response<BskyRefreshResponse> = call(

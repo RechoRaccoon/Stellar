@@ -106,10 +106,24 @@ actual object MediaBridge {
     actual fun videoUploadBody(context: PlatformContext, uri: PlatformUri, mimeType: String): RequestBody {
         // Streamed from disk instead of read into one byte array — a long
         // video no longer has to fit in memory at once.
-        val length = runCatching {
+        var length = runCatching {
             context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
         }.getOrNull()?.takeIf { it > 0 } ?: -1L
-        return streamRequestBody(mimeType, AndroidUriStreamSource(context, uri, length))
+        if (length <= 0L) length = runCatching {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+            }
+        }.getOrNull()?.takeIf { it > 0 } ?: -1L
+        if (length > 0L) return streamRequestBody(mimeType, AndroidUriStreamSource(context, uri, length))
+        // The picker couldn't say how big the file is. Bluesky's video
+        // service refuses an upload without a length, so the video is
+        // copied into the app's cache first and sent from there.
+        val copy = java.io.File(context.cacheDir, "upload-video.tmp")
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
+        }
+        return if (copy.length() > 0L) streamRequestBody(mimeType, AndroidUriStreamSource(context, android.net.Uri.fromFile(copy), copy.length()))
+        else streamRequestBody(mimeType, AndroidUriStreamSource(context, uri, -1L))
     }
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =

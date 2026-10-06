@@ -7,4 +7,12 @@
     <string name="widget_activate_twitch">Activate Twitch Link</string>
     <string name="widget_activate_youtube">Activate YouTube Link</string>
     <string name="widget_end_link">End Live Link</string>
+
+    <!-- Stellar's home-screen widgets (supporters) -->
+    <string name="widget_dms_label">Stellar DMs</string>
+    <string name="widget_events_label">Stellar Upcoming Events</string>
+    <string name="widget_note_label">Stellar Note</string>
+    <string name="widget_dms_description">Your chats and unread messages. Tap one to open it.</string>
+    <string name="widget_events_description">Your calendar\'s next events.</string>
+    <string name="widget_note_description">One of your notes, in full. Tap to open it.</string>
 </resources>

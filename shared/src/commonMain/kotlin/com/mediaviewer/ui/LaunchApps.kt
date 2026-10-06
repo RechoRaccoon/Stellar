@@ -97,6 +97,9 @@ internal fun LaunchAppPage(
     liquidGlass: Boolean,
     onClose: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    /** Drawn where the title goes instead of [title] (Notes: the note's
+     *  own, editable title). */
+    titleContent: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
@@ -109,7 +112,10 @@ internal fun LaunchAppPage(
             Spacer(Modifier.height(rememberTopCutoutClearance() + 6.dp))
             Box(Modifier.fillMaxWidth().height(40.dp)) {
                 AppBubble(Icons.AutoMirrored.Filled.ArrowBack, "Back", liquidGlass, tint, onClose, Modifier.align(Alignment.CenterStart))
-                Text(
+                if (titleContent != null) {
+                    // (Kept clear of the bubbles on either side.)
+                    Box(Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 52.dp), contentAlignment = Alignment.Center) { titleContent() }
+                } else Text(
                     title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.Center)
                 )

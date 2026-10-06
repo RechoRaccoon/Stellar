@@ -202,7 +202,7 @@ fun PopupMessageBox(
             Spacer(Modifier.width(10.dp))
         } else Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f).heightIn(min = 38.dp), contentAlignment = Alignment.CenterStart) {
-            androidx.compose.foundation.text.BasicTextField(
+            BasicTextField(
                 value = value, onValueChange = onValueChange,
                 textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),

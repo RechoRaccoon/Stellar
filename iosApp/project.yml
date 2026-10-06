@@ -18,9 +18,16 @@ targets:
         type: folder
         buildPhase: resources
     scheme: {}
+    # The home-screen widgets are an extension inside the app.
+    dependencies:
+      - target: StellarWidgets
     settings:
       base:
         PRODUCT_NAME: Stellar
+        # The app and its widgets share one small store (what the widgets
+        # show) through this app group. It only takes effect on a signed
+        # build; the unsigned CI build ignores it.
+        CODE_SIGN_ENTITLEMENTS: iosApp/iosApp.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: rechoraccoon.stellar
         INFOPLIST_FILE: iosApp/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -37,5 +44,32 @@ targets:
         "FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]": "$(inherited) $(SRCROOT)/../shared/build/bin/iosSimulatorArm64/releaseFramework"
         # The system frameworks the Kotlin code uses (video, web embeds,
         # photo picker, file types).
-        OTHER_LDFLAGS: "$(inherited) -framework Shared -framework AVFoundation -framework AVFAudio -framework AVKit -framework CoreMedia -framework WebKit -framework Photos -framework PhotosUI -framework UniformTypeIdentifiers"
+        OTHER_LDFLAGS: "$(inherited) -framework Shared -framework AVFoundation -framework AVFAudio -framework AVKit -framework CoreMedia -framework WebKit -framework Photos -framework PhotosUI -framework UniformTypeIdentifiers -framework CoreVideo -framework QuartzCore -framework NaturalLanguage -framework WidgetKit"
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+
+  # Stellar's home-screen widgets (DMs, Upcoming Events, Note): plain
+  # SwiftUI/WidgetKit, no Kotlin. They read what the app saves for them in
+  # the shared app group (see IosWidgetBridge in the Kotlin code).
+  StellarWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - StellarWidgets
+      # The app's own font, for the widgets' titles.
+      - path: ../shared/src/commonMain/composeResources/font/audiowide.ttf
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: StellarWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: rechoraccoon.stellar.widgets
+        INFOPLIST_FILE: StellarWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        SKIP_INSTALL: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ENABLE_BITCODE: NO
+        CODE_SIGN_ENTITLEMENTS: StellarWidgets/StellarWidgets.entitlements
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64

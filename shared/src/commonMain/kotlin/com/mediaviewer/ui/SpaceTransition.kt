@@ -51,6 +51,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import androidx.compose.ui.unit.sp
 
 /**
  * "Space" loading animation (Settings → Loading Animation → Space; the
@@ -283,6 +284,77 @@ fun SpaceOverlay(controller: SpaceTransitionController, modifier: Modifier = Mod
                     }
                 )
             }
+        }
+    }
+}
+
+/**
+ * A full-screen card in the look of the Stellar loading animation — deep
+ * space with the three drifting layers of stars — with [text] where the
+ * logo normally floats: bold, centered, in Stellar's pink (#FF4FA1), with
+ * the same soft glow and slow breathe. VRM mode's "Starting Soon" and "Be
+ * Right Back" scenes are this.
+ */
+@Composable
+fun StellarSceneCard(text: String, modifier: Modifier = Modifier) {
+    val layers = remember { buildParallax() }
+    val time = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = withFrameNanos { it }
+        while (true) withFrameNanos { time.floatValue = (it - start) / 1_000_000_000f }
+    }
+    val pink = Color(0xFFFF4FA1)
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        Box(
+            Modifier.fillMaxSize().graphicsLayer { }.drawWithCache {
+                onDrawBehind {
+                    drawRect(Color.Black)
+                    val t = time.floatValue
+                    val w = size.width; val h = size.height
+                    for (l in layers) {
+                        val shift = l.speedDp * density * t
+                        val r = l.radiusDp * density
+                        val streak = l.streakDp * density
+                        val span = w + streak + r * 2f
+                        for (i in l.x.indices) {
+                            val px = ((l.x[i] * span + shift) % span) - streak - r
+                            val py = l.y[i] * h
+                            val c = Color.White.copy(alpha = l.alpha[i])
+                            if (streak > 0f) {
+                                drawLine(
+                                    c.copy(alpha = l.alpha[i] * 0.35f), Offset(px - streak, py), Offset(px, py),
+                                    strokeWidth = r * 1.2f, cap = StrokeCap.Round
+                                )
+                            }
+                            drawCircle(c, radius = r, center = Offset(px, py))
+                        }
+                    }
+                }
+            }
+        )
+        val breathe by remember { derivedBreathe(time) }
+        // As big as fits the width on one line (up to a comfortable cap).
+        val fontSize = (maxWidth.value * 0.105f).coerceIn(26f, 64f)
+        val style = androidx.compose.ui.text.TextStyle(
+            color = pink, fontSize = fontSize.sp, lineHeight = (fontSize * 1.1f).sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Box(Modifier.align(Alignment.Center).padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+            // The glow: a blurred copy of the words behind them.
+            androidx.compose.material3.Text(
+                text, style = style, maxLines = 2,
+                modifier = Modifier.graphicsLayer { alpha = 0.5f + 0.25f * breathe }
+                    .blur(16.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .padding(48.dp)
+            )
+            androidx.compose.material3.Text(
+                text, style = style, maxLines = 2,
+                modifier = Modifier.graphicsLayer {
+                    val s = 1f + 0.015f * breathe
+                    scaleX = s; scaleY = s
+                }
+            )
         }
     }
 }

@@ -114,6 +114,8 @@ fun SearchOverlay(
     onListEntryAction: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
     /** A starter pack tapped: everyone in it. */
     onOpenListEntry: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
+    /** A feed tapped: opens it (leaving it comes back here). */
+    onOpenFeed: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
     onLoadMorePosts: () -> Unit = {},
     /** Bluesky's Trending list (supporters: shown on the Posts tab before a search). */
     trendingTopics: List<com.mediaviewer.repository.BlueskyRepository.TrendingTopic> = emptyList(),
@@ -144,7 +146,8 @@ fun SearchOverlay(
     }
     com.mediaviewer.ui.compat.BackHandler(onBack = closeWithMerge)
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // (Coming back to results from a feed doesn't pop the keyboard up again.)
+    LaunchedEffect(Unit) { if (state.query.isBlank()) focusRequester.requestFocus() }
     // If the Tagged tab disappears while it's selected (its dataset was just
     // deleted), fall back to the first tab instead of showing an empty page
     // under a tab that no longer exists.
@@ -215,12 +218,13 @@ fun SearchOverlay(
                 // The address bar: a web address opens as is; anything else
                 // is searched with the engine picked in Supporter Settings.
                 BrowserHome.state.load(com.mediaviewer.util.LocalData.searchEngine.urlFor(webQuery))
-                webFocus.clearFocus()
             }
             isE621Filter -> onE621SearchSubmit()
             isLiked -> onLikedSearchSubmit()
             else -> onQueryChange(state.query)
         }
+        // Searching puts the keyboard away (iOS has no key for that).
+        webFocus.clearFocus()
     }
 
     Box(
@@ -330,7 +334,7 @@ fun SearchOverlay(
                 //
                 // barBottomLeft/barWidthPx are measured from this field
                 // itself, so the suggestions panel lines up with it.
-                val fieldModifier = Modifier.weight(1f).height(44.dp)
+                val fieldModifier = Modifier.weight(1f).height(44.dp).keyboardRegion(0.dp)
                     .onGloballyPositioned {
                         val pos = it.positionInRoot()
                         barBottomLeft = Offset(pos.x, pos.y + it.size.height)
@@ -477,7 +481,7 @@ fun SearchOverlay(
                                     ProfileListRow(
                                         entry = entry, liquidGlass = liquidGlass, tint = profileTint,
                                         label = if (saved) "Added" else "Add", busy = false, done = saved,
-                                        onOpen = null,
+                                        onOpen = { onOpenFeed(entry) },
                                         onAction = { onListEntryAction(entry) }
                                     )
                                 }
@@ -885,7 +889,7 @@ private fun BasicTextFieldWithPlaceholder(
     onSearch: () -> Unit
 ) {
     Box(Modifier.fillMaxWidth()) {
-        androidx.compose.foundation.text.BasicTextField(
+        BasicTextField(
             value = value, onValueChange = onValueChange,
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp),

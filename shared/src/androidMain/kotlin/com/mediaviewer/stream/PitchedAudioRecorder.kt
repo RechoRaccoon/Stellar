@@ -70,14 +70,17 @@ class PitchedAudioRecorder(private val file: File, semitones: Float) {
         val bytes = ByteArray(2048)
         val info = MediaCodec.BufferInfo()
         var samples = 0L
+        SoundboardMixer.capturing = true
         try {
             while (running.get()) {
                 val n = r.read(buf, 0, buf.size)
                 if (n <= 0) { Thread.sleep(5); continue }
                 shifter.process(buf, n)
-                val silent = muted
+                if (muted) java.util.Arrays.fill(buf, 0, n, 0.toShort())
+                // The soundboard is part of the recording's own sound.
+                SoundboardMixer.mix(buf, n)
                 for (i in 0 until n) {
-                    val v = if (silent) 0 else buf[i].toInt()
+                    val v = buf[i].toInt()
                     bytes[i * 2] = (v and 0xFF).toByte(); bytes[i * 2 + 1] = ((v shr 8) and 0xFF).toByte()
                 }
                 queue(c, bytes, n * 2, samples * 1_000_000L / sampleRate, 0)
@@ -88,6 +91,8 @@ class PitchedAudioRecorder(private val file: File, semitones: Float) {
             drain(c, info, true)
         } catch (e: Exception) {
             Log.e(TAG, "Pitched audio loop failed", e)
+        } finally {
+            SoundboardMixer.capturing = false
         }
     }
 

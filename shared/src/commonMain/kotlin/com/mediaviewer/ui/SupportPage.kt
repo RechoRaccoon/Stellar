@@ -62,6 +62,7 @@ import coil3.compose.AsyncImage
 
 import com.mediaviewer.ui.theme.DimGray
 import com.mediaviewer.util.rememberHapticTap
+import androidx.compose.foundation.layout.heightIn
 
 /** One way to support Stellar. [domain] is used to fetch the service's own
  *  icon (its site favicon) at runtime; [fallback] shows until it loads, or
@@ -94,19 +95,62 @@ private val supportMethods = listOf(
 /** The supporter benefits, exactly as listed on the Support page. */
 internal val SUPPORTER_BENEFITS = listOf(
     "Supporter Profile Badge and Animation!!",
+    "Customize your Profile's Icon Shape, Effect, and Colors!!",
     "The Ability to Edit Posts!! (with limitations)",
+    "Archive Posts and add them back to your Profile later!!",
     "Save Posts as Drafts!!",
     "Build your own local Feeds!! (experimental)",
     "Save posts into local Bookmark Folders!!",
     "Pin DMs!!",
-    "Use the Launchpad's Calendar, Notes, Calculator, and Timer features!! (experimental)",
+    "Use the Launchpad's Calendar, Notes (with checklists), Calculator, and Timer features!! (experimental)",
+    "Home Screen Widgets for DMs, Upcoming Events, and Notes!!",
+    "Add an Upcoming Events Widget to the Hub!!",
     "Create Polls on Stellar!!",
     "View Trending Topics in Search!!",
     "Use the In-App Multitasking Browser while you explore Stellar!!",
-    "Receive App Notifications!! (android only) (checks every 15 minutes)",
+    "Receive App Notifications, on your device and inside Stellar!!",
+    "VRM Mode Activity: Scenes, a Soundboard, Effects, and Image/Video Backgrounds!! (android only)",
     "Add Notes to Profiles!!",
     "Remove the \"Stellar Supporters\" row from the Hub!!"
 )
+
+/** The softly pink "Supporter Benefits:" panel (Support page and popup). */
+@Composable
+internal fun SupporterBenefitsPanel(tint: Color, modifier: Modifier = Modifier, compact: Boolean = false) {
+    val pink = Color(0xFFFF4FA1)
+    val panelShape = RoundedCornerShape(18.dp)
+    val size = if (compact) 11.sp else 12.sp
+    val line = if (compact) 15.sp else 16.sp
+    Column(
+        modifier.clip(panelShape)
+            .background(Brush.verticalGradient(listOf(pink.copy(alpha = 0.16f), lerp(Color(0xFF101014), tint, 0.14f).copy(alpha = 0.7f))))
+            .border(1.dp, Brush.linearGradient(listOf(pink.copy(alpha = 0.85f), Color.White.copy(alpha = 0.16f), tint.copy(alpha = 0.5f))), panelShape)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Favorite, contentDescription = null, tint = pink, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "Supporter Benefits:", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.supporterShine()
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        // In the popup the list scrolls inside the panel.
+        Column(
+            if (compact) Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState())
+            else Modifier.fillMaxWidth()
+        ) {
+            SUPPORTER_BENEFITS.forEach { benefit ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
+                    Text("•", color = pink, fontSize = size, lineHeight = line, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    Text(benefit, color = Color.White.copy(alpha = 0.92f), fontSize = size, lineHeight = line, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
 
 /** Settings → "Support Stellar": the logo, what supporting unlocks, and a
  *  compact row for each way to chip in — all on one page (scaled down to
@@ -149,33 +193,7 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
 
             Spacer(Modifier.height(8.dp))
             // ── Benefits, in their own softly pink panel ──
-            val panelShape = RoundedCornerShape(18.dp)
-            Column(
-                Modifier.widthIn(max = 460.dp).fillMaxWidth().clip(panelShape)
-                    .background(Brush.verticalGradient(listOf(pink.copy(alpha = 0.16f), lerp(Color(0xFF101014), tint, 0.14f).copy(alpha = 0.7f))))
-                    .border(1.dp, Brush.linearGradient(listOf(pink.copy(alpha = 0.85f), Color.White.copy(alpha = 0.16f), tint.copy(alpha = 0.5f))), panelShape)
-                    .padding(horizontal = 12.dp, vertical = 9.dp)
-            ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Favorite, contentDescription = null, tint = pink,
-                        modifier = Modifier.size(14.dp).graphicsLayer { scaleX = 0.92f + 0.12f * breathe; scaleY = 0.92f + 0.12f * breathe }
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Supporter Benefits:", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.supporterShine()
-                    )
-                }
-                Spacer(Modifier.height(5.dp))
-                SUPPORTER_BENEFITS.forEach { benefit ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
-                        Text("•", color = pink, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(6.dp))
-                        Text(benefit, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
+            SupporterBenefitsPanel(tint, Modifier.widthIn(max = 460.dp).fillMaxWidth())
 
             Spacer(Modifier.height(8.dp))
             Text(
@@ -314,20 +332,28 @@ internal fun SupportPopupContent(openCount: Int, tint: Color, onClose: () -> Uni
             }
             Spacer(Modifier.size(34.dp))
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
+        Image(
+            painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = "Stellar",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 120.dp).fillMaxWidth(0.34f)
+        )
+        Spacer(Modifier.height(6.dp))
         Text(
-            "You've opened Stellar $openCount times!! If you're enjoying my app, please consider supporting me through any of these platforms.",
-            color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 18.sp,
+            "You've opened Stellar $openCount times!! Help fund Stellar's development (and Recho's survival) by donating \$4.99 or more, and you'll unlock these exclusive benefits for a month!!",
+            color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, lineHeight = 17.sp,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
         )
         Spacer(Modifier.height(8.dp))
+        SupporterBenefitsPanel(tint, Modifier.fillMaxWidth(), compact = true)
+        Spacer(Modifier.height(8.dp))
         Text(
-            SUPPORTER_PERK_TEXT,
-            color = lerp(Color(0xFFFF4FA1), Color.White, 0.35f), fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold,
+            "You can donate through any of these platforms!! Just make sure to attach your Stellar/Bluesky handle to the note!!",
+            color = lerp(Color(0xFFFF4FA1), Color.White, 0.4f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
         )
-        Spacer(Modifier.height(12.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             supportMethods.forEach { method ->
                 val shape = RoundedCornerShape(16.dp)
                 val panel = lerp(Color(0xFF101014), lerp(tint, method.accent, 0.6f), 0.16f)
@@ -336,11 +362,11 @@ internal fun SupportPopupContent(openCount: Int, tint: Color, onClose: () -> Uni
                         .background(Brush.horizontalGradient(listOf(method.accent.copy(alpha = 0.30f), panel.copy(alpha = 0.85f), panel.copy(alpha = 0.85f))))
                         .border(1.dp, Brush.linearGradient(listOf(method.accent.copy(alpha = 0.9f), Color.White.copy(alpha = 0.18f), tint.copy(alpha = 0.5f))), shape)
                         .clickable { tap(); runCatching { uriHandler.openUri(method.url) } }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(method.accent),
+                        Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(method.accent),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(method.fallback, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))

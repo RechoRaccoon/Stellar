@@ -34,7 +34,15 @@ class BlueskyRepository {
     private var api: BlueskyApi = NetworkClient.buildBlueskyApi()
     private var baseUrl: String = "https://bsky.social/"
 
-    fun updateServiceUrl(url: String) { baseUrl = url; api = NetworkClient.buildBlueskyApi(url) }
+    fun updateServiceUrl(url: String) {
+        if (url == baseUrl) return
+        baseUrl = url
+        api = NetworkClient.buildBlueskyApi(url)
+        // (The chat client follows the account: resolved again when needed.)
+        chatApi = api
+        chatPdsResolvedFor = null
+        resolvedPdsEndpoint = null
+    }
 
     /** The current account's PDS host (e.g. "bsky.social") — used to mint
      *  the service-auth token video.bsky.app upload requires. */
@@ -247,6 +255,158 @@ class BlueskyRepository {
     suspend fun refreshToken(refreshJwt: String): Result<BskyRefreshResponse> = runCatching {
         val resp = api.refreshSession("Bearer $refreshJwt")
         resp.body() ?: error("Refresh failed: ${resp.code()}")
+    }
+
+    /** Refreshes a session that lives on [serviceUrl] (an account that
+     *  isn't the active one — it may be on another server). */
+    suspend fun refreshTokenAt(serviceUrl: String, refreshJwt: String): Result<BskyRefreshResponse> = runCatching {
+        val client = if (serviceUrl == baseUrl) api else NetworkClient.buildBlueskyApi(serviceUrl)
+        val resp = client.refreshSession("Bearer $refreshJwt")
+        resp.body() ?: error("Refresh failed: ${resp.code()}")
+    }
+
+    /** The account has email two-factor sign-in on: Bluesky has just
+     *  emailed a code, which has to be sent along with the password. */
+    class SignInCodeRequired : Exception("Enter the code Bluesky just emailed you")
+
+    /** What a server said went wrong, in its own words where it gave any. */
+    private fun serverMessage(resp: com.mediaviewer.network.Response<*>, fallback: String): Pair<String, String> {
+        val text = runCatching { resp.errorBody()?.string() }.getOrNull().orEmpty()
+        val obj = runCatching { StellarJson.default.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+        val code = (obj?.get("error") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+        val message = (obj?.get("message") as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+        return code to (message ?: "$fallback (${resp.code()})")
+    }
+
+    /**
+     * Which server [identifier] signs in at. Any AT Protocol handle works:
+     * the handle is resolved to its DID, and the DID's own document says
+     * where the account's PDS is. Accounts hosted by Bluesky (and email
+     * sign-ins) use bsky.social. Only HTTPS servers are ever used — the
+     * password is sent to the account's own server and nowhere else.
+     */
+    suspend fun resolveLoginService(identifier: String): String = withContext(Dispatchers.IO) {
+        val id = identifier.trim().removePrefix("@").lowercase()
+        val default = com.mediaviewer.util.BskyServices.DEFAULT
+        // An email address, or a Bluesky-hosted handle: nothing to look up.
+        if (id.isBlank() || (id.contains('@') && !id.startsWith("did:")) || id.endsWith(".bsky.social")) return@withContext default
+        val did = if (id.startsWith("did:")) id else resolveHandleToDid(id) ?: return@withContext default
+        val endpoint = runCatching { BlueskyBlobResolver.pdsEndpoint(did) }.getOrNull() ?: return@withContext default
+        val host = runCatching { com.mediaviewer.platform.uriHost(endpoint) }.getOrNull().orEmpty().lowercase()
+        when {
+            host.isBlank() || host == "bsky.social" || host.endsWith(".bsky.network") -> default
+            !endpoint.startsWith("https://") -> error("That account's server doesn't use a secure connection")
+            else -> endpoint.trimEnd('/') + "/"
+        }
+    }
+
+    /** handle → DID, the three ways AT Protocol defines (first that answers). */
+    private suspend fun resolveHandleToDid(handle: String): String? {
+        fun didIn(text: String?): String? = text?.let { Regex("""did:(?:plc|web):[A-Za-z0-9._:%-]+""").find(it)?.value }
+        // 1. Bluesky's public index (knows nearly every handle on the network).
+        runCatching {
+            val r = PlainHttp.get("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle", listOf("handle" to handle))
+            if (r.isSuccessful) didIn(r.bodyString())?.let { return it }
+        }
+        // 2. The handle's own website.
+        runCatching {
+            val r = PlainHttp.get("https://$handle/.well-known/atproto-did")
+            if (r.isSuccessful) didIn(r.bodyString().take(200))?.let { return it }
+        }
+        // 3. The handle's DNS record (read over HTTPS).
+        runCatching {
+            val r = PlainHttp.get(
+                "https://cloudflare-dns.com/dns-query", listOf("name" to "_atproto.$handle", "type" to "TXT"),
+                headers = listOf("Accept" to "application/dns-json")
+            )
+            if (r.isSuccessful) didIn(r.bodyString())?.let { return it }
+        }
+        return null
+    }
+
+    /** Signs in at [serviceUrl] with an app password or the account's own
+     *  password. [authFactorToken] is the emailed code, when one is needed
+     *  (the failure is then [SignInCodeRequired]). */
+    suspend fun loginAt(serviceUrl: String, identifier: String, password: String, authFactorToken: String? = null): Result<BskySession> = runCatching {
+        val client = if (serviceUrl == baseUrl) api else NetworkClient.buildBlueskyApi(serviceUrl)
+        val resp = client.createSession(BskyCreateSessionRequest(identifier, password, authFactorToken?.trim()?.takeIf { it.isNotBlank() }))
+        resp.body() ?: run {
+            val (code, message) = serverMessage(resp, "Sign in failed")
+            if (code == "AuthFactorTokenRequired") throw SignInCodeRequired()
+            error(if (resp.code() == 401) "Wrong handle or password" else message)
+        }
+    }
+
+    // ── Create Account (on Bluesky's own server) ────────────────────────
+
+    private val signupApi by lazy { NetworkClient.buildBlueskyApi(com.mediaviewer.util.BskyServices.DEFAULT) }
+
+    /** Whether Bluesky wants its "are you human" check before an account
+     *  can be made (it does, as a rule). */
+    suspend fun signupNeedsVerification(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = signupApi.describeServer().body()
+            body?.get("phoneVerificationRequired")?.takeIf { it.isJsonPrimitive }?.asBoolean
+        }.getOrNull() ?: true
+    }
+
+    /** True = free, false = taken, null = couldn't tell. */
+    suspend fun isHandleAvailable(handle: String): Boolean? = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = signupApi.resolveHandle(handle)
+            when {
+                resp.isSuccessful -> false
+                resp.code() == 400 -> true
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    suspend fun createAccount(email: String, handle: String, password: String, verificationCode: String?): Result<BskySession> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = LinkedHashMap<String, String>()
+            body["email"] = email.trim()
+            body["handle"] = handle
+            body["password"] = password
+            if (!verificationCode.isNullOrBlank()) body["verificationCode"] = verificationCode
+            val resp = signupApi.createAccount(body)
+            resp.body()?.takeIf { it.accessJwt.isNotBlank() && it.did.isNotBlank() } ?: error(serverMessage(resp, "Couldn't create the account").second)
+        }
+    }
+
+    /** Asks Bluesky to email the confirmation code for a new account. */
+    suspend fun requestEmailConfirmation(accessJwt: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = signupApi.requestEmailConfirmation("Bearer $accessJwt")
+            if (!resp.isSuccessful) error(serverMessage(resp, "Couldn't send the email").second)
+        }
+    }
+
+    suspend fun confirmEmail(accessJwt: String, email: String, code: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = signupApi.confirmEmail("Bearer $accessJwt", mapOf("email" to email.trim(), "token" to code.trim()))
+            if (!resp.isSuccessful) {
+                val (kind, message) = serverMessage(resp, "That code didn't work")
+                error(if (kind == "InvalidToken" || kind == "ExpiredToken") "That code isn't right, or it has expired" else message)
+            }
+        }
+    }
+
+    /** Stores a new account's date of birth where Bluesky keeps it (its
+     *  own preferences), as the official app does at sign-up. */
+    suspend fun setBirthDate(accessJwt: String, isoDate: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val getResp = signupApi.getPreferences("Bearer $accessJwt")
+            val preferences = (getResp.body()?.preferences ?: emptyList()).filterNot {
+                it.isJsonObject && it.asJsonObject.get("\$type")?.asString?.endsWith("personalDetailsPref") == true
+            }.toMutableList()
+            preferences.add(com.mediaviewer.json.JsonObject().apply {
+                addProperty("\$type", "app.bsky.actor.defs#personalDetailsPref")
+                addProperty("birthDate", isoDate)
+            })
+            val putResp = signupApi.putPreferences("Bearer $accessJwt", BskyPreferencesResponse(preferences))
+            if (!putResp.isSuccessful) error("Preferences ${putResp.code()}")
+        }
     }
 
     // ── Feed ──────────────────────────────────────────────────────────────────
@@ -3474,6 +3634,233 @@ class BlueskyRepository {
         }
     }
 
+    // ── Profile customizations (supporters) ─────────────────────────────
+    // One record per account: com.rechoraccoon.stellar.profile / "self".
+
+    private fun colorToHex(argb: Int): String {
+        val hex = (argb and 0xFFFFFF).toString(16).uppercase()
+        return "#" + "0".repeat(6 - hex.length) + hex
+    }
+
+    private fun hexToColor(text: String?): Int? {
+        val hex = text?.trim()?.removePrefix("#")?.takeIf { it.length == 6 } ?: return null
+        return hex.toIntOrNull(16)?.let { it or (0xFF shl 24) }
+    }
+
+    /**
+     * Reads [did]'s profile customization record straight from their own
+     * PDS, without signing in (records are public). Null = they have none.
+     * Throws when the PDS can't be reached, so the caller can try again.
+     */
+    suspend fun getProfileStyle(did: String): com.mediaviewer.util.ProfileStyle? = withContext(Dispatchers.IO) {
+        val pds = BlueskyBlobResolver.pdsEndpoint(did)
+        val resp = PlainHttp.get(
+            "$pds/xrpc/com.atproto.repo.getRecord",
+            listOf("repo" to did, "collection" to com.mediaviewer.util.ProfileStyles.COLLECTION, "rkey" to com.mediaviewer.util.ProfileStyles.RKEY)
+        )
+        // "RecordNotFound" comes back as a 400.
+        if (resp.code == 400 || resp.code == 404) return@withContext null
+        if (!resp.isSuccessful) error("Profile style ${resp.code}")
+        val value = (StellarJson.default.parseToJsonElement(resp.bodyString()) as? kotlinx.serialization.json.JsonObject)
+            ?.get("value") as? kotlinx.serialization.json.JsonObject ?: return@withContext null
+        fun text(key: String): String? = (value[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val colors = (value["colors"] as? kotlinx.serialization.json.JsonArray)
+            ?.map { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()
+        val effect = text("effect")?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } } ?: "confetti"
+        com.mediaviewer.util.ProfileStyle(
+            squareIcon = text("iconShape") == "square",
+            effect = effect,
+            colorA = hexToColor(colors.getOrNull(0)),
+            colorB = hexToColor(colors.getOrNull(1))
+        )
+    }
+
+    /** Writes (or, when everything is back to default, removes) your own. */
+    suspend fun saveProfileStyle(token: String, did: String, style: com.mediaviewer.util.ProfileStyle): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (style.isDefault) {
+                // Nothing customized: no record needed at all.
+                api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY))
+                return@runCatching
+            }
+            val record = LinkedHashMap<String, Any>()
+            record["\$type"] = com.mediaviewer.util.ProfileStyles.COLLECTION
+            record["iconShape"] = if (style.squareIcon) "square" else "circle"
+            record["effect"] = style.effect
+            val a = style.colorA
+            val b = style.colorB
+            if (a != null && b != null) record["colors"] = listOf(colorToHex(a), colorToHex(b))
+            record["updatedAt"] = com.mediaviewer.platform.nowIsoString()
+            val resp = api.putRecord(
+                "Bearer $token",
+                BskyPutRecordRequest(did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY, record, validate = false)
+            )
+            if (!resp.isSuccessful) error("Saving failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
+        }
+    }
+
+    // ── Archive (supporters) ────────────────────────────────────────────
+    // Archiving copies a post's record and every file it has into the
+    // app's private storage and then deletes it from the PDS; nothing about
+    // an archived post is kept online. "Add to Profile" uploads the files
+    // again and writes the very same record back under the same record key,
+    // so the post returns with its link, its date and its place in the
+    // profile.
+
+    private fun blobExtension(mimeType: String): String = when {
+        mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
+        mimeType.contains("png") -> "png"
+        mimeType.contains("webp") -> "webp"
+        mimeType.contains("gif") -> "gif"
+        mimeType.contains("quicktime") -> "mov"
+        mimeType.contains("webm") -> "webm"
+        mimeType.startsWith("video/") -> "mp4"
+        else -> "bin"
+    }
+
+    /** Every blob [el] points at, in the order they appear. */
+    private fun collectBlobs(el: kotlinx.serialization.json.JsonElement, into: MutableList<com.mediaviewer.util.ArchivedBlob>) {
+        when (el) {
+            is kotlinx.serialization.json.JsonObject -> {
+                val type = (el["\$type"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val link = ((el["ref"] as? kotlinx.serialization.json.JsonObject)?.get("\$link") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                if (type == "blob" && !link.isNullOrBlank()) {
+                    into += com.mediaviewer.util.ArchivedBlob(
+                        cid = link,
+                        mimeType = (el["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
+                        size = (el["size"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                    )
+                } else el.values.forEach { collectBlobs(it, into) }
+            }
+            is kotlinx.serialization.json.JsonArray -> el.forEach { collectBlobs(it, into) }
+            else -> {}
+        }
+    }
+
+    /** [el] with every blob in [replacements] (by CID) swapped for the
+     *  blob the PDS just handed back for the same file. */
+    private fun replaceBlobs(
+        el: kotlinx.serialization.json.JsonElement, replacements: Map<String, kotlinx.serialization.json.JsonElement>
+    ): kotlinx.serialization.json.JsonElement = when (el) {
+        is kotlinx.serialization.json.JsonObject -> {
+            val type = (el["\$type"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val link = ((el["ref"] as? kotlinx.serialization.json.JsonObject)?.get("\$link") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            if (type == "blob" && link != null && replacements.containsKey(link)) replacements.getValue(link)
+            else kotlinx.serialization.json.JsonObject(el.mapValues { replaceBlobs(it.value, replacements) })
+        }
+        is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.JsonArray(el.map { replaceBlobs(it, replacements) })
+        else -> el
+    }
+
+    /**
+     * Archives [item] (one of your own posts). The post is only deleted
+     * from the PDS after its record and every one of its files have been
+     * saved on the device — if anything can't be saved, nothing is deleted.
+     */
+    suspend fun archivePost(
+        token: String, did: String, context: PlatformContext, item: MediaItem
+    ): Result<com.mediaviewer.util.ArchivedPost> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rkey = item.postUri.substringAfterLast('/')
+            val existing = api.getRecord("Bearer $token", did, "app.bsky.feed.post", rkey)
+            val value = existing.body()?.value?.takeIf { it.isJsonObject }?.toKx()
+                ?: error("Couldn't read the post (${existing.code()})")
+            val refs = ArrayList<com.mediaviewer.util.ArchivedBlob>()
+            collectBlobs(value, refs)
+            val folder = com.mediaviewer.util.PostArchive.FOLDER + "/" + did.replace(':', '_') + "/" + rkey
+            val saved = ArrayList<com.mediaviewer.util.ArchivedBlob>()
+            var poster: String? = null
+            try {
+                for (ref in refs.distinctBy { it.cid }) {
+                    val url = BlueskyBlobResolver.resolveBlobUrl(did, ref.cid)
+                    val file = com.mediaviewer.platform.PrivateFiles.download(context, url, folder, ref.cid + "." + blobExtension(ref.mimeType))
+                        ?: error("Couldn't save the post's media to this device")
+                    saved += ref.copy(file = file)
+                }
+                // A video's cover picture isn't part of the post itself;
+                // a copy is kept so the archived post still has one.
+                if (item.isVideo && item.thumbUrl.startsWith("http")) {
+                    poster = com.mediaviewer.platform.PrivateFiles.download(context, item.thumbUrl, folder, "poster.jpg")
+                }
+            } catch (e: Throwable) {
+                com.mediaviewer.platform.PrivateFiles.deleteFolder(context, folder)
+                throw e
+            }
+
+            val images = saved.filter { it.mimeType.startsWith("image/") }
+            val video = saved.firstOrNull { it.mimeType.startsWith("video/") }
+            var local = item.copy(
+                id = com.mediaviewer.util.PostArchive.ID_PREFIX + did + "/" + rkey,
+                feedContext = null, likeUri = null, repostUri = null, bookmarkUri = null,
+                isLiked = false, isReposted = false, isBookmarked = false,
+                sentByAuthor = null, sentByMessage = "", sentByConvoId = null, sentByIsRepost = false
+            )
+            when {
+                video != null -> local = local.copy(
+                    videoPlaylistUrl = video.file, mediaUrl = poster ?: "", thumbUrl = poster ?: "", taggingUrl = ""
+                )
+                local.textshotImageUrl.isNotBlank() && images.isNotEmpty() -> local = local.copy(textshotImageUrl = images[0].file)
+                local.mediaGroup.isNotEmpty() && images.size >= local.mediaGroup.size -> local = local.copy(
+                    mediaUrl = images[0].file, thumbUrl = images[0].file, taggingUrl = "",
+                    mediaGroup = local.mediaGroup.mapIndexed { i, g -> g.copy(mediaUrl = images[i].file, thumbUrl = images[i].file) }
+                )
+                images.isNotEmpty() && local.mediaUrl.isNotBlank() && !local.isVideo -> local = local.copy(
+                    mediaUrl = images[0].file, thumbUrl = images[0].file, taggingUrl = ""
+                )
+            }
+
+            // Everything is on the device: now it can leave the PDS.
+            val del = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, "app.bsky.feed.post", rkey))
+            if (!del.isSuccessful) {
+                com.mediaviewer.platform.PrivateFiles.deleteFolder(context, folder)
+                error("Couldn't remove the post from your profile (${del.code()})")
+            }
+            com.mediaviewer.util.ArchivedPost(
+                rkey = rkey, did = did, uri = item.postUri,
+                archivedAt = com.mediaviewer.platform.currentTimeMillis(),
+                record = value.toString(), blobs = saved, item = local
+            )
+        }
+    }
+
+    /**
+     * "Add to Profile": uploads an archived post's files again and writes
+     * its record back under the same record key. The same bytes give the
+     * same blobs, so the record goes back exactly as it was.
+     */
+    suspend fun restoreArchivedPost(
+        token: String, did: String, context: PlatformContext, post: com.mediaviewer.util.ArchivedPost
+    ): Result<BskyRef> = withContext(Dispatchers.IO) {
+        runCatching {
+            val record = StellarJson.default.parseToJsonElement(post.record) as? kotlinx.serialization.json.JsonObject
+                ?: error("This archived post can't be read")
+            val replacements = HashMap<String, kotlinx.serialization.json.JsonElement>()
+            for (blob in post.blobs) {
+                if (com.mediaviewer.platform.PrivateFiles.size(context, blob.file) <= 0L) error("One of this post's files is missing from this device")
+                val mime = blob.mimeType.ifBlank { "application/octet-stream" }
+                val body = MediaBridge.videoUploadBody(context, com.mediaviewer.platform.LocalPlatform.parseUri(blob.file), mime)
+                val resp = api.uploadBlob("Bearer $token", mime, body)
+                val uploaded = resp.body()?.blob ?: error("Upload failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
+                replacements[blob.cid] = StellarJson.default.encodeToJsonElement(BskyBlob.serializer(), uploaded)
+            }
+            val restored = replaceBlobs(record, replacements)
+            val resp = api.applyWrites("Bearer $token", BskyApplyWritesRequest(did, listOf(
+                mapOf("\$type" to "com.atproto.repo.applyWrites#create", "collection" to "app.bsky.feed.post", "rkey" to post.rkey, "value" to restored)
+            )))
+            if (!resp.isSuccessful) error("Couldn't add the post back (${resp.code()}): ${errorBodyText(resp).take(160)}")
+            val cid = runCatching {
+                resp.body()?.getAsJsonArray("results")?.mapNotNull { r -> runCatching { r.asJsonObject.get("cid")?.asString }.getOrNull() }?.lastOrNull()
+            }.getOrNull().orEmpty()
+            BskyRef(post.uri, cid)
+        }
+    }
+
+    /** Deletes an archived post for good (its files and its entry). */
+    fun discardArchivedPost(context: PlatformContext, post: com.mediaviewer.util.ArchivedPost) {
+        com.mediaviewer.platform.PrivateFiles.deleteFolder(context, com.mediaviewer.util.PostArchive.FOLDER + "/" + post.did.replace(':', '_') + "/" + post.rkey)
+        com.mediaviewer.util.PostArchive.remove(post)
+    }
+
     /** Posts a self-thread: each entry's images are uploaded and attached to
      *  that entry, and each post after the first replies to the previous one
      *  (root always the first post) — a standard Bluesky self-thread. Stops
@@ -3527,11 +3914,162 @@ class BlueskyRepository {
             }
         }
 
-    /** Uploads a video via video.bsky.app (a separate service from the
-     *  user's own PDS, per Bluesky's documented flow — see the class doc
-     *  comment above), polling until it's encoded, then posts it. `did` and
-     *  `pdsHost` identify the account/PDS the service-auth token is minted
-     *  for. */
+    // ── Video posts ─────────────────────────────────────────────────────
+    // The upload starts the moment a video is attached in the composer
+    // (prepareVideoUpload), the way Bluesky's own app does it, so by the
+    // time Post is tapped the video is usually uploaded and processed
+    // already and posting is just writing the record.
+
+    /** A video on its way to (or already on) Bluesky. */
+    private class PendingVideo(val key: String) {
+        lateinit var job: kotlinx.coroutines.Deferred<UploadedVideo>
+        @kotlin.concurrent.Volatile var failed = false
+    }
+    private class UploadedVideo(val blob: BskyBlob, val width: Int, val height: Int)
+
+    private val videoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    @kotlin.concurrent.Volatile private var pendingVideo: PendingVideo? = null
+
+    private fun videoKey(did: String, video: PlatformUri, thumbnail: PlatformUri?): String = "$did|$video|${thumbnail ?: ""}"
+
+    /** Starts uploading [videoUri] now. Calling it again for the same video
+     *  and thumbnail does nothing; a different one replaces the upload. */
+    fun prepareVideoUpload(token: String, did: String, context: PlatformContext, videoUri: PlatformUri, thumbnailUri: PlatformUri?) {
+        val key = videoKey(did, videoUri, thumbnailUri)
+        val current = pendingVideo
+        if (current != null && current.key == key && !current.failed) return
+        current?.job?.cancel()
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.UPLOADING)
+        val pending = PendingVideo(key)
+        pending.job = videoScope.async {
+            try {
+                uploadVideo(token, did, context, videoUri, thumbnailUri).also {
+                    if (pendingVideo === pending) com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.READY)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                pending.failed = true
+                if (pendingVideo === pending) com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.FAILED, e.message ?: "Upload failed")
+                throw e
+            }
+        }
+        pendingVideo = pending
+    }
+
+    /** The composer closed without posting (or the video was removed). */
+    fun cancelVideoUpload() {
+        pendingVideo?.job?.cancel()
+        pendingVideo = null
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE)
+    }
+
+    /**
+     * Gets one video onto Bluesky and returns its blob.
+     *
+     * First choice is Bluesky's video service (video.bsky.app): it takes the
+     * file, transcodes it straight away and hands back a blob that plays
+     * the moment the post is up. If that route fails for any reason, the
+     * file is uploaded directly to the account's own PDS instead — the same
+     * blob upload pictures use — and Bluesky processes it when the post is
+     * first viewed. Either way the post goes through.
+     */
+    private suspend fun uploadVideo(
+        token: String, did: String, context: PlatformContext, videoUri: PlatformUri, thumbnailUri: PlatformUri?
+    ): UploadedVideo {
+        // See VideoThumbnailStitcher's header comment — this is the only
+        // way a custom thumbnail actually shows up on Bluesky, since the
+        // platform always shows frame 0 as the thumbnail. Falls back to the
+        // original video untouched if splicing fails for any reason (a
+        // missing thumbnail beats a failed post).
+        val uploadUri = if (thumbnailUri != null) {
+            runCatching { MediaBridge.stitchVideoThumbnail(context, videoUri, thumbnailUri) }
+                .onFailure { com.mediaviewer.platform.Log.e("BlueskyRepository", "Custom thumbnail couldn't be added — posting without it", it) }
+                .getOrDefault(videoUri)
+        } else videoUri
+        // Transformer always re-muxes to mp4, so once stitching has happened
+        // the original URI's declared type (mov, etc.) no longer applies.
+        val mimeType = if (uploadUri != videoUri) "video/mp4" else (MediaBridge.mimeTypeOf(context, videoUri) ?: "video/mp4")
+        val (videoW, videoH) = runCatching { videoDimensions(context, uploadUri) }.getOrDefault(0 to 0)
+
+        val viaService = runCatching { uploadVideoThroughService(token, did, context, uploadUri, mimeType) }
+        viaService.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
+        val blob = viaService.getOrNull() ?: run {
+            com.mediaviewer.platform.Log.e("BlueskyRepository", "Video service upload failed — uploading to the PDS instead", viaService.exceptionOrNull())
+            com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.UPLOADING)
+            val resp = api.uploadBlob("Bearer $token", mimeType, MediaBridge.videoUploadBody(context, uploadUri, mimeType))
+            resp.body()?.blob ?: error(
+                "Video upload failed (${viaService.exceptionOrNull()?.message ?: "video service"}; PDS ${resp.code()}: ${errorBodyText(resp).take(140)})"
+            )
+        }
+        return UploadedVideo(blob, videoW, videoH)
+    }
+
+    private suspend fun uploadVideoThroughService(
+        token: String, did: String, context: PlatformContext, uploadUri: PlatformUri, mimeType: String
+    ): BskyBlob {
+        // The service-auth token has to be minted FOR the account's real
+        // PDS (video.bsky.app uses it to put the finished blob there), not
+        // the bsky.social entryway — resolve it from the DID document (the
+        // same lookup DMs use) and ask that PDS directly.
+        ensureChatApi(did)
+        val realPdsHost = resolvedPdsEndpoint?.let { runCatching { com.mediaviewer.platform.uriHost(it) }.getOrNull() } ?: currentPdsHost()
+        val authResp = chatApi.getServiceAuth(
+            "Bearer $token",
+            aud = "did:web:$realPdsHost",
+            lxm = "com.atproto.repo.uploadBlob",
+            exp = (com.mediaviewer.platform.currentTimeMillis() / 1000) + 60 * 30
+        )
+        val serviceToken = authResp.body()?.token
+            ?: error("Couldn't authorize the upload (${authResp.code()}: ${errorBodyText(authResp)})")
+
+        val fileName = "stellar-${com.mediaviewer.platform.currentTimeMillis()}.mp4"
+        // Streamed from disk instead of read into one byte array — a long
+        // video no longer has to fit in memory at once.
+        val body = MediaBridge.videoUploadBody(context, uploadUri, mimeType)
+        val uploadResp = videoApi.uploadVideo("Bearer $serviceToken", mimeType, did, fileName, body)
+        val uploadJson = runCatching {
+            (if (uploadResp.isSuccessful) uploadResp.body()?.string() else uploadResp.errorBody()?.string())
+                ?.let { com.mediaviewer.json.JsonParser.parseString(it).asJsonObject }
+        }.getOrNull()
+        // The service answers with { jobStatus: {...} } (the lexicon's
+        // shape; older builds sent the job status bare), and with 409
+        // "already_exists" + the existing jobId when this exact video was
+        // uploaded before — which is fine, that job's blob is reusable.
+        val jobJson = uploadJson?.getAsJsonObject("jobStatus") ?: uploadJson
+        val jobId = jobJson?.get("jobId")?.takeIf { it.isJsonPrimitive }?.asString
+        if (jobId.isNullOrBlank()) {
+            val msg = uploadJson?.get("message")?.takeIf { it.isJsonPrimitive }?.asString
+                ?: uploadJson?.get("error")?.takeIf { it.isJsonPrimitive }?.asString
+            error("${uploadResp.code()}${if (msg != null) ": $msg" else ""}")
+        }
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.PROCESSING)
+        var jobStatus: BskyJobStatus? = runCatching {
+            jobJson?.let { StellarJson.default.decodeFromJsonElement(BskyJobStatus.serializer(), it.toKx()) }
+        }.getOrNull()
+        val deadline = com.mediaviewer.platform.currentTimeMillis() + 10 * 60 * 1000L
+        var misses = 0
+        while (jobStatus?.blob == null) {
+            if (jobStatus?.state == "JOB_STATE_FAILED") error("Processing failed: ${jobStatus?.error ?: jobStatus?.message ?: "unknown error"}")
+            if (com.mediaviewer.platform.currentTimeMillis() > deadline) error("Processing timed out")
+            // Quick checks at first (short clips finish in a second or two).
+            delay(if (misses < 6) 700 else 1500)
+            val next = runCatching { videoApi.getJobStatus(jobId).body()?.jobStatus }.getOrNull()
+            if (next == null) {
+                // The status can't be read at all: don't wait ten minutes on it.
+                if (++misses > 20) error("Couldn't read the processing status")
+            } else {
+                jobStatus = next
+                next.progress?.let { com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.PROCESSING, progress = it) }
+                if (next.state == "JOB_STATE_COMPLETED" && next.blob == null) error("Processing finished with no video")
+            }
+        }
+        return jobStatus?.blob ?: error("Processing finished with no video")
+    }
+
+    /** Posts a video. Uses the upload started by [prepareVideoUpload] when
+     *  there is one for this video (waiting for it if it's still going),
+     *  otherwise uploads now. */
     suspend fun createVideoPost(
         token: String, did: String, context: com.mediaviewer.platform.PlatformContext,
         videoUri: com.mediaviewer.platform.PlatformUri, thumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
@@ -3539,81 +4077,19 @@ class BlueskyRepository {
         selfLabels: List<String> = emptyList()
     ): Result<BskyRef> = withContext(Dispatchers.IO) {
         runCatching {
-            val pdsHost = currentPdsHost()
-            // See VideoThumbnailStitcher's header comment — this is the
-            // only way a custom thumbnail actually shows up on Bluesky,
-            // since the platform always shows frame 0 as the thumbnail.
-            // Falls back to the original video untouched if no thumbnail
-            // was picked, or splicing fails for any reason (a missing
-            // thumbnail beats a failed post).
-            val uploadUri = if (thumbnailUri != null) {
-                runCatching { MediaBridge.stitchVideoThumbnail(context, videoUri, thumbnailUri) }
-                    .onFailure { com.mediaviewer.platform.Log.e("BlueskyRepository", "Custom thumbnail couldn't be added — posting without it", it) }
-                    .getOrDefault(videoUri)
-            } else videoUri
-            // Bug fix ("posting videos loads for a bit then fails"): the
-            // service-auth token has to be minted FOR the account's real PDS
-            // (video.bsky.app uses it to put the finished blob there). This
-            // used `bsky.social`, which is only the login entryway for most
-            // accounts, so the upload was rejected. Resolve the real PDS from
-            // the DID document (same lookup DMs use) and ask it directly.
-            ensureChatApi(did)
-            val realPdsHost = resolvedPdsEndpoint?.let { runCatching { com.mediaviewer.platform.uriHost(it) }.getOrNull() } ?: pdsHost
-            val authResp = chatApi.getServiceAuth(
-                "Bearer $token",
-                aud = "did:web:$realPdsHost",
-                lxm = "com.atproto.repo.uploadBlob",
-                exp = (com.mediaviewer.platform.currentTimeMillis() / 1000) + 60 * 30
-            )
-            val serviceToken = authResp.body()?.token
-                ?: error("Couldn't authorize the upload (${authResp.code()}: ${errorBodyText(authResp)})")
-
-            // Transformer always re-muxes to mp4, so once stitching has
-            // happened the original content:// URI's declared type (mov,
-            // etc.) no longer applies to the bytes we're actually sending.
-            val mimeType = if (uploadUri != videoUri) "video/mp4" else (MediaBridge.mimeTypeOf(context, videoUri) ?: "video/mp4")
-            val fileName = "stellar-${com.mediaviewer.platform.currentTimeMillis()}.mp4"
-            // Streamed from disk instead of read into one byte array — a long
-            // video no longer has to fit in memory at once.
-            val body = MediaBridge.videoUploadBody(context, uploadUri, mimeType)
-
-            val uploadResp = videoApi.uploadVideo("Bearer $serviceToken", mimeType, did, fileName, body)
-            val uploadJson = runCatching {
-                (if (uploadResp.isSuccessful) uploadResp.body()?.string() else uploadResp.errorBody()?.string())
-                    ?.let { com.mediaviewer.json.JsonParser.parseString(it).asJsonObject }
-            }.getOrNull()
-            // The service answers with { jobStatus: {...} } (the lexicon's
-            // shape; older builds sent the job status bare), and with 409
-            // "already_exists" + the existing jobId when this exact video was
-            // uploaded before — which is fine, that job's blob is reusable.
-            val jobJson = uploadJson?.getAsJsonObject("jobStatus") ?: uploadJson
-            val jobId = jobJson?.get("jobId")?.takeIf { it.isJsonPrimitive }?.asString
-            if (jobId.isNullOrBlank()) {
-                val msg = uploadJson?.get("message")?.takeIf { it.isJsonPrimitive }?.asString
-                    ?: uploadJson?.get("error")?.takeIf { it.isJsonPrimitive }?.asString
-                error("Video upload failed (${uploadResp.code()}${if (msg != null) ": $msg" else ""})")
-            }
-            var jobStatus: BskyJobStatus? = runCatching {
-                jobJson?.let { StellarJson.default.decodeFromJsonElement(BskyJobStatus.serializer(), it.toKx()) }
-            }.getOrNull()
-            val deadline = com.mediaviewer.platform.currentTimeMillis() + 10 * 60 * 1000L
-            while (jobStatus?.blob == null && jobStatus?.state != "JOB_STATE_COMPLETED") {
-                if (jobStatus?.state == "JOB_STATE_FAILED") error("Video processing failed: ${jobStatus?.error ?: jobStatus?.message ?: "unknown error"}")
-                if (com.mediaviewer.platform.currentTimeMillis() > deadline) error("Video processing timed out")
-                delay(1500)
-                jobStatus = runCatching { videoApi.getJobStatus(jobId!!).body()?.jobStatus }.getOrNull() ?: jobStatus
-            }
-            val blob = jobStatus?.blob ?: error("Video job completed with no blob")
+            val key = videoKey(did, videoUri, thumbnailUri)
+            val prepared = pendingVideo?.takeIf { it.key == key && !it.failed }
+            val uploaded = prepared?.let { p -> runCatching { p.job.await() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() }
+                // Nothing prepared (or it failed): one fresh try now.
+                ?: uploadVideo(token, did, context, videoUri, thumbnailUri)
 
             val text = if (description.isBlank()) title else "$title\n\n$description"
-            // Probe the exact bytes being uploaded for dimensions — the
-            // video embed's aspectRatio is what makes feed previews render
-            // at the right shape instead of square. A probing failure must
-            // never break the post, so unknown dimensions are just omitted.
-            val (videoW, videoH) = videoDimensions(context, uploadUri)
-            val videoEmbed = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to blob)
-            if (videoW > 0 && videoH > 0) {
-                videoEmbed["aspectRatio"] = mapOf("width" to videoW, "height" to videoH)
+            // The video embed's aspectRatio is what makes feed previews
+            // render at the right shape instead of square; unknown
+            // dimensions are just left out.
+            val videoEmbed = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to uploaded.blob)
+            if (uploaded.width > 0 && uploaded.height > 0) {
+                videoEmbed["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
             }
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
@@ -3621,9 +4097,12 @@ class BlueskyRepository {
                 "embed" to videoEmbed,
                 "createdAt" to com.mediaviewer.platform.nowIsoString()
             )
+            (buildHashtagFacets(text) + buildLinkFacets(text)).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
             if (selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels)
             val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.feed.post", record))
-            val respBody = resp.body() ?: error("createPost ${resp.code()}")
+            val respBody = resp.body() ?: error("Posting the video failed (${resp.code()}): ${errorBodyText(resp).take(160)}")
+            pendingVideo = null
+            com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE)
             BskyRef(respBody.uri, respBody.cid)
         }
     }
@@ -3690,6 +4169,29 @@ class BlueskyRepository {
                 isVideo = quotedVideo != null
             )
         }.getOrNull()
+    }
+
+    /**
+     * A post shared in a DM, as feed items — built only from what the
+     * message itself already carries (the shared post's full view rides
+     * along in the message embed), so opening it needs no request at all.
+     */
+    fun sharedPostItems(embed: com.mediaviewer.json.JsonElement?): List<MediaItem> {
+        if (embed == null || embed.isJsonNull) return emptyList()
+        return runCatching {
+            val parsed = StellarJson.default.decodeFromJsonElement(BskyEmbed.serializer(), embed.toKx())
+            if (!parsed.type.contains("record")) return@runCatching emptyList()
+            val record = parsed.record?.record ?: parsed.record ?: return@runCatching emptyList()
+            val author = record.author ?: return@runCatching emptyList()
+            val uri = record.uri ?: return@runCatching emptyList()
+            val post = BskyPost(
+                uri = uri, cid = record.cid ?: "", author = author,
+                record = record.value ?: BskyRecord(),
+                embed = record.embeds?.firstOrNull(),
+                labels = record.labels
+            )
+            parseFeedItemSafe(BskyFeedItem(post = post))
+        }.getOrDefault(emptyList())
     }
 
     private fun String.rkey() = this.substringAfterLast('/')

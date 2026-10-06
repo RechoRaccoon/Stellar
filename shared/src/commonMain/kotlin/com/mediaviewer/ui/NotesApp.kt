@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -79,8 +78,58 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.text.style.TextAlign
 
 private val noteImageLine = Regex("""^!\[[^\]]*\]\(([^)]+)\)\s*$""")
+
+/** "- [ ] task" / "- [x] done" (also with *), after any indent. */
+private val checklistLine = Regex("""^(\s*)[-*] \[([ xX])\] ?(.*)$""")
+/** "1. first" */
+private val numberedLine = Regex("""^(\s*)(\d+)\. (.*)$""")
+/** What a list row starts with: a checkbox, a bullet or a number. */
+private val listPrefix = Regex("""^(\s*)(?:([-*]) \[[ xX]\] |([-*]) |(\d+)\. )""")
+
+/**
+ * Return pressed on a list row: the new row starts with the same marker
+ * ("- [ ] ", "- ", the next number), so a list can be typed straight
+ * through. Return on a row that has nothing but its marker ends the list
+ * instead (the marker is removed). Anything else is passed on untouched.
+ */
+internal fun continueMarkdownList(old: TextFieldValue, new: TextFieldValue): TextFieldValue {
+    if (new.text.length != old.text.length + 1 || !new.selection.collapsed) return new
+    val caret = new.selection.start
+    if (caret <= 0 || caret > new.text.length || new.text[caret - 1] != '\n') return new
+    // Exactly one new line was typed, right before the caret.
+    if (new.text.removeRange(caret - 1, caret) != old.text) return new
+    val lineStart = if (caret >= 2) new.text.lastIndexOf('\n', caret - 2) + 1 else 0
+    val line = new.text.substring(lineStart, caret - 1)
+    val m = listPrefix.find(line) ?: return new
+    if (line.substring(m.value.length).isBlank()) {
+        val text = new.text.removeRange(lineStart, caret)
+        return TextFieldValue(text, TextRange(lineStart))
+    }
+    val indent = m.groupValues[1]
+    val next = when {
+        m.groupValues[2].isNotEmpty() -> indent + m.groupValues[2] + " [ ] "
+        m.groupValues[3].isNotEmpty() -> indent + m.groupValues[3] + " "
+        else -> indent + ((m.groupValues[4].toIntOrNull() ?: 0) + 1) + ". "
+    }
+    val text = new.text.substring(0, caret) + next + new.text.substring(caret)
+    return TextFieldValue(text, TextRange(caret + next.length))
+}
+
+/** [body] with the checklist row on line [lineIndex] ticked or unticked. */
+internal fun toggleChecklistLine(body: String, lineIndex: Int): String {
+    val lines = body.split('\n').toMutableList()
+    val line = lines.getOrNull(lineIndex) ?: return body
+    val m = checklistLine.find(line) ?: return body
+    val open = line.indexOf('[', m.groupValues[1].length)
+    if (open < 0 || open + 1 >= line.length) return body
+    val done = line[open + 1] != ' '
+    lines[lineIndex] = line.substring(0, open + 1) + (if (done) ' ' else 'x') + line.substring(open + 2)
+    return lines.joinToString("\n")
+}
 
 /** Inline markdown: **bold**, *italic* / _italic_, `code`, ~~strike~~. */
 internal fun markdownInline(text: String): AnnotatedString = buildAnnotatedString {
@@ -117,12 +166,48 @@ internal fun markdownInline(text: String): AnnotatedString = buildAnnotatedStrin
 
 /** A note, rendered: headings, lists, quotes, inline styles and pictures. */
 @Composable
-internal fun MarkdownView(body: String, tint: Color, modifier: Modifier = Modifier) {
+internal fun MarkdownView(
+    body: String, tint: Color, modifier: Modifier = Modifier,
+    /** A checklist row was tapped (its line number in [body]). */
+    onToggleCheck: ((lineIndex: Int) -> Unit)? = null
+) {
+    val tap = rememberHapticTap()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        body.lines().forEach { raw ->
+        body.split('\n').forEachIndexed { lineIndex, raw ->
             val line = raw.trimEnd()
             val image = noteImageLine.find(line.trim())
+            val check = checklistLine.find(line)
+            val numbered = numberedLine.find(line)
             when {
+                check != null -> {
+                    val done = check.groupValues[2] != " "
+                    val accent = lerp(tint, Color.White, 0.5f)
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = (check.groupValues[1].length * 6).dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(if (onToggleCheck != null) Modifier.clickable { tap(); onToggleCheck(lineIndex) } else Modifier)
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            Modifier.padding(start = 2.dp, end = 9.dp, top = 2.dp).size(17.dp).clip(RoundedCornerShape(5.dp))
+                                .background(if (done) accent.copy(alpha = 0.9f) else Color.Transparent)
+                                .border(1.5.dp, accent.copy(alpha = if (done) 0.9f else 0.7f), RoundedCornerShape(5.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (done) Icon(Icons.Default.Check, contentDescription = "Done", tint = Color.Black.copy(alpha = 0.8f), modifier = Modifier.size(13.dp))
+                        }
+                        Text(
+                            markdownInline(check.groupValues[3]),
+                            color = Color.White.copy(alpha = if (done) 0.5f else 0.95f), fontSize = 15.sp, lineHeight = 21.sp,
+                            textDecoration = if (done) TextDecoration.LineThrough else null
+                        )
+                    }
+                }
+                numbered != null -> Row(Modifier.padding(start = (numbered.groupValues[1].length * 6).dp)) {
+                    Text(numbered.groupValues[2] + ".", color = lerp(tint, Color.White, 0.5f), fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(start = 4.dp, end = 8.dp))
+                    Text(markdownInline(numbered.groupValues[3]), color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, lineHeight = 21.sp)
+                }
                 image != null -> AsyncImage(
                     model = image.groupValues[1].let { if (it.startsWith("http")) it else LocalPlatform.parseUri(it) },
                     contentDescription = null, contentScale = ContentScale.FillWidth,
@@ -156,6 +241,14 @@ internal fun MarkdownView(body: String, tint: Color, modifier: Modifier = Modifi
 fun NotesPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
     var open by remember { mutableStateOf<NoteEntry?>(null) }
     var folder by remember { mutableStateOf<String?>(null) }
+    // Opened from a home-screen widget: straight to that note.
+    val wanted = LocalOverlays.openNoteId
+    LaunchedEffect(wanted) {
+        if (wanted != null) {
+            LocalData.notes.firstOrNull { it.id == wanted }?.let { open = it }
+            LocalOverlays.openNoteId = null
+        }
+    }
     val current = open
     if (current != null) {
         NoteEditor(current, tint, liquidGlass, onDone = { open = null })
@@ -331,22 +424,25 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 if (preview) Icons.Default.Edit else Icons.Default.Visibility, if (preview) "Edit" else "Preview",
                 liquidGlass, tint, { preview = !preview }
             )
+        },
+        // The page's title is the note's own title: tap it to rename.
+        titleContent = {
+            BasicTextField(
+                value = title, onValueChange = { title = it.replace("\n", " ").take(120) },
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                cursorBrush = SolidColor(Color.White),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.Center) {
+                        if (title.isEmpty()) Text("Note", color = Color.White.copy(alpha = 0.45f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        inner()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     ) {
-        BasicTextField(
-            value = title, onValueChange = { title = it.replace("\n", " ").take(120) },
-            singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold),
-            cursorBrush = SolidColor(Color.White),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            decorationBox = { inner ->
-                Box {
-                    if (title.isEmpty()) Text("Title", color = Color.White.copy(alpha = 0.35f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    inner()
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
-        )
         // The note's folder: tap to move it to the next one.
         Row(Modifier.padding(top = 6.dp, bottom = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LocalChip("No folder", folderId == null, tint, { folderId = null })
@@ -357,17 +453,23 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
             if (preview) {
                 MarkdownView(
                     body.text.ifBlank { "*Nothing written yet.*" }, tint,
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp)
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+                    // Checklists tick straight from the reading view.
+                    onToggleCheck = { line ->
+                        val next = toggleChecklistLine(body.text, line)
+                        if (next != body.text) body = TextFieldValue(next, TextRange(next.length))
+                    }
                 )
             } else {
                 BasicTextField(
-                    value = body, onValueChange = { body = it },
+                    // Return on a list / checklist row carries the marker on.
+                    value = body, onValueChange = { body = continueMarkdownList(body, it) },
                     textStyle = TextStyle(color = Color.White, fontSize = 15.sp, lineHeight = 21.sp),
                     cursorBrush = SolidColor(Color.White),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     decorationBox = { inner ->
                         Box {
-                            if (body.text.isEmpty()) Text("Start writing… (markdown works: **bold**, *italic*, # heading, - list)", color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp, lineHeight = 21.sp)
+                            if (body.text.isEmpty()) Text("Start writing… (markdown works: **bold**, *italic*, # heading, - list, - [ ] checklist)", color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp, lineHeight = 21.sp)
                             inner()
                         }
                     },
@@ -389,9 +491,17 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 LocalChip("Italic", false, tint, { wrap("*") })
                 LocalChip("Heading", false, tint, { prefixLine("# ") })
                 LocalChip("List", false, tint, { prefixLine("- ") })
+                LocalChip("Checklist", false, tint, { prefixLine("- [ ] ") })
                 LocalChip("Quote", false, tint, { prefixLine("> ") })
                 LocalChip("Code", false, tint, { wrap("`") })
                 LocalChip("Image", false, tint, { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                // The home-screen Note widget shows this note (tap again:
+                // back to showing whichever note is newest).
+                val onWidget = id.isNotBlank() && LocalData.widgetNoteId == id
+                LocalChip("Widget", onWidget, tint, {
+                    save()
+                    if (id.isNotBlank()) LocalData.updateWidgetNote(if (onWidget) "" else id)
+                })
             }
         }
     }

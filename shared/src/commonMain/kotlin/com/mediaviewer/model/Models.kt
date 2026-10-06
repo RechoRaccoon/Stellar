@@ -233,7 +233,13 @@ data class CommentItem(
 // ── Bluesky ──────────────────────────────────────────────────────────────────
 
 @Serializable
-data class BskyCreateSessionRequest(val identifier: String = "", val password: String = "")
+data class BskyCreateSessionRequest(
+    val identifier: String = "",
+    val password: String = "",
+    /** The code Bluesky emails when the account has email two-factor
+     *  sign-in on (left out otherwise). */
+    val authFactorToken: String? = null
+)
 
 @Serializable
 data class BskySession(

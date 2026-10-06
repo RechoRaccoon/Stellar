@@ -3,10 +3,11 @@ package com.mediaviewer.util
 /**
  * Phase 4 — on-device translation. The shared part: the picker's language
  * list, display names and the translate() flow. The actual detection and
- * translation run in a platform [TranslationEngine] — ML Kit on Android
- * (text never leaves the phone). iOS has no engine yet (Apple's Translation
- * framework is Swift-only; the iOS app can plug one in via [engine]), so
- * there [isAvailable] is false and the setting shows as unavailable.
+ * translation run in a platform [TranslationEngine] — ML Kit on Android,
+ * Apple's Translation + NaturalLanguage frameworks on iOS 18 and later
+ * (text never leaves the phone on either). Apple's framework is Swift-only,
+ * so the iOS app plugs its engine in via [engine] at launch; below iOS 18
+ * [isAvailable] is false and the setting shows as unavailable.
  */
 object TranslationManager {
 

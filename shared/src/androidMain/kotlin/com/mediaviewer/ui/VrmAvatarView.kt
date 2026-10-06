@@ -12,6 +12,7 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -123,6 +124,9 @@ fun VrmAvatarView(
     springBones: Boolean = true,
     /** Render-rate cap. */
     maxFps: Int = 30,
+    /** A picture or looping video behind the avatar instead of the flat
+     *  color (supporters), or null. */
+    backgroundMedia: VrmBackgroundMedia? = null,
     /** All materials unlit (pure texture colors). Changing it reloads the model. */
     fullBright: Boolean = false,
     /** Bump to put the camera (drag-spin + pinch-zoom) back to default. */
@@ -247,6 +251,40 @@ fun VrmAvatarView(
         s.onMain { applyBackgroundColor(it, s, backgroundTint) }
     }
 
+    // Picture / video background (see VrmBackgroundQuad). A picture is
+    // decoded once; a video plays (silently, looping) into a tiny hidden
+    // view below and its current frame is copied across ~24 times a second.
+    val backgroundContext = androidx.compose.ui.platform.LocalContext.current
+    var videoFrames by remember { mutableStateOf<android.view.TextureView?>(null) }
+    LaunchedEffect(session, backgroundMedia) {
+        val s = session ?: return@LaunchedEffect
+        val media = backgroundMedia
+        if (media == null) {
+            s.onMain { s.clearBackground() }
+            return@LaunchedEffect
+        }
+        if (!media.isVideo) {
+            val bitmap = withContext(Dispatchers.IO) { decodeBackgroundPicture(media.path) }
+            if (bitmap != null) s.onMain { viewer -> s.showBackground(viewer, bitmap) }
+            return@LaunchedEffect
+        }
+        // Video: wait for the hidden view, then copy frames across.
+        var frame: android.graphics.Bitmap? = null
+        try {
+            while (true) {
+                val view = videoFrames
+                if (view != null && view.isAvailable) {
+                    val target = frame ?: videoFrameBitmap(view).also { frame = it }
+                    val grabbed = runCatching { view.getBitmap(target) }.getOrNull()
+                    if (grabbed != null) s.onMain { viewer -> s.showBackground(viewer, grabbed) }
+                }
+                kotlinx.coroutines.delay(42)
+            }
+        } finally {
+            frame?.recycle()
+        }
+    }
+
     // Only stops the frame loop; engine teardown is owned by the detach
     // listener (see the class doc). Never touches Filament here.
     DisposableEffect(Unit) {
@@ -257,6 +295,51 @@ fun VrmAvatarView(
     }
 
     Box(modifier) {
+        // The background video's player: a small view hidden behind the
+        // avatar's own (opaque) one. Nothing of it is ever seen; it only
+        // exists so the video has somewhere to decode its frames to.
+        val video = backgroundMedia?.takeIf { it.isVideo }
+        if (video != null) {
+            androidx.compose.runtime.key(video.path) {
+                AndroidView(
+                    modifier = Modifier.size(64.dp),
+                    factory = { ctx ->
+                        val view = android.view.TextureView(ctx)
+                        var player: android.media.MediaPlayer? = null
+                        view.surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                                try {
+                                    val p = android.media.MediaPlayer()
+                                    p.setDataSource(video.path)
+                                    p.setSurface(android.view.Surface(texture))
+                                    p.isLooping = true
+                                    p.setVolume(0f, 0f)
+                                    p.setOnVideoSizeChangedListener { _, w, h ->
+                                        // Frames are copied out at the video's own shape.
+                                        if (w > 0 && h > 0) view.tag = w.toFloat() / h
+                                    }
+                                    p.setOnPreparedListener { it.start() }
+                                    p.prepareAsync()
+                                    player = p
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Couldn't play the background video", e)
+                                }
+                            }
+                            override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+                                runCatching { player?.release() }
+                                player = null
+                                return true
+                            }
+                            override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
+                        }
+                        videoFrames = view
+                        view
+                    },
+                    onRelease = { if (videoFrames === it) videoFrames = null }
+                )
+            }
+        }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -461,6 +544,30 @@ internal class ViewerSession {
     var baseTransform: FloatArray? = null
     var baseYawDegrees = 0f
     var skybox: Skybox? = null
+    /** The picture / video background, while one is set. */
+    var background: VrmBackgroundQuad? = null
+
+    /** Shows [bitmap] behind the avatar (making the background on first use). */
+    fun showBackground(v: ModelViewer, bitmap: android.graphics.Bitmap) {
+        if (released) return
+        val quad = background ?: VrmBackgroundQuad.create(v)?.also { background = it } ?: return
+        quad.show(bitmap)
+    }
+
+    fun clearBackground() {
+        background?.destroy()
+        background = null
+    }
+
+    /** The widest shape anything is being rendered at right now (screen,
+     *  recording, stream) — the background has to cover all of them. */
+    private fun widestAspect(v: ModelViewer): Float {
+        val vp = v.view.viewport
+        var a = if (vp.width > 0 && vp.height > 0) vp.width.toFloat() / vp.height else 1f
+        recording?.let { a = maxOf(a, it.width.toFloat() / it.height) }
+        stream?.let { a = maxOf(a, it.width.toFloat() / it.height) }
+        return a
+    }
     var indirectLight: IndirectLight? = null
     var colorGrading: ColorGrading? = null
     var lightEntities: IntArray = IntArray(0)
@@ -619,6 +726,7 @@ internal class ViewerSession {
             runCatching { updateRootTransform(v, dt) }
                 .onFailure { Log.e(TAG, "Placing the model failed", it) }
             runCatching { updateLights(v) }
+            background?.let { bg -> runCatching { bg.place(v, widestAspect(v)) } }
             runCatching {
                 val sim = springs
                 if (springsEnabled && sim != null) {
@@ -682,6 +790,7 @@ internal class ViewerSession {
             runCatching { v.engine.destroySwapChain(st.swapChain); v.engine.flushAndWait() }
             runCatching { st.compositor?.release() }
         }
+        runCatching { clearBackground() }.onFailure { Log.e(TAG, "Freeing the VRM background failed", it) }
         runCatching {
             val engine = v.engine
             skybox?.let { v.scene.skybox = null; engine.destroySkybox(it) }
@@ -1151,6 +1260,34 @@ private fun scaleMatrix(s: Float): FloatArray = floatArrayOf(
     0f, 0f, s, 0f,
     0f, 0f, 0f, 1f
 )
+
+/** A background picture, scaled down to at most 1600 px on its long side
+ *  (plenty behind an avatar, and gentle on memory). */
+private fun decodeBackgroundPicture(path: String): android.graphics.Bitmap? = try {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+    val opts = android.graphics.BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+    }
+    android.graphics.BitmapFactory.decodeFile(path, opts)?.let { b ->
+        if (b.config == android.graphics.Bitmap.Config.ARGB_8888) b else b.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+    }
+} catch (e: Throwable) {
+    Log.e(TAG, "Couldn't read the background picture", e)
+    null
+}
+
+/** The bitmap a background video's frames are copied into: the video's own
+ *  shape (see the hidden view's tag), 640 px on its long side. */
+private fun videoFrameBitmap(view: android.view.TextureView): android.graphics.Bitmap {
+    val aspect = (view.tag as? Float)?.takeIf { it > 0.1f && it < 10f } ?: (16f / 9f)
+    val w = if (aspect >= 1f) 640 else (640 * aspect).toInt().coerceAtLeast(16)
+    val h = if (aspect >= 1f) (640 / aspect).toInt().coerceAtLeast(16) else 640
+    return android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+}
 
 /** Solid-color skybox = flat background. Destroys the previous one. */
 private fun applyBackgroundColor(viewer: ModelViewer, session: ViewerSession, tint: Color) {

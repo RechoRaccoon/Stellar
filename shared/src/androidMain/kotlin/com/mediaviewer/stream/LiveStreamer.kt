@@ -306,6 +306,7 @@ class LiveStreamer(
         val info = MediaCodec.BufferInfo()
         var samples = 0L
         val t0 = System.nanoTime() / 1000
+        SoundboardMixer.capturing = true
         try {
             while (running.get()) {
                 var n = 1024
@@ -321,8 +322,11 @@ class LiveStreamer(
                     if (wait > 1000) Thread.sleep(wait / 1000)
                 }
                 val silent = record == null || micMuted
+                if (silent) java.util.Arrays.fill(mono, 0, n, 0.toShort())
+                // The soundboard goes out with the stream (muted mic or not).
+                SoundboardMixer.mix(mono, n)
                 for (i in 0 until n) {
-                    val v = if (silent) 0 else mono[i].toInt()
+                    val v = mono[i].toInt()
                     val lo = (v and 0xFF).toByte(); val hi = ((v shr 8) and 0xFF).toByte()
                     stereo[i * 4] = lo; stereo[i * 4 + 1] = hi; stereo[i * 4 + 2] = lo; stereo[i * 4 + 3] = hi
                 }
@@ -346,6 +350,8 @@ class LiveStreamer(
                 Log.e(TAG, "Audio failed", e)
                 fail("Audio stopped (${e.message})")
             }
+        } finally {
+            SoundboardMixer.capturing = false
         }
     }
 

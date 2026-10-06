@@ -20,6 +20,19 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- stellar:// links: a tapped home-screen widget opens the app on
+	     that chat / the calendar / that note. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>rechoraccoon.stellar</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>stellar</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Let ProMotion iPhones run Compose above 60 fps. -->

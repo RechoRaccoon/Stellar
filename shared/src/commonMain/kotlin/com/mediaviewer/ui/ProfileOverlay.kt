@@ -1182,7 +1182,16 @@ fun ProfileOverlay(
             LaunchedEffect(author.did) { confettiStarted = true }
         }
         // Stays composed once started, so it plays once per visit.
-        if (confettiStarted) SupporterConfetti(playKey = author.did)
+        // (Confetti unless they picked another effect in Edit Profile.)
+        if (confettiStarted) {
+            val effect = when (com.mediaviewer.util.ProfileStyles.of(author.did)?.effect) {
+                "snow" -> DmEffect.SNOW
+                "fireworks" -> DmEffect.FIREWORKS
+                "bats" -> DmEffect.BATS
+                else -> DmEffect.CONFETTI
+            }
+            DmEffectLayer(effect = effect, playKey = author.did.hashCode())
+        }
         pendingListAction?.let { entry ->
             val starter = entry.kind == com.mediaviewer.model.ProfileListKind.STARTER_PACK
             val n = entry.itemCount
@@ -1836,7 +1845,7 @@ private fun ProfileBannerOverlayLayout(
         // Avatar's height exactly spans display-name-top → username-bottom.
         val avatarSizeDp = with(this) { namesHeight.toDp() }
         val avatarPlaceable = subcompose("avatar") {
-            ProfileAvatarGlass(url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop)
+            ProfileAvatarGlass(url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop, shape = profileIconShape(author.did))
         }.first().measure(loose)
 
         val stackHeight = followPlaceable.height + gapPx + namesHeight
@@ -1927,8 +1936,11 @@ private fun CloseGlassBubble(liquidGlass: Boolean, tint: Color, onClick: () -> U
 // ─── Small building blocks ──────────────────────────────────────────────────
 
 @Composable
-private fun ProfileAvatarGlass(url: String?, size: Dp, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null) {
-    val shape = CircleShape
+private fun ProfileAvatarGlass(
+    url: String?, size: Dp, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null,
+    /** Round, or a supporter's rounded square (see [profileIconShape]). */
+    shape: androidx.compose.ui.graphics.Shape = CircleShape
+) {
     @Composable
     fun AvatarImage() {
         if (url != null) {
@@ -5341,7 +5353,7 @@ private fun CommentComposerRow(liquidGlass: Boolean, tint: Color, backdrop: Glas
     @Composable
     fun Content() {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.foundation.text.BasicTextField(
+            BasicTextField(
                 value = text, onValueChange = { text = it },
                 textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
                 cursorBrush = SolidColor(Color.White),

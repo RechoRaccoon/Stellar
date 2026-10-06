@@ -257,6 +257,12 @@ suspend fun fetchProfileColors(
     bannerKnown: Boolean,
     resolve: Boolean = true
 ): ProfileColors {
+    // A supporter who picked their own two profile colors: those, always.
+    styledProfileColors(did)?.let { picked ->
+        if (bannerKnown) ProfileColorStore.noteBanner(did, bannerUrl)
+        ProfileColorStore.put(did, picked)
+        return picked
+    }
     var banner = bannerUrl
     var known = bannerKnown
     if (known) ProfileColorStore.noteBanner(did, bannerUrl)
@@ -291,11 +297,33 @@ fun rememberProfileColors(
             exact ?: ProfileColorStore.get(did) ?: ProfileColors(a ?: PlaceholderGrey, a ?: PlaceholderGrey)
         })
     }
-    LaunchedEffect(did, avatarUrl, bannerUrl, bannerKnown) {
+    // (Read here as Compose state: the colors switch the moment a
+    // supporter's customization record arrives, or is edited.)
+    val picked = com.mediaviewer.util.ProfileStyles.of(did)?.let { s ->
+        val a = s.colorA
+        val b = s.colorB
+        if (a != null && b != null) ProfileColors(Color(a), Color(b)) else null
+    }
+    LaunchedEffect(did, avatarUrl, bannerUrl, bannerKnown, picked) {
         colors = fetchProfileColors(context, did, avatarUrl, bannerUrl, bannerKnown, resolve)
     }
-    return colors
+    return picked ?: colors
 }
+
+/** The two profile colors a supporter chose for themselves, if any (what's
+ *  known right now — nothing is looked up from here). */
+fun styledProfileColors(did: String?): ProfileColors? {
+    val s = com.mediaviewer.util.ProfileStyles.peek(did) ?: return null
+    val a = s.colorA ?: return null
+    val b = s.colorB ?: return null
+    return ProfileColors(Color(a), Color(b))
+}
+
+/** A profile icon's outline: round, or — for a supporter who switched it
+ *  in Edit Profile — a slightly rounded square. */
+@Composable
+fun profileIconShape(did: String?): Shape =
+    if (com.mediaviewer.util.ProfileStyles.of(did)?.squareIcon == true) RoundedCornerShape(percent = 24) else CircleShape
 
 /** A profile's UI color — identical to ProfileOverlay's own: the average of
  *  the banner's dominant color (avatar when there's no banner) and the
@@ -442,6 +470,19 @@ internal val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
  * "directly underneath" itself.
  */
 class GlassBackdrop(val layer: GraphicsLayer, val originInRoot: () -> Offset)
+
+/**
+ * Video pictures that Compose can't record into a [GlassBackdrop] itself.
+ * On iOS a video plays in a system layer underneath the Compose canvas, so
+ * the glass over it had nothing to blur; the player hands a small copy of
+ * its current frame here (with where it is on screen) and every glass panel
+ * draws it into its own blurred crop, right on top of the recorded page.
+ * Empty on Android, where the video is part of the recording already.
+ */
+object NativeVideoBackdrop {
+    class Frame(val image: androidx.compose.ui.graphics.ImageBitmap, val rectInRoot: androidx.compose.ui.geometry.Rect)
+    val frames = androidx.compose.runtime.mutableStateMapOf<Any, Frame>()
+}
 
 /** Item 26: how strong the blur/magnify/background-tint effect is right now,
  *  0f (flat, fully transparent — no blur, no magnify, no background tint) to
@@ -710,6 +751,19 @@ fun LiquidGlassSurface(
                         val delta = panelOrigin - backdrop.originInRoot()
                         translate(-delta.x, -delta.y) {
                             drawLayer(backdrop.layer)
+                            // (iOS) the playing video's picture, where it sits.
+                            if (NativeVideoBackdrop.frames.isNotEmpty()) {
+                                val o = backdrop.originInRoot()
+                                NativeVideoBackdrop.frames.values.forEach { f ->
+                                    val r = f.rectInRoot
+                                    if (r.width >= 1f && r.height >= 1f) drawImage(
+                                        image = f.image,
+                                        dstOffset = androidx.compose.ui.unit.IntOffset((r.left - o.x).toInt(), (r.top - o.y).toInt()),
+                                        dstSize = androidx.compose.ui.unit.IntSize(r.width.toInt(), r.height.toInt()),
+                                        filterQuality = androidx.compose.ui.graphics.FilterQuality.Low
+                                    )
+                                }
+                            }
                         }
                     }
             )

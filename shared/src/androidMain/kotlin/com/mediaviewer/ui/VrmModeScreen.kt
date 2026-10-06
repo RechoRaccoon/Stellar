@@ -85,6 +85,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.material.icons.filled.AutoAwesome
 
 /**
  * Item 8: VRM/VTuber mode — the camera-notch button's "VRM" action.
@@ -219,14 +221,34 @@ actual fun VrmModeScreen(
     var springBones by remember { mutableStateOf(store.bool(K.SPRING_BONES, true)) }
     var showDebug by remember { mutableStateOf(store.bool(K.SHOW_DEBUG, false)) }
     var showPreview by remember { mutableStateOf(store.bool(K.SHOW_PREVIEW, true)) }
-    var videoMode by remember { mutableStateOf(store.bool(K.VIDEO_MODE, false)) }
+    // The capture button's mode: 0 photo, 1 video, 2 live.
+    var captureMode by remember {
+        mutableStateOf(store.int(K.CAPTURE_MODE, if (store.bool(K.VIDEO_MODE, false)) 1 else 0).coerceIn(0, 2))
+    }
+    val videoMode = captureMode == 1
+    val supporter = com.mediaviewer.util.Supporter.active
+    // Picture / looping video behind the avatar (supporters).
+    var backgroundMedia by remember {
+        mutableStateOf(
+            store.string(K.BACKGROUND_MEDIA).takeIf { it.isNotBlank() && java.io.File(it).isFile }
+                ?.let { VrmBackgroundMedia(it, store.bool(K.BACKGROUND_MEDIA_VIDEO, false)) }
+        )
+    }
+    // Activity: the scene shown and the effect playing over the avatar.
+    var activityOpen by remember { mutableStateOf(false) }
+    var scene by remember { mutableStateOf(VrmScene.VRM) }
+    var stageEffect by remember { mutableStateOf<DmEffect?>(null) }
+    var stageEffectKey by remember { mutableStateOf(0) }
+    var stageBusyUntil by remember { mutableStateOf(0L) }
+    val stageLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val stageFrames = remember { VrmStageFrames() }
     var fullBright by remember { mutableStateOf(store.bool(K.FULL_BRIGHT, false)) }
     var armIk by remember { mutableStateOf(store.bool(K.ARM_IK, false)) }
     androidx.compose.runtime.LaunchedEffect(armIk) { store.put(K.ARM_IK, armIk) }
     var armsNeedHands by remember { mutableStateOf(store.bool(K.ARMS_NEED_HANDS, false)) }
     androidx.compose.runtime.LaunchedEffect(armsNeedHands) { store.put(K.ARMS_NEED_HANDS, armsNeedHands) }
     var cameraResetKey by remember { mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(videoMode) { store.put(K.VIDEO_MODE, videoMode) }
+    androidx.compose.runtime.LaunchedEffect(captureMode) { store.put(K.CAPTURE_MODE, captureMode); store.put(K.VIDEO_MODE, videoMode) }
     androidx.compose.runtime.LaunchedEffect(fullBright) { store.put(K.FULL_BRIGHT, fullBright) }
 
     var captureError by remember { mutableStateOf<String?>(null) }
@@ -300,13 +322,18 @@ actual fun VrmModeScreen(
     val captureOverlayIds = if (overlaysEnabled) browserOverlays.filter { it.inCapture }.map { it.id } else emptyList()
     // Any overlay may be switched to "In captures" while recording or live,
     // so captures are set up for overlays whenever there are any.
-    val overlaysCapturable = browserOverlays.isNotEmpty()
+    val overlaysCapturable = browserOverlays.isNotEmpty() || supporter
     val rootView = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { overlayRegistry.release() } }
     fun refreshCaptureOverlays() {
-        captureController.overlays = if (captureOverlayIds.isEmpty()) emptyList()
+        val browser = if (captureOverlayIds.isEmpty()) emptyList()
             else overlayRegistry.snapshot(captureOverlayIds, rootView.width, rootView.height)
+        // The scene card / effect goes under the browser overlays.
+        val stage = stageFrames.current
+        captureController.overlays = if (stage == null) browser else listOf(CaptureOverlay(stage, 0f, 0f, 1f, 1f)) + browser
     }
+    val refreshOverlaysNow = androidx.compose.runtime.rememberUpdatedState({ refreshCaptureOverlays() })
+    fun stageShowing() = supporter && (scene != VrmScene.VRM || android.os.SystemClock.elapsedRealtime() < stageBusyUntil)
     fun clearLiveBadge() {
         if (liveBadgeUrl == null) return
         liveBadgeUrl = null
@@ -423,6 +450,24 @@ actual fun VrmModeScreen(
         // None shown in captures (any more): take them out straight away.
         refreshCaptureOverlays()
     }
+    // The scene card / effects in recordings and streams: a fresh picture
+    // of that layer ~20 times a second while there's something on it.
+    androidx.compose.runtime.LaunchedEffect(recording, isLive) {
+        try {
+            while (recording || isLive) {
+                if (stageShowing()) {
+                    stageFrames.grab(stageLayer, software = false)
+                    refreshOverlaysNow.value()
+                } else if (stageFrames.current != null) {
+                    stageFrames.clear()
+                    refreshOverlaysNow.value()
+                }
+                kotlinx.coroutines.delay(50)
+            }
+        } finally {
+            stageFrames.clear()
+        }
+    }
     // Never let the screen sleep mid-stream.
     val hostView = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.DisposableEffect(isLive) {
@@ -457,11 +502,15 @@ actual fun VrmModeScreen(
     fun onCapturePressed() {
         if (captureBusy) return
         if (isLive) { endLiveConfirmOpen = true; return }
+        // Live mode: the button sets up the stream (see the bar below).
+        if (captureMode == 2) return
         if (!videoMode) {
             captureBusy = true
-            refreshCaptureOverlays()
             captureScope.launch {
+                if (stageShowing()) stageFrames.grab(stageLayer, software = true) else stageFrames.clear()
+                refreshCaptureOverlays()
                 val uri = captureController.takePhoto(context)
+                stageFrames.clear()
                 captureBusy = false
                 if (uri != null) onCapture(uri, null) else captureError = "Couldn't capture the photo"
             }
@@ -479,7 +528,7 @@ actual fun VrmModeScreen(
     // like the system camera. The key is swallowed so the volume doesn't
     // change; holding it down doesn't repeat. Not while settings are open.
     val onCapturePressedRef = androidx.compose.runtime.rememberUpdatedState { onCapturePressed() }
-    val settingsOpenRef = androidx.compose.runtime.rememberUpdatedState(settingsOpen || liveDialogOpen || isLive)
+    val settingsOpenRef = androidx.compose.runtime.rememberUpdatedState(settingsOpen || liveDialogOpen || activityOpen || isLive)
     androidx.compose.runtime.DisposableEffect(Unit) {
         val handler: (android.view.KeyEvent) -> Boolean = handler@{ event ->
             if (event.keyCode != android.view.KeyEvent.KEYCODE_VOLUME_UP &&
@@ -683,6 +732,24 @@ actual fun VrmModeScreen(
         vrmBytes = bytes
         parsedVrmData = parsed
     }
+    val backgroundMediaPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val isVideo = context.contentResolver.getType(uri)?.startsWith("video") == true
+        captureScope.launch {
+            val path = withContext(Dispatchers.IO) {
+                com.mediaviewer.platform.PrivateFiles.deleteFolder(context, BACKGROUND_MEDIA_FOLDER)
+                com.mediaviewer.platform.PrivateFiles.copyIn(context, uri, BACKGROUND_MEDIA_FOLDER, "background_" + System.currentTimeMillis())
+                    ?.let { Uri.parse(it).path }
+            }
+            if (path != null) {
+                store.put(K.BACKGROUND_MEDIA, path)
+                store.put(K.BACKGROUND_MEDIA_VIDEO, isVideo)
+                backgroundMedia = VrmBackgroundMedia(path, isVideo)
+            } else captureError = "Couldn't open that file"
+        }
+    }
     val vrmAvatarPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -830,8 +897,11 @@ actual fun VrmModeScreen(
                     fullBright = fullBright,
                     cameraResetKey = cameraResetKey,
                     captureController = captureController,
-                    lightLevel = 0.4f + lightLevel * 0.12f
+                    lightLevel = 0.4f + lightLevel * 0.12f,
+                    backgroundMedia = backgroundMedia.takeIf { supporter }
                 )
+                // Scene cards and effects: over the avatar, under the buttons.
+                if (supporter) VrmStageLayer(scene, stageEffect, stageEffectKey, stageLayer)
             } else {
                 // Prominent, not a 12sp hint: a dead/missing avatar file is
                 // otherwise just "black screen, nothing explains why". The
@@ -909,7 +979,7 @@ actual fun VrmModeScreen(
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
         }
 
-        // Bottom bar: [mic] [photo/video mode] [capture] [Live] [settings] —
+        // Bottom bar: [mic] [photo/video/live mode] [capture] [Activity] [settings] —
         // shared with the Camera page (see CaptureControlsBar).
         CaptureControlsBar(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
@@ -924,12 +994,23 @@ actual fun VrmModeScreen(
             },
             statusDot = (recording || liveState == com.mediaviewer.stream.LiveStreamer.State.LIVE) && captureError == null,
             micMuted = micMuted, micEnabled = !recording && !captureBusy, onToggleMic = { tap(); micMuted = !micMuted },
-            videoMode = videoMode, swapEnabled = !recording && !captureBusy && !isLive, onToggleVideoMode = { tap(); videoMode = !videoMode },
+            videoMode = videoMode, swapEnabled = !recording && !captureBusy && !isLive, onToggleVideoMode = { tap(); captureMode = (captureMode + 1) % 3 },
             connecting = liveState == com.mediaviewer.stream.LiveStreamer.State.CONNECTING,
             isLive = isLive, captureBusy = captureBusy, recording = recording,
-            onCapture = { tap(); onCapturePressed() },
+            onCapture = {
+                tap()
+                if (captureMode == 2 && !isLive) { if (vrmBytes != null && !captureBusy) liveDialogOpen = true }
+                else onCapturePressed()
+            },
             liveEnabled = !recording && !captureBusy && !isLive && vrmBytes != null,
             onLive = { tap(); liveDialogOpen = true },
+            liveMode = captureMode == 2,
+            activityLocked = !supporter,
+            onActivity = {
+                tap()
+                if (supporter) activityOpen = true
+                else { onClose(); com.mediaviewer.util.Supporter.openPage() }
+            },
             rightIcon = Icons.Default.Settings, rightDescription = "VRM Settings",
             onRight = { tap(); settingsOpen = true },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -947,13 +1028,29 @@ actual fun VrmModeScreen(
                 onRemove = { id -> browserOverlays = browserOverlays.filterNot { it.id == id } },
                 // Separate windows sit above everything: park them while one
                 // of this page's own popups is open.
-                hidden = settingsOpen || liveDialogOpen || endLiveConfirmOpen,
+                hidden = settingsOpen || liveDialogOpen || endLiveConfirmOpen || activityOpen,
                 // Mid-recording/stream the pages keep running behind a popup,
                 // so what's captured doesn't freeze.
                 pauseWhenHidden = !(recording || isLive)
             )
         }
 
+        if (activityOpen) {
+            VrmActivityDialog(
+                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                scene = scene,
+                onScene = {
+                    scene = it
+                    stageBusyUntil = android.os.SystemClock.elapsedRealtime() + SCENE_FADE_MS + 200L
+                },
+                onEffect = {
+                    stageEffect = it
+                    stageEffectKey++
+                    stageBusyUntil = android.os.SystemClock.elapsedRealtime() + EFFECT_MAX_MS
+                },
+                onDismiss = { activityOpen = false }
+            )
+        }
         if (liveDialogOpen) {
             VrmLiveDialog(
                 liquidGlass = liquidGlass,
@@ -1025,7 +1122,18 @@ actual fun VrmModeScreen(
                     onSetPartVisible = { id, visible -> hiddenParts = if (visible) hiddenParts - id else hiddenParts + id },
                     onShowAllParts = { hiddenParts = emptySet() },
                     hasAvatar = vrmBytes != null,
-                    onPickAvatar = { vrmAvatarPickerLauncher.launch(arrayOf("*/*")) }
+                    onPickAvatar = { vrmAvatarPickerLauncher.launch(arrayOf("*/*")) },
+                    supporter = supporter,
+                    hasBackgroundMedia = backgroundMedia != null,
+                    onPickBackgroundMedia = {
+                        if (supporter) backgroundMediaPicker.launch(arrayOf("image/*", "video/*"))
+                        else { onClose(); com.mediaviewer.util.Supporter.openPage() }
+                    },
+                    onClearBackgroundMedia = {
+                        backgroundMedia = null
+                        store.put(K.BACKGROUND_MEDIA, "")
+                        com.mediaviewer.platform.PrivateFiles.deleteFolder(context, BACKGROUND_MEDIA_FOLDER)
+                    }
                 ),
                 onDismiss = { settingsOpen = false }
             )
@@ -1797,8 +1905,45 @@ private class VrmSettingsUi(
     val onSetPartVisible: (id: String, visible: Boolean) -> Unit,
     val onShowAllParts: () -> Unit,
     val hasAvatar: Boolean,
-    val onPickAvatar: () -> Unit
+    val onPickAvatar: () -> Unit,
+    val supporter: Boolean,
+    val hasBackgroundMedia: Boolean,
+    val onPickBackgroundMedia: () -> Unit,
+    val onClearBackgroundMedia: () -> Unit
 )
+
+private const val BACKGROUND_MEDIA_FOLDER = "vrm_background"
+
+/** The latest picture of VRM mode's stage layer (scene card / effects) for
+ *  captures. Older pictures are let go a few frames later, once nothing
+ *  can still be drawing them. */
+internal class VrmStageFrames {
+    @Volatile var current: Bitmap? = null
+        private set
+    private val old = ArrayDeque<Bitmap>()
+
+    suspend fun grab(layer: androidx.compose.ui.graphics.layer.GraphicsLayer, software: Boolean) {
+        if (layer.size.width <= 0 || layer.size.height <= 0) return
+        val grabbed = runCatching { layer.toImageBitmap().asAndroidBitmap() }.getOrNull() ?: return
+        // A photo is drawn on an ordinary canvas, which can't take a
+        // graphics-memory bitmap: it gets a plain copy.
+        val next = if (software && grabbed.config == Bitmap.Config.HARDWARE) {
+            runCatching { grabbed.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull().also { grabbed.recycle() } ?: return
+        } else grabbed
+        retire()
+        current = next
+    }
+
+    fun clear() {
+        retire()
+        current = null
+    }
+
+    private fun retire() {
+        current?.let { old.addLast(it) }
+        while (old.size > 3) old.removeFirst().recycle()
+    }
+}
 
 /** The four tabs of the VRM settings popup. */
 private enum class VrmSettingsTab(val label: String) { TRACKING("Tracking"), AVATAR("Avatar"), DISPLAY("Display"), EXTRAS("Audio & Web") }
@@ -1980,6 +2125,14 @@ private fun VrmSettingsSheet(
                                     ) { ui.onLightLevel(kotlin.math.round(it).toInt()) }
                                 }
                                 VrmBackgroundColorRow(ui.backgroundColor, tint) { ui.onBackgroundColor(it) }
+                                VrmActionRow(
+                                    label = "Background Image or Video",
+                                    value = if (ui.hasBackgroundMedia && ui.supporter) "Change" else "Choose",
+                                    tint = tint, supporterOnly = !ui.supporter
+                                ) { ui.onPickBackgroundMedia() }
+                                if (ui.hasBackgroundMedia && ui.supporter) {
+                                    VrmActionRow(label = "Remove Background", value = "Remove", tint = tint) { ui.onClearBackgroundMedia() }
+                                }
                             }
                             VrmSettingsTab.EXTRAS -> {
                                 VrmSettingsSlider(
@@ -2066,7 +2219,7 @@ private fun VrmMiniSwitch(checked: Boolean, tint: Color, enabled: Boolean = true
 
 /** A tappable single-line row: label on the left, a value/hint on the right. */
 @Composable
-private fun VrmActionRow(label: String, value: String, tint: Color, onClick: () -> Unit) {
+private fun VrmActionRow(label: String, value: String, tint: Color, supporterOnly: Boolean = false, onClick: () -> Unit) {
     val tap = rememberHapticTap()
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp).height(42.dp).clip(RoundedCornerShape(14.dp))
@@ -2075,7 +2228,13 @@ private fun VrmActionRow(label: String, value: String, tint: Color, onClick: () 
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, modifier = Modifier.weight(1f))
+        // A supporter feature shown to everyone else: in the supporter pink.
+        Box(Modifier.weight(1f)) {
+            Text(
+                label, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                modifier = Modifier.supporterShine(enabled = supporterOnly)
+            )
+        }
         Text(value, color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.4f), fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
     }
 }
@@ -2314,7 +2473,7 @@ internal fun VrmGlassBubble(
 /** A VRM-mode sheet/popup surface: blurred glass (or the flat tint-mixed
  *  panel), and it swallows taps so they don't dismiss what's behind it. */
 @Composable
-private fun VrmGlassPanel(
+internal fun VrmGlassPanel(
     liquidGlass: Boolean,
     tint: Color,
     backdrop: GlassBackdrop?,
@@ -2342,7 +2501,7 @@ private fun VrmGlassPanel(
 }
 
 @Composable
-private fun VrmTextField(
+internal fun VrmTextField(
     value: String,
     onValue: (String) -> Unit,
     placeholder: String,
@@ -3055,7 +3214,14 @@ internal fun CaptureControlsBar(
     rightDescription: String,
     onRight: () -> Unit,
     rightEnabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** VRM mode: "Live" is the mode button's third stop (photo → video →
+     *  live) and the capture button then sets up the stream. */
+    liveMode: Boolean = false,
+    /** VRM mode: the fourth bubble is Activity instead of Live. */
+    onActivity: (() -> Unit)? = null,
+    /** Activity shown as a supporter feature (pink) to everyone else. */
+    activityLocked: Boolean = false
 ) {
     androidx.compose.foundation.layout.Column(
         modifier.windowInsetsPadding(WindowInsets.navBarSpace).padding(bottom = 28.dp),
@@ -3105,9 +3271,15 @@ internal fun CaptureControlsBar(
                 enabled = swapEnabled,
                 onClick = onToggleVideoMode
             ) {
-                Icon(
-                    if (videoMode) Icons.Default.PhotoCamera else Icons.Default.Videocam,
-                    contentDescription = if (videoMode) "Switch to photo" else "Switch to video",
+                if (onActivity != null && videoMode) {
+                    // Next stop after video: live.
+                    Text(
+                        "Live", color = Color.White.copy(alpha = if (swapEnabled) 1f else 0.35f),
+                        fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                } else Icon(
+                    if (videoMode || liveMode) Icons.Default.PhotoCamera else Icons.Default.Videocam,
+                    contentDescription = if (videoMode || liveMode) "Switch to photo" else "Switch to video",
                     tint = Color.White.copy(alpha = if (swapEnabled) 1f else 0.35f),
                     modifier = Modifier.size(22.dp)
                 )
@@ -3129,13 +3301,27 @@ internal fun CaptureControlsBar(
                         color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(26.dp)
                     )
                     recording -> Icon(Icons.Default.Stop, contentDescription = "Stop recording", tint = Color(0xFFFF3B30), modifier = Modifier.size(34.dp))
+                    liveMode -> Text(
+                        "Live", color = Color.White.copy(alpha = if (liveEnabled) 1f else 0.35f),
+                        fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
                     videoMode -> Icon(Icons.Default.Videocam, contentDescription = "Record video", tint = Color.White, modifier = Modifier.size(32.dp))
                     else -> Icon(Icons.Default.PhotoCamera, contentDescription = "Take photo", tint = Color.White, modifier = Modifier.size(30.dp))
                 }
             }
             Spacer(Modifier.width(gap))
+            // VRM mode: Activity (scenes, soundboard, effects).
+            if (onActivity != null) VrmGlassBubble(
+                size = 48.dp, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                onClick = onActivity
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome, contentDescription = "Activity", tint = Color.White,
+                    modifier = Modifier.size(21.dp).supporterShine(enabled = activityLocked)
+                )
+            }
             // Live (opens the stream setup popup) — right of capture.
-            VrmGlassBubble(
+            else VrmGlassBubble(
                 size = 48.dp, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                 enabled = liveEnabled,
                 onClick = onLive

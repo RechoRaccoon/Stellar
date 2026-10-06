@@ -337,7 +337,7 @@ fun CommentsSheet(
                         @Composable
                         fun FieldContent() {
                             Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                                androidx.compose.foundation.text.BasicTextField(
+                                BasicTextField(
                                     value = commentText, onValueChange = { commentText = it },
                                     singleLine = true,
                                     textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),

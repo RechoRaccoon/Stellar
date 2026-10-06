@@ -20,9 +20,16 @@ import com.mediaviewer.json.JSONObject
 object BlueskyBlobResolver {
 
     suspend fun resolveBlobUrl(did: String, cid: String): String {
-        val pds = resolvePds(did)
+        val pds = pdsEndpoint(did)
         return "$pds/xrpc/com.atproto.sync.getBlob?did=$did&cid=$cid"
     }
+
+    /** Each account's PDS, remembered for the session once looked up. */
+    private val pdsCache = com.mediaviewer.platform.ConcurrentHashMap<String, String>()
+
+    /** The PDS [did]'s repository lives on (e.g. "https://x.host.bsky.network"). */
+    suspend fun pdsEndpoint(did: String): String =
+        pdsCache[did] ?: resolvePds(did).also { pdsCache[did] = it }
 
     private suspend fun resolvePds(did: String): String {
         val docUrl = when {

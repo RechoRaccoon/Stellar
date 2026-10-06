@@ -89,7 +89,9 @@ data class BookmarkFolder(
     val cover: String? = null,
     /** at:// URIs of the saved posts in it, newest first. */
     val posts: List<String> = emptyList(),
-    val createdAt: Long = 0L
+    val createdAt: Long = 0L,
+    /** When a post was last added to it. */
+    val updatedAt: Long = 0L
 )
 
 @Serializable
@@ -136,6 +138,28 @@ data class CalendarEvent(
     val title: String = ""
 )
 
+/** "Today", "Tomorrow" or "Oct 12" for a calendar day (yyyymmdd). */
+fun CalendarEvent.dayLabel(today: Int = CalendarMath.todayKey()): String {
+    val y = day / 10000
+    val m = day / 100 % 100
+    val d = day % 100
+    val diff = CalendarMath.daysFromCivil(y, m, d) - CalendarMath.daysFromCivil(today / 10000, today / 100 % 100, today % 100)
+    return when (diff) {
+        0L -> "Today"
+        1L -> "Tomorrow"
+        else -> CalendarMath.monthNames[(m - 1).coerceIn(0, 11)].take(3) + " " + d + if (y != today / 10000) ", $y" else ""
+    }
+}
+
+/** "All day" or "3:05 PM". */
+fun CalendarEvent.timeLabel(): String {
+    if (minute < 0) return "All day"
+    val h = minute / 60
+    val mm = minute % 60
+    val h12 = if (h % 12 == 0) 12 else h % 12
+    return "$h12:${if (mm < 10) "0$mm" else mm} ${if (h < 12) "AM" else "PM"}"
+}
+
 @Serializable
 data class NoteFolder(val id: String = "", val name: String = "")
 
@@ -171,6 +195,24 @@ object LocalData {
 
     private var prefs: SharedPreferences? = null
     private val json get() = StellarJson.default
+    private var appContext: PlatformContext? = null
+    private var widgetPrefs: SharedPreferences? = null
+
+    /** The note the home-screen Note widget shows ("" = the newest one). */
+    var widgetNoteId by mutableStateOf("")
+        private set
+
+    fun updateWidgetNote(id: String) {
+        widgetNoteId = id
+        widgetPrefs?.edit()?.putString("note_id", id)?.commit()
+        notifyWidgets()
+    }
+
+    /** Events or notes changed: the home-screen widgets redraw. */
+    private fun notifyWidgets() {
+        val c = appContext ?: return
+        runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(c, null) }
+    }
 
     private class Slot<T>(val key: String, val serializer: KSerializer<T>, val default: T) {
         var value by mutableStateOf(default)
@@ -236,6 +278,8 @@ object LocalData {
         if (prefs != null) return
         val p = context.sharedPreferences(PREFS)
         prefs = p
+        appContext = context
+        widgetPrefs = context.sharedPreferences("stellar_widgets").also { widgetNoteId = it.getString("note_id", null) ?: "" }
         listOf(
             draftSlot, folderSlot, noteSlot, feedSlot, streakSlot, pinSlot, effectSlot,
             eventSlot, noteFolderSlot, notesSlot, pollVoteSlot
@@ -274,7 +318,8 @@ object LocalData {
 
     // ── Bookmark folders ─────────────────────────────────────────────────
 
-    val bookmarkFolders: List<BookmarkFolder> get() = folderSlot.value
+    /** Folders, the one a post was added to most recently first. */
+    val bookmarkFolders: List<BookmarkFolder> get() = folderSlot.value.sortedByDescending { maxOf(it.updatedAt, it.createdAt) }
 
     fun createBookmarkFolder(name: String, cover: String?): BookmarkFolder {
         val folder = BookmarkFolder(id = newId(), name = name.trim().take(60), cover = cover, createdAt = currentTimeMillis())
@@ -296,7 +341,7 @@ object LocalData {
         folderSlot.save(prefs, folderSlot.value.map { f ->
             if (f.id != id) f
             else if (postUri in f.posts) f.copy(posts = f.posts - postUri)
-            else { nowIn = true; f.copy(posts = listOf(postUri) + f.posts, cover = f.cover ?: thumb?.takeIf { it.isNotBlank() }) }
+            else { nowIn = true; f.copy(posts = listOf(postUri) + f.posts, cover = f.cover ?: thumb?.takeIf { it.isNotBlank() }, updatedAt = currentTimeMillis()) }
         })
         return nowIn
     }
@@ -369,8 +414,18 @@ object LocalData {
     val calendarEvents: List<CalendarEvent> get() = eventSlot.value
     fun addCalendarEvent(day: Int, minute: Int, title: String) {
         eventSlot.save(prefs, eventSlot.value + CalendarEvent(newId(), day, minute, title.trim()))
+        notifyWidgets()
     }
-    fun deleteCalendarEvent(id: String) { eventSlot.save(prefs, eventSlot.value.filterNot { it.id == id }) }
+    fun deleteCalendarEvent(id: String) {
+        eventSlot.save(prefs, eventSlot.value.filterNot { it.id == id })
+        notifyWidgets()
+    }
+
+    /** Events from today on, soonest first. */
+    fun upcomingEvents(limit: Int = 50): List<CalendarEvent> {
+        val today = CalendarMath.todayKey()
+        return eventSlot.value.filter { it.day >= today }.sortedWith(compareBy({ it.day }, { it.minute })).take(limit)
+    }
 
     // ── Notes ────────────────────────────────────────────────────────────
 
@@ -392,8 +447,12 @@ object LocalData {
     fun saveNote(note: NoteEntry): NoteEntry {
         val saved = note.copy(id = note.id.ifBlank { newId() }, updatedAt = currentTimeMillis())
         notesSlot.save(prefs, listOf(saved) + notesSlot.value.filterNot { it.id == saved.id })
+        notifyWidgets()
         return saved
     }
 
-    fun deleteNote(id: String) { notesSlot.save(prefs, notesSlot.value.filterNot { it.id == id }) }
+    fun deleteNote(id: String) {
+        notesSlot.save(prefs, notesSlot.value.filterNot { it.id == id })
+        if (widgetNoteId == id) updateWidgetNote("") else notifyWidgets()
+    }
 }
