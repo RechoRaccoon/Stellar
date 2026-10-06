@@ -771,6 +771,16 @@ actual fun VrmModeScreen(
 
     // Settings → pipeline (only runs when this screen recomposes, which is
     // now just settings/UI changes, never per tracking frame).
+    //
+    // The avatar's data is read HERE, in the page's own body, on purpose.
+    // Everything drawn below sits inside CompositionLocalProvider's block,
+    // which Compose redraws on its own — so when the avatar file finished
+    // loading, only that block ran again, this SideEffect didn't, and the
+    // pipeline was left holding "no avatar data": the model stood in its
+    // T-pose, untracked, until something else (opening Settings) made the
+    // whole page run again. Reading it here makes the page itself re-run
+    // the moment the data arrives.
+    val vrmDataNow = parsedVrmData
     androidx.compose.runtime.SideEffect {
         val strength = smoothing / K.DEFAULT_SMOOTHING.toDouble()
         pipeline.setSmoothing(strength)
@@ -782,7 +792,7 @@ actual fun VrmModeScreen(
             armIk = armIk,
             manualEyes = manualEyes,
             eyeClosed = eyeClosed,
-            vrmData = parsedVrmData,
+            vrmData = vrmDataNow,
             armsNeedHands = armsNeedHands,
             handTracking = handTracking
         )

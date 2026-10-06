@@ -62,5 +62,7 @@ enum StellarBridges {
         // AI Tagging (the same model as Android) and Save as GIF.
         IosBridgesKt.registerIosTagger(tagger: StellarTagger())
         IosBridgesKt.registerIosMediaTools(tools: StellarMediaTools())
+        // VRM mode's face tracking (ARKit).
+        IosBridgesKt.registerIosFaceTracker(tracker: StellarFaceTracker())
     }
 }

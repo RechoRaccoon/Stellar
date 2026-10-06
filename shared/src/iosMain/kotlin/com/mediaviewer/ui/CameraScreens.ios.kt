@@ -80,8 +80,7 @@ private val NOTCH_MIN_INSET = 30.dp
  * The notch bubble on iOS: Android's ring around the camera cutout, drawn
  * around the Dynamic Island. Tapping it (or just beside it — the island
  * itself belongs to iOS) opens it out to both sides, "Camera" on the left
- * and "VRM" on the right, exactly like Android. VRM mode is Android only,
- * so its half is dimmed and says so.
+ * and "VRM" on the right, exactly like Android.
  *
  * Where it's drawn:
  *  - iPhones with a Dynamic Island: around the island.
@@ -185,168 +184,13 @@ actual fun CameraNotchButton(
                     Box(Modifier.width(ringW).fillMaxHeight().clickable { tap(); expanded = false })
                     Box(
                         Modifier.width(sideWidth).fillMaxHeight()
-                            .clickable {
-                                tap(); expanded = false
-                                AppEvents.postMessage("VRM mode is Android only")
-                            },
+                            .clickable { tap(); expanded = false; onOpenVrm() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("VRM", color = Color.White.copy(alpha = 0.4f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            // (Only where the bubble is tall enough for two lines.)
-                            if (island) Text("Android only", color = Color.White.copy(alpha = 0.4f), fontSize = 7.sp, lineHeight = 8.sp)
-                        }
+                        Text("VRM", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
-        }
-    }
-}
-
-/**
- * The notch bubble's "Camera" page on iOS: Apple's own camera, opened
- * over Stellar (see [IosCamera]). A photo or video taken there goes on to
- * the review page, or straight into the post being written when the
- * camera was opened from the posting page — the same as Android.
- * (Android's extras — voice pitch, browser windows in the picture, going
- * live — belong to its VRM pipeline and stay Android only.)
- */
-@Composable
-actual fun CameraModeScreen(
-    liquidGlass: Boolean,
-    tint: Color,
-    onClose: () -> Unit,
-    onCapture: (imageUri: PlatformUri?, videoUri: PlatformUri?) -> Unit
-) {
-    val close by rememberUpdatedState(onClose)
-    val capture by rememberUpdatedState(onCapture)
-    // Black behind the camera as it slides in and out.
-    Box(
-        Modifier.fillMaxSize().background(Color.Black)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
-    )
-    LaunchedEffect(Unit) {
-        val opened = IosCamera.open { image, video ->
-            if (image == null && video == null) close() else capture(image, video)
-        }
-        if (!opened) {
-            AppEvents.postMessage("The camera isn't available on this device")
-            close()
-        }
-    }
-}
-
-/**
- * The page a photo/video from the camera lands on: the capture, with
- * "Save to Device" (into Photos) and "Create Post" below it and a back
- * button to the camera — Android's review page without its crop menu.
- */
-@Composable
-actual fun CapturePreviewScreen(
-    uri: PlatformUri,
-    isVideo: Boolean,
-    liquidGlass: Boolean,
-    tint: Color,
-    onClose: () -> Unit,
-    onCreatePost: (PlatformUri) -> Unit
-) {
-    val tap = rememberHapticTap()
-    val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
-    BackHandler(onBack = onClose)
-
-    Box(
-        Modifier.fillMaxSize().background(dimSpaceColor(tint))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
-    ) {
-        SpaceSky(tint, Modifier.matchParentSize())
-        Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(rememberTopCutoutClearance() + 56.dp))
-            // The capture, as large as fits.
-            Box(
-                Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isVideo) {
-                    InlineVideoPlayer(uri, Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)))
-                } else {
-                    AsyncImage(
-                        model = uri.toString(), contentDescription = "Photo",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp))
-                    )
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp)
-                    .windowInsetsPadding(WindowInsets.navBarSpace).padding(bottom = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                PreviewActionButton(
-                    label = if (saving) "Saving…" else "Save to Device",
-                    icon = { Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)) },
-                    liquidGlass = liquidGlass, tint = tint, filled = false, enabled = !saving, busy = saving,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    tap(); saving = true
-                    scope.launch {
-                        val failure = IosDownloads.saveLocalFile(MediaBridge.pathOf(uri), isVideo)
-                        saving = false
-                        AppEvents.postMessage(if (failure == null) "Saved to Photos" else "Couldn't save: $failure")
-                    }
-                }
-                PreviewActionButton(
-                    label = "Create Post",
-                    icon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)) },
-                    liquidGlass = liquidGlass, tint = tint, filled = true, enabled = !saving, busy = false,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    tap(); onCreatePost(uri)
-                }
-            }
-        }
-
-        // Top left: back to the camera.
-        Box(Modifier.padding(top = rememberTopCutoutClearance(), start = 16.dp)) {
-            RoundBackButton(liquidGlass = liquidGlass, tint = tint, backdrop = null, onClick = onClose, size = 44.dp)
-        }
-    }
-}
-
-/** One half of the review page's bottom bar. */
-@Composable
-private fun PreviewActionButton(
-    label: String,
-    icon: @Composable () -> Unit,
-    liquidGlass: Boolean,
-    tint: Color,
-    filled: Boolean,
-    enabled: Boolean,
-    busy: Boolean,
-    modifier: Modifier = Modifier,
-    height: Dp = 52.dp,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(26.dp)
-    Box(
-        modifier.height(height).clip(shape)
-            .then(
-                if (filled) Modifier.background(lerp(tint, Color.Black, 0.12f))
-                else if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
-                else Modifier.background(Color.White.copy(alpha = 0.12f))
-            )
-            .border(1.dp, tint.copy(alpha = 0.6f), shape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (busy) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-            else icon()
-            Text(
-                label, color = Color.White.copy(alpha = if (enabled) 1f else 0.5f),
-                fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
-            )
         }
     }
 }

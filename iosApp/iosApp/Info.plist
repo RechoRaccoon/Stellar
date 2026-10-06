@@ -52,9 +52,9 @@
 	<!-- The notch bubble's Camera page (photos and videos for posts).
 	     iOS closes an app that opens the camera without these two. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Stellar uses the camera to take photos and videos for your posts.</string>
+	<string>Stellar uses the camera to take photos and videos for your posts and to go live, and in VRM mode to let your avatar follow your face, hands and body. In VRM mode the camera picture is only used on this iPhone and is never recorded or sent anywhere.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Stellar uses the microphone to record sound with the videos you take.</string>
+	<string>Stellar uses the microphone for the sound of the videos you record and the live streams you start, from the Camera page or VRM mode.</string>
 	<!-- Stellar only uses the encryption built into iOS (https), so App
 	     Store Connect doesn't need to ask about export rules per build. -->
 	<key>ITSAppUsesNonExemptEncryption</key>

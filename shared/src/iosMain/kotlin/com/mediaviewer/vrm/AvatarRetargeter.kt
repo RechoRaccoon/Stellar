@@ -1,0 +1,987 @@
+// iOS copy of Android's ui/AvatarRetargeter.kt. The pose and expression
+// maths is the same, line for line; the only changes are where it touches
+// the renderer. Android asks Filament for bone transforms and morph
+// weights; here those go through [VrmRig], which the SceneKit loader
+// (VrmScene.kt) implements. "entity" below is simply the glTF node index.
+package com.mediaviewer.vrm
+
+import com.mediaviewer.platform.Log
+import kotlin.concurrent.Volatile
+import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.sin
+import kotlin.math.sqrt
+
+/**
+ * Drives the loaded VRM from MediaPipe tracking so it behaves like a
+ * mirror (or a video-call filter): whatever the user does, the avatar does
+ * on the same side of the screen that the mirrored tracking preview shows.
+ *
+ * ## Why the old version was inverted / on the wrong arm
+ * Three separate problems, all fixed here rather than patched with sign
+ * flips:
+ *  1. **No mirror.** The preview box draws landmarks as `1 - x` (a mirror),
+ *     but the avatar was driven un-mirrored: the user's LEFT arm drove the
+ *     avatar's LEFT arm, which — the avatar facing you — sits on the
+ *     opposite side of the screen. Mirroring a pose means reflecting every
+ *     position across the screen's vertical axis AND swapping left/right
+ *     bones; doing only one of the two can't work.
+ *  2. **Frames mixed up.** Tracking deltas were computed in camera space
+ *     but applied in the model's own space. A VRM 0.x model faces -Z and is
+ *     spun 180° to face the camera, so X and Z (i.e. roll, and vertical
+ *     arm swings) came out inverted while yaw/pitch happened to look right
+ *     — exactly the symptom reported.
+ *  3. **Calibration against the first frame.** Everything was "change
+ *     since tracking started", so an arm that happened to be down when
+ *     tracking began was treated as a T-pose.
+ *
+ * ## How it works now
+ * Everything is solved in **model space** (the scene after the load-time
+ * unit-cube fit, before the facing/zoom/follow transform) and is
+ * **absolute**, not relative to a calibration frame:
+ *  - Landmark positions are mirrored into screen space, then converted to
+ *    model space with the model's own facing (worked out from its skeleton:
+ *    which side its left arm is on), so VRM 0.x and 1.0 need no special
+ *    cases.
+ *  - Each bone gets a world-space *delta* `D` (its world rotation = D · rest).
+ *    [PoseContext.drive] turns that into the local transform Filament wants,
+ *    accounting for whatever its parents were already rotated by this frame
+ *    — so arms stay correct when the torso leans, fingers when the hand
+ *    turns, and so on.
+ *  - Limbs use the rest skeleton's real bone directions (shoulder→elbow on
+ *    the model) and rotate them onto the tracked directions, so any rest
+ *    pose works. Joints MediaPipe can't see (off-frame, low visibility) fall
+ *    back to a relaxed arms-down pose instead of snapping to a T-pose.
+ *  - The head uses MediaPipe's face transformation matrix directly (it's
+ *    identity when you face the camera), mirrored into model space.
+ *
+ * If a device ever shows the whole thing mirrored the "wrong" way, flip
+ * [MIRROR] — it switches positions, bone sides, the head and the face
+ * blendshapes together, so nothing ends up half-mirrored.
+ */
+class BoneRest(
+    val name: String,
+    val entity: Int,
+    /** Parent-relative rest transform, column-major 4x4. */
+    val restLocal: FloatArray,
+    /** Rest rotation in model space. */
+    val restWorldRotation: Quaternion,
+    /** Rest position in model space (x, y, z). */
+    val restWorldPosition: FloatArray,
+    /** Nearest ancestor that is itself a humanoid bone, or null. */
+    val parentBone: String?
+)
+
+/** One pose landmark in MediaPipe world space (meters, hip-centred:
+ *  +x image-right, +y down, +z away from the camera), plus its visibility. */
+class BodyPoint(val x: Float, val y: Float, val z: Float, val visibility: Float)
+
+/** Everything [AvatarRetargeter.applyPose] needs for one update. */
+class TrackingFrame(
+    /** MediaPipe facial transformation matrix (column-major 4x4), or null. */
+    val faceMatrix: FloatArray?,
+    /** Smoothed pose world landmarks by BlazePose index; null = pose tracking off. */
+    val body: Map<Int, BodyPoint>?,
+    /** "Full Body" toggle — legs/hips only move when this is on. */
+    val trackLegs: Boolean,
+    /** Tracked hands keyed by the AVATAR side each one drives
+     *  ("left"/"right"; mirroring already applied). */
+    val hands: Map<String, TrackedHand> = emptyMap(),
+    /** "Hand IK": tracked hands position the arms (two-bone IK). Off =
+     *  arms come only from body tracking (relaxed when it's off). */
+    val armIk: Boolean = false,
+    /** Avatar sides ("left"/"right") whose arm may follow the body
+     *  tracker; null = both. With "Arms need hands" on, only sides whose
+     *  hand is tracked are listed — the others rest at the avatar's side. */
+    val armBodySides: Set<String>? = null
+)
+
+/** One tracked hand. */
+class TrackedHand(
+    /** HandLandmarker's 21 world landmarks (metres, hand-centred; same axes
+     *  as the pose's world landmarks), smoothed — hand/finger orientation. */
+    val points: List<FloatArray>,
+    /** Where the WRIST is relative to the midpoint between your eyes, in
+     *  metres, camera axes (+x image-right, +y down, +z away), estimated
+     *  from apparent face and hand size. Drives the arm IK; null if there
+     *  was no face to measure against. */
+    val offsetFromEyes: FloatArray?
+)
+
+/** What the retargeter needs from whatever draws the avatar. Matrices are
+ *  column-major 4x4, in the glTF file's own units and axes. */
+interface VrmRig {
+    /** The node's transform relative to its parent, as loaded. */
+    fun restLocal(node: Int): FloatArray?
+    /** The node's transform in model space, as loaded. */
+    fun restWorld(node: Int): FloatArray?
+    fun parentOf(node: Int): Int?
+    fun setLocal(node: Int, matrix: FloatArray)
+    /** How many morph targets the mesh on this node has (0 = none). */
+    fun morphCount(node: Int): Int
+    fun setMorphWeights(node: Int, weights: FloatArray)
+}
+
+class RetargetTarget(
+    val rig: VrmRig,
+    /** Rest data for every humanoid bone that resolved, by VRM bone name. */
+    val bones: Map<String, BoneRest>,
+    /** True when the model faces -Z in its own space (normally VRM 0.x) and
+     *  therefore needs a 180° turn to face the camera. Derived from the
+     *  skeleton, with the spec version only as a fallback. */
+    val facesNegativeZ: Boolean
+) {
+    internal val smoothed = HashMap<String, Quaternion>()
+    internal var lastHead: Quaternion? = null
+    internal var lastUpdateNanos = 0L
+    internal var expressionCache: AvatarRetargeter.ExpressionCache? = null
+}
+
+object AvatarRetargeter {
+    private const val TAG = "AvatarRetargeter"
+
+    /** Mirror mode — see the file doc. Positions, bone sides, head rotation
+     *  and left/right face blendshapes all follow this one flag. */
+    @Volatile var MIRROR = true
+
+    /** Multiplies every bone smoothing time constant below (the settings
+     *  smoothing slider; 1 = default, 0 = bones follow tracking instantly). */
+    @Volatile var smoothingScale = 1f
+
+    /** Pose landmarks below this visibility are treated as untracked. */
+    private const val MIN_VISIBILITY = 0.5f
+
+    // Temporal smoothing time constants (seconds). Landmarks are already
+    // One-Euro filtered; this mainly softens tracked <-> fallback switches
+    // and the unfiltered head matrix.
+    private const val TAU_HEAD = 0.05f
+    private const val TAU_TORSO = 0.08f
+    private const val TAU_LIMB = 0.07f
+    private const val TAU_FINGER = 0.06f
+    private const val TAU_HAND = 0.06f
+    /** Bone gap (radians) at which [PoseContext.drive]'s easing is already
+     *  twice as fast; it keeps speeding up quadratically beyond that. */
+    private const val ADAPTIVE_GAP_RAD = 0.12f
+
+    /** Typical adult shoulder→wrist length (m): maps your hand's reach
+     *  onto the avatar's own arm length. */
+    private const val USER_ARM_M = 0.58f
+    /** Hand IK: how far (metres, in the user's own scale) the tracked hand
+     *  targets are moved towards the camera. */
+    private const val IK_HAND_FORWARD_M = 0.14f
+
+    /** Share of the head turn taken by the neck (when the rig has one). */
+    private const val NECK_SHARE = 0.4f
+    /** Wrist can't bend further than this from the forearm (radians). */
+    private const val MAX_WRIST_BEND = 1.4f
+    /** A finger bone can't bend further than this from its parent (radians). */
+    private const val MAX_FINGER_BEND = 1.75f
+
+    fun buildTarget(rig: VrmRig, vrmData: VrmData): RetargetTarget {
+        class Raw(val entity: Int, val local: FloatArray, val world: FloatArray)
+        val raw = HashMap<String, Raw>()
+        val entityToBone = HashMap<Int, String>()
+        for ((boneName, nodeIndex) in vrmData.humanBones) {
+            val local = rig.restLocal(nodeIndex) ?: continue
+            val world = rig.restWorld(nodeIndex) ?: continue
+            raw[boneName] = Raw(nodeIndex, local, world)
+            entityToBone[nodeIndex] = boneName
+        }
+
+        // Nearest humanoid ancestor, walking the node hierarchy (there can
+        // be non-humanoid nodes in between, e.g. twist or armature nodes).
+        fun humanoidParent(entity: Int): String? {
+            var current = entity
+            repeat(256) {
+                val parent = rig.parentOf(current) ?: return null
+                entityToBone[parent]?.let { return it }
+                current = parent
+            }
+            return null
+        }
+
+        val bones = HashMap<String, BoneRest>()
+        for ((name, r) in raw) {
+            bones[name] = BoneRest(
+                name = name,
+                entity = r.entity,
+                restLocal = r.local,
+                restWorldRotation = rotationOf(r.world),
+                restWorldPosition = floatArrayOf(r.world[12], r.world[13], r.world[14]),
+                parentBone = humanoidParent(r.entity)
+            )
+        }
+
+        val leftArm = bones["leftUpperArm"]?.restWorldPosition
+        val rightArm = bones["rightUpperArm"]?.restWorldPosition
+        val facesNegativeZ = if (leftArm != null && rightArm != null && abs(leftArm[0] - rightArm[0]) > 1e-4f) {
+            // Facing +Z, the avatar's left is +X; facing -Z it's -X.
+            leftArm[0] < rightArm[0]
+        } else {
+            vrmData.specVersion == VrmSpecVersion.VRM_0
+        }
+        return RetargetTarget(rig, bones, facesNegativeZ)
+    }
+
+    // ---------------------------------------------------------------- pose
+
+    private class Side(
+        val shoulder: Int, val elbow: Int, val wrist: Int, val pinky: Int, val index: Int,
+        val hip: Int, val knee: Int, val ankle: Int
+    )
+    // BlazePose indices from the TRACKED PERSON's own point of view.
+    private val PERSON_LEFT = Side(11, 13, 15, 17, 19, 23, 25, 27)
+    private val PERSON_RIGHT = Side(12, 14, 16, 18, 20, 24, 26, 28)
+
+    /** Which of the person's sides drives the avatar's [avatarSide]. In a
+     *  mirror, your right hand is on the right of the screen — where the
+     *  (camera-facing) avatar's LEFT hand is. */
+    private fun sourceFor(avatarSide: String): Side = if (MIRROR) {
+        if (avatarSide == "left") PERSON_RIGHT else PERSON_LEFT
+    } else {
+        if (avatarSide == "left") PERSON_LEFT else PERSON_RIGHT
+    }
+
+    fun applyPose(target: RetargetTarget, frame: TrackingFrame) {
+        val now = com.mediaviewer.platform.nanoTime()
+        val dt = if (target.lastUpdateNanos == 0L) 1f else ((now - target.lastUpdateNanos) / 1e9f).coerceIn(0f, 1f)
+        target.lastUpdateNanos = now
+        val ctx = PoseContext(target, dt)
+        val body = frame.body
+        val bones = target.bones
+        val flip = target.facesNegativeZ
+        fun point(i: Int): FloatArray? = body?.get(i)?.takeIf { it.visibility >= MIN_VISIBILITY }?.let { modelPoint(it, flip) }
+
+        // ── Hips (only with Full Body: turning/tilting the pelvis) ──
+        val hipsDelta = if (frame.trackLegs) run {
+            val l = point(sourceFor("left").hip); val r = point(sourceFor("right").hip)
+            val restL = bones["leftUpperLeg"]?.restWorldPosition; val restR = bones["rightUpperLeg"]?.restWorldPosition
+            if (l == null || r == null || restL == null || restR == null) null
+            else frameRotation(sub(restL, restR), UP, sub(l, r), UP)
+        } else null
+        ctx.drive("hips", hipsDelta ?: Quaternion.IDENTITY, TAU_TORSO)
+
+        // ── Torso lean/twist from the shoulder line (spine; chest etc. follow) ──
+        val spineBone = if (bones.containsKey("spine")) "spine" else "chest"
+        val torso = run {
+            val ls = point(sourceFor("left").shoulder); val rs = point(sourceFor("right").shoulder)
+            val restL = bones["leftUpperArm"]?.restWorldPosition; val restR = bones["rightUpperArm"]?.restWorldPosition
+            val restHips = bones["hips"]?.restWorldPosition
+            if (ls == null || rs == null || restL == null || restR == null || restHips == null) return@run null
+            val restUp = sub(mid(restL, restR), restHips)
+            val lh = point(sourceFor("left").hip); val rh = point(sourceFor("right").hip)
+            val up = if (lh != null && rh != null) sub(mid(ls, rs), mid(lh, rh)) else restUp
+            frameRotation(sub(restL, restR), restUp, sub(ls, rs), up)
+        }
+        ctx.drive(spineBone, torso ?: ctx.parentDelta(spineBone), TAU_TORSO)
+
+        // ── Head / neck ──
+        frame.faceMatrix?.takeIf { it.size == 16 }?.let { m ->
+            val r = rotationOf(m)
+            val view = if (MIRROR) Quaternion(r.x, -r.y, -r.z, r.w) else r
+            target.lastHead = viewToModel(view, flip)
+        }
+        if (bones.containsKey("neck")) {
+            val parent = ctx.parentDelta("neck")
+            val head = target.lastHead ?: parent
+            ctx.drive("neck", Quaternion.slerp(parent, head, NECK_SHARE), TAU_HEAD)
+        }
+        ctx.drive("head", target.lastHead ?: ctx.parentDelta("head"), TAU_HEAD)
+
+        // ── Arms, hands, fingers ──
+        for (side in SIDES) {
+            val tracked = frame.hands[side]
+            val hand = tracked?.points?.takeIf { it.size >= 21 }?.map { modelPoint(it, flip) }
+            // Hand IK: the hands are pulled a little towards the camera, so
+            // they sit in front of the avatar instead of sinking into its
+            // chest (and into each other) — the depth estimate from palm
+            // size reads hands as further back than they really are.
+            val offset = if (frame.armIk) tracked?.offsetFromEyes?.let { o ->
+                modelPoint(floatArrayOf(o[0], o[1], o[2] - IK_HAND_FORWARD_M), flip)
+            } else null
+            val bodyAllowed = frame.armBodySides?.contains(side) ?: true
+            val noBody: (Int) -> FloatArray? = { _ -> null }
+            driveArm(ctx, side, if (bodyAllowed) ::point else noBody, hand, offset, frame.armIk)
+        }
+
+        // ── Legs (rest pose unless Full Body is on and they're visible) ──
+        for (side in SIDES) {
+            val s = sourceFor(side)
+            val hip = if (frame.trackLegs) point(s.hip) else null
+            val knee = if (frame.trackLegs) point(s.knee) else null
+            val ankle = if (frame.trackLegs) point(s.ankle) else null
+            driveSegment(ctx, "${side}UpperLeg", "${side}LowerLeg", if (hip != null && knee != null) direction(hip, knee) else null, TAU_LIMB)
+            driveSegment(ctx, "${side}LowerLeg", "${side}Foot", if (knee != null && ankle != null) direction(knee, ankle) else null, TAU_LIMB)
+        }
+    }
+
+    /** Rotates [bone] so its rest direction (towards [childBone]) points
+     *  along [targetDirection]; null keeps it at rest relative to its parent. */
+    private fun driveSegment(ctx: PoseContext, bone: String, childBone: String, targetDirection: FloatArray?, tau: Float) {
+        val info = ctx.target.bones[bone] ?: return
+        val parent = ctx.parentDelta(bone)
+        val child = ctx.target.bones[childBone]
+        if (targetDirection == null || child == null) {
+            ctx.drive(bone, parent, tau)
+            return
+        }
+        val restDir = direction(info.restWorldPosition, child.restWorldPosition)
+        val current = rotate(parent, restDir)
+        ctx.drive(bone, quaternionBetweenDirections(current, targetDirection) * parent, tau)
+    }
+
+    /**
+     * Arms by two-bone IK, so the hands land where yours are and the rest
+     * of the arm follows:
+     *  - **Wrist target** — your tracked hand (its estimated position
+     *    relative to your eyes, scaled to the avatar's proportions) when a
+     *    hand is visible; otherwise the pose's wrist (relative to your
+     *    shoulder) when Upper Body is on; otherwise the arm relaxes down.
+     *    Hand tracking wins because it keeps working when the arm itself is
+     *    hidden or the pose disagrees with where the hand really is.
+     *  - **Elbow direction** — your tracked elbow when the pose sees it (so
+     *    arm tracking still shapes the pose), else a natural down-and-back
+     *    bend.
+     */
+    private fun driveArm(
+        ctx: PoseContext, side: String, point: (Int) -> FloatArray?,
+        hand: List<FloatArray>?, handOffset: FloatArray?, useIk: Boolean
+    ) {
+        val bones = ctx.target.bones
+        val flip = ctx.target.facesNegativeZ
+        val s = sourceFor(side)
+        val shoulder = point(s.shoulder); val elbow = point(s.elbow); val wrist = point(s.wrist)
+        // Screen-right (+X in view space) is the avatar's left, because it faces you.
+        val sx = if (side == "left") 1f else -1f
+        val relaxedUpper = viewDirToModel(normalize(floatArrayOf(0.30f * sx, -1f, 0.05f)), flip)
+        val relaxedLower = viewDirToModel(normalize(floatArrayOf(0.12f * sx, -1f, 0.30f)), flip)
+        val defaultPole = viewDirToModel(normalize(floatArrayOf(0.35f * sx, -1f, -0.5f)), flip)
+
+        val upper = "${side}UpperArm"; val lower = "${side}LowerArm"; val handName = "${side}Hand"
+        val upperRest = bones[upper]; val lowerRest = bones[lower]; val handRest = bones[handName]
+        val target: FloatArray? = if (useIk && upperRest != null && lowerRest != null && handRest != null) {
+            val a = length(sub(lowerRest.restWorldPosition, upperRest.restWorldPosition))
+            val b = length(sub(handRest.restWorldPosition, lowerRest.restWorldPosition))
+            val shoulderNow = ctx.currentPosition(upper)
+            when {
+                handOffset != null && ctx.eyesNow() != null ->
+                    add(ctx.eyesNow()!!, scale(handOffset, (a + b) / USER_ARM_M))
+                shoulder != null && wrist != null && shoulderNow != null -> {
+                    val userArm = if (elbow != null) length(sub(elbow, shoulder)) + length(sub(wrist, elbow)) else USER_ARM_M
+                    add(shoulderNow, scale(sub(wrist, shoulder), (a + b) / userArm.coerceAtLeast(0.2f)))
+                }
+                else -> null
+            }
+        } else null
+
+        val shoulderNow = ctx.currentPosition(upper)
+        if (target != null && shoulderNow != null && upperRest != null && lowerRest != null && handRest != null) {
+            val a = length(sub(lowerRest.restWorldPosition, upperRest.restWorldPosition))
+            val b = length(sub(handRest.restWorldPosition, lowerRest.restWorldPosition))
+            val pole = if (shoulder != null && elbow != null) sub(elbow, shoulder) else defaultPole
+            val (elbowPos, wristPos) = solveTwoBone(shoulderNow, target, a, b, pole, defaultPole)
+            driveSegment(ctx, upper, lower, direction(shoulderNow, elbowPos), TAU_LIMB)
+            driveSegment(ctx, lower, handName, direction(elbowPos, wristPos), TAU_LIMB)
+        } else {
+            driveSegment(ctx, upper, lower,
+                if (shoulder != null && elbow != null) direction(shoulder, elbow) else relaxedUpper, TAU_LIMB)
+            driveSegment(ctx, lower, handName,
+                if (elbow != null && wrist != null) direction(elbow, wrist) else relaxedLower, TAU_LIMB)
+        }
+
+        // Hand orientation. Best source: HandLandmarker's own 3-D points
+        // (wrist, index/middle/pinky knuckles) — far steadier than the
+        // pose's three rough hand points, which are only a fallback.
+        val handInfo = bones[handName] ?: return
+        val forearm = ctx.parentDelta(handName)
+        val indexBase = bones["${side}IndexProximal"]; val littleBase = bones["${side}LittleProximal"]
+        val middleBase = bones["${side}MiddleProximal"]
+        var handDelta = forearm
+        if (indexBase != null && littleBase != null) {
+            val restAcross = sub(indexBase.restWorldPosition, littleBase.restWorldPosition)
+            val restDir = sub(
+                middleBase?.restWorldPosition ?: mid(indexBase.restWorldPosition, littleBase.restWorldPosition),
+                handInfo.restWorldPosition
+            )
+            val tracked = if (hand != null) {
+                frameRotation(restDir, restAcross, sub(hand[9], hand[0]), sub(hand[5], hand[17]))
+            } else {
+                val idx = point(s.index); val pinky = point(s.pinky)
+                if (wrist != null && idx != null && pinky != null)
+                    frameRotation(restDir, restAcross, sub(mid(idx, pinky), wrist), sub(idx, pinky))
+                else null
+            }
+            tracked?.let { handDelta = clampRelative(forearm, it, MAX_WRIST_BEND) }
+        }
+        ctx.drive(handName, handDelta, TAU_HAND)
+        driveFingers(ctx, side, hand)
+    }
+
+    private val FINGERS = listOf("Thumb", "Index", "Middle", "Ring", "Little")
+    private val RELAXED_CURL = floatArrayOf(
+        0.10f, 0.15f, 0.10f,   // thumb
+        0.20f, 0.30f, 0.20f,   // index
+        0.25f, 0.35f, 0.20f,   // middle
+        0.30f, 0.40f, 0.25f,   // ring
+        0.35f, 0.45f, 0.25f    // little
+    )
+
+    /** Landmark chains per finger (MediaPipe hand topology), thumb first. */
+    private val FINGER_CHAINS = arrayOf(
+        intArrayOf(1, 2, 3, 4), intArrayOf(5, 6, 7, 8), intArrayOf(9, 10, 11, 12),
+        intArrayOf(13, 14, 15, 16), intArrayOf(17, 18, 19, 20)
+    )
+
+    /**
+     * Fingers. With a tracked hand, each finger bone is swung onto the
+     * direction between its two landmarks (knuckle→next knuckle), exactly
+     * like the arms — so curl, spread and thumb opposition all come through,
+     * with no per-rig bend-axis guessing. Thumb bones map to landmarks
+     * 1→2→3→4 on both VRM 0.x (Proximal/Intermediate/Distal) and 1.0
+     * (Metacarpal/Proximal/Distal). A bone may bend at most
+     * [MAX_FINGER_BEND] away from its parent, which hides the occasional
+     * landmark glitch. Without a hand, the fingers rest gently curled.
+     */
+    private fun driveFingers(ctx: PoseContext, side: String, hand: List<FloatArray>?) {
+        val bones = ctx.target.bones
+        val handBone = bones["${side}Hand"] ?: return
+        val indexBase = bones["${side}IndexProximal"]; val littleBase = bones["${side}LittleProximal"]
+        // Palm normal (out of the palm) from the rest skeleton; the cross
+        // order differs per side because the hands are mirror images.
+        val palmNormal = if (indexBase != null && littleBase != null) {
+            val dir = sub(mid(indexBase.restWorldPosition, littleBase.restWorldPosition), handBone.restWorldPosition)
+            val across = sub(indexBase.restWorldPosition, littleBase.restWorldPosition)
+            normalize(if (side == "left") cross(dir, across) else cross(across, dir))
+        } else floatArrayOf(0f, -1f, 0f)
+
+        for ((fi, finger) in FINGERS.withIndex()) {
+            val segments = if (finger == "Thumb" && bones.containsKey("${side}ThumbMetacarpal"))
+                listOf("Metacarpal", "Proximal", "Distal") else listOf("Proximal", "Intermediate", "Distal")
+            val names = segments.map { "$side$finger$it" }
+            val chain = FINGER_CHAINS[fi]
+            var previousRestDir = direction(handBone.restWorldPosition, bones[names[0]]?.restWorldPosition ?: continue)
+            for (k in 0 until 3) {
+                val info = bones[names[k]] ?: break
+                val next = bones.getOrNull(names.getOrNull(k + 1))
+                // The last bone has no humanoid child: it continues its parent's line.
+                val restDir = if (next != null) direction(info.restWorldPosition, next.restWorldPosition) else previousRestDir
+                val parent = ctx.parentDelta(names[k])
+                val delta = if (hand != null) {
+                    val target = direction(hand[chain[k]], hand[chain[k + 1]])
+                    val swung = quaternionBetweenDirections(rotate(parent, restDir), target) * parent
+                    clampRelative(parent, swung, MAX_FINGER_BEND)
+                } else {
+                    var angle = RELAXED_CURL[fi * 3 + k]
+                    if (finger == "Thumb") angle *= 0.7f
+                    parent * axisAngle(normalize(cross(restDir, palmNormal)), angle)
+                }
+                ctx.drive(names[k], delta, TAU_FINGER)
+                previousRestDir = restDir
+            }
+        }
+    }
+
+    private fun Map<String, BoneRest>.getOrNull(key: String?): BoneRest? = key?.let { this[it] }
+
+    private val SIDES = listOf("left", "right")
+    private val UP = floatArrayOf(0f, 1f, 0f)
+
+    /** Per-update bone state: which world deltas have been applied so far,
+     *  so children can account for their already-rotated parents. */
+    private class PoseContext(val target: RetargetTarget, val dt: Float) {
+        private val deltas = HashMap<String, Quaternion>()
+
+        /** World delta of [bone] this update (its own if driven already,
+         *  else inherited from its parents). */
+        fun deltaOf(bone: String): Quaternion = deltas[bone] ?: parentDelta(bone)
+
+        /** Where [bone]'s pivot is now, with every rotation applied so far
+         *  (hips stay put: the pose only rotates, never translates). */
+        fun currentPosition(bone: String): FloatArray? {
+            val info = target.bones[bone] ?: return null
+            val parent = info.parentBone ?: return info.restWorldPosition
+            val parentInfo = target.bones[parent] ?: return info.restWorldPosition
+            val parentNow = currentPosition(parent) ?: return info.restWorldPosition
+            return addV(parentNow, rotateV(deltaOf(parent), subV(info.restWorldPosition, parentInfo.restWorldPosition)))
+        }
+
+        /** Midpoint between the avatar's eyes now (head must be driven
+         *  first). Falls back to a point a little above the head bone. */
+        fun eyesNow(): FloatArray? {
+            val head = target.bones["head"] ?: return null
+            val headNow = currentPosition("head") ?: return null
+            val l = target.bones["leftEye"]?.restWorldPosition
+            val r = target.bones["rightEye"]?.restWorldPosition
+            val eyesRest = if (l != null && r != null) floatArrayOf((l[0] + r[0]) / 2f, (l[1] + r[1]) / 2f, (l[2] + r[2]) / 2f)
+            else {
+                // ~6 cm above the head pivot for a typical 1.5 m avatar,
+                // scaled by the avatar's own arm length.
+                val arm = target.bones["leftUpperArm"]?.let { u -> target.bones["leftHand"]?.let { h ->
+                    sqrt(subV(h.restWorldPosition, u.restWorldPosition).let { it[0] * it[0] + it[1] * it[1] + it[2] * it[2] })
+                } } ?: 0.5f
+                floatArrayOf(head.restWorldPosition[0], head.restWorldPosition[1] + arm * 0.12f, head.restWorldPosition[2])
+            }
+            return addV(headNow, rotateV(deltaOf("head"), subV(eyesRest, head.restWorldPosition)))
+        }
+
+        private fun subV(a: FloatArray, b: FloatArray) = floatArrayOf(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+        private fun addV(a: FloatArray, b: FloatArray) = floatArrayOf(a[0] + b[0], a[1] + b[1], a[2] + b[2])
+        private fun rotateV(q: Quaternion, v: FloatArray): FloatArray {
+            val tx = 2f * (q.y * v[2] - q.z * v[1]); val ty = 2f * (q.z * v[0] - q.x * v[2]); val tz = 2f * (q.x * v[1] - q.y * v[0])
+            return floatArrayOf(
+                v[0] + q.w * tx + (q.y * tz - q.z * ty),
+                v[1] + q.w * ty + (q.z * tx - q.x * tz),
+                v[2] + q.w * tz + (q.x * ty - q.y * tx)
+            )
+        }
+
+        /** World delta currently carried by [bone]'s parent chain. */
+        fun parentDelta(bone: String): Quaternion {
+            var p = target.bones[bone]?.parentBone
+            var guard = 0
+            while (p != null && guard++ < 64) {
+                deltas[p]?.let { return it }
+                p = target.bones[p]?.parentBone
+            }
+            return Quaternion.IDENTITY
+        }
+
+        /** Makes [bone]'s model-space rotation `desired · rest`, smoothed. */
+        fun drive(bone: String, desired: Quaternion, tau: Float): Quaternion {
+            val info = target.bones[bone] ?: return desired
+            val previous = target.smoothed[bone]
+            var t = tau * smoothingScale
+            if (previous != null && t > 1e-4f) {
+                // Motion-adaptive easing (the same idea as the One-Euro
+                // filters upstream): tiny differences — tracking jitter —
+                // keep the full smoothing, while a real, fast movement
+                // shortens the time constant so the bone catches up almost
+                // immediately instead of trailing ~tau behind the tracking.
+                val dot = kotlin.math.abs(previous.x * desired.x + previous.y * desired.y + previous.z * desired.z + previous.w * desired.w)
+                val gapRad = 2f * kotlin.math.acos(dot.coerceIn(0f, 1f))
+                t /= 1f + (gapRad / ADAPTIVE_GAP_RAD) * (gapRad / ADAPTIVE_GAP_RAD)
+            }
+            val d = if (previous == null || t <= 1e-4f) desired
+            else Quaternion.slerp(previous, desired, 1f - exp(-dt / t))
+            target.smoothed[bone] = d
+            deltas[bone] = d
+            // world = P·Wparent_rest·L_rest·X = P·W_rest·X  ⇒  X = W⁻¹·P⁻¹·D·W
+            val wr = info.restWorldRotation
+            val x = (wr.conjugate() * (parentDelta(bone).conjugate() * d) * wr).normalized()
+            val local = multiplyColumnMajor4x4(info.restLocal, x.toColumnMajorMatrix())
+            target.rig.setLocal(info.entity, local)
+            return d
+        }
+    }
+
+    // ---------------------------------------------------------- expressions
+
+    /** Per-model expression bookkeeping, built once per loaded model
+     *  instead of re-deriving it (and reallocating every array) each frame. */
+    /**
+     * The 52 ARKit facial blendshape names. MediaPipe's Face Landmarker
+     * produces its scores under these same names, and VRM models advertised
+     * as "ARKit face tracking"-ready carry them as custom expressions — so a
+     * custom expression matching one of these names can be driven 1:1.
+     */
+    internal val ARKIT_BLENDSHAPES = setOf(
+        "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight",
+        "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
+        "eyeBlinkLeft", "eyeBlinkRight",
+        "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
+        "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight",
+        "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight",
+        "jawForward", "jawLeft", "jawOpen", "jawRight",
+        "mouthClose", "mouthDimpleLeft", "mouthDimpleRight",
+        "mouthFrownLeft", "mouthFrownRight", "mouthFunnel",
+        "mouthLeft", "mouthLowerDownLeft", "mouthLowerDownRight",
+        "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight",
+        "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper",
+        "mouthSmileLeft", "mouthSmileRight", "mouthStretchLeft", "mouthStretchRight",
+        "mouthUpperUpLeft", "mouthUpperUpRight",
+        "noseSneerLeft", "noseSneerRight", "tongueOut"
+    )
+    private val ARKIT_BLENDSHAPES_LOWER = ARKIT_BLENDSHAPES.map { it.lowercase() }.toSet()
+
+    internal class ExpressionCache(
+        val vrmData: VrmData,
+        /** Every node any expression drives, with its entity + morph count. */
+        val nodes: List<Triple<Int, Int, Int>>,
+        /** Reused per-node weight buffers, and what was last written. */
+        val buffers: HashMap<Int, FloatArray>,
+        val lastWritten: HashMap<Int, FloatArray>,
+        val hasBlinkBoth: Boolean,
+        val hasBlinkSplit: Boolean,
+        /** Lowercase ARKit blendshape names this model carries as custom expressions. */
+        val arkitNames: Set<String>,
+        /** All expression names, lowercase — for preset/custom coexistence checks. */
+        val expressionNames: Set<String>,
+        /** ARKit-named orphan morphs (canonical name → binds). Expression-level
+         *  ARKit customs take precedence — same-named orphans are excluded so
+         *  nothing drives twice. */
+        val orphanArkitMorphs: List<Pair<String, List<MorphTargetBind>>>,
+        /** Lowercase ARKit names from orphans — for the anti-double-drive guards. */
+        val orphanArkitNames: Set<String>,
+        /** Union of expression-level and orphan ARKit names. */
+        val allArkitNames: Set<String>
+    )
+
+    private fun expressionCache(target: RetargetTarget, vrmData: VrmData): ExpressionCache {
+        target.expressionCache?.takeIf { it.vrmData === vrmData }?.let { return it }
+        val nodes = ArrayList<Triple<Int, Int, Int>>()
+        val morphNodeIndices = (vrmData.expressions.values.flatten() +
+            vrmData.orphanMorphTargets.values.flatten()).map { it.nodeIndex }.toSet()
+        for (nodeIndex in morphNodeIndices) {
+            val count = target.rig.morphCount(nodeIndex)
+            if (count > 0) nodes.add(Triple(nodeIndex, nodeIndex, count))
+        }
+        val names = vrmData.expressions.keys.map { it.lowercase() }.toSet()
+        val arkitNames = names.intersect(ARKIT_BLENDSHAPES_LOWER)
+        val orphanArkitMorphs = vrmData.orphanMorphTargets.mapNotNull { (name, binds) ->
+            val canonical = ARKIT_BLENDSHAPES.firstOrNull { it.equals(name, ignoreCase = true) }
+                ?: return@mapNotNull null
+            // An expression-level ARKit custom for the same name wins —
+            // driving both would apply the region twice.
+            if (canonical.lowercase() in arkitNames) null else canonical to binds
+        }
+        val orphanArkitNames = orphanArkitMorphs.map { it.first.lowercase() }.toSet()
+        val cache = ExpressionCache(
+            vrmData = vrmData,
+            nodes = nodes,
+            buffers = HashMap(),
+            lastWritten = HashMap(),
+            hasBlinkBoth = "blink" in names,
+            hasBlinkSplit = ("blinkleft" in names || "blink_l" in names) && ("blinkright" in names || "blink_r" in names),
+            arkitNames = arkitNames,
+            expressionNames = names,
+            orphanArkitMorphs = orphanArkitMorphs,
+            orphanArkitNames = orphanArkitNames,
+            allArkitNames = arkitNames + orphanArkitNames
+        )
+        target.expressionCache = cache
+        return cache
+    }
+
+    /** MediaPipe's blink score sits around 0.1–0.3 with the eyes open (more
+     *  when looking down) and rarely reaches 1 when closed. Open reads as
+     *  fully open, a real blink as fully shut. */
+    private fun blinkCurve(raw: Float): Float {
+        val t = ((raw - 0.25f) / 0.45f).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /** Drives the VRM's expressions from MediaPipe's ARKit-style scores.
+     *  With [MIRROR], left/right blendshapes are swapped so winking your
+     *  left eye closes the avatar eye on the same side of the screen.
+     *
+     *  Blinks: most avatars define "blink" AND "blinkLeft"/"blinkRight",
+     *  and the one-sided shapes together already equal the two-eyed one.
+     *  Driving all three at full strength (as this used to) closed each
+     *  eyelid twice over, pushing it down past the lower lid. Now the
+     *  shared part of the two eyes goes to "blink" and only the difference
+     *  to the one-sided shapes, so each eye closes exactly once. Emotions
+     *  that shape the eyes themselves (a smile's squint) fade the blink out
+     *  the way VRM's overrideBlink = "blend" does, instead of stacking.
+     *  [remapBlink] = false feeds eye scores through as-is (manual eyes). */
+    fun applyExpressions(
+        target: RetargetTarget,
+        vrmData: VrmData,
+        arkitBlendshapeScores: Map<String, Float>,
+        remapBlink: Boolean = true
+    ) {
+        if (arkitBlendshapeScores.isEmpty() || vrmData.expressions.isEmpty()) return
+        val scores = if (MIRROR) mirrorSides(arkitBlendshapeScores) else arkitBlendshapeScores
+        val cache = expressionCache(target, vrmData)
+
+        // ── Eyes ──
+        var left = scores["eyeBlinkLeft"] ?: 0f
+        var right = scores["eyeBlinkRight"] ?: 0f
+        if (remapBlink) { left = blinkCurve(left); right = blinkCurve(right) }
+        var emotion = 0f
+        for (name in vrmData.expressions.keys) {
+            when (name.lowercase()) {
+                "happy", "joy", "angry", "anger", "sad", "sorrow", "surprised", "surprise" ->
+                    emotion = maxOf(emotion, arkitIntensityForExpression(name, scores, cache, left, right))
+            }
+        }
+        val eyeScale = (1f - emotion).coerceIn(0f, 1f)
+        val both = minOf(left, right)
+        val blinkBoth: Float
+        val blinkLeft: Float
+        val blinkRight: Float
+        when {
+            cache.hasBlinkBoth && cache.hasBlinkSplit -> { blinkBoth = both; blinkLeft = left - both; blinkRight = right - both }
+            cache.hasBlinkSplit -> { blinkBoth = 0f; blinkLeft = left; blinkRight = right }
+            else -> { blinkBoth = (left + right) / 2f; blinkLeft = 0f; blinkRight = 0f }
+        }
+
+        for (buffer in cache.buffers.values) buffer.fill(0f)
+        for ((expressionName, binds) in vrmData.expressions) {
+            val intensity = when (expressionName.lowercase()) {
+                // An ARKit eye-blink morph (expression custom or orphan target)
+                // takes the blink and the preset stays off — driving both
+                // would close each lid twice.
+                "blink" -> if ("eyeblinkleft" in cache.allArkitNames || "eyeblinkright" in cache.allArkitNames) 0f else blinkBoth * eyeScale
+                "blinkleft", "blink_l" -> if ("eyeblinkleft" in cache.allArkitNames) 0f else blinkLeft * eyeScale
+                "blinkright", "blink_r" -> if ("eyeblinkright" in cache.allArkitNames) 0f else blinkRight * eyeScale
+                else -> arkitIntensityForExpression(expressionName, scores, cache, left, right)
+            }.coerceIn(0f, 1f)
+            if (intensity <= 0.001f) continue
+            for (bind in binds) {
+                val node = cache.nodes.firstOrNull { it.first == bind.nodeIndex } ?: continue
+                val weights = cache.buffers.getOrPut(bind.nodeIndex) { FloatArray(node.third) }
+                if (bind.morphTargetIndex in weights.indices) weights[bind.morphTargetIndex] += intensity * bind.weight
+            }
+        }
+        // Orphan morph targets (in the file, in no VRM expression):
+        // ARKit-named ones drive 1:1, like expression-level ARKit customs.
+        // Eye blinks reuse the blinkCurve'd values so a resting face still
+        // reads as open (raw MediaPipe blink scores sit ~0.1–0.3).
+        for ((canonicalName, binds) in cache.orphanArkitMorphs) {
+            val intensity = when {
+                canonicalName.equals("eyeBlinkLeft", ignoreCase = true) -> blinkLeft
+                canonicalName.equals("eyeBlinkRight", ignoreCase = true) -> blinkRight
+                else -> scores[canonicalName] ?: 0f
+            }.coerceIn(0f, 1f)
+            if (intensity <= 0.001f) continue
+            for (bind in binds) {
+                val node = cache.nodes.firstOrNull { it.first == bind.nodeIndex } ?: continue
+                val weights = cache.buffers.getOrPut(bind.nodeIndex) { FloatArray(node.third) }
+                if (bind.morphTargetIndex in weights.indices) weights[bind.morphTargetIndex] += intensity * bind.weight
+            }
+        }
+        // Every node is written each time (a node with no active expression
+        // gets all zeros, or a blink would stay closed once the score drops)
+        // — but only when its weights actually changed.
+        for ((nodeIndex, _, count) in cache.nodes) {
+            val weights = cache.buffers.getOrPut(nodeIndex) { FloatArray(count) }
+            for (i in weights.indices) weights[i] = weights[i].coerceIn(0f, 1f)
+            val last = cache.lastWritten[nodeIndex]
+            if (last != null && last.contentEquals(weights)) continue
+            target.rig.setMorphWeights(nodeIndex, weights)
+            cache.lastWritten[nodeIndex] = weights.copyOf()
+        }
+    }
+
+    private fun mirrorSides(scores: Map<String, Float>): Map<String, Float> {
+        val out = HashMap<String, Float>(scores.size)
+        for ((k, v) in scores) {
+            val key = when {
+                k.endsWith("Left") -> k.removeSuffix("Left") + "Right"
+                k.endsWith("Right") -> k.removeSuffix("Right") + "Left"
+                else -> k
+            }
+            out[key] = v
+        }
+        return out
+    }
+
+    /**
+     * A hand-picked ARKit-blendshape → VRM-expression heuristic, **not**
+     * part of either spec — no standard defines this mapping, because
+     * ARKit and VRM's expression presets come from two different
+     * ecosystems (iOS TrueDepth face tracking vs. VTuber avatar rigs) that
+     * were never designed against each other. This is the same kind of
+     * approximate mapping indie VTuber tools (VSeeFace, etc.) hand-tune —
+     * a reasonable starting point, not a correctness guarantee, and
+     * exactly the kind of thing worth adjusting once a real face/avatar
+     * pair shows what actually looks right. Matches against **both** VRM
+     * 1.0's preset names (`"happy"`, `"aa"`, `"blinkLeft"`, ...) and VRM
+     * 0.x's (`"joy"`, `"a"`, ...) case-insensitively, since
+     * [VrmParser] doesn't normalize between them (see
+     * its own doc comment).
+     *
+     * Models advertised as "ARKit face tracking"-ready carry ARKit's 52
+     * blendshapes as custom expressions ([ARKIT_BLENDSHAPES]). Those are
+     * driven 1:1 by name, and take precedence over the heuristic preset
+     * covering the same region, so nothing is applied twice.
+     *
+     * Common custom emotion names with unambiguous ARKit counterparts
+     * ("Smile", "Shocked", "Tongue Out") are mapped too, yielding to the
+     * standard preset when a model has both. An author-defined custom
+     * expression matching none of the above simply never activates — there
+     * is no ARKit input that should drive an arbitrary custom expression
+     * by default.
+     */
+    private fun arkitIntensityForExpression(
+        expressionName: String,
+        scores: Map<String, Float>,
+        cache: ExpressionCache,
+        /** blinkCurve'd eye scores (raw when remapBlink is off) — reused for ARKit eye-blink customs. */
+        blinkLeft: Float,
+        blinkRight: Float
+    ): Float {
+        fun score(name: String) = scores[name] ?: 0f
+        fun avg(vararg names: String) = names.sumOf { score(it).toDouble() }.toFloat() / names.size
+        /** True when the model has its own ARKit morphs for this region
+         *  (expression customs or orphan morph targets) — the heuristic
+         *  preset yields to them. */
+        fun arkitHas(vararg names: String) = names.any { it.lowercase() in cache.allArkitNames }
+        /** True when the model has a standard preset under any of these names — a custom alias yields to it. */
+        fun hasExpression(vararg names: String) = names.any { it.lowercase() in cache.expressionNames }
+
+        val intensity = when (expressionName.lowercase()) {
+            "happy", "joy" -> if (arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
+            "angry", "anger" -> if (arkitHas("browDownLeft", "browDownRight")) 0f else avg("browDownLeft", "browDownRight")
+            "sad", "sorrow" -> if (arkitHas("mouthFrownLeft", "mouthFrownRight")) 0f else avg("mouthFrownLeft", "mouthFrownRight")
+            "surprised", "surprise" -> if (arkitHas("browInnerUp", "browOuterUpLeft", "browOuterUpRight")) 0f else avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight")
+            // Common custom emotion names (VRM 0.x models especially — e.g.
+            // "Smile", "Shocked", "Tongue Out"): direct ARKit counterparts.
+            // Yield to the standard preset when the model has both, so the
+            // expression isn't applied twice. Ambiguous customs ("Confused",
+            // "Smug", "Unamused") stay unmapped — a wrong guess reads worse
+            // than no mapping.
+            "smile" -> if (hasExpression("happy", "joy") || arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight")
+            "shocked" -> if (hasExpression("surprised", "surprise") || arkitHas("jawOpen")) 0f else maxOf(score("jawOpen"), avg("browInnerUp", "browOuterUpLeft", "browOuterUpRight"))
+            "tongue out", "tongueout", "tongue_out" -> if (arkitHas("tongueOut")) 0f else score("tongueOut")
+            "blink" -> avg("eyeBlinkLeft", "eyeBlinkRight")
+            "blinkleft", "blink_l" -> score("eyeBlinkLeft")
+            "blinkright", "blink_r" -> score("eyeBlinkRight")
+            // Vowel/viseme presets — rough shape matches, not phonetic
+            // accuracy (real lip-sync would drive these from audio, not
+            // ARKit's face-shape blendshapes at all; this just gives some
+            // mouth movement while talking instead of a static mouth).
+            "aa", "a" -> if (arkitHas("jawOpen")) 0f else score("jawOpen")
+            "ih", "i" -> if (arkitHas("mouthStretchLeft", "mouthStretchRight")) 0f else avg("mouthStretchLeft", "mouthStretchRight")
+            "ou", "u" -> if (arkitHas("mouthPucker")) 0f else score("mouthPucker")
+            "ee", "e" -> if (arkitHas("mouthSmileLeft", "mouthSmileRight")) 0f else avg("mouthSmileLeft", "mouthSmileRight") * 0.5f
+            "oh", "o" -> if (arkitHas("mouthFunnel")) 0f else score("mouthFunnel")
+            "lookup" -> if (arkitHas("eyeLookUpLeft", "eyeLookUpRight")) 0f else avg("eyeLookUpLeft", "eyeLookUpRight")
+            "lookdown" -> if (arkitHas("eyeLookDownLeft", "eyeLookDownRight")) 0f else avg("eyeLookDownLeft", "eyeLookDownRight")
+            // ARKit names each eye from the subject's own perspective, same
+            // convention VRM uses — "lookLeft" is the avatar's left, i.e.
+            // that eye looking outward + the other eye looking inward.
+            "lookleft" -> if (arkitHas("eyeLookOutLeft", "eyeLookInRight")) 0f else avg("eyeLookOutLeft", "eyeLookInRight")
+            "lookright" -> if (arkitHas("eyeLookInLeft", "eyeLookOutRight")) 0f else avg("eyeLookInLeft", "eyeLookOutRight")
+            // ARKit-named custom expressions: driven 1:1 by name. Eye blinks
+            // reuse the blinkCurve'd values so a resting face still reads as
+            // open (raw MediaPipe blink scores sit ~0.1–0.3 with eyes open).
+            // "relaxed"/"neutral" and any other custom name: no ARKit input
+            // maps to these by default.
+            else -> {
+                val key = ARKIT_BLENDSHAPES.firstOrNull { it.equals(expressionName, ignoreCase = true) }
+                when {
+                    key == null -> 0f
+                    key.equals("eyeBlinkLeft", ignoreCase = true) -> blinkLeft
+                    key.equals("eyeBlinkRight", ignoreCase = true) -> blinkRight
+                    else -> score(key)
+                }
+            }
+        }
+        return intensity.coerceIn(0f, 1f)
+    }
+
+    // ---------------------------------------------------------------- math
+
+    /** Mirrored (if [MIRROR]) screen-space position → model space. */
+    private fun modelPoint(p: BodyPoint, flip: Boolean): FloatArray {
+        // Camera view space: +X right, +Y up, +Z towards the viewer.
+        val vx = if (MIRROR) -p.x else p.x
+        return viewDirToModel(floatArrayOf(vx, -p.y, -p.z), flip)
+    }
+
+    /** Same conversion for a raw (x, y, z) world landmark. */
+    private fun modelPoint(p: FloatArray, flip: Boolean): FloatArray =
+        modelPoint(BodyPoint(p[0], p[1], p[2], 1f), flip)
+
+    private fun viewDirToModel(v: FloatArray, flip: Boolean): FloatArray =
+        if (flip) floatArrayOf(-v[0], v[1], -v[2]) else v
+
+    private fun viewToModel(q: Quaternion, flip: Boolean): Quaternion =
+        if (flip) Quaternion(-q.x, q.y, -q.z, q.w) else q
+
+    /** Rotation part of a (possibly uniformly scaled) column-major 4x4. */
+    fun rotationOf(m: FloatArray): Quaternion {
+        val n = m.copyOf()
+        for (c in 0 until 3) {
+            val len = sqrt(n[c * 4] * n[c * 4] + n[c * 4 + 1] * n[c * 4 + 1] + n[c * 4 + 2] * n[c * 4 + 2])
+            if (len > 1e-8f) for (r in 0 until 3) n[c * 4 + r] /= len
+        }
+        return Quaternion.fromRotationColumnMajorMatrix(n)
+    }
+
+    /** Rotation taking the frame (across1, up1) onto (across2, up2). */
+    private fun frameRotation(across1: FloatArray, up1: FloatArray, across2: FloatArray, up2: FloatArray): Quaternion? {
+        val a = basis(across1, up1) ?: return null
+        val b = basis(across2, up2) ?: return null
+        val m = FloatArray(16)
+        for (r in 0 until 3) for (c in 0 until 3) {
+            var sum = 0f
+            for (k in 0 until 3) sum += b[k][r] * a[k][c]
+            m[c * 4 + r] = sum
+        }
+        m[15] = 1f
+        return Quaternion.fromRotationColumnMajorMatrix(m)
+    }
+
+    private fun basis(across: FloatArray, up: FloatArray): Array<FloatArray>? {
+        if (length(across) < 1e-6f) return null
+        val x = normalize(across)
+        val zRaw = cross(x, up)
+        if (length(zRaw) < 1e-6f) return null
+        val z = normalize(zRaw)
+        return arrayOf(x, cross(z, x), z)
+    }
+
+    /** Limits how far [q] may rotate away from [reference]. */
+    private fun clampRelative(reference: Quaternion, q: Quaternion, maxAngle: Float): Quaternion {
+        val rel = (reference.conjugate() * q).normalized()
+        val angle = 2f * acos(abs(rel.w).coerceIn(0f, 1f))
+        return if (angle <= maxAngle) q else Quaternion.slerp(reference, q, maxAngle / angle)
+    }
+
+    private fun axisAngle(axis: FloatArray, angle: Float): Quaternion {
+        val h = angle / 2f; val s = sin(h)
+        return Quaternion(axis[0] * s, axis[1] * s, axis[2] * s, cos(h)).normalized()
+    }
+
+    private fun rotate(q: Quaternion, v: FloatArray): FloatArray {
+        val u = floatArrayOf(q.x, q.y, q.z)
+        val t = cross(u, v).map { it * 2f }.toFloatArray()
+        val c = cross(u, t)
+        return floatArrayOf(v[0] + q.w * t[0] + c[0], v[1] + q.w * t[1] + c[1], v[2] + q.w * t[2] + c[2])
+    }
+
+    private fun sub(a: FloatArray, b: FloatArray) = floatArrayOf(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+    private fun add(a: FloatArray, b: FloatArray) = floatArrayOf(a[0] + b[0], a[1] + b[1], a[2] + b[2])
+    private fun scale(a: FloatArray, s: Float) = floatArrayOf(a[0] * s, a[1] * s, a[2] * s)
+
+    /**
+     * Two-bone IK: shoulder at [s], bone lengths [a] (upper) and [b]
+     * (fore), wrist aimed at [t]. The elbow bends towards [pole] (any
+     * vector; only its part perpendicular to shoulder→target counts),
+     * falling back to [fallbackPole] when those are parallel. An
+     * out-of-reach target gets a straight arm pointing at it. Returns
+     * (elbow, wrist) positions.
+     */
+    private fun solveTwoBone(
+        s: FloatArray, t: FloatArray, a: Float, b: Float, pole: FloatArray, fallbackPole: FloatArray
+    ): Pair<FloatArray, FloatArray> {
+        val toTarget = sub(t, s)
+        val raw = length(toTarget)
+        val dir = if (raw < 1e-5f) normalize(fallbackPole) else scale(toTarget, 1f / raw)
+        val d = raw.coerceIn(abs(a - b) + 1e-3f, a + b - 1e-3f)
+        val cosA = ((a * a + d * d - b * b) / (2f * a * d)).coerceIn(-1f, 1f)
+        val sinA = sqrt(1f - cosA * cosA)
+        fun perpOf(p: FloatArray): FloatArray = sub(p, scale(dir, dot(p, dir)))
+        var perp = perpOf(pole)
+        if (length(perp) < 1e-4f) perp = perpOf(fallbackPole)
+        if (length(perp) < 1e-4f) perp = perpOf(floatArrayOf(0f, -1f, 0f))
+        perp = normalize(perp)
+        val elbow = add(s, add(scale(dir, a * cosA), scale(perp, a * sinA)))
+        return elbow to add(s, scale(dir, d))
+    }
+    private fun mid(a: FloatArray, b: FloatArray) = floatArrayOf((a[0] + b[0]) / 2f, (a[1] + b[1]) / 2f, (a[2] + b[2]) / 2f)
+    private fun dot(a: FloatArray, b: FloatArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    private fun length(a: FloatArray) = sqrt(dot(a, a))
+    private fun cross(a: FloatArray, b: FloatArray) = floatArrayOf(
+        a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]
+    )
+    private fun normalize(a: FloatArray): FloatArray {
+        val l = length(a)
+        return if (l < 1e-8f) a else floatArrayOf(a[0] / l, a[1] / l, a[2] / l)
+    }
+    private fun direction(from: FloatArray, to: FloatArray) = normalize(sub(to, from))
+}

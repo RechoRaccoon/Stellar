@@ -136,3 +136,64 @@ object IosWidgetBridge {
         }
     }
 }
+
+// ── VRM mode: face tracking ─────────────────────────────────────────────
+// ARKit's face tracking hands out its matrices as SIMD values, which Swift
+// reads naturally and Kotlin/Native doesn't — so the few lines that talk to
+// ARKit live in iosApp/iosApp/StellarFaceTracker.swift and pass plain
+// numbers across. Everything that happens with them is Kotlin
+// (com.mediaviewer.vrm).
+
+/** One look at the face, on the main thread, about 60 times a second. */
+interface IosFaceListener {
+    /**
+     * [matrix]: where the head is and how it's turned, as seen on screen —
+     * a column-major 4x4 in view space (+x screen-right, +y up, +z out of
+     * the screen towards you; no turn = facing the camera).
+     * [names] / [values]: ARKit's blend-shape coefficients, by ARKit's own
+     * names ("eyeBlink_L", "jawOpen", …), each 0…1.
+     */
+    fun onFace(matrix: List<Float>, names: List<String>, values: List<Float>)
+
+    /** The camera can't see a face right now. */
+    fun onFaceLost()
+
+    /** The camera's focal length ÷ its picture's longer side (told once,
+     *  and again if it changes). */
+    fun onCamera(focal: Float)
+
+    /**
+     * What Vision found in one camera picture (see
+     * [IosFaceTracker.setVision]). [body]: 19 joints × (x, y, confidence),
+     * empty when nobody was found. [hands]: 21 joints × (x, y, confidence)
+     * for each hand found. x/y are 0…1 from the upright picture's left and
+     * bottom edges; [aspect] is that picture's width ÷ height.
+     */
+    fun onVision(body: List<Float>, hands: List<Float>, aspect: Float)
+}
+
+interface IosFaceTracker {
+    /** False on iPhones without the TrueDepth (Face ID) camera. */
+    fun isSupported(): Boolean
+    fun start(listener: IosFaceListener)
+    fun stop()
+
+    /**
+     * Body and hand tracking: which of the two Vision should look for,
+     * which way up the camera picture is (an EXIF orientation number:
+     * 6 = turn right, 8 = turn left, 1 = as it is, 3 = upside down) and
+     * how often to look. Both false = Vision rests.
+     */
+    fun setVision(body: Boolean, hands: Boolean, orientation: Int, intervalMs: Int)
+}
+
+object IosFaceBridge {
+    @kotlin.concurrent.Volatile var tracker: IosFaceTracker? = null
+    /** True when this iPhone can run VRM mode's face tracking. */
+    val supported: Boolean get() = runCatching { tracker?.isSupported() == true }.getOrDefault(false)
+}
+
+/** Called by the Swift app at launch. */
+fun registerIosFaceTracker(tracker: IosFaceTracker) {
+    IosFaceBridge.tracker = tracker
+}

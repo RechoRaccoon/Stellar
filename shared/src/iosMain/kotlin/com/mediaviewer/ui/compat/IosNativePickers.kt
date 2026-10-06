@@ -21,6 +21,7 @@ import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIViewController
 import platform.UniformTypeIdentifiers.UTType
+import platform.UniformTypeIdentifiers.UTTypeAudio
 import platform.UniformTypeIdentifiers.UTTypeImage
 import platform.UniformTypeIdentifiers.UTTypeItem
 import platform.UniformTypeIdentifiers.UTTypeJSON
@@ -132,6 +133,8 @@ object IosNativePickers {
                 mime == "*/*" -> UTTypeItem
                 mime == "application/json" -> UTTypeJSON
                 mime.startsWith("image/") -> UTTypeImage
+                mime.startsWith("audio/") -> UTTypeAudio
+                mime.startsWith("video/") -> UTTypeMovie
                 else -> UTType.typeWithMIMEType(mime)
             }
         }.ifEmpty { listOf(UTTypeItem) }

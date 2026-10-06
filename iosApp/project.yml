@@ -52,8 +52,9 @@ targets:
         "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": "$(inherited) $(SRCROOT)/../shared/build/bin/iosArm64/releaseFramework"
         "FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]": "$(inherited) $(SRCROOT)/../shared/build/bin/iosSimulatorArm64/releaseFramework"
         # The system frameworks the Kotlin code uses (video, web embeds,
-        # photo picker, file types).
-        OTHER_LDFLAGS: "$(inherited) -framework Shared -framework AVFoundation -framework AVFAudio -framework AVKit -framework CoreMedia -framework WebKit -framework Photos -framework PhotosUI -framework UniformTypeIdentifiers -framework CoreVideo -framework QuartzCore -framework NaturalLanguage -framework WidgetKit -framework BackgroundTasks -framework UserNotifications"
+        # photo picker, file types, notifications, VRM mode's drawing,
+        # face tracking and live-stream encoder).
+        OTHER_LDFLAGS: "$(inherited) -framework Shared -framework AVFoundation -framework AVFAudio -framework AVKit -framework CoreMedia -framework WebKit -framework Photos -framework PhotosUI -framework UniformTypeIdentifiers -framework CoreVideo -framework QuartzCore -framework NaturalLanguage -framework WidgetKit -framework BackgroundTasks -framework UserNotifications -framework ARKit -framework SceneKit -framework VideoToolbox"
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
 
   # Stellar's home-screen widgets (DMs, Upcoming Events, Note): plain

@@ -56,15 +56,3 @@ actual fun DebugOverlay(tint: Color, modifier: Modifier) {
         }
     }
 }
-
-/** VRM mode is Android only (the notch bubble's VRM half says so and
- *  doesn't open this); closes straight away if it's ever opened. */
-@Composable
-actual fun VrmModeScreen(
-    liquidGlass: Boolean,
-    tint: Color,
-    onClose: () -> Unit,
-    onCapture: (imageUri: PlatformUri?, videoUri: PlatformUri?) -> Unit
-) {
-    LaunchedEffect(Unit) { onClose() }
-}
