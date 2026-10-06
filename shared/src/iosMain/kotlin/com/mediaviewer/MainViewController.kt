@@ -22,7 +22,7 @@ fun MainViewController(): UIViewController {
     return ComposeUIViewController {
         SharedAppHost(
             context = IosContext,
-            createPlatform = { _, _ -> IosAppPlatform() },
+            createPlatform = { bsky, e621 -> IosAppPlatform(bsky, e621) },
             crashLog = crash,
             onCrashLogDismissed = { IosCrashLog.clear() }
         )

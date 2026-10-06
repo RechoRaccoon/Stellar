@@ -169,19 +169,22 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(Modifier.height(if (drawBackground) rememberTopCutoutClearance() + 56.dp else 40.dp))
-                // The Stellar + "Created by Recho Raccoon" lockup the Stellar
-                // loading animation uses, with the same soft glow.
-                Box(contentAlignment = Alignment.Center) {
-                    Box(
-                        Modifier.graphicsLayer { scaleX = 1.04f; scaleY = 1.12f; alpha = 0.55f }
-                            .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-                            .padding(40.dp)
-                    ) {
-                        Image(painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = null, modifier = Modifier.width(logoWidth))
+                // (The human check gets the whole page: no logo above it.)
+                if (step != LoginStep.VERIFY) {
+                    // The Stellar + "Created by Recho Raccoon" lockup the Stellar
+                    // loading animation uses, with the same soft glow.
+                    Box(contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier.graphicsLayer { scaleX = 1.04f; scaleY = 1.12f; alpha = 0.55f }
+                                .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                                .padding(40.dp)
+                        ) {
+                            Image(painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = null, modifier = Modifier.width(logoWidth))
+                        }
+                        Image(painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = "Stellar", modifier = Modifier.width(logoWidth))
                     }
-                    Image(painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = "Stellar", modifier = Modifier.width(logoWidth))
+                    Spacer(Modifier.height(36.dp))
                 }
-                Spacer(Modifier.height(if (step == LoginStep.VERIFY) 18.dp else 36.dp))
                 // iOS: the system's secure-entry keyboard (KeyboardType.Password)
                 // misbehaves inside Compose on iOS (dropped/cleared characters,
                 // no Paste), so iOS uses a plain ASCII keyboard with autocorrect
@@ -301,22 +304,32 @@ fun LoginScreen(
                         DisposableEffect(Unit) { onDispose { browser.dispose() } }
                         val opened = remember { com.mediaviewer.platform.currentTimeMillis() }
                         var done by remember { mutableStateOf(false) }
-                        val url = browser.url
-                        LaunchedEffect(url) {
+                        // Every address the page reaches is checked as it
+                        // happens: the check finishes by going to Bluesky's
+                        // site with the code, which must be caught before
+                        // that site opens here.
+                        var gateCode by remember { mutableStateOf<String?>(null) }
+                        DisposableEffect(browser) {
+                            browser.onUrl = { address -> if (gateCode == null) gateCodeFrom(address, gateState)?.let { gateCode = it } }
+                            onDispose { browser.onUrl = null }
+                        }
+                        LaunchedEffect(gateCode) {
+                            val code = gateCode ?: return@LaunchedEffect
                             if (done) return@LaunchedEffect
-                            val code = gateCodeFrom(url, gateState) ?: return@LaunchedEffect
                             done = true
                             // (Bluesky's app gives the check a few seconds too.)
                             val wait = 3500L - (com.mediaviewer.platform.currentTimeMillis() - opened)
                             if (wait > 0) kotlinx.coroutines.delay(wait)
                             createAccount(code)
                         }
+                        // Tall enough for the whole check, instructions included.
+                        val checkHeight = (maxHeight - rememberTopCutoutClearance() - 170.dp).coerceAtLeast(480.dp)
                         Box(
-                            Modifier.fillMaxWidth().height(430.dp).clip(RoundedCornerShape(24.dp))
+                            Modifier.fillMaxWidth().height(checkHeight).clip(RoundedCornerShape(24.dp))
                                 .background(Color.Black).border(1.dp, LoginPink.copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (done || working) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            if (done || working || gateCode != null) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
                             else PlatformBrowserView(browser, Modifier.fillMaxSize())
                         }
                         Spacer(Modifier.height(12.dp))
@@ -420,12 +433,14 @@ private fun isOldEnough(iso: String?): Boolean {
 }
 
 /** The one-time code in the address Bluesky's human check finishes on
- *  (https://bsky.social/?state=…&code=…), if [url] is that address and
+ *  (https://bsky.app/?state=…&code=…), if [url] is that address and
  *  carries the state this page started with. */
 private fun gateCodeFrom(url: String, state: String): String? {
-    if (!url.startsWith("https://bsky.social/")) return null
-    val path = url.removePrefix("https://bsky.social").substringBefore('?').substringBefore('#')
-    if (path.startsWith("/gate/")) return null
+    val rest = url.substringAfter("://", "")
+    val host = rest.substringBefore('/').substringBefore('?').lowercase()
+    if (!url.startsWith("https://") || host !in GATE_FINISH_HOSTS) return null
+    val path = rest.substringAfter('/', "").substringBefore('?').substringBefore('#')
+    if (path.startsWith("gate/")) return null
     val query = url.substringAfter('?', "").substringBefore('#')
     if (query.isEmpty()) return null
     val params = query.split('&').mapNotNull { part ->
@@ -435,6 +450,8 @@ private fun gateCodeFrom(url: String, state: String): String? {
     if (params["state"] != state) return null
     return params["code"]?.takeIf { it.isNotBlank() }
 }
+
+private val GATE_FINISH_HOSTS = setOf("bsky.app", "bsky.social", "www.bsky.app")
 
 /** The page's pill button: filled pink, or outlined for the second choice. */
 @Composable

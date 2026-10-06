@@ -23,7 +23,7 @@ import kotlinx.serialization.Serializable
 data class ProfileStyle(
     /** A slightly rounded square profile icon instead of the round one. */
     val squareIcon: Boolean = false,
-    /** "confetti" (the default), "snow", "fireworks" or "bats". */
+    /** "confetti" (the default) or another id from [ProfileStyles.EFFECTS]. */
     val effect: String = "confetti",
     /** The two profile colors (ARGB), or null to take them from the
      *  banner and profile picture as usual. */
@@ -53,7 +53,22 @@ object ProfileStyles {
     const val RKEY = "self"
 
     /** Effect id → the name shown in the picker. */
-    val EFFECTS = listOf("confetti" to "Confetti", "snow" to "Snow", "fireworks" to "Fireworks", "bats" to "Bats")
+    val EFFECTS = listOf(
+        "confetti" to "Confetti", "balloons" to "Balloons", "snow" to "Snow", "fireworks" to "Fireworks",
+        "bats" to "Bats", "hearts" to "Hearts", "rain" to "Rain", "bubbles" to "Bubbles"
+    )
+
+    /** The animation an effect id stands for (confetti when it's unknown). */
+    fun effectOf(id: String?): com.mediaviewer.ui.DmEffect = when (id) {
+        "balloons" -> com.mediaviewer.ui.DmEffect.BIRTHDAY
+        "snow" -> com.mediaviewer.ui.DmEffect.SNOW
+        "fireworks" -> com.mediaviewer.ui.DmEffect.FIREWORKS
+        "bats" -> com.mediaviewer.ui.DmEffect.BATS
+        "hearts" -> com.mediaviewer.ui.DmEffect.HEARTS
+        "rain" -> com.mediaviewer.ui.DmEffect.RAIN
+        "bubbles" -> com.mediaviewer.ui.DmEffect.BUBBLES
+        else -> com.mediaviewer.ui.DmEffect.CONFETTI
+    }
     fun effectLabel(id: String): String = EFFECTS.firstOrNull { it.first == id }?.second ?: "Confetti"
 
     private val styles = mutableStateMapOf<String, ProfileStyle>()
@@ -100,8 +115,16 @@ object ProfileStyles {
             val result = runCatching { fetch(did) }
             withContext(Dispatchers.Main) {
                 result.onSuccess { style ->
-                    if (style != null) styles[did] = style else styles.remove(did)
-                    if (did == Supporter.selfDid) persistOwn(did, style)
+                    val own = did == Supporter.selfDid
+                    val kept = styles[did]
+                    if (style != null) {
+                        styles[did] = style
+                        if (own) persistOwn(did, style)
+                    } else if (own && kept != null && !kept.isDefault) {
+                        // Yours is saved on this device but the server has
+                        // none: the device's copy stays, and is sent again.
+                        saver?.invoke(kept) { }
+                    } else styles.remove(did)
                 }.onFailure {
                     // Offline or the PDS didn't answer: worth another go later.
                     synchronizedRemove(did)

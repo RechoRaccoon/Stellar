@@ -1184,13 +1184,14 @@ fun ProfileOverlay(
         // Stays composed once started, so it plays once per visit.
         // (Confetti unless they picked another effect in Edit Profile.)
         if (confettiStarted) {
-            val effect = when (com.mediaviewer.util.ProfileStyles.of(author.did)?.effect) {
-                "snow" -> DmEffect.SNOW
-                "fireworks" -> DmEffect.FIREWORKS
-                "bats" -> DmEffect.BATS
-                else -> DmEffect.CONFETTI
-            }
-            DmEffectLayer(effect = effect, playKey = author.did.hashCode())
+            val effect = com.mediaviewer.util.ProfileStyles.effectOf(com.mediaviewer.util.ProfileStyles.of(author.did)?.effect)
+            // (Hearts take this profile's own two colors.)
+            val heartColors = styledProfileColors(author.did) ?: ProfileColorStore.get(author.did)
+            DmEffectLayer(
+                effect = effect, playKey = author.did.hashCode(),
+                colors = heartColors?.let { listOf(it.banner, it.avatar) } ?: listOf(blended),
+                backdrop = backdrop
+            )
         }
         pendingListAction?.let { entry ->
             val starter = entry.kind == com.mediaviewer.model.ProfileListKind.STARTER_PACK

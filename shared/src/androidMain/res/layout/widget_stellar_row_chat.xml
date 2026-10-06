@@ -46,6 +46,17 @@
     </LinearLayout>
 
     <TextView
+        android:id="@+id/row_streak"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:maxLines="1"
+        android:textColor="#FFFFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/row_badge"
         android:layout_width="wrap_content"
         android:layout_height="18dp"

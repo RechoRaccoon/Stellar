@@ -135,8 +135,21 @@ data class CalendarEvent(
     val day: Int = 0,
     /** Minutes after midnight, or -1 for all day. */
     val minute: Int = -1,
-    val title: String = ""
+    val title: String = "",
+    /** One of the calendar's built-in days (see [Holidays]), not one of yours. */
+    val holiday: Boolean = false
 )
+
+/** "Today", "In 1 Day", "In 12 Days". */
+fun CalendarEvent.countdownLabel(today: Int = CalendarMath.todayKey()): String {
+    val diff = CalendarMath.daysFromCivil(day / 10000, day / 100 % 100, day % 100) -
+        CalendarMath.daysFromCivil(today / 10000, today / 100 % 100, today % 100)
+    return when {
+        diff <= 0L -> "Today"
+        diff == 1L -> "In 1 Day"
+        else -> "In $diff Days"
+    }
+}
 
 /** "Today", "Tomorrow" or "Oct 12" for a calendar day (yyyymmdd). */
 fun CalendarEvent.dayLabel(today: Int = CalendarMath.todayKey()): String {
@@ -189,6 +202,8 @@ object LocalData {
 
     const val KEY_NOTIFY_DMS = "notify_dms"
     const val KEY_NOTIFY_INBOX = "notify_inbox"
+    const val KEY_HOLIDAYS_MAJOR = "holidays_major"
+    const val KEY_HOLIDAYS_MINOR = "holidays_minor"
     private const val KEY_SEARCH_ENGINE = "search_engine"
     private const val KEY_BATTERY_SAVER = "battery_saver"
     private const val KEY_BROWSER_LAST = "browser_last_url"
@@ -241,6 +256,9 @@ object LocalData {
 
     /** Supporter Settings → Notifications (Android). */
     var notifyDms by mutableStateOf(false)
+    /** The calendar's built-in days (Supporter Settings). */
+    var majorHolidays by mutableStateOf(true)
+    var minorHolidays by mutableStateOf(true)
         private set
     var notifyInbox by mutableStateOf(false)
         private set
@@ -286,6 +304,8 @@ object LocalData {
         ).forEach { it.load(p) }
         notifyDms = p.getBoolean(KEY_NOTIFY_DMS, false)
         notifyInbox = p.getBoolean(KEY_NOTIFY_INBOX, false)
+        majorHolidays = p.getBoolean(KEY_HOLIDAYS_MAJOR, true)
+        minorHolidays = p.getBoolean(KEY_HOLIDAYS_MINOR, true)
         batterySaver = p.getBoolean(KEY_BATTERY_SAVER, false)
         searchEngine = p.getString(KEY_SEARCH_ENGINE, null)
             ?.let { name -> SearchEngine.values().firstOrNull { it.name == name } } ?: SearchEngine.DUCKDUCKGO
@@ -296,6 +316,12 @@ object LocalData {
     // ── Supporter settings ───────────────────────────────────────────────
 
     fun updateNotifyDms(on: Boolean) { notifyDms = on; prefs?.edit()?.putBoolean(KEY_NOTIFY_DMS, on)?.apply() }
+    fun updateMajorHolidays(on: Boolean) {
+        majorHolidays = on; prefs?.edit()?.putBoolean(KEY_HOLIDAYS_MAJOR, on)?.apply(); notifyWidgets()
+    }
+    fun updateMinorHolidays(on: Boolean) {
+        minorHolidays = on; prefs?.edit()?.putBoolean(KEY_HOLIDAYS_MINOR, on)?.apply(); notifyWidgets()
+    }
     fun updateNotifyInbox(on: Boolean) { notifyInbox = on; prefs?.edit()?.putBoolean(KEY_NOTIFY_INBOX, on)?.apply() }
     fun updateBatterySaver(on: Boolean) { batterySaver = on; prefs?.edit()?.putBoolean(KEY_BATTERY_SAVER, on)?.apply() }
     fun updateSearchEngine(engine: SearchEngine) { searchEngine = engine; prefs?.edit()?.putString(KEY_SEARCH_ENGINE, engine.name)?.apply() }
@@ -421,10 +447,32 @@ object LocalData {
         notifyWidgets()
     }
 
-    /** Events from today on, soonest first. */
+    /** Your own events from today on, soonest first. */
     fun upcomingEvents(limit: Int = 50): List<CalendarEvent> {
         val today = CalendarMath.todayKey()
         return eventSlot.value.filter { it.day >= today }.sortedWith(compareBy({ it.day }, { it.minute })).take(limit)
+    }
+
+    /** The built-in days on [day] that are switched on — minus any you've
+     *  added yourself under the same name. */
+    fun holidaysOn(day: Int, own: List<CalendarEvent> = eventSlot.value): List<CalendarEvent> =
+        Holidays.on(day, majorHolidays, minorHolidays)
+            .filter { h -> own.none { it.day == day && it.title.trim().equals(h.title, ignoreCase = true) } }
+            .map { CalendarEvent("holiday:${it.day}:${it.title}", it.day, -1, it.title, holiday = true) }
+
+    /**
+     * What the "Upcoming Events" lists show (the Hub's and the home
+     * screen's): your events plus the major holidays, soonest first. The
+     * smaller days stay in the Calendar only — there's one most days, and
+     * they would bury everything else here.
+     */
+    fun upcomingAgenda(limit: Int = 50): List<CalendarEvent> {
+        val today = CalendarMath.todayKey()
+        val own = eventSlot.value.filter { it.day >= today }
+        val holidays = Holidays.upcoming(today, majorHolidays, minor = false)
+            .filter { h -> own.none { it.day == h.day && it.title.trim().equals(h.title, ignoreCase = true) } }
+            .map { CalendarEvent("holiday:${it.day}:${it.title}", it.day, -1, it.title, holiday = true) }
+        return (own + holidays).sortedWith(compareBy({ it.day }, { it.holiday }, { it.minute })).take(limit)
     }
 
     // ── Notes ────────────────────────────────────────────────────────────

@@ -901,7 +901,7 @@ actual fun VrmModeScreen(
                     backgroundMedia = backgroundMedia.takeIf { supporter }
                 )
                 // Scene cards and effects: over the avatar, under the buttons.
-                if (supporter) VrmStageLayer(scene, stageEffect, stageEffectKey, stageLayer)
+                if (supporter) VrmStageLayer(scene, stageEffect, stageEffectKey, stageLayer, effectColors = listOf(tint))
             } else {
                 // Prominent, not a 12sp hint: a dead/missing avatar file is
                 // otherwise just "black screen, nothing explains why". The

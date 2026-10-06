@@ -12,6 +12,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="fitXY"
+        android:src="@drawable/widget_stellar_bg_fill"
+        android:contentDescription="@null" />
+
+    <ImageView
+        android:id="@+id/widget_bg_fade"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_stellar_bg_fade"
+        android:contentDescription="@null" />
+
+    <ImageView
+        android:id="@+id/widget_bg_rim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_stellar_bg_rim"
         android:contentDescription="@null" />
 
     <LinearLayout

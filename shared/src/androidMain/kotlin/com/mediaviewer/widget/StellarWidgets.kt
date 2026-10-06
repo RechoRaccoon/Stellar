@@ -61,7 +61,6 @@ object StellarWidgets {
     /** The note the Note widget shows (Notes → a note → Widget). Blank =
      *  the note edited most recently. */
     const val KEY_NOTE_ID = "note_id"
-    private const val BUBBLE_MAX_PX = 220
 
     private fun provider(kind: String): Class<out AppWidgetProvider> = when (kind) {
         KIND_DMS -> DmWidgetProvider::class.java
@@ -81,6 +80,8 @@ object StellarWidgets {
             arr.put(JSONObject().apply {
                 put("id", c.convoId); put("name", c.name); put("text", c.text); put("unread", c.unread)
                 if (c.avatarUrl != null) put("avatar", c.avatarUrl)
+                put("streak", c.streak); put("group", c.isGroup)
+                if (c.groupAvatars.isNotEmpty()) put("members", JSONArray(c.groupAvatars))
             })
         }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -94,7 +95,14 @@ object StellarWidgets {
         val arr = JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CHATS, null) ?: "[]")
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            WidgetChat(o.optString("id"), o.optString("name"), o.optString("text"), o.optInt("unread"), o.optString("avatar").takeIf { it.isNotBlank() })
+            val members = o.optJSONArray("members")
+            WidgetChat(
+                o.optString("id"), o.optString("name"), o.optString("text"), o.optInt("unread"),
+                o.optString("avatar").takeIf { it.isNotBlank() },
+                streak = o.optInt("streak"),
+                groupAvatars = if (members == null) emptyList() else (0 until members.length()).map { members.optString(it) }.filter { it.isNotBlank() },
+                isGroup = o.optBoolean("group")
+            )
         }
     } catch (_: Exception) {
         emptyList()
@@ -123,39 +131,6 @@ object StellarWidgets {
         (Color.blue(c) + (Color.blue(other) - Color.blue(c)) * t).roundToInt().coerceIn(0, 255)
     )
 
-    /** The bubble: a rounded rectangle fading from one profile color to
-     *  the other (both deepened, so white text reads on any colors) with a
-     *  bright rim in the same hue — the app's glass panels, as a picture.
-     *  Kept small on purpose: it travels to the launcher in one Binder
-     *  call (see LiveLinkWidgetProvider) and is stretched there. */
-    private fun bubble(widthPx: Int, heightPx: Int, colors: Pair<Int, Int>): Bitmap {
-        val w = widthPx.coerceAtLeast(1)
-        val h = heightPx.coerceAtLeast(1)
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val radius = min(w, h) * 0.16f
-        val stroke = (min(w, h) * 0.014f).coerceAtLeast(1.5f)
-        val rect = RectF(stroke / 2f, stroke / 2f, w - stroke / 2f, h - stroke / 2f)
-        val top = mix(colors.first, Color.BLACK, 0.5f)
-        val bottom = mix(colors.second, Color.BLACK, 0.68f)
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
-            alpha = 242
-        }
-        canvas.drawRoundRect(rect, radius, radius, fill)
-        val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = stroke
-            shader = LinearGradient(
-                0f, 0f, w.toFloat(), h.toFloat(),
-                mix(colors.first, Color.WHITE, 0.45f), mix(colors.second, Color.WHITE, 0.2f), Shader.TileMode.CLAMP
-            )
-            alpha = 215
-        }
-        canvas.drawRoundRect(rect, radius, radius, rim)
-        return bmp
-    }
-
     private fun openIntent(context: Context, link: String?): Intent =
         (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -165,13 +140,18 @@ object StellarWidgets {
     internal fun update(context: Context, mgr: AppWidgetManager, id: Int, kind: String) {
         try {
             val views = RemoteViews(context.packageName, R.layout.widget_stellar_list)
-            val options = mgr.getAppWidgetOptions(id)
-            val minW = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 180).coerceAtLeast(1)
-            val minH = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 180).coerceAtLeast(1)
-            val aspect = minW.toFloat() / minH.toFloat()
-            val (bw, bh) = if (aspect >= 1f) BUBBLE_MAX_PX to (BUBBLE_MAX_PX / aspect).roundToInt().coerceAtLeast(1)
-                else (BUBBLE_MAX_PX * aspect).roundToInt().coerceAtLeast(1) to BUBBLE_MAX_PX
-            views.setImageViewBitmap(R.id.widget_bg, bubble(bw, bh, profileColors(context)))
+            // The bubble: three plain shapes colored here — the first
+            // profile color, the second fading in across it, and a bright
+            // rim (all deepened so white text reads on any colors). Shapes
+            // are drawn by the launcher at whatever size the widget is, so
+            // the outline stays crisp when it's resized or dragged around.
+            val colors = profileColors(context)
+            views.setInt(R.id.widget_bg, "setColorFilter", mix(colors.first, Color.BLACK, 0.5f))
+            views.setInt(R.id.widget_bg, "setImageAlpha", 242)
+            views.setInt(R.id.widget_bg_fade, "setColorFilter", mix(colors.second, Color.BLACK, 0.68f))
+            views.setInt(R.id.widget_bg_fade, "setImageAlpha", 242)
+            views.setInt(R.id.widget_bg_rim, "setColorFilter", mix(colors.first, Color.WHITE, 0.4f))
+            views.setInt(R.id.widget_bg_rim, "setImageAlpha", 215)
 
             val supporter = isSupporter(context)
             val chats = if (kind == KIND_DMS) chats(context) else emptyList()
@@ -255,13 +235,18 @@ object StellarWidgets {
         return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
     }
 
-    /** Events from today on, soonest first. */
+    /** Your events from today on plus the major holidays (when they're
+     *  switched on in Supporter Settings), soonest first. */
     internal fun upcomingEvents(context: Context): List<JSONObject> {
         val arr = localJson(context, "calendar_events")
         val today = todayKey()
-        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-            .filter { it.optInt("day") >= today }
-            .sortedWith(compareBy({ it.optInt("day") }, { it.optInt("minute", -1) }))
+        val own = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optInt("day") >= today }
+        val major = context.getSharedPreferences(LocalData.PREFS, Context.MODE_PRIVATE).getBoolean(LocalData.KEY_HOLIDAYS_MAJOR, true)
+        val holidays = com.mediaviewer.util.Holidays.upcoming(today, major, minor = false)
+            .filter { h -> own.none { it.optInt("day") == h.day && it.optString("title").trim().equals(h.title, ignoreCase = true) } }
+            .map { JSONObject().put("day", it.day).put("minute", -1).put("title", it.title).put("holiday", true) }
+        return (own + holidays)
+            .sortedWith(compareBy({ it.optInt("day") }, { it.optBoolean("holiday") }, { it.optInt("minute", -1) }))
             .take(60)
     }
 
@@ -285,10 +270,6 @@ abstract class StellarWidgetProvider(private val kind: String) : AppWidgetProvid
         }
     }
 
-    override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
-        // Resized: the bubble is redrawn for the new shape.
-        StellarWidgets.update(context, appWidgetManager, appWidgetId, kind)
-    }
 }
 
 class DmWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_DMS)
@@ -318,8 +299,10 @@ class StellarWidgetService : RemoteViewsService() {
             when (kind) {
                 StellarWidgets.KIND_DMS -> {
                     chats = StellarWidgets.chats(context)
-                    chats.mapNotNull { it.avatarUrl }.distinct().take(24).forEach { url ->
-                        if (!avatars.containsKey(url)) avatars[url] = loadAvatar(url)
+                    // Every picture is kept under its own address, so a row
+                    // can only ever get the picture that belongs to it.
+                    chats.flatMap { listOfNotNull(it.avatarUrl) + it.groupAvatars }.distinct().take(40).forEach { url ->
+                        if (avatars[url] == null) avatars[url] = loadAvatar(url)
                     }
                 }
                 StellarWidgets.KIND_EVENTS -> events = StellarWidgets.upcomingEvents(context)
@@ -358,8 +341,11 @@ class StellarWidgetService : RemoteViewsService() {
             row.setTextViewText(R.id.row_text, chat.text.ifBlank { if (chat.unread > 0) "New message" else "" })
             row.setViewVisibility(R.id.row_badge, if (chat.unread > 0) View.VISIBLE else View.GONE)
             if (chat.unread > 0) row.setTextViewText(R.id.row_badge, if (chat.unread > 99) "99+" else chat.unread.toString())
-            val avatar = chat.avatarUrl?.let { avatars[it] } ?: initialAvatar(chat.name)
+            val avatar = if (chat.isGroup) groupAvatar(chat) else chat.avatarUrl?.let { avatars[it] } ?: initialAvatar(chat.name)
             row.setImageViewBitmap(R.id.row_avatar, avatar)
+            // The streak, as the DM list shows it.
+            row.setViewVisibility(R.id.row_streak, if (chat.streak > 0) View.VISIBLE else View.GONE)
+            if (chat.streak > 0) row.setTextViewText(R.id.row_streak, "\uD83D\uDD25 " + chat.streak)
             row.setOnClickFillInIntent(R.id.row_root, fillIn("dm:" + chat.convoId))
             return row
         }
@@ -378,8 +364,22 @@ class StellarWidgetService : RemoteViewsService() {
                     "${if (h % 12 == 0) 12 else h % 12}:${if (m < 10) "0$m" else m} ${if (h < 12) "AM" else "PM"}"
                 }
             )
-            row.setOnClickFillInIntent(R.id.row_root, fillIn("calendar"))
+            row.setTextViewText(R.id.row_countdown, countdown(day))
+            // A tap opens the Calendar on this event's day.
+            row.setOnClickFillInIntent(R.id.row_root, fillIn("calendar:$day"))
             return row
+        }
+
+        private fun dayNumber(day: Int): Long =
+            com.mediaviewer.util.CalendarMath.daysFromCivil(day / 10000, day / 100 % 100, day % 100)
+
+        private fun countdown(day: Int): String {
+            val diff = dayNumber(day) - dayNumber(today)
+            return when {
+                diff <= 0L -> "Today"
+                diff == 1L -> "In 1 Day"
+                else -> "In $diff Days"
+            }
         }
 
         private fun dayLabel(day: Int): String {
@@ -447,6 +447,21 @@ class StellarWidgetService : RemoteViewsService() {
             val scaled = Bitmap.createScaledBitmap(square, size, size, true)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = BitmapShader(scaled, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP) }
             Canvas(out).drawCircle(size / 2f, size / 2f, size / 2f, paint)
+            return out
+        }
+
+        /** A group chat: two of its members' pictures, overlapped. */
+        private fun groupAvatar(chat: WidgetChat): Bitmap {
+            val pictures = chat.groupAvatars.mapNotNull { avatars[it] }
+            if (pictures.isEmpty()) return initialAvatar(chat.name)
+            if (pictures.size == 1) return pictures[0]
+            val size = 96
+            val small = (size * 0.66f).roundToInt()
+            val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(pictures[0], null, RectF(0f, 0f, small.toFloat(), small.toFloat()), paint)
+            canvas.drawBitmap(pictures[1], null, RectF((size - small).toFloat(), (size - small).toFloat(), size.toFloat(), size.toFloat()), paint)
             return out
         }
 

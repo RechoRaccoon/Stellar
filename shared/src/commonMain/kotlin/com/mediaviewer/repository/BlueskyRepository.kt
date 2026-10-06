@@ -3658,16 +3658,37 @@ class BlueskyRepository {
             "$pds/xrpc/com.atproto.repo.getRecord",
             listOf("repo" to did, "collection" to com.mediaviewer.util.ProfileStyles.COLLECTION, "rkey" to com.mediaviewer.util.ProfileStyles.RKEY)
         )
-        // "RecordNotFound" comes back as a 400.
-        if (resp.code == 400 || resp.code == 404) return@withContext null
-        if (!resp.isSuccessful) error("Profile style ${resp.code}")
-        val value = (StellarJson.default.parseToJsonElement(resp.bodyString()) as? kotlinx.serialization.json.JsonObject)
-            ?.get("value") as? kotlinx.serialization.json.JsonObject ?: return@withContext null
+        val text = resp.bodyString()
+        if (!resp.isSuccessful) {
+            // Only "there is no such record" means they have none; anything
+            // else (a busy server, a bad request) is a failure to retry.
+            if (resp.code == 404 || text.contains("RecordNotFound") || text.contains("not locate record", ignoreCase = true)) return@withContext null
+            error("Profile style ${resp.code}: ${text.take(120)}")
+        }
+        val value = (StellarJson.default.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject)
+            ?.get("value") as? kotlinx.serialization.json.JsonObject ?: error("Profile style: unexpected answer")
+        parseProfileStyle(value)
+    }
+
+    /** Your own record, read through your own signed-in server. */
+    suspend fun getOwnProfileStyle(token: String, did: String): com.mediaviewer.util.ProfileStyle? = withContext(Dispatchers.IO) {
+        val resp = api.getRecord("Bearer $token", did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY)
+        if (!resp.isSuccessful) {
+            val text = errorBodyText(resp)
+            if (resp.code() == 404 || text.contains("RecordNotFound") || text.contains("not locate record", ignoreCase = true)) return@withContext null
+            error("Profile style ${resp.code()}: ${text.take(120)}")
+        }
+        val value = resp.body()?.value?.takeIf { it.isJsonObject }?.toKx() as? kotlinx.serialization.json.JsonObject
+            ?: error("Profile style: unexpected answer")
+        parseProfileStyle(value)
+    }
+
+    private fun parseProfileStyle(value: kotlinx.serialization.json.JsonObject): com.mediaviewer.util.ProfileStyle {
         fun text(key: String): String? = (value[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
         val colors = (value["colors"] as? kotlinx.serialization.json.JsonArray)
             ?.map { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()
         val effect = text("effect")?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } } ?: "confetti"
-        com.mediaviewer.util.ProfileStyle(
+        return com.mediaviewer.util.ProfileStyle(
             squareIcon = text("iconShape") == "square",
             effect = effect,
             colorA = hexToColor(colors.getOrNull(0)),
@@ -3696,6 +3717,9 @@ class BlueskyRepository {
                 BskyPutRecordRequest(did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY, record, validate = false)
             )
             if (!resp.isSuccessful) error("Saving failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
+            // Read straight back, so a save that didn't stick says so.
+            val check = runCatching { getOwnProfileStyle(token, did) }
+            if (check.isSuccess && check.getOrNull() == null) error("Saved, but the server doesn't have it. Try again.")
         }
     }
 
@@ -3838,8 +3862,15 @@ class BlueskyRepository {
             for (blob in post.blobs) {
                 if (com.mediaviewer.platform.PrivateFiles.size(context, blob.file) <= 0L) error("One of this post's files is missing from this device")
                 val mime = blob.mimeType.ifBlank { "application/octet-stream" }
-                val body = MediaBridge.videoUploadBody(context, com.mediaviewer.platform.LocalPlatform.parseUri(blob.file), mime)
-                val resp = api.uploadBlob("Bearer $token", mime, body)
+                // Sent from memory when it fits (pictures always do): the
+                // length is known up front, which every PDS wants.
+                val size = com.mediaviewer.platform.PrivateFiles.size(context, blob.file)
+                val bytes = if (size <= 64L * 1024 * 1024) com.mediaviewer.platform.PrivateFiles.read(context, blob.file) else null
+                val body = bytes?.toRequestBody(mime.toMediaType())
+                    ?: MediaBridge.videoUploadBody(context, com.mediaviewer.platform.LocalPlatform.parseUri(blob.file), mime)
+                val resp = kotlinx.coroutines.withTimeoutOrNull(if (mime.startsWith("video/")) 600_000L else 120_000L) {
+                    api.uploadBlob("Bearer $token", mime, body)
+                } ?: error("Uploading took too long. Check your connection and try again.")
                 val uploaded = resp.body()?.blob ?: error("Upload failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
                 replacements[blob.cid] = StellarJson.default.encodeToJsonElement(BskyBlob.serializer(), uploaded)
             }

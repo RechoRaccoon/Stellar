@@ -63,7 +63,16 @@ import kotlin.math.roundToInt
  */
 class BrowserState(initialUrl: String) {
     /** The address the page is on (kept current by the web view). */
-    var url by mutableStateOf(initialUrl)
+    private var shownUrl by mutableStateOf(initialUrl)
+    var url: String
+        get() = shownUrl
+        set(value) {
+            shownUrl = value
+            onUrl?.invoke(value)
+        }
+    /** Told about every address the page reaches, the moment it does (a
+     *  page that redirects on quickly can't slip past it). */
+    var onUrl: ((String) -> Unit)? = null
     var title by mutableStateOf("")
     var canGoBack by mutableStateOf(false)
     var canGoForward by mutableStateOf(false)

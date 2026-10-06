@@ -19,5 +19,17 @@ enum class PlatformFeature(val label: String) {
     /** True where this feature works on the current platform. */
     val isAvailable: Boolean get() = currentPlatform == PlatformKind.ANDROID ||
         // iOS: on-device translation through Apple's own framework (iOS 18+).
-        (this == TRANSLATION && com.mediaviewer.util.TranslationManager.isAvailable)
+        (this == TRANSLATION && com.mediaviewer.util.TranslationManager.isAvailable) ||
+        // iOS: the same tagger model, run by the Swift app (ONNX Runtime).
+        (this == AI_TAGGING && IosCapabilities.aiTagging) ||
+        // iOS: GIFs made with Apple's own image and video frameworks.
+        (this == GIF_EXPORT && IosCapabilities.gifExport)
+}
+
+/** What the iOS app turned out to be able to do, set once at launch when
+ *  the Swift side hands over its helpers (always false on Android, where
+ *  every feature is simply there). */
+object IosCapabilities {
+    @kotlin.concurrent.Volatile var aiTagging = false
+    @kotlin.concurrent.Volatile var gifExport = false
 }

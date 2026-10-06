@@ -52,6 +52,34 @@ fun registerIosTranslator(translator: IosTranslator) {
     if (translator.isAvailable()) TranslationManager.engine = AppleTranslationEngine(translator)
 }
 
+/** Called by the Swift app at launch: the on-device tagger (AI Tagging). */
+fun registerIosTagger(tagger: com.mediaviewer.tagging.IosTagger) {
+    if (!tagger.isAvailable()) return
+    com.mediaviewer.tagging.IosTaggerBridge.tagger = tagger
+    IosCapabilities.aiTagging = true
+}
+
+/** Making GIFs, as the Swift app does it with Apple's ImageIO and
+ *  AVFoundation (iosApp/iosApp/StellarMediaTools.swift). */
+interface IosMediaTools {
+    /** Every frame of the video file at [videoPath] (up to 25 a second),
+     *  written as an animated GIF at [outPath]. [onDone] gets an error
+     *  message, or null when the GIF is there. */
+    fun gifFromVideo(videoPath: String, outPath: String, onDone: (String?) -> Unit)
+    /** The picture at [imagePath] as a GIF at [outPath]. */
+    fun gifFromImage(imagePath: String, outPath: String, onDone: (String?) -> Unit)
+}
+
+object IosMediaBridge {
+    @kotlin.concurrent.Volatile var tools: IosMediaTools? = null
+}
+
+/** Called by the Swift app at launch. */
+fun registerIosMediaTools(tools: IosMediaTools) {
+    IosMediaBridge.tools = tools
+    IosCapabilities.gifExport = true
+}
+
 /** Called by the Swift app at launch: [reload] asks WidgetKit to redraw. */
 fun registerIosWidgetReloader(reload: () -> Unit) {
     IosWidgetBridge.reload = reload
@@ -80,11 +108,13 @@ object IosWidgetBridge {
                     buildJsonObject {
                         put("id", c.convoId); put("name", c.name); put("text", c.text); put("unread", c.unread)
                         put("avatar", c.avatarUrl ?: "")
+                        put("streak", c.streak)
+                        put("group", c.isGroup)
                     }
                 })
                 defaults.setObject(chats.toString(), forKey = "chats")
             }
-            val events = JsonArray(LocalData.upcomingEvents(30).map { e ->
+            val events = JsonArray(LocalData.upcomingAgenda(30).map { e ->
                 buildJsonObject { put("day", e.day); put("minute", e.minute); put("title", e.title) }
             })
             defaults.setObject(events.toString(), forKey = "events")

@@ -57,7 +57,8 @@ actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
                 web.title?.let { if (it != state.title) state.title = it }
                 state.loading = web.estimatedProgress < 1.0
             }
-            delay(350)
+            // (Someone waiting on an address is told sooner.)
+            delay(if (state.onUrl != null) 50 else 350)
         }
     }
 }

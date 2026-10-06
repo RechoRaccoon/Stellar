@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
  * banner. Written as short links:
  *   "dm:<convoId>"  a chat          "dms"       the DM list
  *   "inbox"         the Inbox       "calendar"  Launchpad → Calendar
+ *   "calendar:<yyyymmdd>"  the Calendar, on that day
  *   "note:<id>"     one note        "notes"     Launchpad → Notes
  * The platform shell sets [pending] (Android: the launch intent's
  * "stellar_open" extra; iOS: a stellar:// link) and the app opens it as

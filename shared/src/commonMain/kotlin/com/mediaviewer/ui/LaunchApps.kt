@@ -84,6 +84,8 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 // ── Shared page chrome ──────────────────────────────────────────────────
 
@@ -603,12 +605,27 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
     var month by remember { mutableIntStateOf(today / 100 % 100) }
     var selected by remember { mutableIntStateOf(today) }
     var title by remember { mutableStateOf("") }
-    var timed by remember { mutableStateOf(false) }
-    var hour by remember { mutableIntStateOf(12) }
-    var minute by remember { mutableIntStateOf(0) }
+    // Opened from an "Upcoming Events" row: that event's day is picked.
+    val openDay = LocalOverlays.openCalendarDay
+    LaunchedEffect(openDay) {
+        if (openDay != null) {
+            if (openDay / 10000 in 1971..9998 && openDay / 100 % 100 in 1..12) {
+                year = openDay / 10000; month = openDay / 100 % 100; selected = openDay
+            }
+            LocalOverlays.openCalendarDay = null
+        }
+    }
     val events = LocalData.calendarEvents
     val eventDays = remember(events) { events.mapTo(HashSet()) { it.day } }
-    val dayEvents = remember(events, selected) { events.filter { it.day == selected }.sortedBy { it.minute } }
+    // The built-in days (holidays and the smaller ones), per Supporter Settings.
+    val showMajor = LocalData.majorHolidays
+    val showMinor = LocalData.minorHolidays
+    val holidayDays = remember(year, month, showMajor, showMinor) {
+        com.mediaviewer.util.Holidays.daysInMonth(year, month, showMajor, showMinor)
+    }
+    val dayEvents = remember(events, selected, showMajor, showMinor) {
+        events.filter { it.day == selected } + LocalData.holidaysOn(selected, events)
+    }
     val accent = vividAccent(tint)
 
     fun shift(by: Int) {
@@ -618,13 +635,6 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
         while (m > 12) { m -= 12; y++ }
         month = m; year = y
         runCatching { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
-    }
-    fun timeText(min: Int): String {
-        if (min < 0) return "All day"
-        val h = min / 60
-        val mm = min % 60
-        val h12 = if (h % 12 == 0) 12 else h % 12
-        return "$h12:${if (mm < 10) "0$mm" else mm} ${if (h < 12) "AM" else "PM"}"
     }
 
     LaunchAppPage("Calendar", tint, liquidGlass, onClose) {
@@ -692,10 +702,19 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(day.toString(), color = Color.White, fontSize = 15.sp, fontWeight = if (isSel || isToday) FontWeight.Bold else FontWeight.Medium)
-                                if (key in eventDays) Box(
-                                    Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp).size(5.dp).clip(CircleShape)
-                                        .background(if (isSel) Color.White else accent)
-                                )
+                                // Yours: a dot in your color. A built-in day: a white one.
+                                val mine = key in eventDays
+                                val builtIn = key in holidayDays
+                                if (mine || builtIn) Row(
+                                    Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    if (mine) Box(
+                                        Modifier.size(5.dp).clip(CircleShape).background(accent)
+                                            .then(if (isSel) Modifier.border(0.5.dp, Color.White, CircleShape) else Modifier)
+                                    )
+                                    if (builtIn) Box(Modifier.size(5.dp).clip(CircleShape).background(Color.White))
+                                }
                             }
                         }
                     }
@@ -703,41 +722,36 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        // The picked day's events (up to three shown; the rest are counted).
-        val (_, sm, sd) = Triple(selected / 10000, selected / 100 % 100, selected % 100)
+        // The picked day's events (they scroll if there are more than fit).
+        val sm = selected / 100 % 100
+        val sd = selected % 100
         Text(
             "${CalendarMath.monthNames[(sm - 1).coerceIn(0, 11)]} $sd" + if (dayEvents.size > 3) " · ${dayEvents.size} events" else "",
             color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold
         )
-        Column(Modifier.fillMaxWidth().height(108.dp).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            Modifier.fillMaxWidth().height(108.dp).padding(top = 4.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             if (dayEvents.isEmpty()) Text("Nothing planned.", color = Color.White.copy(alpha = 0.45f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-            dayEvents.take(3).forEach { ev -> EventRow(ev, timeText(ev.minute), tint) }
+            dayEvents.forEach { ev -> EventRow(ev, accent) }
         }
-        // Add an event: a title, and optionally a time (tap the time to
-        // switch between "All day" and a time; its − / + set it).
+        Spacer(Modifier.height(6.dp))
+        // Add an event (every event is all day for now).
         Row(verticalAlignment = Alignment.CenterVertically) {
             LocalTextField(title, { title = it.take(80) }, "New event", tint, Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             LocalPillButton(
                 "Add", liquidGlass, tint,
-                { LocalData.addCalendarEvent(selected, if (timed) hour * 60 + minute else -1, title); title = "" },
+                { LocalData.addCalendarEvent(selected, -1, title); title = "" },
                 enabled = title.isNotBlank(), height = 44.dp
             )
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LocalChip(if (timed) timeText(hour * 60 + minute) else "All day", timed, tint, { timed = !timed })
-            if (timed) {
-                LocalChip("− hour", false, tint, { hour = (hour + 23) % 24 })
-                LocalChip("+ hour", false, tint, { hour = (hour + 1) % 24 })
-                LocalChip("− 5m", false, tint, { minute = (minute + 55) % 60 })
-                LocalChip("+ 5m", false, tint, { minute = (minute + 5) % 60 })
-            }
         }
     }
 }
 
 @Composable
-private fun EventRow(ev: CalendarEvent, time: String, tint: Color) {
+private fun EventRow(ev: CalendarEvent, accent: Color) {
     val tap = rememberHapticTap()
     var armed by remember(ev.id) { mutableStateOf(false) }
     LaunchedEffect(armed) { if (armed) { delay(3000); armed = false } }
@@ -746,9 +760,12 @@ private fun EventRow(ev: CalendarEvent, time: String, tint: Color) {
             .padding(start = 10.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(time, color = lerp(tint, Color.White, 0.55f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(64.dp), maxLines = 1)
+        // The same dot as on the day: your color for yours, white for a built-in day.
+        Box(Modifier.size(7.dp).clip(CircleShape).background(if (ev.holiday) Color.White else accent))
+        Spacer(Modifier.width(9.dp))
         Text(ev.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Box(
+        // (Built-in days are switched off in Supporter Settings, not deleted.)
+        if (!ev.holiday) Box(
             Modifier.clip(RoundedCornerShape(9.dp))
                 .background(if (armed) Color(0xFFE0245E).copy(alpha = 0.3f) else Color.Transparent)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {

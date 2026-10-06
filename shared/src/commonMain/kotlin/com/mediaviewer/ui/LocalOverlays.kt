@@ -53,6 +53,8 @@ object LocalOverlays {
     var launchApp by mutableStateOf<LaunchApp?>(null)
     /** A note to open straight away when Notes opens (a widget tap). */
     var openNoteId by mutableStateOf<String?>(null)
+    /** The day (yyyymmdd) the Calendar should open on, once. */
+    var openCalendarDay by mutableStateOf<Int?>(null)
     /** A feed dragged onto the Hub's DMs button, waiting to be shared. */
     var shareFeed by mutableStateOf<BskyFeedInfo?>(null)
 

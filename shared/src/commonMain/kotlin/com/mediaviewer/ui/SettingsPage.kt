@@ -206,6 +206,18 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
             }
         }
     }
+    // The Calendar's built-in days.
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("Major Holidays", Modifier.weight(1f), sub = "Shown in the Calendar and Upcoming Events.")
+            SupporterSwitch(local.majorHolidays) { local.updateMajorHolidays(it) }
+        }
+        BubbleDivider()
+        BubbleRow {
+            RowLabel("Minor Holidays", Modifier.weight(1f), sub = "Shown in the Calendar.")
+            SupporterSwitch(local.minorHolidays) { local.updateMinorHolidays(it) }
+        }
+    }
     // Search's Web Browser tab: what the address bar searches with.
     SettingsBubble(liquidGlass, tint, backdrop) {
         var engineMenu by remember { mutableStateOf(false) }

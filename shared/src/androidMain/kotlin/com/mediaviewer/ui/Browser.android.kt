@@ -40,10 +40,13 @@ actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         // Only web pages load here; app links (intent:, market:, tel:…) are left alone.
                         val scheme = request.url.scheme?.lowercase()
+                        // (Told before the page loads, redirects included.)
+                        if (request.isForMainFrame) state.onUrl?.invoke(request.url.toString())
                         return scheme != "http" && scheme != "https"
                     }
                     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                         state.loading = true
+                        url?.let { state.onUrl?.invoke(it) }
                         sync(view)
                     }
                     override fun onPageFinished(view: WebView, url: String?) {

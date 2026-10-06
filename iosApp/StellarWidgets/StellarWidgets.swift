@@ -17,6 +17,8 @@ struct WidgetChat: Decodable, Identifiable {
     let text: String
     let unread: Int
     let avatar: String
+    var streak: Int?
+    var group: Bool?
 }
 
 struct WidgetEvent: Decodable, Identifiable {
@@ -78,6 +80,23 @@ private func dayLabel(_ day: Int) -> String {
     let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     let m = max(1, min(12, day / 100 % 100))
     return "\(months[m - 1]) \(day % 100)"
+}
+
+private func dayNumber(_ day: Int) -> Int {
+    var c = DateComponents()
+    c.year = day / 10000
+    c.month = day / 100 % 100
+    c.day = day % 100
+    let cal = Calendar.current
+    guard let date = cal.date(from: c) else { return 0 }
+    return cal.dateComponents([.day], from: cal.startOfDay(for: Date(timeIntervalSince1970: 0)), to: cal.startOfDay(for: date)).day ?? 0
+}
+
+/// "Today", "In 1 Day", "In 12 Days".
+private func countdownLabel(_ day: Int) -> String {
+    let diff = dayNumber(day) - dayNumber(todayKey())
+    if diff <= 0 { return "Today" }
+    return diff == 1 ? "In 1 Day" : "In \(diff) Days"
 }
 
 private func timeLabel(_ minute: Int) -> String {
@@ -226,6 +245,12 @@ struct DmsWidgetView: View {
                                 }
                             }
                             Spacer(minLength: 0)
+                            if let streak = chat.streak, streak > 0 {
+                                Text("\u{1F525} \(streak)")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                            }
                             if chat.unread > 0 {
                                 Text(chat.unread > 99 ? "99+" : "\(chat.unread)")
                                     .font(.system(size: 10, weight: .bold))
@@ -274,6 +299,8 @@ struct EventsWidgetView: View {
                 EmptyNote(text: "Nothing coming up.")
             } else {
                 ForEach(events) { event in
+                    // A tap opens the Calendar on this event's day.
+                    Link(destination: URL(string: "stellar://calendar/\(event.day)")!) {
                     HStack(spacing: 8) {
                         Text(dayLabel(event.day))
                             .font(.system(size: 10, weight: .bold))
@@ -294,8 +321,15 @@ struct EventsWidgetView: View {
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 0)
+                        if family != .systemSmall {
+                            Text(countdownLabel(event.day))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white.opacity(0.9))
+                                .lineLimit(1)
+                        }
                     }
                     .modifier(RowBackground())
+                    }
                 }
                 Spacer(minLength: 0)
             }

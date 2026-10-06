@@ -55,6 +55,9 @@ fun LocalOverlayHost(
     val myLists by viewModel.userLists.collectAsState()
     val selectedFeed by viewModel.selectedFeedUri.collectAsState()
     val archiveBusy by viewModel.archiveBusy.collectAsState()
+    // (Read here, in the composition, so a change is always passed on.)
+    val archiveBusyNow = archiveBusy
+    LaunchedEffect(archiveBusyNow) { LocalOverlays.archiveBusy = archiveBusyNow }
 
     SideEffect {
         LocalOverlays.onEditCurrentPost = viewModel::editCurrentPost
@@ -68,7 +71,6 @@ fun LocalOverlayHost(
         LocalOverlays.openArchive = viewModel::openArchive
         LocalOverlays.restoreArchivedPost = viewModel::restoreArchivedCurrentPost
         LocalOverlays.deleteArchivedPost = viewModel::deleteArchivedCurrentPost
-        LocalOverlays.archiveBusy = archiveBusy
         LocalOverlays.prepareVideoUpload = viewModel::prepareVideoUpload
         LocalOverlays.cancelVideoUpload = viewModel::cancelVideoUpload
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
@@ -97,6 +99,10 @@ fun LocalOverlayHost(
             link == "dms" -> viewModel.openDmInbox()
             link == "inbox" -> viewModel.openInbox()
             link == "calendar" -> if (supporter) LocalOverlays.launchApp = LaunchApp.CALENDAR
+            link.startsWith("calendar:") -> if (supporter) {
+                LocalOverlays.openCalendarDay = link.removePrefix("calendar:").toIntOrNull()
+                LocalOverlays.launchApp = LaunchApp.CALENDAR
+            }
             link == "notes" -> if (supporter) LocalOverlays.launchApp = LaunchApp.NOTES
             link.startsWith("note:") -> if (supporter) {
                 LocalOverlays.openNoteId = link.removePrefix("note:")

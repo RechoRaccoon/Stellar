@@ -5694,7 +5694,13 @@ class MainViewModel(
     /** Connects [com.mediaviewer.util.ProfileStyles] to the network. */
     private fun connectProfileStyles() {
         com.mediaviewer.util.ProfileStyles.init(platform.context)
-        com.mediaviewer.util.ProfileStyles.fetcher = { did -> bskyRepo.getProfileStyle(did) }
+        com.mediaviewer.util.ProfileStyles.fetcher = { did ->
+            // Your own: through your signed-in server first (the same route
+            // the save takes), then the public read everyone else gets.
+            if (did == _bskyDid.value && _bskyLoggedIn.value) {
+                runCatching { bskyRepo.getOwnProfileStyle(bskyToken, did) }.getOrElse { bskyRepo.getProfileStyle(did) }
+            } else bskyRepo.getProfileStyle(did)
+        }
         com.mediaviewer.util.ProfileStyles.saver = { style, onDone ->
             if (!_bskyLoggedIn.value) onDone("Not signed in")
             else viewModelScope.launch(Dispatchers.IO) {
@@ -5777,13 +5783,23 @@ class MainViewModel(
     fun restoreArchivedCurrentPost() {
         val item = currentItem.value ?: return
         if (_archiveBusy.value) return
-        val archived = com.mediaviewer.util.PostArchive.find(item) ?: return
+        com.mediaviewer.util.PostArchive.init(platform.context)
+        val archived = com.mediaviewer.util.PostArchive.find(item)
+        if (archived == null) { showToast("This archived post couldn't be found on this device"); return }
+        if (!_bskyLoggedIn.value) { showToast("Sign in to add it back"); return }
         _archiveBusy.value = true
+        showToast("Adding to Profile…")
         viewModelScope.launch(Dispatchers.IO) {
-            var result = bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
+            var result = try {
+                bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Result.failure(e)
+            }
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
             }
+            _archiveBusy.value = false
             result.onSuccess {
                 withContext(Dispatchers.Main) {
                     bskyRepo.discardArchivedPost(platform.context, archived)
@@ -5794,8 +5810,11 @@ class MainViewModel(
                     if (remaining.isEmpty()) _screenState.value = ScreenState.GRID
                 }
                 showToast("Added back to your profile")
-            }.onFailure { _errorMessage.value = "Couldn't add the post back: ${it.message}" }
-            _archiveBusy.value = false
+            }.onFailure {
+                // (A toast as well: the error banner belongs to the feed page.)
+                showToast("Couldn't add the post back: ${it.message}")
+                _errorMessage.value = "Couldn't add the post back: ${it.message}"
+            }
         }
     }
 
@@ -8394,13 +8413,7 @@ class MainViewModel(
             _dmConversations.collectLatest { list ->
                 delay(1500)
                 if (!_bskyLoggedIn.value || !com.mediaviewer.util.StellarSupporters.isSupporter(_bskyDid.value)) return@collectLatest
-                val chats = list.filter { it.convoId.isNotBlank() }.map {
-                    com.mediaviewer.platform.WidgetChat(
-                        convoId = it.convoId,
-                        name = it.member.displayName.ifBlank { it.member.handle },
-                        text = it.lastMessageText, unread = it.unreadCount, avatarUrl = it.member.avatarUrl
-                    )
-                }
+                val chats = com.mediaviewer.platform.widgetChats(list)
                 withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
             }
         }

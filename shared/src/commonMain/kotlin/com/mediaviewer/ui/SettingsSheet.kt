@@ -1320,7 +1320,11 @@ private fun AtProtocolPageContent(
                         // Add → Widgets → Upcoming Events (supporters).
                         if (com.mediaviewer.util.Supporter.active) HubUpcomingEventsSection(
                             liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
-                            onOpenCalendar = { LocalOverlays.launchApp = LaunchApp.CALENDAR }
+                            onOpenCalendar = { LocalOverlays.launchApp = LaunchApp.CALENDAR },
+                            onOpenDay = { day ->
+                                LocalOverlays.openCalendarDay = day
+                                LocalOverlays.launchApp = LaunchApp.CALENDAR
+                            }
                         )
                     } else if (row.hasMembers) {
                         val key = row.contentKey
@@ -2367,30 +2371,50 @@ private fun MutualReviewCard(
         HubAuthorBubble(displayName = fr.author.displayName, avatarUrl = fr.author.avatarUrl, liquidGlass = liquidGlass, tint = tint, cardWidth = REVIEW_CARD_WIDTH,
             onClick = { onOpenProfile(fr.author) })
         Spacer(Modifier.height(6.dp))
+        // The cover is recorded as it's drawn, so the two bubbles on top
+        // of it (rating, title) blur the part of the artwork behind them.
+        val coverLayer = rememberGraphicsLayer()
+        var coverOrigin by remember { mutableStateOf(Offset.Zero) }
+        val coverBackdrop = remember(liquidGlass, coverLayer) {
+            if (liquidGlass) GlassBackdrop(coverLayer) { coverOrigin } else null
+        }
         Box(
             Modifier.width(REVIEW_CARD_WIDTH).aspectRatio(2f / 3f)
                 .then(if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape) else Modifier.clip(shape).background(Color.White.copy(0.06f)))
                 .clickable { onOpenReview(fr) }
         ) {
+            val recorded = if (coverBackdrop != null) Modifier
+                .onGloballyPositioned { coverOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    coverLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(coverLayer)
+                } else Modifier
             if (cover != null) {
                 AsyncImage(model = cover, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(shape))
+                    modifier = Modifier.fillMaxSize().clip(shape).then(recorded))
             } else {
-                Box(Modifier.fillMaxSize().clip(shape).background(Color.White.copy(0.10f)))
+                Box(Modifier.fillMaxSize().clip(shape).then(recorded).background(Color.White.copy(0.10f)))
             }
             StarRatingPill(
                 rating = fr.review.ratingOutOf5, liquidGlass = liquidGlass, tint = tint,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                backdrop = coverBackdrop
             )
-            Box(
-                Modifier.align(Alignment.BottomStart).padding(4.dp)
-                    .then(if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = RoundedCornerShape(10.dp)) else Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(0.55f)))
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
-            ) {
+            val titleShape = RoundedCornerShape(10.dp)
+            val title: @Composable () -> Unit = {
                 Text(
                     fr.review.mediaTitle, color = Color.White, fontSize = 10.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 92.dp)
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp).widthIn(max = 92.dp)
                 )
+            }
+            if (coverBackdrop != null) {
+                LiquidGlassSurface(
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                    shape = titleShape, tint = tint, backdrop = coverBackdrop
+                ) { title() }
+            } else {
+                Box(Modifier.align(Alignment.BottomStart).padding(4.dp).clip(titleShape).background(Color.Black.copy(0.55f))) { title() }
             }
         }
     }

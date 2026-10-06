@@ -6,9 +6,17 @@ import com.mediaviewer.tagging.UnavailableTaggingService
 
 /** iOS side of [AppPlatform]. Features iOS can't do yet report themselves
  *  unavailable (Android keeps all of them). */
-class IosAppPlatform : AppPlatform {
+class IosAppPlatform(
+    bskyRepo: com.mediaviewer.repository.BlueskyRepository,
+    e621Repo: com.mediaviewer.repository.E621Repository
+) : AppPlatform {
     override val context: PlatformContext get() = IosContext
-    override val tagging: TaggingService = UnavailableTaggingService
+    // AI Tagging: the same model as Android, when the Swift app brought
+    // its tagger along (see registerIosTagger); otherwise it stays gated.
+    override val tagging: TaggingService =
+        com.mediaviewer.tagging.IosTaggerBridge.tagger
+            ?.let { com.mediaviewer.tagging.IosTaggingRepository(it, bskyRepo, e621Repo) }
+            ?: UnavailableTaggingService
 
     override fun haptic() = IosHaptics.tick()
 
@@ -29,7 +37,7 @@ class IosAppPlatform : AppPlatform {
     }
 
     override fun enqueueGifDownload(url: String, isVideo: Boolean, postId: String, blobDid: String?, blobCid: String?) {
-        toast("Saving as GIF is Android only")
+        IosDownloads.saveAsGif(url, isVideo, postId, blobDid, blobCid)
     }
 
     override fun importCustomFont(uri: PlatformUri): FontImport =

@@ -5,6 +5,13 @@ options:
   bundleIdPrefix: rechoraccoon
   deploymentTarget:
     iOS: "16.0"
+# ONNX Runtime (Microsoft, MIT licence): runs the AI Tagging model on the
+# device — the same model file Android uses. Fetched by Xcode when the
+# project is built.
+packages:
+  onnxruntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    from: "1.19.0"
 targets:
   iosApp:
     type: application
@@ -21,6 +28,8 @@ targets:
     # The home-screen widgets are an extension inside the app.
     dependencies:
       - target: StellarWidgets
+      - package: onnxruntime
+        product: onnxruntime
     settings:
       base:
         PRODUCT_NAME: Stellar

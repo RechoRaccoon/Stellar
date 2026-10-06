@@ -140,7 +140,9 @@ internal fun VrmStageLayer(
     effect: DmEffect?,
     effectKey: Int,
     layer: GraphicsLayer,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Your profile colors, for the effects that wear them. */
+    effectColors: List<Color> = emptyList()
 ) {
     Box(
         modifier.fillMaxSize().drawWithContent {
@@ -156,20 +158,16 @@ internal fun VrmStageLayer(
                 exit = fadeOut(tween(SCENE_FADE_MS))
             ) { StellarSceneCard(text) }
         }
-        if (effect != null && effectKey > 0) DmEffectLayer(effect, effectKey, Modifier.fillMaxSize())
+        if (effect != null && effectKey > 0) DmEffectLayer(effect, effectKey, Modifier.fillMaxSize(), colors = effectColors)
     }
 }
 
 internal const val SCENE_FADE_MS = 450
 /** How long the longest effect runs (so captures keep following it). */
-internal const val EFFECT_MAX_MS = 12_000L
+internal const val EFFECT_MAX_MS = (DM_EFFECT_MAX_SECONDS * 1000).toLong()
 
-private val EFFECT_LABELS = listOf(
-    DmEffect.CONFETTI to "Confetti",
-    DmEffect.SNOW to "Snow",
-    DmEffect.FIREWORKS to "Fireworks",
-    DmEffect.BATS to "Bats"
-)
+/** Every effect animation the app has, in the order they're offered. */
+private val EFFECT_LABELS = DmEffect.values().map { it to it.label }
 
 /**
  * The Activity popup: Scene, Soundboard and Effects, all on show at once.
@@ -296,7 +294,7 @@ internal fun VrmActivityDialog(
                 }
 
                 ActivityHeading("Effects")
-                Box(Modifier.fillMaxWidth().heightIn(max = 94.dp).verticalScroll(rememberScrollState())) {
+                Box(Modifier.fillMaxWidth().heightIn(max = 136.dp).verticalScroll(rememberScrollState())) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         EFFECT_LABELS.chunked(3).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

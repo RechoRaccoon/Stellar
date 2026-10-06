@@ -53,6 +53,7 @@ import com.mediaviewer.util.LocalData
 import com.mediaviewer.util.dayLabel
 import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.util.timeLabel
+import com.mediaviewer.util.countdownLabel
 
 /** Every Hub blog card is this size: a portrait page. */
 internal val HUB_BLOG_CARD_WIDTH = 168.dp
@@ -189,12 +190,15 @@ internal fun HubUpcomingEventsSection(
     tint: Color,
     backdrop: GlassBackdrop?,
     onOpenCalendar: () -> Unit,
-    maxHeight: Dp = 176.dp
+    maxHeight: Dp = 176.dp,
+    /** An event was tapped: the Calendar opens on its day (yyyymmdd). */
+    onOpenDay: (Int) -> Unit = { onOpenCalendar() }
 ) {
     val tap = rememberHapticTap()
     val all = LocalData.calendarEvents
     val today = remember(all) { CalendarMath.todayKey() }
-    val events = remember(all, today) { LocalData.upcomingEvents(60) }
+    val showMajor = LocalData.majorHolidays
+    val events = remember(all, today, showMajor) { LocalData.upcomingAgenda(60) }
     val label = lerp(tint, Color.White, 0.35f)
     val accent = vividAccent(tint)
     Spacer(Modifier.height(14.dp))
@@ -226,7 +230,7 @@ internal fun HubUpcomingEventsSection(
                 items(events, key = { it.id }) { ev ->
                     val isToday = ev.day == today
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                        Modifier.fillMaxWidth().clickable { tap(); onOpenDay(ev.day) }.padding(horizontal = 12.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // The date, as a small tile.
@@ -249,7 +253,11 @@ internal fun HubUpcomingEventsSection(
                             )
                             Text(ev.timeLabel(), color = label.copy(alpha = 0.9f), fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
                         }
-                        if (isToday) Box(Modifier.size(7.dp).clip(CircleShape).background(accent))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            ev.countdownLabel(today), color = if (isToday) Color.White else label.copy(alpha = 0.9f),
+                            fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
+                        )
                     }
                 }
             }

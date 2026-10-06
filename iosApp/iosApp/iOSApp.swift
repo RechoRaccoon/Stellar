@@ -23,8 +23,8 @@ struct iOSApp: App {
 /// Hosts the shared Compose UI (Kotlin: MainViewController()).
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        // The two things only Swift can do, handed to the Kotlin app
-        // before it starts: translation and redrawing the widgets.
+        // The things only Swift can do, handed to the Kotlin app before it
+        // starts: translation, redrawing the widgets, the tagger, GIFs.
         StellarBridges.install()
         return MainViewControllerKt.MainViewController()
     }
@@ -42,5 +42,8 @@ enum StellarBridges {
             WidgetCenter.shared.reloadAllTimelines()
         }
         IosBridgesKt.registerIosTranslator(translator: StellarTranslator())
+        // AI Tagging (the same model as Android) and Save as GIF.
+        IosBridgesKt.registerIosTagger(tagger: StellarTagger())
+        IosBridgesKt.registerIosMediaTools(tools: StellarMediaTools())
     }
 }

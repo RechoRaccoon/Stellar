@@ -12,8 +12,33 @@ data class WidgetChat(
     val name: String,
     val text: String,
     val unread: Int,
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    /** The chat's streak as the DM list shows it (0 = none). */
+    val streak: Int = 0,
+    /** Group chats: its members' pictures (the widget shows two, overlapped,
+     *  like the DM list does). */
+    val groupAvatars: List<String> = emptyList(),
+    val isGroup: Boolean = false
 )
+
+/** The chat list as the DMs widget shows it: no chats with accounts you've
+ *  blocked, each with its streak, group chats with their members' pictures. */
+fun widgetChats(list: List<com.mediaviewer.model.DmConversation>): List<WidgetChat> =
+    list.filter { it.convoId.isNotBlank() }
+        .filterNot { !it.isGroup && com.mediaviewer.util.BlockedAccounts.isHidden(it.member.did) }
+        .map {
+            WidgetChat(
+                convoId = it.convoId,
+                name = it.member.displayName.ifBlank { it.member.handle },
+                text = it.lastMessageText, unread = it.unreadCount,
+                avatarUrl = if (it.isGroup) null else it.member.avatarUrl,
+                streak = if (it.isGroup) 0 else runCatching {
+                    com.mediaviewer.util.DmStreaks.shown(com.mediaviewer.util.LocalData.dmStreak(it.convoId))
+                }.getOrDefault(0),
+                groupAvatars = if (it.isGroup) it.groupMembers.mapNotNull { m -> m.avatarUrl }.take(2) else emptyList(),
+                isGroup = it.isGroup
+            )
+        }
 
 expect object LocalPlatform {
     /** Copies the picked file at [uri] into the app's private storage (so a

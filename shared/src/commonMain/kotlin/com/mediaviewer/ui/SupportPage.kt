@@ -94,24 +94,23 @@ private val supportMethods = listOf(
 
 /** The supporter benefits, exactly as listed on the Support page. */
 internal val SUPPORTER_BENEFITS = listOf(
-    "Supporter Profile Badge and Animation!!",
-    "Customize your Profile's Icon Shape, Effect, and Colors!!",
-    "The Ability to Edit Posts!! (with limitations)",
-    "Archive Posts and add them back to your Profile later!!",
-    "Save Posts as Drafts!!",
-    "Build your own local Feeds!! (experimental)",
-    "Save posts into local Bookmark Folders!!",
+    "Extra profile customization!!",
+    "Edit posts!!",
+    "Archive posts!!",
+    "Drafts!!",
+    "Polls",
+    "Bookmark folders!!",
+    "Build your own local feeds!!",
     "Pin DMs!!",
-    "Use the Launchpad's Calendar, Notes (with checklists), Calculator, and Timer features!! (experimental)",
-    "Home Screen Widgets for DMs, Upcoming Events, and Notes!!",
-    "Add an Upcoming Events Widget to the Hub!!",
-    "Create Polls on Stellar!!",
-    "View Trending Topics in Search!!",
-    "Use the In-App Multitasking Browser while you explore Stellar!!",
-    "Receive App Notifications, on your device and inside Stellar!!",
-    "VRM Mode Activity: Scenes, a Soundboard, Effects, and Image/Video Backgrounds!! (android only)",
-    "Add Notes to Profiles!!",
-    "Remove the \"Stellar Supporters\" row from the Hub!!"
+    "Calendar, notes, calculator, and timer features!!",
+    "Android/iOS widgets!!",
+    "Hub widgets!!",
+    "Trending topics!!",
+    "In-app multitasking browser!!",
+    "App notifications!! (Android)",
+    "VRM scenes, soundboard, and animations!!",
+    "Profile notes!!",
+    "Remove the \"Stellar Supporters\" row from the Hub"
 )
 
 /** The softly pink "Supporter Benefits:" panel (Support page and popup). */
@@ -153,8 +152,7 @@ internal fun SupporterBenefitsPanel(tint: Color, modifier: Modifier = Modifier, 
 }
 
 /** Settings → "Support Stellar": the logo, what supporting unlocks, and a
- *  compact row for each way to chip in — all on one page (scaled down to
- *  fit a short screen rather than scrolling). */
+ *  compact row for each way to chip in, on one scrolling page. */
 @Composable
 internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
     val glow = rememberInfiniteTransition(label = "supportGlow")
@@ -165,8 +163,9 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
     val uriHandler = LocalUriHandler.current
     val tap = rememberHapticTap()
 
-    ScaleToFit(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+    // The page scrolls (it used to be shrunk to fit one screen).
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             // ── Logo with a soft breathing glow in the profile color ──
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Box(

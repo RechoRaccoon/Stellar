@@ -124,13 +124,11 @@ class StellarNotificationWorker(context: Context, params: WorkerParameters) : Co
             val list = convos.getOrNull()
             if (list != null) {
                 // The DMs widget shows exactly what was just read.
-                if (dmWidget) StellarWidgets.saveChats(app, list.filter { it.convoId.isNotBlank() }.map {
-                    WidgetChat(
-                        convoId = it.convoId,
-                        name = it.member.displayName.ifBlank { it.member.handle },
-                        text = it.lastMessageText, unread = it.unreadCount, avatarUrl = it.member.avatarUrl
-                    )
-                })
+                if (dmWidget) {
+                    // (Streaks come from the app's own saved data.)
+                    runCatching { com.mediaviewer.util.LocalData.init(app) }
+                    StellarWidgets.saveChats(app, com.mediaviewer.platform.widgetChats(list))
+                }
                 if (wantDms) {
                     val editor = state.edit()
                     val firstRun = !state.contains("dm_seeded")

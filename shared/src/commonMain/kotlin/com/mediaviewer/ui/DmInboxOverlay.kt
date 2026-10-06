@@ -511,6 +511,8 @@ private fun DmThreadView(
     // device sees it (so it plays for both people — each when they open the
     // chat); tapping such a message plays it again.
     var effectPlay by remember(thread.convo.convoId) { mutableStateOf<Pair<DmEffect, Int>?>(null) }
+    // Whose message set it off (hearts wear the sender's profile colors).
+    var effectSender by remember(thread.convo.convoId) { mutableStateOf<String?>(null) }
     val effectCounter = remember { intArrayOf(0) }
     LaunchedEffect(thread.convo.convoId, thread.messages.lastOrNull()?.id, thread.loading) {
         if (thread.loading) return@LaunchedEffect
@@ -519,7 +521,7 @@ private fun DmThreadView(
         }
         val newest = fresh.lastOrNull() ?: return@LaunchedEffect
         com.mediaviewer.util.LocalData.markDmEffectsPlayed(fresh.map { it.id })
-        dmEffectFor(newest.text)?.let { effectPlay = it to ++effectCounter[0] }
+        dmEffectFor(newest.text)?.let { effectSender = newest.sender?.did; effectPlay = it to ++effectCounter[0] }
     }
     // ── Streak ── kept current from the messages already on screen (no
     // extra requests); 1:1 chats only.
@@ -551,8 +553,30 @@ private fun DmThreadView(
         }
     }
 
+    // Bubbles blur the chat itself: while they're out, the conversation is
+    // recorded (over the sky behind it) for them to blur.
+    val bubbleLayer = rememberGraphicsLayer()
+    var bubbleOrigin by remember { mutableStateOf(Offset.Zero) }
+    val bubbleBackdrop = remember(bubbleLayer) { GlassBackdrop(bubbleLayer) { bubbleOrigin } }
+    val bubblesOut = liquidGlass && effectPlay?.first == DmEffect.BUBBLES
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier.fillMaxSize().then(
+            if (bubblesOut) Modifier
+                .onGloballyPositioned { bubbleOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    bubbleLayer.record {
+                        if (backdrop != null) {
+                            val sky = backdrop.originInRoot()
+                            translate(sky.x - bubbleOrigin.x, sky.y - bubbleOrigin.y) { drawLayer(backdrop.layer) }
+                        }
+                        this@drawWithContent.drawContent()
+                    }
+                    drawLayer(bubbleLayer)
+                }
+            else Modifier
+        )
+    ) {
         Box(Modifier.weight(1f).fillMaxWidth().then(if (listBlur > 0.dp) Modifier.blur(listBlur) else Modifier)) {
             when {
                 thread.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -659,7 +683,7 @@ private fun DmThreadView(
                                 replyTint = msg.replyTo?.let { r -> tintOf(r) } ?: Color.White,
                                 highlighted = highlightId == msg.id,
                                 onReply = { startReply(msg) },
-                                onTap = { dmEffectFor(msg.text)?.let { effectPlay = it to ++effectCounter[0] } },
+                                onTap = { dmEffectFor(msg.text)?.let { effectSender = msg.sender?.did; effectPlay = it to ++effectCounter[0] } },
                                 onLongPress = { bounds -> picker = msg to bounds },
                                 onToggleReaction = { emoji -> onToggleReaction(msg.id, emoji) },
                                 onJumpToReply = { id ->
@@ -768,7 +792,16 @@ private fun DmThreadView(
     }
 
     // The effect plays over the whole chat; touches pass through it.
-    effectPlay?.let { (kind, key) -> DmEffectLayer(kind, key, Modifier.matchParentSize()) }
+    effectPlay?.let { (kind, key) ->
+        val sender = effectSender
+        val senderColors = sender?.let { did -> styledProfileColors(did) ?: ProfileColorStore.get(did) }
+        DmEffectLayer(
+            kind, key, Modifier.matchParentSize(),
+            colors = senderColors?.let { listOf(it.banner, it.avatar) }
+                ?: listOf(if (sender != null && sender == myDid) profileTint else theirTint),
+            backdrop = if (bubblesOut) bubbleBackdrop else null
+        )
+    }
 
     // ── Reaction picker (long press) ──
     val current = picker
