@@ -14,7 +14,9 @@ enum class PlatformFeature(val label: String) {
     CUSTOM_FONT("Custom font"),
     OPEN_BY_DEFAULT_LINKS("Open Bluesky links in Stellar"),
     TRANSLATION("Translate post text"),
-    APP_RESTART("Restart app");
+    APP_RESTART("Restart app"),
+    /** Seeing what other apps are playing: iOS doesn't allow it. */
+    MUSIC_SCROBBLING("Scrobble music to Rocksky");
 
     /** True where this feature works on the current platform. */
     val isAvailable: Boolean get() = currentPlatform == PlatformKind.ANDROID ||

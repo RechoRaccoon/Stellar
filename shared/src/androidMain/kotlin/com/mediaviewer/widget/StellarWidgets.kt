@@ -45,6 +45,11 @@ import kotlin.math.roundToInt
  * resized to any shape. Tapping a chat, the events or the note opens
  * Stellar right there (see [AppLinks]).
  *
+ * The Note widget chooses its note on the widget itself: a newly placed
+ * one is a list of all your notes, and tapping one turns the widget into
+ * that note ("Change" in its corner brings the list back). Each Note
+ * widget remembers its own, so several can show different notes.
+ *
  * A widget is drawn by the launcher from RemoteViews, so none of the app's
  * Compose UI can run in it; everything here reads plain saved data:
  *  - chats: a snapshot the app (while open) and the background check
@@ -58,9 +63,19 @@ object StellarWidgets {
     const val EXTRA_KIND = "stellar_widget_kind"
     private const val PREFS = "stellar_widgets"
     private const val KEY_CHATS = "chats"
-    /** The note the Note widget shows (Notes → a note → Widget). Blank =
-     *  the note edited most recently. */
+    /** The note last sent to the widgets from inside the app (Notes → a
+     *  note → Widget): every Note widget switches to it. Blank = none. */
     const val KEY_NOTE_ID = "note_id"
+    /** + a widget's id: the note that one widget shows. Not there = it
+     *  hasn't been chosen yet, and the widget lists your notes instead. */
+    private const val KEY_NOTE_OF = "note_id:"
+    /** What [KEY_NOTE_ID] was when the widgets last acted on it. */
+    private const val KEY_NOTE_SEEN = "note_id_seen"
+    private const val KEY_NOTE_MIGRATED = "note_per_widget"
+    /** A note in the list was tapped / "Change" was tapped. */
+    const val ACTION_PICK_NOTE = "com.mediaviewer.widget.PICK_NOTE"
+    const val ACTION_CHOOSE_NOTE = "com.mediaviewer.widget.CHOOSE_NOTE"
+    const val EXTRA_NOTE_ID = "stellar_widget_note"
 
     private fun provider(kind: String): Class<out AppWidgetProvider> = when (kind) {
         KIND_DMS -> DmWidgetProvider::class.java
@@ -139,6 +154,7 @@ object StellarWidgets {
 
     internal fun update(context: Context, mgr: AppWidgetManager, id: Int, kind: String) {
         try {
+            syncNoteChoices(context)
             val views = RemoteViews(context.packageName, R.layout.widget_stellar_list)
             // The bubble: three plain shapes colored here — the first
             // profile color, the second fading in across it, and a bright
@@ -156,12 +172,16 @@ object StellarWidgets {
             val supporter = isSupporter(context)
             val chats = if (kind == KIND_DMS) chats(context) else emptyList()
             val unread = chats.sumOf { it.unread }
+            // The Note widget: its note, or — until one is chosen — the list.
+            val note = if (kind == KIND_NOTE) noteFor(context, id) else null
+            val choosing = kind == KIND_NOTE && note == null && supporter
             val title = when (kind) {
                 KIND_DMS -> "DMs"
                 KIND_EVENTS -> "Upcoming Events"
-                else -> noteFor(context)?.optString("title")?.takeIf { it.isNotBlank() } ?: "Note"
+                else -> if (choosing) "Choose a Note" else note?.optString("title")?.takeIf { it.isNotBlank() } ?: "Note"
             }
             views.setTextViewText(R.id.widget_title, title)
+            views.setViewVisibility(R.id.widget_switch, if (note != null && supporter) View.VISIBLE else View.GONE)
             views.setViewVisibility(R.id.widget_badge, if (supporter && unread > 0) View.VISIBLE else View.GONE)
             if (unread > 0) views.setTextViewText(R.id.widget_badge, if (unread > 99) "99+" else unread.toString())
 
@@ -179,7 +199,8 @@ object StellarWidgets {
                     !supporter -> "A Stellar Supporter benefit.\nOpen Stellar to find out more."
                     kind == KIND_DMS -> "Open Stellar to load your chats."
                     kind == KIND_EVENTS -> "Nothing coming up."
-                    else -> "No notes yet."
+                    note != null -> "This note is empty."
+                    else -> "No notes yet.\nWrite one in Stellar and it will be listed here."
                 }
             )
 
@@ -188,14 +209,27 @@ object StellarWidgets {
             val pageLink = when (kind) {
                 KIND_DMS -> "dms"
                 KIND_EVENTS -> "calendar"
-                else -> noteFor(context)?.optString("id")?.takeIf { it.isNotBlank() }?.let { "note:$it" } ?: "notes"
+                else -> note?.optString("id")?.takeIf { it.isNotBlank() }?.let { "note:$it" } ?: "notes"
             }
             val mutable = if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-            val template = PendingIntent.getActivity(
+            val template = if (choosing) {
+                // Choosing: a row's tap doesn't open anything — it tells this
+                // widget which note to become (see NoteWidgetProvider).
+                PendingIntent.getBroadcast(
+                    context, id, noteIntent(context, ACTION_PICK_NOTE, id), PendingIntent.FLAG_UPDATE_CURRENT or mutable
+                )
+            } else PendingIntent.getActivity(
                 context, id, openIntent(context, null).apply { data = Uri.parse("stellarwidget://row/$kind/$id") },
                 PendingIntent.FLAG_UPDATE_CURRENT or mutable
             )
             views.setPendingIntentTemplate(R.id.widget_list, template)
+            if (kind == KIND_NOTE) views.setOnClickPendingIntent(
+                R.id.widget_switch,
+                PendingIntent.getBroadcast(
+                    context, id + 200_000, noteIntent(context, ACTION_CHOOSE_NOTE, id),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
             val page = PendingIntent.getActivity(
                 context, id + 100_000, openIntent(context, pageLink).apply { data = Uri.parse("stellarwidget://page/$kind/$id") },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -212,6 +246,7 @@ object StellarWidgets {
 
     fun refresh(context: Context, kind: String) {
         try {
+            syncNoteChoices(context)
             val mgr = AppWidgetManager.getInstance(context)
             ids(context, kind).forEach { update(context, mgr, it, kind) }
         } catch (_: Exception) {
@@ -250,12 +285,84 @@ object StellarWidgets {
             .take(60)
     }
 
-    /** The note to show: the one picked in Notes, else the newest. */
-    internal fun noteFor(context: Context): JSONObject? {
+    /** All your notes, the most recently edited first. */
+    internal fun notes(context: Context): List<JSONObject> {
         val arr = localJson(context, "notes")
-        val notes = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-        val picked = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_NOTE_ID, null)
-        return notes.firstOrNull { it.optString("id") == picked } ?: notes.maxByOrNull { it.optLong("updatedAt") }
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.sortedByDescending { it.optLong("updatedAt") }
+    }
+
+    /** The note the widget [widgetId] shows, or null when none has been
+     *  chosen for it (or the one that was has since been deleted). */
+    internal fun noteFor(context: Context, widgetId: Int): JSONObject? {
+        val picked = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_NOTE_OF + widgetId, null)
+        if (picked.isNullOrBlank()) return null
+        return notes(context).firstOrNull { it.optString("id") == picked }
+    }
+
+    /** Sent to [NoteWidgetProvider] by a tap on the widget [widgetId]. */
+    private fun noteIntent(context: Context, action: String, widgetId: Int): Intent =
+        Intent(context, NoteWidgetProvider::class.java).apply {
+            this.action = action
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            // (Keeps each widget's own intent apart from the others'.)
+            data = Uri.parse("stellarwidget://note/$action/$widgetId")
+        }
+
+    /** Makes the widget [widgetId] show [noteId]; blank = back to the list. */
+    fun chooseNote(context: Context, widgetId: Int, noteId: String) {
+        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (noteId.isBlank()) edit.remove(KEY_NOTE_OF + widgetId) else edit.putString(KEY_NOTE_OF + widgetId, noteId)
+        edit.commit()
+        try {
+            update(context, AppWidgetManager.getInstance(context), widgetId, KIND_NOTE)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun forgetNoteWidget(context: Context, widgetId: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_NOTE_OF + widgetId).apply()
+    }
+
+    /**
+     * Keeps each Note widget's own choice in step with two things that
+     * happen outside the widget:
+     *
+     *  - **Coming from the version before per-widget notes.** Then there
+     *    was one choice for all Note widgets (or none: the newest note).
+     *    The first time this runs after the app has been updated, every
+     *    Note widget already on the home screen keeps showing what it
+     *    showed, instead of turning into a list.
+     *  - **"Widget" on a note inside the app** (Notes → a note → Widget).
+     *    That sends the note to every Note widget; switching it off again
+     *    (or deleting the note) sends the widgets that showed it back to
+     *    the list.
+     */
+    private fun syncNoteChoices(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val fromApp = prefs.getString(KEY_NOTE_ID, null).orEmpty()
+            val migrated = prefs.getBoolean(KEY_NOTE_MIGRATED, false)
+            val seen = prefs.getString(KEY_NOTE_SEEN, null)
+            if (migrated && seen == fromApp) return
+            val widgets = ids(context, KIND_NOTE)
+            val edit = prefs.edit()
+            if (!migrated) {
+                // (A fresh install has nothing to carry over.)
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                if (info.firstInstallTime != info.lastUpdateTime) {
+                    val before = fromApp.ifBlank { notes(context).firstOrNull()?.optString("id").orEmpty() }
+                    if (before.isNotBlank()) widgets.forEach { if (!prefs.contains(KEY_NOTE_OF + it)) edit.putString(KEY_NOTE_OF + it, before) }
+                }
+                edit.putBoolean(KEY_NOTE_MIGRATED, true)
+            } else if (fromApp.isNotBlank()) {
+                widgets.forEach { edit.putString(KEY_NOTE_OF + it, fromApp) }
+            } else if (!seen.isNullOrBlank()) {
+                widgets.forEach { if (prefs.getString(KEY_NOTE_OF + it, null) == seen) edit.remove(KEY_NOTE_OF + it) }
+            }
+            edit.putString(KEY_NOTE_SEEN, fromApp).commit()
+        } catch (e: Exception) {
+            android.util.Log.e("StellarWidgets", "syncing note choices failed", e)
+        }
     }
 }
 
@@ -274,18 +381,43 @@ abstract class StellarWidgetProvider(private val kind: String) : AppWidgetProvid
 
 class DmWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_DMS)
 class EventsWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_EVENTS)
-class NoteWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_NOTE)
+class NoteWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_NOTE) {
+    /** Taps on the widget that change what it shows: a note in the list
+     *  (the widget becomes that note) and "Change" (back to the list). */
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        when (intent.action) {
+            StellarWidgets.ACTION_PICK_NOTE -> {
+                val note = intent.getStringExtra(StellarWidgets.EXTRA_NOTE_ID).orEmpty()
+                if (id != AppWidgetManager.INVALID_APPWIDGET_ID && note.isNotBlank()) StellarWidgets.chooseNote(context, id, note)
+            }
+            StellarWidgets.ACTION_CHOOSE_NOTE -> {
+                if (id != AppWidgetManager.INVALID_APPWIDGET_ID) StellarWidgets.chooseNote(context, id, "")
+            }
+            else -> super.onReceive(context, intent)
+        }
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        appWidgetIds.forEach { StellarWidgets.forgetNoteWidget(context, it) }
+    }
+}
 
 /** Supplies the rows of each widget's list. */
 class StellarWidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
-        Factory(applicationContext, intent.getStringExtra(StellarWidgets.EXTRA_KIND) ?: StellarWidgets.KIND_DMS)
+        Factory(
+            applicationContext, intent.getStringExtra(StellarWidgets.EXTRA_KIND) ?: StellarWidgets.KIND_DMS,
+            intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        )
 
-    private class Factory(private val context: Context, private val kind: String) : RemoteViewsFactory {
+    private class Factory(private val context: Context, private val kind: String, private val widgetId: Int) : RemoteViewsFactory {
         private var chats: List<WidgetChat> = emptyList()
         private var events: List<JSONObject> = emptyList()
         private var noteId: String = ""
         private var lines: List<String> = emptyList()
+        /** The Note widget before a note is chosen: all of them, to pick from. */
+        private var choices: List<JSONObject> = emptyList()
         private val avatars = HashMap<String, Bitmap?>()
         private var today = StellarWidgets.todayKey()
 
@@ -295,7 +427,7 @@ class StellarWidgetService : RemoteViewsService() {
         // Runs on a background (binder) thread: loading here is fine.
         override fun onDataSetChanged() {
             today = StellarWidgets.todayKey()
-            if (!StellarWidgets.isSupporter(context)) { chats = emptyList(); events = emptyList(); lines = emptyList(); return }
+            if (!StellarWidgets.isSupporter(context)) { chats = emptyList(); events = emptyList(); lines = emptyList(); choices = emptyList(); return }
             when (kind) {
                 StellarWidgets.KIND_DMS -> {
                     chats = StellarWidgets.chats(context)
@@ -307,7 +439,9 @@ class StellarWidgetService : RemoteViewsService() {
                 }
                 StellarWidgets.KIND_EVENTS -> events = StellarWidgets.upcomingEvents(context)
                 else -> {
-                    val note = StellarWidgets.noteFor(context)
+                    val note = StellarWidgets.noteFor(context, widgetId)
+                    // No note chosen for this widget (yet): the list of them.
+                    choices = if (note == null) StellarWidgets.notes(context) else emptyList()
                     noteId = note?.optString("id").orEmpty()
                     // Pictures in a note are left out here (text only).
                     lines = note?.optString("body").orEmpty().split('\n')
@@ -320,14 +454,14 @@ class StellarWidgetService : RemoteViewsService() {
         override fun getCount(): Int = when (kind) {
             StellarWidgets.KIND_DMS -> chats.size
             StellarWidgets.KIND_EVENTS -> events.size
-            else -> lines.size
+            else -> if (noteId.isBlank()) choices.size else lines.size
         }
 
         override fun getViewAt(position: Int): RemoteViews? = try {
             when (kind) {
                 StellarWidgets.KIND_DMS -> chatRow(chats[position])
                 StellarWidgets.KIND_EVENTS -> eventRow(events[position])
-                else -> lineRow(lines[position])
+                else -> if (noteId.isBlank()) choiceRow(choices[position]) else lineRow(lines[position])
             }
         } catch (_: Exception) {
             null
@@ -392,6 +526,21 @@ class StellarWidgetService : RemoteViewsService() {
             return months[(day / 100 % 100 - 1).coerceIn(0, 11)] + " " + (day % 100)
         }
 
+        /** One note to choose from: its title, and its first line of text. */
+        private fun choiceRow(note: JSONObject): RemoteViews {
+            val row = RemoteViews(context.packageName, R.layout.widget_stellar_row_pick)
+            val firstLine = note.optString("body").split('\n')
+                .map { it.trim().trimStart('#', '-', '*', '>', ' ').replace("**", "").replace("~~", "").replace("`", "") }
+                .firstOrNull { it.isNotBlank() && !it.startsWith("![") && !it.startsWith("[ ]") && !it.startsWith("[x]") }
+                .orEmpty()
+            val title = note.optString("title").trim()
+            row.setTextViewText(R.id.row_title, title.ifBlank { firstLine.ifBlank { "Untitled note" } })
+            row.setTextViewText(R.id.row_text, if (title.isBlank()) "" else firstLine)
+            row.setViewVisibility(R.id.row_text, if (title.isBlank() || firstLine.isBlank()) View.GONE else View.VISIBLE)
+            row.setOnClickFillInIntent(R.id.row_root, Intent().putExtra(StellarWidgets.EXTRA_NOTE_ID, note.optString("id")))
+            return row
+        }
+
         /** One line of the note, with the markdown it starts with turned
          *  into how it reads: headings bigger and bold, bullets, ticked /
          *  unticked boxes, quotes. */
@@ -426,7 +575,7 @@ class StellarWidgetService : RemoteViewsService() {
         }
 
         override fun getLoadingView(): RemoteViews? = null
-        override fun getViewTypeCount(): Int = 3
+        override fun getViewTypeCount(): Int = 4
         override fun getItemId(position: Int): Long = position.toLong()
         override fun hasStableIds(): Boolean = false
 

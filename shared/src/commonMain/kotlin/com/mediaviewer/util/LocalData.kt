@@ -213,7 +213,9 @@ object LocalData {
     private var appContext: PlatformContext? = null
     private var widgetPrefs: SharedPreferences? = null
 
-    /** The note the home-screen Note widget shows ("" = the newest one). */
+    /** The note last sent to the home-screen Note widget from inside the
+     *  app ("" = none). Each widget can also choose its own note itself —
+     *  see StellarWidgets (Android) and StellarWidgets.swift (iOS). */
     var widgetNoteId by mutableStateOf("")
         private set
 

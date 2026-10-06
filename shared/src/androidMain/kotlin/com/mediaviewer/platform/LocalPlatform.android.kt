@@ -149,4 +149,98 @@ actual object LocalPlatform {
         } catch (_: Exception) {
         }
     }
+
+    // ── "Scrobble Music to Rocksky" (see com.mediaviewer.scrobble) ──
+
+    private fun scrobbleListener(c: Context) =
+        android.content.ComponentName(c, com.mediaviewer.scrobble.StellarScrobbleListener::class.java)
+
+    actual fun scrobblerStatus(context: PlatformContext): com.mediaviewer.util.ScrobblerStatus {
+        val app = context.applicationContext
+        return try {
+            val store = com.mediaviewer.scrobble.ScrobbleStore
+            val p = store.prefs(app)
+            val enabled = p.getBoolean(store.KEY_ENABLED, false)
+            val did = p.getString(store.KEY_DID, null).orEmpty()
+            // Android keeps the list of apps that have "notification
+            // access" as text; Stellar is allowed if its listener is on it.
+            val component = scrobbleListener(app)
+            val access = android.provider.Settings.Secure.getString(app.contentResolver, "enabled_notification_listeners")
+                ?.split(':')?.any { android.content.ComponentName.unflattenFromString(it) == component } == true
+            val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+                app.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            val chosen = p.getStringSet(store.KEY_APPS, emptySet())!!.toSet()
+            // The built-in list, then any other player the listener has seen.
+            val known = com.mediaviewer.util.RockskyScrobbler.KNOWN_APPS
+            val seen = org.json.JSONObject(p.getString(store.KEY_SEEN, "{}")!!)
+            val others = seen.keys().asSequence().toList()
+                .filter { pkg -> known.none { it.first == pkg } }
+                .map { pkg -> com.mediaviewer.util.ScrobbleApp(pkg, seen.optString(pkg, pkg), pkg in chosen) }
+                .sortedBy { it.label.lowercase() }
+            com.mediaviewer.util.ScrobblerStatus(
+                supported = true, enabled = enabled, access = access,
+                connected = com.mediaviewer.scrobble.StellarScrobbleListener.connected,
+                needsNotificationPermission = needsPermission,
+                queued = if (enabled) store.counts(app, did).first else 0,
+                error = p.getString("authError", null) ?: p.getString("serviceError", null),
+                apps = known.map { com.mediaviewer.util.ScrobbleApp(it.first, it.second, it.first in chosen) } + others
+            )
+        } catch (_: Exception) {
+            com.mediaviewer.util.ScrobblerStatus(supported = true)
+        }
+    }
+
+    actual fun setScrobblerEnabled(context: PlatformContext, on: Boolean, did: String) {
+        val app = context.applicationContext
+        try {
+            val store = com.mediaviewer.scrobble.ScrobbleStore
+            val edit = store.prefs(app).edit().putBoolean(store.KEY_ENABLED, on)
+            if (on) edit.putString(store.KEY_DID, did)
+            edit.remove("authError").commit()
+            if (on) {
+                // (Asks Android to connect the listener now, if it's allowed to.)
+                try { android.service.notification.NotificationListenerService.requestRebind(scrobbleListener(app)) } catch (_: Exception) {}
+                com.mediaviewer.scrobble.ScrobbleUploadJob.schedule(app)
+            } else {
+                com.mediaviewer.scrobble.ScrobbleUploadJob.cancel(app)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun setScrobblerApp(context: PlatformContext, packageName: String, on: Boolean) {
+        try {
+            val store = com.mediaviewer.scrobble.ScrobbleStore
+            val p = store.prefs(context.applicationContext)
+            val chosen = p.getStringSet(store.KEY_APPS, emptySet())!!.toSet()
+            p.edit().putStringSet(store.KEY_APPS, if (on) chosen + packageName else chosen - packageName).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun openScrobblerAccessSettings(context: PlatformContext) {
+        val app = context.applicationContext
+        // Android 11 and later can open Stellar's own switch directly;
+        // before that (or if a phone's Settings app doesn't have that
+        // page) it's the list of every app with notification access.
+        val direct = if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                (activityOf(context) ?: app).startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, scrobbleListener(app).flattenToString())
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                true
+            } catch (_: Exception) {
+                false
+            }
+        } else false
+        if (!direct) try {
+            (activityOf(context) ?: app).startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+        }
+    }
 }

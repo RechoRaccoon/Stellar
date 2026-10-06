@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -137,15 +138,61 @@ private fun headerColorFor(tint: Color): Color {
     return Color(com.mediaviewer.ui.compat.PlatformColor.HSVToColor(hsv))
 }
 
+/**
+ * One settings category: its title, an arrow beside it that folds the
+ * whole category away (remembered — see UiToggles.collapsedSettingsSections),
+ * and its bubbles.
+ *
+ * The space that sets one category apart from the next belongs to the
+ * open bubbles (it's under them), not to the title: so folded categories
+ * sit close together as a tidy list of titles, and an open one still has
+ * room before whatever follows it.
+ */
 @Composable
-private fun SectionHeader(text: String, tint: Color, first: Boolean = false) {
-    Text(
-        text,
-        color = headerColorFor(tint),
-        fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Start,
-        modifier = Modifier.fillMaxWidth().padding(top = if (first) 2.dp else 18.dp)
-    )
+private fun CollapsibleSection(
+    title: String,
+    tint: Color,
+    /** The Supporter Settings title: white, with the supporter shine. */
+    supporter: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val collapsed = title in com.mediaviewer.util.UiToggles.collapsedSettingsSections
+    val tap = rememberHapticTap()
+    val arrowTurn by androidx.compose.animation.core.animateFloatAsState(if (collapsed) -90f else 0f, label = "settingsSectionArrow")
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                color = if (supporter) Color.White else headerColorFor(tint),
+                fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
+                modifier = if (supporter) Modifier.supporterShine() else Modifier
+            )
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.12f))
+                    .clickable { tap(); com.mediaviewer.util.UiToggles.updateSettingsSectionCollapsed(title, !collapsed) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (collapsed) "Show $title" else "Hide $title",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = arrowTurn }
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = !collapsed,
+            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content
+            )
+        }
+    }
 }
 
 /** A supporter-only switch: for supporters an ordinary switch; for everyone
@@ -172,76 +219,71 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
     val local = com.mediaviewer.util.LocalData
     val context = com.mediaviewer.ui.compat.LocalContext.current
     val supporter = com.mediaviewer.util.Supporter.active
-    Text(
-        "Supporter Settings",
-        color = Color.White,
-        fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Start,
-        modifier = Modifier.padding(top = 2.dp).supporterShine()
-    )
-    // Notifications: a banner inside Stellar while it's open (anywhere
-    // but the DMs / Inbox themselves), and ordinary device notifications
-    // while it's closed, from a background check. Android runs that check
-    // every few minutes; on iOS it runs when the system grants a
-    // "background app refresh", so they arrive later there.
-    val android = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
-    SettingsBubble(liquidGlass, tint, backdrop) {
-        BubbleRow {
-            RowLabel(
-                "DM Notifications", Modifier.weight(1f),
-                sub = if (android) "New messages, in Stellar and while it's closed."
-                else "New messages, in Stellar and while it's closed. iOS decides how often it checks, so these can take a while."
-            )
-            SupporterSwitch(local.notifyDms) {
-                local.updateNotifyDms(it)
-                com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
-            }
-        }
-        BubbleDivider()
-        BubbleRow {
-            RowLabel(
-                "Inbox Notifications", Modifier.weight(1f),
-                sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed."
-                else "Likes, replies, follows and mentions, in Stellar and while it's closed. iOS decides how often it checks."
-            )
-            SupporterSwitch(local.notifyInbox) {
-                local.updateNotifyInbox(it)
-                com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
-            }
-        }
-    }
-    // The Calendar's built-in days.
-    SettingsBubble(liquidGlass, tint, backdrop) {
-        BubbleRow {
-            RowLabel("Major Holidays", Modifier.weight(1f), sub = "Shown in the Calendar and Upcoming Events.")
-            SupporterSwitch(local.majorHolidays) { local.updateMajorHolidays(it) }
-        }
-        BubbleDivider()
-        BubbleRow {
-            RowLabel("Minor Holidays", Modifier.weight(1f), sub = "Shown in the Calendar.")
-            SupporterSwitch(local.minorHolidays) { local.updateMinorHolidays(it) }
-        }
-    }
-    // Search's Web Browser tab: what the address bar searches with.
-    SettingsBubble(liquidGlass, tint, backdrop) {
-        var engineMenu by remember { mutableStateOf(false) }
-        BubbleRow {
-            RowLabel("Browser Search Engine", Modifier.weight(1f), sub = "Used by the Web Browser tab in Search.")
-            Box {
-                Text(
-                    local.searchEngine.label,
-                    color = if (supporter) LocalSettingsAccent.current else Color.White,
-                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.supporterShine(!supporter).clickable {
-                        if (supporter) engineMenu = true else com.mediaviewer.util.Supporter.openPage()
-                    }
+    CollapsibleSection("Supporter Settings", tint, supporter = true) {
+        // Notifications: a banner inside Stellar while it's open (anywhere
+        // but the DMs / Inbox themselves), and ordinary device notifications
+        // while it's closed, from a background check. Android runs that check
+        // every few minutes; on iOS it runs when the system grants a
+        // "background app refresh", so they arrive later there.
+        val android = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
+        SettingsBubble(liquidGlass, tint, backdrop) {
+            BubbleRow {
+                RowLabel(
+                    "DM Notifications", Modifier.weight(1f),
+                    sub = if (android) "New messages, in Stellar and while it's closed."
+                    else "New messages, in Stellar and while it's closed. iOS decides how often it checks, so these can take a while."
                 )
-                DropdownMenu(expanded = engineMenu, onDismissRequest = { engineMenu = false }) {
-                    com.mediaviewer.util.LocalData.SearchEngine.values().forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.label, fontWeight = if (option == local.searchEngine) FontWeight.SemiBold else FontWeight.Normal) },
-                            onClick = { local.updateSearchEngine(option); engineMenu = false }
-                        )
+                SupporterSwitch(local.notifyDms) {
+                    local.updateNotifyDms(it)
+                    com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
+                }
+            }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel(
+                    "Inbox Notifications", Modifier.weight(1f),
+                    sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed."
+                    else "Likes, replies, follows and mentions, in Stellar and while it's closed. iOS decides how often it checks."
+                )
+                SupporterSwitch(local.notifyInbox) {
+                    local.updateNotifyInbox(it)
+                    com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
+                }
+            }
+        }
+        // The Calendar's built-in days.
+        SettingsBubble(liquidGlass, tint, backdrop) {
+            BubbleRow {
+                RowLabel("Major Holidays", Modifier.weight(1f), sub = "Shown in the Calendar and Upcoming Events.")
+                SupporterSwitch(local.majorHolidays) { local.updateMajorHolidays(it) }
+            }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel("Minor Holidays", Modifier.weight(1f), sub = "Shown in the Calendar.")
+                SupporterSwitch(local.minorHolidays) { local.updateMinorHolidays(it) }
+            }
+        }
+        // Search's Web Browser tab: what the address bar searches with.
+        SettingsBubble(liquidGlass, tint, backdrop) {
+            var engineMenu by remember { mutableStateOf(false) }
+            BubbleRow {
+                RowLabel("Browser Search Engine", Modifier.weight(1f), sub = "Used by the Web Browser tab in Search.")
+                Box {
+                    Text(
+                        local.searchEngine.label,
+                        color = if (supporter) LocalSettingsAccent.current else Color.White,
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.supporterShine(!supporter).clickable {
+                            if (supporter) engineMenu = true else com.mediaviewer.util.Supporter.openPage()
+                        }
+                    )
+                    DropdownMenu(expanded = engineMenu, onDismissRequest = { engineMenu = false }) {
+                        com.mediaviewer.util.LocalData.SearchEngine.values().forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label, fontWeight = if (option == local.searchEngine) FontWeight.SemiBold else FontWeight.Normal) },
+                                onClick = { local.updateSearchEngine(option); engineMenu = false }
+                            )
+                        }
                     }
                 }
             }
@@ -538,92 +580,234 @@ internal fun SettingsPageContent(
 
         // ── Customize Hub ───────────────────────────────────────────────
         if (bskyLoggedIn) {
-            // The arrow beside the title folds the whole section away.
-            val hubCollapsed = com.mediaviewer.util.UiToggles.customizeHubCollapsed
-            val hubArrowTap = rememberHapticTap()
-            val hubArrowTurn by androidx.compose.animation.core.animateFloatAsState(
-                if (hubCollapsed) -90f else 0f, label = "customizeHubArrow"
-            )
-            Row(
-                Modifier.fillMaxWidth().padding(top = if (showSupporterSettings) 18.dp else 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Customize Hub", color = headerColorFor(tint),
-                    fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.width(10.dp))
-                Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.12f))
-                        .clickable {
-                            hubArrowTap()
-                            com.mediaviewer.util.UiToggles.updateCustomizeHubCollapsed(!hubCollapsed)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (hubCollapsed) "Show Customize Hub" else "Hide Customize Hub",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = hubArrowTurn }
-                    )
-                }
-            }
-            AnimatedVisibility(
-                visible = !hubCollapsed,
-                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
-            ) {
+            CollapsibleSection("Customize Hub", tint) {
                 CustomizeHubSection(extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
             }
         }
 
         // ── UI Customization ────────────────────────────────────────────
-        SectionHeader("UI Customization", tint, first = !showSupporterSettings && !bskyLoggedIn)
+        CollapsibleSection("UI Customization", tint) {
 
-        if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.IOS) {
-            // iOS: every animation in the app already follows the iPhone's
-            // own Reduce Motion switch, and an app can't set that itself —
-            // so this row says where the switch is instead of offering one
-            // that wouldn't do anything.
+            if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.IOS) {
+                // iOS: every animation in the app already follows the iPhone's
+                // own Reduce Motion switch, and an app can't set that itself —
+                // so this row says where the switch is instead of offering one
+                // that wouldn't do anything.
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel(
+                            "Reduced Animations", Modifier.weight(1f),
+                            sub = "Follows your iPhone: Settings › Accessibility › Motion › Reduce Motion."
+                        )
+                    }
+                }
+            } else {
+                ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
+            }
+            ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
+            // Twinkling stars + the odd shooting star behind every page (the
+            // dim profile-color background stays either way).
             SettingsBubble(liquidGlass, tint, backdrop) {
                 BubbleRow {
-                    RowLabel(
-                        "Reduced Animations", Modifier.weight(1f),
-                        sub = "Follows your iPhone: Settings › Accessibility › Motion › Reduce Motion."
+                    RowLabel("Starry Background", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.starryBackground) { com.mediaviewer.util.UiToggles.updateStarryBackground(it) }
+                }
+                if (com.mediaviewer.util.UiToggles.starryBackground) {
+                    BubbleDivider()
+                    var fpsMenuExpanded by remember { mutableStateOf(false) }
+                    BubbleRow {
+                        RowLabel(
+                            "Frame Rate Cap", Modifier.weight(1f),
+                            sub = "How smoothly the stars move. Lower lets your screen rest at its idle refresh rate."
+                        )
+                        Box {
+                            Text(
+                                "${com.mediaviewer.util.UiToggles.starFrameRate} FPS",
+                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { fpsMenuExpanded = true }
+                            )
+                            DropdownMenu(expanded = fpsMenuExpanded, onDismissRequest = { fpsMenuExpanded = false }) {
+                                com.mediaviewer.util.UiToggles.starFrameRateOptions.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text("$option FPS", fontWeight = if (option == com.mediaviewer.util.UiToggles.starFrameRate) FontWeight.SemiBold else FontWeight.Normal) },
+                                        onClick = { com.mediaviewer.util.UiToggles.updateStarFrameRate(option); fpsMenuExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Override App Colors: everywhere the app would wear your profile
+            // color, it wears the color picked here instead. Your own profile
+            // page keeps its real colors.
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                var showWheel by remember { mutableStateOf(false) }
+                val overrideOn = com.mediaviewer.util.UiToggles.overrideAppColors
+                val overrideColor = Color(com.mediaviewer.util.UiToggles.overrideColor)
+                BubbleRow {
+                    RowLabel("Override App Colors", Modifier.weight(1f), sub = "Your profile page keeps its own colors.")
+                    CompactSwitch(overrideOn) { com.mediaviewer.util.UiToggles.updateOverrideAppColors(it) }
+                }
+                if (overrideOn) {
+                    val tapColor = rememberHapticTap()
+                    BubbleDivider()
+                    BubbleRow(Modifier.clickable { tapColor(); showWheel = true }) {
+                        RowLabel("Color", Modifier.weight(1f))
+                        Text(
+                            "#%06X".jformat(com.mediaviewer.util.UiToggles.overrideColor and 0xFFFFFF),
+                            color = DimGray, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            Modifier.size(26.dp).clip(CircleShape).background(overrideColor)
+                                .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape)
+                        )
+                    }
+                }
+                if (showWheel) {
+                    ColorWheelDialog(
+                        initial = overrideColor,
+                        title = "App Color",
+                        onDismiss = { showWheel = false },
+                        onPick = {
+                            com.mediaviewer.util.UiToggles.updateOverrideColor(it.toArgb())
+                            showWheel = false
+                        }
                     )
                 }
             }
-        } else {
-            ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
-        }
-        ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
-        // Twinkling stars + the odd shooting star behind every page (the
-        // dim profile-color background stays either way).
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            BubbleRow {
-                RowLabel("Starry Background", Modifier.weight(1f))
-                CompactSwitch(com.mediaviewer.util.UiToggles.starryBackground) { com.mediaviewer.util.UiToggles.updateStarryBackground(it) }
-            }
-            if (com.mediaviewer.util.UiToggles.starryBackground) {
-                BubbleDivider()
-                var fpsMenuExpanded by remember { mutableStateOf(false) }
+            // Which transition plays while a page loads: None (pages open
+            // instantly and fill in as their data arrives), Pixels, Shatter or
+            // Space (the default).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                var animMenuExpanded by remember { mutableStateOf(false) }
+                val currentAnim = com.mediaviewer.util.UiToggles.loadingAnimation
                 BubbleRow {
-                    RowLabel(
-                        "Frame Rate Cap", Modifier.weight(1f),
-                        sub = "How smoothly the stars move. Lower lets your screen rest at its idle refresh rate."
-                    )
+                    RowLabel("Loading Animation", Modifier.weight(1f))
                     Box {
                         Text(
-                            "${com.mediaviewer.util.UiToggles.starFrameRate} FPS",
+                            currentAnim.label,
                             color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable { fpsMenuExpanded = true }
+                            modifier = Modifier.clickable { animMenuExpanded = true }
                         )
-                        DropdownMenu(expanded = fpsMenuExpanded, onDismissRequest = { fpsMenuExpanded = false }) {
-                            com.mediaviewer.util.UiToggles.starFrameRateOptions.forEach { option ->
+                        DropdownMenu(expanded = animMenuExpanded, onDismissRequest = { animMenuExpanded = false }) {
+                            com.mediaviewer.util.UiToggles.LoadingAnimation.entries.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text("$option FPS", fontWeight = if (option == com.mediaviewer.util.UiToggles.starFrameRate) FontWeight.SemiBold else FontWeight.Normal) },
-                                    onClick = { com.mediaviewer.util.UiToggles.updateStarFrameRate(option); fpsMenuExpanded = false }
+                                    text = { Text(option.label, fontWeight = if (option == currentAnim) FontWeight.SemiBold else FontWeight.Normal) },
+                                    onClick = { com.mediaviewer.util.UiToggles.updateLoadingAnimation(option); animMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Item 8: audio visualizer above the feed's interaction bar. It needs
+            // the microphone permission to read the phone's audio output
+            // (nothing is recorded), so turning it on asks for that first.
+            val visualizerContext = com.mediaviewer.ui.compat.LocalContext.current
+            val visualizerPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                com.mediaviewer.util.UiToggles.updateAudioVisualizer(granted)
+            }
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AUDIO_VISUALIZER) {
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        val visualizerStatus = com.mediaviewer.util.AudioVisualizerEngine.status
+                        RowLabel(
+                            "Audio Visualizer", Modifier.weight(1f),
+                            sub = if (com.mediaviewer.util.UiToggles.audioVisualizer && visualizerStatus.isNotBlank())
+                                "Bars on the timeline that move to your music.\nLast check: $visualizerStatus"
+                            else "Bars on the timeline that move to your music."
+                        )
+                        CompactSwitch(com.mediaviewer.util.UiToggles.audioVisualizer) { on ->
+                            if (!on) com.mediaviewer.util.UiToggles.updateAudioVisualizer(false)
+                            else if (com.mediaviewer.util.AudioVisualizerEngine.hasPermission(visualizerContext)) com.mediaviewer.util.UiToggles.updateAudioVisualizer(true)
+                            else visualizerPermission.launch("android.permission.RECORD_AUDIO")
+                        }
+                    }
+                    if (com.mediaviewer.util.UiToggles.audioVisualizer) {
+                        var callMenuExpanded by remember { mutableStateOf(false) }
+                        val callMode = com.mediaviewer.util.UiToggles.visualizerCallMode
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel(
+                                "During Calls", Modifier.weight(1f),
+                                sub = when (callMode) {
+                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.PAUSE -> "The bars rest while you're on a call (phone, Discord…)."
+                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.MUSIC_ONLY -> "Only your music app, so voices on the call don't move the bars. Works with apps that share their audio, like Spotify or YouTube Music."
+                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.ALL_AUDIO -> "Everything your phone plays, the call's voices included."
+                                }
+                            )
+                            Box {
+                                Text(
+                                    callMode.label,
+                                    color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { callMenuExpanded = true }
+                                )
+                                DropdownMenu(expanded = callMenuExpanded, onDismissRequest = { callMenuExpanded = false }) {
+                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.label, fontWeight = if (option == callMode) FontWeight.SemiBold else FontWeight.Normal) },
+                                            onClick = { com.mediaviewer.util.UiToggles.updateVisualizerCallMode(option); callMenuExpanded = false }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // App Font: "Import" adds a .ttf/.otf to the list; the list (styled
+            // like Loading Animation) shows the selected font — Audiowide by
+            // default, the Original system font second, then every import, each
+            // written in its own face.
+            val fontContext = com.mediaviewer.ui.compat.LocalContext.current
+            val fontScope = androidx.compose.runtime.rememberCoroutineScope()
+            val fontPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                if (uri != null) fontScope.launch {
+                    val error = com.mediaviewer.util.FontStore.import(fontContext, uri)
+                    if (error != null) com.mediaviewer.ui.compat.Toast.makeText(fontContext, error, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+                }
+            }
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                var fontMenuExpanded by remember { mutableStateOf(false) }
+                val fontStore = com.mediaviewer.util.FontStore
+                val selectedFont = fontStore.selected
+                BubbleRow {
+                    RowLabel("App Font", Modifier.weight(1f))
+                    PlatformFeatureInline(com.mediaviewer.platform.PlatformFeature.CUSTOM_FONT) {
+                        PillButton("Import", { fontPickerLauncher.launch("*/*") })
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box {
+                        Text(
+                            fontStore.selectedName,
+                            color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 120.dp).clickable { fontMenuExpanded = true }
+                        )
+                        DropdownMenu(expanded = fontMenuExpanded, onDismissRequest = { fontMenuExpanded = false }) {
+                            fontStore.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            option.name,
+                                            fontFamily = fontStore.familyFor(option.id) ?: androidx.compose.ui.text.font.FontFamily.Default,
+                                            fontWeight = if (option.id == selectedFont) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    trailingIcon = if (option.imported) {
+                                        {
+                                            Icon(
+                                                Icons.Default.Close, contentDescription = "Remove ${option.name}",
+                                                modifier = Modifier.size(18.dp).clip(CircleShape).clickable { fontStore.remove(option.id) }
+                                            )
+                                        }
+                                    } else null,
+                                    onClick = { fontStore.select(option.id); fontMenuExpanded = false }
                                 )
                             }
                         }
@@ -631,724 +815,557 @@ internal fun SettingsPageContent(
                 }
             }
         }
-        // Override App Colors: everywhere the app would wear your profile
-        // color, it wears the color picked here instead. Your own profile
-        // page keeps its real colors.
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            var showWheel by remember { mutableStateOf(false) }
-            val overrideOn = com.mediaviewer.util.UiToggles.overrideAppColors
-            val overrideColor = Color(com.mediaviewer.util.UiToggles.overrideColor)
-            BubbleRow {
-                RowLabel("Override App Colors", Modifier.weight(1f), sub = "Your profile page keeps its own colors.")
-                CompactSwitch(overrideOn) { com.mediaviewer.util.UiToggles.updateOverrideAppColors(it) }
-            }
-            if (overrideOn) {
-                val tapColor = rememberHapticTap()
-                BubbleDivider()
-                BubbleRow(Modifier.clickable { tapColor(); showWheel = true }) {
-                    RowLabel("Color", Modifier.weight(1f))
-                    Text(
-                        "#%06X".jformat(com.mediaviewer.util.UiToggles.overrideColor and 0xFFFFFF),
-                        color = DimGray, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Box(
-                        Modifier.size(26.dp).clip(CircleShape).background(overrideColor)
-                            .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape)
-                    )
-                }
-            }
-            if (showWheel) {
-                ColorWheelDialog(
-                    initial = overrideColor,
-                    title = "App Color",
-                    onDismiss = { showWheel = false },
-                    onPick = {
-                        com.mediaviewer.util.UiToggles.updateOverrideColor(it.toArgb())
-                        showWheel = false
-                    }
-                )
-            }
-        }
-        // Which transition plays while a page loads: None (pages open
-        // instantly and fill in as their data arrives), Pixels, Shatter or
-        // Space (the default).
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            var animMenuExpanded by remember { mutableStateOf(false) }
-            val currentAnim = com.mediaviewer.util.UiToggles.loadingAnimation
-            BubbleRow {
-                RowLabel("Loading Animation", Modifier.weight(1f))
-                Box {
-                    Text(
-                        currentAnim.label,
-                        color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { animMenuExpanded = true }
-                    )
-                    DropdownMenu(expanded = animMenuExpanded, onDismissRequest = { animMenuExpanded = false }) {
-                        com.mediaviewer.util.UiToggles.LoadingAnimation.entries.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.label, fontWeight = if (option == currentAnim) FontWeight.SemiBold else FontWeight.Normal) },
-                                onClick = { com.mediaviewer.util.UiToggles.updateLoadingAnimation(option); animMenuExpanded = false }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Item 8: audio visualizer above the feed's interaction bar. It needs
-        // the microphone permission to read the phone's audio output
-        // (nothing is recorded), so turning it on asks for that first.
-        val visualizerContext = com.mediaviewer.ui.compat.LocalContext.current
-        val visualizerPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            com.mediaviewer.util.UiToggles.updateAudioVisualizer(granted)
-        }
-        PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AUDIO_VISUALIZER) {
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    val visualizerStatus = com.mediaviewer.util.AudioVisualizerEngine.status
-                    RowLabel(
-                        "Audio Visualizer", Modifier.weight(1f),
-                        sub = if (com.mediaviewer.util.UiToggles.audioVisualizer && visualizerStatus.isNotBlank())
-                            "Bars on the timeline that move to your music.\nLast check: $visualizerStatus"
-                        else "Bars on the timeline that move to your music."
-                    )
-                    CompactSwitch(com.mediaviewer.util.UiToggles.audioVisualizer) { on ->
-                        if (!on) com.mediaviewer.util.UiToggles.updateAudioVisualizer(false)
-                        else if (com.mediaviewer.util.AudioVisualizerEngine.hasPermission(visualizerContext)) com.mediaviewer.util.UiToggles.updateAudioVisualizer(true)
-                        else visualizerPermission.launch("android.permission.RECORD_AUDIO")
-                    }
-                }
-                if (com.mediaviewer.util.UiToggles.audioVisualizer) {
-                    var callMenuExpanded by remember { mutableStateOf(false) }
-                    val callMode = com.mediaviewer.util.UiToggles.visualizerCallMode
-                    BubbleDivider()
-                    BubbleRow {
-                        RowLabel(
-                            "During Calls", Modifier.weight(1f),
-                            sub = when (callMode) {
-                                com.mediaviewer.util.UiToggles.VisualizerCallMode.PAUSE -> "The bars rest while you're on a call (phone, Discord…)."
-                                com.mediaviewer.util.UiToggles.VisualizerCallMode.MUSIC_ONLY -> "Only your music app, so voices on the call don't move the bars. Works with apps that share their audio, like Spotify or YouTube Music."
-                                com.mediaviewer.util.UiToggles.VisualizerCallMode.ALL_AUDIO -> "Everything your phone plays, the call's voices included."
-                            }
-                        )
-                        Box {
-                            Text(
-                                callMode.label,
-                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable { callMenuExpanded = true }
-                            )
-                            DropdownMenu(expanded = callMenuExpanded, onDismissRequest = { callMenuExpanded = false }) {
-                                com.mediaviewer.util.UiToggles.VisualizerCallMode.entries.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.label, fontWeight = if (option == callMode) FontWeight.SemiBold else FontWeight.Normal) },
-                                        onClick = { com.mediaviewer.util.UiToggles.updateVisualizerCallMode(option); callMenuExpanded = false }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // App Font: "Import" adds a .ttf/.otf to the list; the list (styled
-        // like Loading Animation) shows the selected font — Audiowide by
-        // default, the Original system font second, then every import, each
-        // written in its own face.
-        val fontContext = com.mediaviewer.ui.compat.LocalContext.current
-        val fontScope = androidx.compose.runtime.rememberCoroutineScope()
-        val fontPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) fontScope.launch {
-                val error = com.mediaviewer.util.FontStore.import(fontContext, uri)
-                if (error != null) com.mediaviewer.ui.compat.Toast.makeText(fontContext, error, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
-            }
-        }
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            var fontMenuExpanded by remember { mutableStateOf(false) }
-            val fontStore = com.mediaviewer.util.FontStore
-            val selectedFont = fontStore.selected
-            BubbleRow {
-                RowLabel("App Font", Modifier.weight(1f))
-                PlatformFeatureInline(com.mediaviewer.platform.PlatformFeature.CUSTOM_FONT) {
-                    PillButton("Import", { fontPickerLauncher.launch("*/*") })
-                }
-                Spacer(Modifier.width(10.dp))
-                Box {
-                    Text(
-                        fontStore.selectedName,
-                        color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 120.dp).clickable { fontMenuExpanded = true }
-                    )
-                    DropdownMenu(expanded = fontMenuExpanded, onDismissRequest = { fontMenuExpanded = false }) {
-                        fontStore.entries.forEach { option ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        option.name,
-                                        fontFamily = fontStore.familyFor(option.id) ?: androidx.compose.ui.text.font.FontFamily.Default,
-                                        fontWeight = if (option.id == selectedFont) FontWeight.SemiBold else FontWeight.Normal,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                trailingIcon = if (option.imported) {
-                                    {
-                                        Icon(
-                                            Icons.Default.Close, contentDescription = "Remove ${option.name}",
-                                            modifier = Modifier.size(18.dp).clip(CircleShape).clickable { fontStore.remove(option.id) }
-                                        )
-                                    }
-                                } else null,
-                                onClick = { fontStore.select(option.id); fontMenuExpanded = false }
-                            )
-                        }
-                    }
-                }
-            }
-        }
 
         // ── App Functionality ───────────────────────────────────────────
-        SectionHeader("App Functionality", tint)
+        CollapsibleSection("App Functionality", tint) {
 
-        ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
-        // NSFW Content: managed by the Bluesky account itself ("Enable adult
-        // content" on the Bluesky website). On iOS that account setting is
-        // the only switch (App Store rule — see AdultContentPolicy); Android
-        // also keeps its own "I Hate Fun" blur, in the same bubble.
-        val nsfwContext = com.mediaviewer.ui.compat.LocalContext.current
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            BubbleRow {
-                RowLabel(
-                    "NSFW Content", Modifier.weight(1f),
-                    sub = if (com.mediaviewer.util.AdultContentPolicy.appliesHere)
-                        "Hidden unless adult content is enabled on your Bluesky account. Refresh your feed after changing it."
-                    else null
-                )
-                PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, "https://bsky.app/moderation") })
-            }
-            if (!com.mediaviewer.util.AdultContentPolicy.appliesHere) {
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("I Hate Fun (Blur NSFW Content)", Modifier.weight(1f))
-                    CompactSwitch(hateFunBlurNsfw, onToggleHateFunBlurNsfw)
-                }
-            }
-        }
-
-        if (bskyLoggedIn) {
-            // Runs the follower scan from scratch — for picking up accounts
-            // that started posting reviews/blogs after the last scan, or
-            // that were skipped. Opening a profile already auto-subscribes
-            // it if it has any, so this is only for accounts never visited.
-            val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
-            ActionBubble(
-                label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Reviews/Blogs",
-                buttonLabel = if (scanning) "…" else "Scan",
-                onClick = onRescanFollowersFromScratch,
-                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
-            )
-        }
-
-        // Translate Post Text + Translate To share one bubble.
-        PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.TRANSLATION) {
+            ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
+            // NSFW Content: managed by the Bluesky account itself ("Enable adult
+            // content" on the Bluesky website). On iOS that account setting is
+            // the only switch (App Store rule — see AdultContentPolicy); Android
+            // also keeps its own "I Hate Fun" blur, in the same bubble.
+            val nsfwContext = com.mediaviewer.ui.compat.LocalContext.current
             SettingsBubble(liquidGlass, tint, backdrop) {
                 BubbleRow {
-                    RowLabel("Translate Post Text", Modifier.weight(1f))
-                    CompactSwitch(translationEnabled, onToggleTranslation)
+                    RowLabel(
+                        "NSFW Content", Modifier.weight(1f),
+                        sub = if (com.mediaviewer.util.AdultContentPolicy.appliesHere)
+                            "Hidden unless adult content is enabled on your Bluesky account. Refresh your feed after changing it."
+                        else null
+                    )
+                    PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, "https://bsky.app/moderation") })
                 }
-                if (translationEnabled) {
+                if (!com.mediaviewer.util.AdultContentPolicy.appliesHere) {
                     BubbleDivider()
-                    var langMenuExpanded by remember { mutableStateOf(false) }
                     BubbleRow {
-                        RowLabel("Translate To", Modifier.weight(1f))
-                        Box {
-                            Text(
-                                com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES
-                                    .firstOrNull { it.first == translationTargetLang }?.second
-                                    ?: com.mediaviewer.util.TranslationManager.displayNameFor(translationTargetLang),
-                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable { langMenuExpanded = true }
-                            )
-                            DropdownMenu(expanded = langMenuExpanded, onDismissRequest = { langMenuExpanded = false }) {
-                                com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES.forEach { (langTag, name) ->
-                                    DropdownMenuItem(
-                                        text = { Text(name) },
-                                        onClick = { onSelectTranslationLanguage(langTag); langMenuExpanded = false }
-                                    )
+                        RowLabel("I Hate Fun (Blur NSFW Content)", Modifier.weight(1f))
+                        CompactSwitch(hateFunBlurNsfw, onToggleHateFunBlurNsfw)
+                    }
+                }
+            }
+
+            if (bskyLoggedIn) {
+                // Runs the follower scan from scratch — for picking up accounts
+                // that started posting reviews/blogs after the last scan, or
+                // that were skipped. Opening a profile already auto-subscribes
+                // it if it has any, so this is only for accounts never visited.
+                val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
+                ActionBubble(
+                    label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Reviews/Blogs",
+                    buttonLabel = if (scanning) "…" else "Scan",
+                    onClick = onRescanFollowersFromScratch,
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
+                )
+            }
+
+            // Translate Post Text + Translate To share one bubble.
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.TRANSLATION) {
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Translate Post Text", Modifier.weight(1f))
+                        CompactSwitch(translationEnabled, onToggleTranslation)
+                    }
+                    if (translationEnabled) {
+                        BubbleDivider()
+                        var langMenuExpanded by remember { mutableStateOf(false) }
+                        BubbleRow {
+                            RowLabel("Translate To", Modifier.weight(1f))
+                            Box {
+                                Text(
+                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES
+                                        .firstOrNull { it.first == translationTargetLang }?.second
+                                        ?: com.mediaviewer.util.TranslationManager.displayNameFor(translationTargetLang),
+                                    color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { langMenuExpanded = true }
+                                )
+                                DropdownMenu(expanded = langMenuExpanded, onDismissRequest = { langMenuExpanded = false }) {
+                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES.forEach { (langTag, name) ->
+                                        DropdownMenuItem(
+                                            text = { Text(name) },
+                                            onClick = { onSelectTranslationLanguage(langTag); langMenuExpanded = false }
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                    BubbleDivider()
-                    BubbleRow {
-                        RowLabel("Show Translation Status", Modifier.weight(1f))
-                        CompactSwitch(com.mediaviewer.util.UiToggles.showTranslationStatus) {
-                            com.mediaviewer.util.UiToggles.updateShowTranslationStatus(it)
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel("Show Translation Status", Modifier.weight(1f))
+                            CompactSwitch(com.mediaviewer.util.UiToggles.showTranslationStatus) {
+                                com.mediaviewer.util.UiToggles.updateShowTranslationStatus(it)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if (bskyLoggedIn) {
-            ToggleBubble("Show \"Add To\" After Following", autoAddToOnFollow, onToggleAutoAddToOnFollow, liquidGlass, tint, backdrop)
-        }
+            if (bskyLoggedIn) {
+                ToggleBubble("Show \"Add To\" After Following", autoAddToOnFollow, onToggleAutoAddToOnFollow, liquidGlass, tint, backdrop)
+            }
 
-        // Bluesky profile/post links (a scanned QR code, a link in the
-        // browser) can open in Stellar — "Set Up" explains how, with
-        // shortcuts to both apps' Android settings. (iOS: a share-sheet
-        // shortcut instead; the same popup explains that one.)
-        var linkSetupOpen by remember { mutableStateOf(false) }
-        PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.OPEN_BY_DEFAULT_LINKS) {
-            ActionBubble(
-                label = "Open Bluesky Links in Stellar",
-                buttonLabel = "Set Up",
-                onClick = { linkSetupOpen = true },
-                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
-            )
-        }
-        if (linkSetupOpen) {
-            OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
+            // Bluesky profile/post links (a scanned QR code, a link in the
+            // browser) can open in Stellar — "Set Up" explains how, with
+            // shortcuts to both apps' Android settings. (iOS: a share-sheet
+            // shortcut instead; the same popup explains that one.)
+            var linkSetupOpen by remember { mutableStateOf(false) }
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.OPEN_BY_DEFAULT_LINKS) {
+                ActionBubble(
+                    label = "Open Bluesky Links in Stellar",
+                    buttonLabel = "Set Up",
+                    onClick = { linkSetupOpen = true },
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+                )
+            }
+            if (linkSetupOpen) {
+                OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
+            }
         }
 
         // ── Integrations ────────────────────────────────────────────────
-        SectionHeader("Integrations", tint)
+        CollapsibleSection("Integrations", tint) {
 
-        AtProtocolAccountsBubble(
-            bskyLoggedIn = bskyLoggedIn, bskyHandle = bskyHandle, isLoading = isLoading,
-            onLoginBluesky = onLoginBluesky, onLogoutBluesky = onLogoutBluesky,
-            extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
-        )
-
-        if (com.mediaviewer.util.FeatureFlags.E621_ENABLED) {
-            E621AccountBubble(
-                e621LoggedIn = e621LoggedIn, e621Username = e621Username,
-                onLoginE621 = onLoginE621, onLogoutE621 = onLogoutE621,
-                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+            AtProtocolAccountsBubble(
+                bskyLoggedIn = bskyLoggedIn, bskyHandle = bskyHandle, isLoading = isLoading,
+                onLoginBluesky = onLoginBluesky, onLogoutBluesky = onLogoutBluesky,
+                extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
             )
-        }
 
-        // ── Live Link widget feature ────────────────────────────────────
-        // Save a Twitch and/or YouTube channel URL here, then "Create
-        // Widget" (enabled once at least one is saved) requests the
-        // resizable home-screen widget be pinned. Gated behind
-        // FeatureFlags.LIVE_LINK_ENABLED: unfinished, so hidden for now, but
-        // left fully in place to resume from later.
-        if (bskyLoggedIn && com.mediaviewer.util.FeatureFlags.LIVE_LINK_ENABLED) {
-            var twitchField by remember(liveTwitchUrl) { mutableStateOf(liveTwitchUrl.orEmpty()) }
-            var youtubeField by remember(liveYoutubeUrl) { mutableStateOf(liveYoutubeUrl.orEmpty()) }
-            val linkColors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                focusedBorderColor = tint, unfocusedBorderColor = DimGray,
-                cursorColor = tint, focusedLabelColor = tint, unfocusedLabelColor = DimGray
-            )
-            OutlinedTextField(value = twitchField, onValueChange = { twitchField = it },
-                label = { Text("Twitch channel URL", fontSize = 12.sp) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onSaveLiveTwitchUrl(twitchField) }),
-                colors = linkColors)
-            OutlinedTextField(value = youtubeField, onValueChange = { youtubeField = it },
-                label = { Text("YouTube channel URL", fontSize = 12.sp) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onSaveLiveYoutubeUrl(youtubeField) }),
-                colors = linkColors)
-            val widgetEnabled = twitchField.isNotBlank() || youtubeField.isNotBlank() ||
-                !liveTwitchUrl.isNullOrBlank() || !liveYoutubeUrl.isNullOrBlank()
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Live Link", Modifier.weight(1f), sub = "The widget can only be created once at least one link is saved.")
-                    PillButton("Save", { onSaveLiveTwitchUrl(twitchField); onSaveLiveYoutubeUrl(youtubeField) })
-                    Spacer(Modifier.width(6.dp))
-                    PillButton("Widget", onCreateLiveLinkWidget, enabled = widgetEnabled)
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.MUSIC_SCROBBLING) {
+                RockskyScrobbleBubble(bskyLoggedIn = bskyLoggedIn, bskyHandle = bskyHandle, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+            }
+
+            if (com.mediaviewer.util.FeatureFlags.E621_ENABLED) {
+                E621AccountBubble(
+                    e621LoggedIn = e621LoggedIn, e621Username = e621Username,
+                    onLoginE621 = onLoginE621, onLogoutE621 = onLogoutE621,
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+                )
+            }
+
+            // ── Live Link widget feature ────────────────────────────────────
+            // Save a Twitch and/or YouTube channel URL here, then "Create
+            // Widget" (enabled once at least one is saved) requests the
+            // resizable home-screen widget be pinned. Gated behind
+            // FeatureFlags.LIVE_LINK_ENABLED: unfinished, so hidden for now, but
+            // left fully in place to resume from later.
+            if (bskyLoggedIn && com.mediaviewer.util.FeatureFlags.LIVE_LINK_ENABLED) {
+                var twitchField by remember(liveTwitchUrl) { mutableStateOf(liveTwitchUrl.orEmpty()) }
+                var youtubeField by remember(liveYoutubeUrl) { mutableStateOf(liveYoutubeUrl.orEmpty()) }
+                val linkColors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = tint, unfocusedBorderColor = DimGray,
+                    cursorColor = tint, focusedLabelColor = tint, unfocusedLabelColor = DimGray
+                )
+                OutlinedTextField(value = twitchField, onValueChange = { twitchField = it },
+                    label = { Text("Twitch channel URL", fontSize = 12.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onSaveLiveTwitchUrl(twitchField) }),
+                    colors = linkColors)
+                OutlinedTextField(value = youtubeField, onValueChange = { youtubeField = it },
+                    label = { Text("YouTube channel URL", fontSize = 12.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onSaveLiveYoutubeUrl(youtubeField) }),
+                    colors = linkColors)
+                val widgetEnabled = twitchField.isNotBlank() || youtubeField.isNotBlank() ||
+                    !liveTwitchUrl.isNullOrBlank() || !liveYoutubeUrl.isNullOrBlank()
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Live Link", Modifier.weight(1f), sub = "The widget can only be created once at least one link is saved.")
+                        PillButton("Save", { onSaveLiveTwitchUrl(twitchField); onSaveLiveYoutubeUrl(youtubeField) })
+                        Spacer(Modifier.width(6.dp))
+                        PillButton("Widget", onCreateLiveLinkWidget, enabled = widgetEnabled)
+                    }
                 }
             }
         }
 
         // ── Media Tagging ───────────────────────────────────────────────
-        SectionHeader("Media Tagging", tint)
+        CollapsibleSection("Media Tagging", tint) {
 
-        var showExportNameDialog by remember { mutableStateOf(false) }
-        var pendingExportName by remember { mutableStateOf("") }
-        val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-            if (uri != null) onExportDataset(pendingExportName, uri)
-        }
-        val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) onImportDataset(uri)
-        }
-        // Tap-to-arm confirmation for the destructive delete, same idea as
-        // "Add" -> "Added" elsewhere: a stray tap can't wipe the dataset.
-        var confirmingDelete by remember { mutableStateOf(false) }
-        LaunchedEffect(confirmingDelete) {
-            if (confirmingDelete) {
-                kotlinx.coroutines.delay(3000)
-                confirmingDelete = false
+            var showExportNameDialog by remember { mutableStateOf(false) }
+            var pendingExportName by remember { mutableStateOf("") }
+            val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                if (uri != null) onExportDataset(pendingExportName, uri)
             }
-        }
-        val hasTaggedData = taggingScanned > 0 || importedDatasets.isNotEmpty()
-
-        PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Import Dataset", Modifier.weight(1f))
-                    PillButton("Import", { importLauncher.launch(arrayOf("application/json")) })
+            val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) onImportDataset(uri)
+            }
+            // Tap-to-arm confirmation for the destructive delete, same idea as
+            // "Add" -> "Added" elsewhere: a stray tap can't wipe the dataset.
+            var confirmingDelete by remember { mutableStateOf(false) }
+            LaunchedEffect(confirmingDelete) {
+                if (confirmingDelete) {
+                    kotlinx.coroutines.delay(3000)
+                    confirmingDelete = false
                 }
-                // Every imported dataset, each removable on its own (the
-                // on-device dataset isn't listed — its delete is in the AI tagging bubble below).
-                importedDatasets.forEach { dataset ->
-                    BubbleDivider()
+            }
+            val hasTaggedData = taggingScanned > 0 || importedDatasets.isNotEmpty()
+
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
+                SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        RowLabel(
-                            dataset.name, Modifier.weight(1f),
-                            sub = "${dataset.postCount} post${if (dataset.postCount == 1) "" else "s"}"
-                        )
-                        Box(
-                            Modifier.size(28.dp).clip(CircleShape).clickable { onDeleteImportedDataset(dataset.id) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Remove ${dataset.name}", tint = DimGray, modifier = Modifier.size(16.dp))
+                        RowLabel("Import Dataset", Modifier.weight(1f))
+                        PillButton("Import", { importLauncher.launch(arrayOf("application/json")) })
+                    }
+                    // Every imported dataset, each removable on its own (the
+                    // on-device dataset isn't listed — its delete is in the AI tagging bubble below).
+                    importedDatasets.forEach { dataset ->
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel(
+                                dataset.name, Modifier.weight(1f),
+                                sub = "${dataset.postCount} post${if (dataset.postCount == 1) "" else "s"}"
+                            )
+                            Box(
+                                Modifier.size(28.dp).clip(CircleShape).clickable { onDeleteImportedDataset(dataset.id) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove ${dataset.name}", tint = DimGray, modifier = Modifier.size(16.dp))
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if (showExportNameDialog) {
-            ExportDatasetNameDialog(
-                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                onConfirm = { name ->
-                    pendingExportName = name
-                    showExportNameDialog = false
-                    val fileSafeName = name.ifBlank { "dataset" }.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "dataset" }
-                    exportLauncher.launch("$fileSafeName.json")
-                },
-                onDismiss = { showExportNameDialog = false }
-            )
-        }
+            if (showExportNameDialog) {
+                ExportDatasetNameDialog(
+                    liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                    onConfirm = { name ->
+                        pendingExportName = name
+                        showExportNameDialog = false
+                        val fileSafeName = name.ifBlank { "dataset" }.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "dataset" }
+                        exportLauncher.launch("$fileSafeName.json")
+                    },
+                    onDismiss = { showExportNameDialog = false }
+                )
+            }
 
-        // The on-device model. Once it's downloaded the button turns into a
-        // grayed-out "Downloaded" and the tagging options open up beneath it.
-        PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Download On-Device Tagging Model", Modifier.weight(1f))
-                    PillButton(
-                        label = when {
-                            extras.taggerModelReady -> "Downloaded"
-                            extras.taggerModelDownloading -> "Downloading…"
-                            else -> "Download"
-                        },
-                        onClick = extras.onDownloadTaggerModel,
-                        enabled = !extras.taggerModelReady && !extras.taggerModelDownloading
-                    )
-                }
-                AnimatedVisibility(visible = extras.taggerModelReady) {
-                    Column(Modifier.fillMaxWidth()) {
-                        BubbleDivider()
-                        BubbleRow {
-                            RowLabel("Tag Media When Liked", Modifier.weight(1f))
-                            CompactSwitch(tagPostWhenLiked, onToggleTagPostWhenLiked)
-                        }
-                        if (tagPostWhenLiked) {
+            // The on-device model. Once it's downloaded the button turns into a
+            // grayed-out "Downloaded" and the tagging options open up beneath it.
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Download On-Device Tagging Model", Modifier.weight(1f))
+                        PillButton(
+                            label = when {
+                                extras.taggerModelReady -> "Downloaded"
+                                extras.taggerModelDownloading -> "Downloading…"
+                                else -> "Download"
+                            },
+                            onClick = extras.onDownloadTaggerModel,
+                            enabled = !extras.taggerModelReady && !extras.taggerModelDownloading
+                        )
+                    }
+                    AnimatedVisibility(visible = extras.taggerModelReady) {
+                        Column(Modifier.fillMaxWidth()) {
                             BubbleDivider()
                             BubbleRow {
-                                RowLabel("Show Tagging Status", Modifier.weight(1f), sub = "A bubble on the timeline while liked posts are being tagged.")
-                                CompactSwitch(com.mediaviewer.util.UiToggles.showTaggingStatus) {
-                                    com.mediaviewer.util.UiToggles.updateShowTaggingStatus(it)
+                                RowLabel("Tag Media When Liked", Modifier.weight(1f))
+                                CompactSwitch(tagPostWhenLiked, onToggleTagPostWhenLiked)
+                            }
+                            if (tagPostWhenLiked) {
+                                BubbleDivider()
+                                BubbleRow {
+                                    RowLabel("Show Tagging Status", Modifier.weight(1f), sub = "A bubble on the timeline while liked posts are being tagged.")
+                                    CompactSwitch(com.mediaviewer.util.UiToggles.showTaggingStatus) {
+                                        com.mediaviewer.util.UiToggles.updateShowTaggingStatus(it)
+                                    }
                                 }
+                            }
+                            BubbleDivider()
+                            BubbleRow {
+                                RowLabel(
+                                    "Tag Previously Liked Media", Modifier.weight(1f),
+                                    sub = when {
+                                        taggingRunning -> "$taggingScanned scanned"
+                                        taggingScanned > 0 -> "$taggingTagged tagged"
+                                        else -> null
+                                    }
+                                )
+                                PillButton(
+                                    if (taggingRunning) "…" else "Tag", onLocallyTagAllLiked,
+                                    enabled = !taggingRunning && anyLoggedIn
+                                )
+                            }
+                        }
+                    }
+                    // Dataset housekeeping lives at the very bottom of this bubble,
+                    // and stays visible whether or not the model is downloaded (an
+                    // imported dataset can exist without it).
+                    if (hasTaggedData) {
+                        BubbleDivider()
+                        val exportState = extras.datasetExportState
+                        val exportWorking = exportState is MainViewModel.DatasetExportState.Working
+                        BubbleRow {
+                            RowLabel("Export Dataset", Modifier.weight(1f))
+                            PillButton(
+                                if (exportWorking) "Exporting…" else "Export",
+                                { pendingExportName = ""; showExportNameDialog = true },
+                                enabled = !exportWorking
+                            )
+                        }
+                        AnimatedVisibility(visible = exportState !is MainViewModel.DatasetExportState.Idle) {
+                            when (exportState) {
+                                is MainViewModel.DatasetExportState.Working ->
+                                    ExportStatusLine(true, exportState.stage, success = false, tint = tint)
+                                is MainViewModel.DatasetExportState.Done ->
+                                    ExportStatusLine(false, "Exported ${exportState.postCount} post${if (exportState.postCount == 1) "" else "s"} — saved to the file you picked.", success = true, tint = tint)
+                                is MainViewModel.DatasetExportState.Failed ->
+                                    ExportStatusLine(false, "Export failed: ${exportState.message}", success = false, tint = tint)
+                                MainViewModel.DatasetExportState.Idle -> Spacer(Modifier.height(0.dp))
                             }
                         }
                         BubbleDivider()
                         BubbleRow {
-                            RowLabel(
-                                "Tag Previously Liked Media", Modifier.weight(1f),
-                                sub = when {
-                                    taggingRunning -> "$taggingScanned scanned"
-                                    taggingScanned > 0 -> "$taggingTagged tagged"
-                                    else -> null
-                                }
-                            )
+                            RowLabel("Delete Tagged Posts Dataset", Modifier.weight(1f))
                             PillButton(
-                                if (taggingRunning) "…" else "Tag", onLocallyTagAllLiked,
-                                enabled = !taggingRunning && anyLoggedIn
+                                if (confirmingDelete) "Really?" else "Delete",
+                                onClick = {
+                                    if (confirmingDelete) { confirmingDelete = false; onDeleteTaggedDatabase() }
+                                    else confirmingDelete = true
+                                },
+                                enabled = !taggingRunning, color = DangerRed
                             )
                         }
-                    }
-                }
-                // Dataset housekeeping lives at the very bottom of this bubble,
-                // and stays visible whether or not the model is downloaded (an
-                // imported dataset can exist without it).
-                if (hasTaggedData) {
-                    BubbleDivider()
-                    val exportState = extras.datasetExportState
-                    val exportWorking = exportState is MainViewModel.DatasetExportState.Working
-                    BubbleRow {
-                        RowLabel("Export Dataset", Modifier.weight(1f))
-                        PillButton(
-                            if (exportWorking) "Exporting…" else "Export",
-                            { pendingExportName = ""; showExportNameDialog = true },
-                            enabled = !exportWorking
-                        )
-                    }
-                    AnimatedVisibility(visible = exportState !is MainViewModel.DatasetExportState.Idle) {
-                        when (exportState) {
-                            is MainViewModel.DatasetExportState.Working ->
-                                ExportStatusLine(true, exportState.stage, success = false, tint = tint)
-                            is MainViewModel.DatasetExportState.Done ->
-                                ExportStatusLine(false, "Exported ${exportState.postCount} post${if (exportState.postCount == 1) "" else "s"} — saved to the file you picked.", success = true, tint = tint)
-                            is MainViewModel.DatasetExportState.Failed ->
-                                ExportStatusLine(false, "Export failed: ${exportState.message}", success = false, tint = tint)
-                            MainViewModel.DatasetExportState.Idle -> Spacer(Modifier.height(0.dp))
-                        }
-                    }
-                    BubbleDivider()
-                    BubbleRow {
-                        RowLabel("Delete Tagged Posts Dataset", Modifier.weight(1f))
-                        PillButton(
-                            if (confirmingDelete) "Really?" else "Delete",
-                            onClick = {
-                                if (confirmingDelete) { confirmingDelete = false; onDeleteTaggedDatabase() }
-                                else confirmingDelete = true
-                            },
-                            enabled = !taggingRunning, color = DangerRed
-                        )
                     }
                 }
             }
         }
 
         // ── Data and Privacy ────────────────────────────────────────────
-        SectionHeader("Data and Privacy", tint)
-        if (bskyLoggedIn) {
-            ActionBubble(
-                label = "Blocked Accounts",
-                sub = "Hidden everywhere in Stellar, along with anyone who's blocked you.",
-                buttonLabel = "View",
-                onClick = extras.onOpenBlockedAccounts,
-                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
-            )
-        }
-        if (anyLoggedIn) {
-
+        CollapsibleSection("Data and Privacy", tint) {
             if (bskyLoggedIn) {
-                val prog = downloadProgress.takeIf { !extras.downloadIsE621 }
-                val running = prog?.isRunning == true
                 ActionBubble(
-                    label = "Download all liked AT Protocol media",
-                    sub = when {
-                        running -> "${prog?.count ?: 0} queued"
-                        prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
-                        else -> null
-                    },
-                    buttonLabel = if (running) "Cancel" else "Download",
-                    onClick = { if (running) onCancelDownload() else onDownloadAllLiked() },
-                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                    enabled = running || downloadProgress?.isRunning != true
+                    label = "Blocked Accounts",
+                    sub = "Hidden everywhere in Stellar, along with anyone who's blocked you.",
+                    buttonLabel = "View",
+                    onClick = extras.onOpenBlockedAccounts,
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
                 )
             }
-            if (e621LoggedIn) {
-                val prog = downloadProgress.takeIf { extras.downloadIsE621 }
-                val running = prog?.isRunning == true
-                ActionBubble(
-                    label = "Download all saved e621 media",
-                    sub = when {
-                        running -> "${prog?.count ?: 0} queued"
-                        prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
-                        else -> null
-                    },
-                    buttonLabel = if (running) "Cancel" else "Download",
-                    onClick = { if (running) onCancelDownload() else extras.onDownloadAllE621Saved() },
-                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                    enabled = running || downloadProgress?.isRunning != true
-                )
-            }
-            // The one auto-download switch covers both services (it's a
-            // single shared preference) — new likes/saves get downloaded as
-            // they happen, on top of the one-time buttons above.
-            ToggleBubble("Auto-Download New Likes and Saves", downloadOnLike, onToggleDownloadOnLike, liquidGlass, tint, backdrop)
-        }
+            if (anyLoggedIn) {
 
-        // Item 7: everything local in one file — settings, VRM + Live
-        // settings, the main AI-tagged dataset, Blog/Review subscriptions.
-        // Importing replaces them (the tagged dataset becomes the main one)
-        // and restarts the app so every screen reloads with them.
-        val backupContext = com.mediaviewer.ui.compat.LocalContext.current
-        val backupScope = rememberCoroutineScope()
-        var backupBusy by remember { mutableStateOf(false) }
-        // What the Export/Import rows show underneath while (and just after)
-        // a backup file is written or read: null = nothing.
-        var backupStatus by remember { mutableStateOf<Triple<Boolean, String, Boolean>?>(null) } // (working, message, success)
-        LaunchedEffect(backupStatus) {
-            val st = backupStatus
-            if (st != null && !st.first) { kotlinx.coroutines.delay(6000); if (backupStatus == st) backupStatus = null }
-        }
-        var confirmingImport by remember { mutableStateOf(false) }
-        LaunchedEffect(confirmingImport) {
-            if (confirmingImport) { kotlinx.coroutines.delay(4000); confirmingImport = false }
-        }
-        val backupExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-            if (uri != null) {
-                backupBusy = true
-                backupStatus = Triple(true, "Exporting app data…", false)
-                backupScope.launch {
-                    val result = runCatching { com.mediaviewer.util.AppBackup.export(backupContext, uri) }
-                    backupBusy = false
-                    val msg = result.getOrElse { "Export failed: ${it.message}" }
-                    backupStatus = Triple(false, if (result.isSuccess) "Export complete — $msg" else msg, result.isSuccess)
-                    com.mediaviewer.ui.compat.Toast.makeText(backupContext, msg, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+                if (bskyLoggedIn) {
+                    val prog = downloadProgress.takeIf { !extras.downloadIsE621 }
+                    val running = prog?.isRunning == true
+                    ActionBubble(
+                        label = "Download all liked AT Protocol media",
+                        sub = when {
+                            running -> "${prog?.count ?: 0} queued"
+                            prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
+                            else -> null
+                        },
+                        buttonLabel = if (running) "Cancel" else "Download",
+                        onClick = { if (running) onCancelDownload() else onDownloadAllLiked() },
+                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                        enabled = running || downloadProgress?.isRunning != true
+                    )
                 }
+                if (e621LoggedIn) {
+                    val prog = downloadProgress.takeIf { extras.downloadIsE621 }
+                    val running = prog?.isRunning == true
+                    ActionBubble(
+                        label = "Download all saved e621 media",
+                        sub = when {
+                            running -> "${prog?.count ?: 0} queued"
+                            prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
+                            else -> null
+                        },
+                        buttonLabel = if (running) "Cancel" else "Download",
+                        onClick = { if (running) onCancelDownload() else extras.onDownloadAllE621Saved() },
+                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                        enabled = running || downloadProgress?.isRunning != true
+                    )
+                }
+                // The one auto-download switch covers both services (it's a
+                // single shared preference) — new likes/saves get downloaded as
+                // they happen, on top of the one-time buttons above.
+                ToggleBubble("Auto-Download New Likes and Saves", downloadOnLike, onToggleDownloadOnLike, liquidGlass, tint, backdrop)
             }
-        }
-        val backupImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) {
-                backupBusy = true
-                backupStatus = Triple(true, "Importing app data…", false)
-                backupScope.launch {
-                    val result = runCatching { com.mediaviewer.util.AppBackup.import(backupContext, uri) }
-                    backupBusy = false
-                    backupStatus = Triple(false, result.fold({ "Imported — restarting…" }, { "Import failed: ${it.message}" }), result.isSuccess)
-                    result.onSuccess { msg ->
-                        com.mediaviewer.ui.compat.Toast.makeText(backupContext, "$msg — restarting…", com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
-                        kotlinx.coroutines.delay(900)
-                        com.mediaviewer.ui.compat.restartApp(backupContext)
-                    }.onFailure {
-                        com.mediaviewer.ui.compat.Toast.makeText(backupContext, "Import failed: ${it.message}", com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+
+            // Item 7: everything local in one file — settings, VRM + Live
+            // settings, the main AI-tagged dataset, Blog/Review subscriptions.
+            // Importing replaces them (the tagged dataset becomes the main one)
+            // and restarts the app so every screen reloads with them.
+            val backupContext = com.mediaviewer.ui.compat.LocalContext.current
+            val backupScope = rememberCoroutineScope()
+            var backupBusy by remember { mutableStateOf(false) }
+            // What the Export/Import rows show underneath while (and just after)
+            // a backup file is written or read: null = nothing.
+            var backupStatus by remember { mutableStateOf<Triple<Boolean, String, Boolean>?>(null) } // (working, message, success)
+            LaunchedEffect(backupStatus) {
+                val st = backupStatus
+                if (st != null && !st.first) { kotlinx.coroutines.delay(6000); if (backupStatus == st) backupStatus = null }
+            }
+            var confirmingImport by remember { mutableStateOf(false) }
+            LaunchedEffect(confirmingImport) {
+                if (confirmingImport) { kotlinx.coroutines.delay(4000); confirmingImport = false }
+            }
+            val backupExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                if (uri != null) {
+                    backupBusy = true
+                    backupStatus = Triple(true, "Exporting app data…", false)
+                    backupScope.launch {
+                        val result = runCatching { com.mediaviewer.util.AppBackup.export(backupContext, uri) }
+                        backupBusy = false
+                        val msg = result.getOrElse { "Export failed: ${it.message}" }
+                        backupStatus = Triple(false, if (result.isSuccess) "Export complete — $msg" else msg, result.isSuccess)
+                        com.mediaviewer.ui.compat.Toast.makeText(backupContext, msg, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
                     }
                 }
             }
-        }
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            BubbleRow {
-                RowLabel("Export App Data", Modifier.weight(1f), sub = "Settings, VRM & Live settings, tagged posts and subscriptions, in one file.")
-                PillButton(if (backupBusy) "Working…" else "Export", {
-                    val date = com.mediaviewer.util.DateText.format(com.mediaviewer.platform.currentTimeMillis(), "yyyy-MM-dd")
-                    backupExportLauncher.launch("Stellar-backup-$date.json")
-                }, enabled = !backupBusy)
+            val backupImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    backupBusy = true
+                    backupStatus = Triple(true, "Importing app data…", false)
+                    backupScope.launch {
+                        val result = runCatching { com.mediaviewer.util.AppBackup.import(backupContext, uri) }
+                        backupBusy = false
+                        backupStatus = Triple(false, result.fold({ "Imported — restarting…" }, { "Import failed: ${it.message}" }), result.isSuccess)
+                        result.onSuccess { msg ->
+                            com.mediaviewer.ui.compat.Toast.makeText(backupContext, "$msg — restarting…", com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+                            kotlinx.coroutines.delay(900)
+                            com.mediaviewer.ui.compat.restartApp(backupContext)
+                        }.onFailure {
+                            com.mediaviewer.ui.compat.Toast.makeText(backupContext, "Import failed: ${it.message}", com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
             }
-            AnimatedVisibility(visible = backupStatus != null) {
-                val st = backupStatus
-                if (st != null) ExportStatusLine(st.first, st.second, st.third, tint)
-                else Spacer(Modifier.height(0.dp))
-            }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel("Import App Data", Modifier.weight(1f), sub = "Replaces your settings and main tagged dataset, then restarts.")
-                PillButton(
-                    if (backupBusy) "…" else if (confirmingImport) "Replace?" else "Import",
-                    {
-                        if (confirmingImport) { confirmingImport = false; backupImportLauncher.launch(arrayOf("application/json", "*/*")) }
-                        else confirmingImport = true
-                    },
-                    enabled = !backupBusy, color = if (confirmingImport) DangerRed else Color.White
-                )
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("Export App Data", Modifier.weight(1f), sub = "Settings, VRM & Live settings, tagged posts and subscriptions, in one file.")
+                    PillButton(if (backupBusy) "Working…" else "Export", {
+                        val date = com.mediaviewer.util.DateText.format(com.mediaviewer.platform.currentTimeMillis(), "yyyy-MM-dd")
+                        backupExportLauncher.launch("Stellar-backup-$date.json")
+                    }, enabled = !backupBusy)
+                }
+                AnimatedVisibility(visible = backupStatus != null) {
+                    val st = backupStatus
+                    if (st != null) ExportStatusLine(st.first, st.second, st.third, tint)
+                    else Spacer(Modifier.height(0.dp))
+                }
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel("Import App Data", Modifier.weight(1f), sub = "Replaces your settings and main tagged dataset, then restarts.")
+                    PillButton(
+                        if (backupBusy) "…" else if (confirmingImport) "Replace?" else "Import",
+                        {
+                            if (confirmingImport) { confirmingImport = false; backupImportLauncher.launch(arrayOf("application/json", "*/*")) }
+                            else confirmingImport = true
+                        },
+                        enabled = !backupBusy, color = if (confirmingImport) DangerRed else Color.White
+                    )
+                }
             }
         }
 
         // ── Dev Tools (hidden: hold the "Settings" tab for 10 seconds) ─
         if (com.mediaviewer.util.UiToggles.devToolsUnlocked) {
-            SectionHeader("Dev Tools", tint)
-            // Battery Saver (experimental): flat buttons instead of live
-            // blur, no starfield or visualizer, a 60 Hz cap and slower
-            // background checks.
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel(
-                        "Battery Saver", Modifier.weight(1f),
-                        sub = "Experimental. Solid buttons instead of blur, a lower frame rate, no starfield or visualizer, and less background activity."
-                    )
-                    CompactSwitch(com.mediaviewer.util.LocalData.batterySaver) { com.mediaviewer.util.LocalData.updateBatterySaver(it) }
-                }
-            }
-            // Frame rate beside the camera cutout — see DebugOverlay.
-            ToggleBubble(
-                "FPS Overlay", com.mediaviewer.util.UiToggles.debugOverlay,
-                { com.mediaviewer.util.UiToggles.updateDebugOverlay(it) }, liquidGlass, tint, backdrop
-            )
-            // Glass Theme + its Background/Outline dials + the highlight toggle
-            // share one bubble; none of the rows inside draws its own outline.
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Glass Theme", Modifier.weight(1f))
-                    CompactSwitch(liquidGlass, onToggleLiquidGlass)
-                }
-                if (liquidGlass) {
-                    BubbleDivider()
+            CollapsibleSection("Dev Tools", tint) {
+                // Battery Saver (experimental): flat buttons instead of live
+                // blur, no starfield or visualizer, a 60 Hz cap and slower
+                // background checks.
+                SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        // widthIn(min=) rather than a fixed width: the app's
-                        // custom font is wider, and a fixed width wrapped
-                        // "Background" onto two lines.
-                        Text("Background", color = Color.White, fontSize = 13.sp, maxLines = 1, softWrap = false,
-                            modifier = Modifier.widthIn(min = 74.dp))
-                        CompactSlider(liquidGlassIntensity, onSetLiquidGlassIntensity, Modifier.weight(1f).padding(horizontal = 10.dp))
-                        Text("${(liquidGlassIntensity * 100).toInt()}%", color = DimGray, fontSize = 12.sp,
-                            modifier = Modifier.width(34.dp), textAlign = TextAlign.End)
-                    }
-                    BubbleDivider()
-                    BubbleRow {
-                        Text("Outline", color = Color.White, fontSize = 13.sp, maxLines = 1, softWrap = false,
-                            modifier = Modifier.widthIn(min = 74.dp))
-                        CompactSlider(glassRimIntensity, onSetGlassRimIntensity, Modifier.weight(1f).padding(horizontal = 10.dp))
-                        Text("${(glassRimIntensity * 100).toInt()}%", color = DimGray, fontSize = 12.sp,
-                            modifier = Modifier.width(34.dp), textAlign = TextAlign.End)
-                    }
-                    BubbleDivider()
-                    BubbleRow {
-                        RowLabel("Vibrant Outline Highlight", Modifier.weight(1f))
-                        CompactSwitch(glassRimVibrantSecondary, onToggleGlassRimVibrantSecondary)
+                        RowLabel(
+                            "Battery Saver", Modifier.weight(1f),
+                            sub = "Experimental. Solid buttons instead of blur, a lower frame rate, no starfield or visualizer, and less background activity."
+                        )
+                        CompactSwitch(com.mediaviewer.util.LocalData.batterySaver) { com.mediaviewer.util.LocalData.updateBatterySaver(it) }
                     }
                 }
-            }
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Show Scan Bubble in Hub", Modifier.weight(1f), sub = "Replaces the Reviews/Blogs rows with the scan-your-follows bubble.")
-                    CompactSwitch(com.mediaviewer.util.UiToggles.devForceScanBubble) { com.mediaviewer.util.UiToggles.updateDevForceScanBubble(it) }
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Preview Loading Animation", Modifier.weight(1f), sub = "Tap the screen to move it along; Back closes it.")
-                    PillButton("Play", { com.mediaviewer.util.UiToggles.devLoadingPreview = true })
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Preview Login Page", Modifier.weight(1f), sub = "Opens it without logging out; Back closes it.")
-                    PillButton("Open", { com.mediaviewer.util.UiToggles.devLoginPreview = true })
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Force Refresh Hub", Modifier.weight(1f), sub = "Reloads every Hub row from scratch.")
-                    PillButton("Refresh", extras.onForceRefreshHub, enabled = bskyLoggedIn)
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Preview Welcome Popup", Modifier.weight(1f), sub = "Opens in the Hub; nothing is added until Continue.")
-                    PillButton("Open", extras.onPreviewWelcome, enabled = bskyLoggedIn)
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Preview Support Popup", Modifier.weight(1f), sub = "The one shown on the 10th, 25th, 50th… open.")
-                    PillButton("Open", { com.mediaviewer.util.UiToggles.devSupportPreview = true })
-                }
-                BubbleDivider()
-                val coverContext = com.mediaviewer.ui.compat.LocalContext.current
-                val coverScope = rememberCoroutineScope()
-                BubbleRow {
-                    RowLabel("Clear Cached Title Covers", Modifier.weight(1f), sub = "Removes saved review/backlog covers (incl. Wikipedia lookups) from this phone.")
-                    PillButton("Clear", {
-                        coverScope.launch {
-                            val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                com.mediaviewer.repository.WikipediaRepository.clearCoverCache()
-                                com.mediaviewer.util.TitleCovers.clearCached(coverContext)
-                            }
-                            com.mediaviewer.ui.compat.Toast.makeText(coverContext, "Cleared $n cached title cover${if (n == 1) "" else "s"}", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
+                // Frame rate beside the camera cutout — see DebugOverlay.
+                ToggleBubble(
+                    "FPS Overlay", com.mediaviewer.util.UiToggles.debugOverlay,
+                    { com.mediaviewer.util.UiToggles.updateDebugOverlay(it) }, liquidGlass, tint, backdrop
+                )
+                // Glass Theme + its Background/Outline dials + the highlight toggle
+                // share one bubble; none of the rows inside draws its own outline.
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Glass Theme", Modifier.weight(1f))
+                        CompactSwitch(liquidGlass, onToggleLiquidGlass)
+                    }
+                    if (liquidGlass) {
+                        BubbleDivider()
+                        BubbleRow {
+                            // widthIn(min=) rather than a fixed width: the app's
+                            // custom font is wider, and a fixed width wrapped
+                            // "Background" onto two lines.
+                            Text("Background", color = Color.White, fontSize = 13.sp, maxLines = 1, softWrap = false,
+                                modifier = Modifier.widthIn(min = 74.dp))
+                            CompactSlider(liquidGlassIntensity, onSetLiquidGlassIntensity, Modifier.weight(1f).padding(horizontal = 10.dp))
+                            Text("${(liquidGlassIntensity * 100).toInt()}%", color = DimGray, fontSize = 12.sp,
+                                modifier = Modifier.width(34.dp), textAlign = TextAlign.End)
                         }
-                    }, color = DangerRed)
+                        BubbleDivider()
+                        BubbleRow {
+                            Text("Outline", color = Color.White, fontSize = 13.sp, maxLines = 1, softWrap = false,
+                                modifier = Modifier.widthIn(min = 74.dp))
+                            CompactSlider(glassRimIntensity, onSetGlassRimIntensity, Modifier.weight(1f).padding(horizontal = 10.dp))
+                            Text("${(glassRimIntensity * 100).toInt()}%", color = DimGray, fontSize = 12.sp,
+                                modifier = Modifier.width(34.dp), textAlign = TextAlign.End)
+                        }
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel("Vibrant Outline Highlight", Modifier.weight(1f))
+                            CompactSwitch(glassRimVibrantSecondary, onToggleGlassRimVibrantSecondary)
+                        }
+                    }
                 }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Hide Dev Tools", Modifier.weight(1f))
-                    PillButton("Hide", { com.mediaviewer.util.UiToggles.updateDevToolsUnlocked(false) }, color = DangerRed)
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Show Scan Bubble in Hub", Modifier.weight(1f), sub = "Replaces the Reviews/Blogs rows with the scan-your-follows bubble.")
+                        CompactSwitch(com.mediaviewer.util.UiToggles.devForceScanBubble) { com.mediaviewer.util.UiToggles.updateDevForceScanBubble(it) }
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Preview Loading Animation", Modifier.weight(1f), sub = "Tap the screen to move it along; Back closes it.")
+                        PillButton("Play", { com.mediaviewer.util.UiToggles.devLoadingPreview = true })
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Preview Login Page", Modifier.weight(1f), sub = "Opens it without logging out; Back closes it.")
+                        PillButton("Open", { com.mediaviewer.util.UiToggles.devLoginPreview = true })
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Force Refresh Hub", Modifier.weight(1f), sub = "Reloads every Hub row from scratch.")
+                        PillButton("Refresh", extras.onForceRefreshHub, enabled = bskyLoggedIn)
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Preview Welcome Popup", Modifier.weight(1f), sub = "Opens in the Hub; nothing is added until Continue.")
+                        PillButton("Open", extras.onPreviewWelcome, enabled = bskyLoggedIn)
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Preview Support Popup", Modifier.weight(1f), sub = "The one shown on the 10th, 25th, 50th… open.")
+                        PillButton("Open", { com.mediaviewer.util.UiToggles.devSupportPreview = true })
+                    }
+                    BubbleDivider()
+                    val coverContext = com.mediaviewer.ui.compat.LocalContext.current
+                    val coverScope = rememberCoroutineScope()
+                    BubbleRow {
+                        RowLabel("Clear Cached Title Covers", Modifier.weight(1f), sub = "Removes saved review/backlog covers (incl. Wikipedia lookups) from this phone.")
+                        PillButton("Clear", {
+                            coverScope.launch {
+                                val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.mediaviewer.repository.WikipediaRepository.clearCoverCache()
+                                    com.mediaviewer.util.TitleCovers.clearCached(coverContext)
+                                }
+                                com.mediaviewer.ui.compat.Toast.makeText(coverContext, "Cleared $n cached title cover${if (n == 1) "" else "s"}", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
+                            }
+                        }, color = DangerRed)
+                    }
+                    BubbleDivider()
+                    BubbleRow {
+                        RowLabel("Hide Dev Tools", Modifier.weight(1f))
+                        PillButton("Hide", { com.mediaviewer.util.UiToggles.updateDevToolsUnlocked(false) }, color = DangerRed)
+                    }
                 }
             }
         }
@@ -1492,6 +1509,163 @@ private fun AtProtocolAccountsBubble(
 
 // ── e621 account bubble ─────────────────────────────────────────────────────
 
+/** Settings → Integrations → "Scrobble Music to Rocksky" (a supporter
+ *  feature): Stellar watches what the chosen music apps are playing and
+ *  writes each listen to the signed-in account as Rocksky records. An "Apps"
+ *  button to the left of the switch picks which apps count — none do until
+ *  the user turns them on.
+ *
+ *  Turning the switch on walks through what Android needs: first the
+ *  permission to show the quiet "Stellar scrobbling" notification (Android 13
+ *  and later), then the phone's "notification access" page, which is the
+ *  permission that lets an app see what others are playing. */
+@Composable
+private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val context = com.mediaviewer.ui.compat.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val platform = com.mediaviewer.platform.LocalPlatform
+    var status by remember { mutableStateOf(com.mediaviewer.util.ScrobblerStatus()) }
+    var appsOpen by remember { mutableStateOf(false) }
+
+    suspend fun refresh() {
+        status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { platform.scrobblerStatus(context) }
+    }
+    // The permission is granted on a system page outside Stellar, so the row
+    // keeps checking while it's on screen and catches up on the way back.
+    LaunchedEffect(Unit) {
+        while (true) { refresh(); kotlinx.coroutines.delay(1500) }
+    }
+    // Scrobbles belong to one account: after switching accounts the
+    // scrobbler follows the one that is signed in now.
+    LaunchedEffect(bskyLoggedIn, bskyHandle) {
+        if (!bskyLoggedIn) return@LaunchedEffect
+        val did = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
+        }
+        if (did.isNotBlank() && platform.scrobblerStatus(context).enabled) platform.setScrobblerEnabled(context, true, did)
+    }
+
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        // Whatever the answer, the next step is notification access:
+        // scrobbling works without the notification, just less reliably.
+        if (!platform.scrobblerStatus(context).access) platform.openScrobblerAccessSettings(context)
+    }
+
+    fun turnOn() {
+        scope.launch {
+            val did = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
+            }
+            if (did.isBlank()) return@launch
+            platform.setScrobblerEnabled(context, true, did)
+            refresh()
+            when {
+                status.needsNotificationPermission -> notificationPermission.launch("android.permission.POST_NOTIFICATIONS")
+                !status.access -> platform.openScrobblerAccessSettings(context)
+            }
+        }
+    }
+
+    val on = status.enabled && bskyLoggedIn
+    val sub = when {
+        !bskyLoggedIn -> "Log in to Bluesky to scrobble."
+        !on -> "Saves the music you listen to on this phone to Rocksky."
+        !status.access -> "Needs notification access. Tap here to open it. If the switch there is grayed out, open Stellar's App info, tap the three dots, and choose \"Allow restricted settings\" first."
+        status.error != null -> status.error
+        status.apps.none { it.on } -> "On. Tap Apps to choose which apps to scrobble."
+        status.queued > 0 -> "On. ${status.queued} waiting to upload."
+        else -> "On. Listening for music in your chosen apps."
+    }
+
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel(
+                "Scrobble Music to Rocksky",
+                Modifier.weight(1f).then(
+                    if (on && !status.access) Modifier.clickable { platform.openScrobblerAccessSettings(context) } else Modifier
+                ),
+                sub = sub
+            )
+            Spacer(Modifier.width(8.dp))
+            PillButton("Apps", {
+                if (com.mediaviewer.util.Supporter.active) appsOpen = true else com.mediaviewer.util.Supporter.openPage()
+            })
+            Spacer(Modifier.width(8.dp))
+            SupporterSwitch(on) { want ->
+                if (want) turnOn()
+                else { platform.setScrobblerEnabled(context, false, ""); scope.launch { refresh() } }
+            }
+        }
+    }
+
+    if (appsOpen) {
+        ScrobbleAppsDialog(
+            apps = status.apps, liquidGlass = liquidGlass, tint = tint,
+            onToggle = { pkg, want -> platform.setScrobblerApp(context, pkg, want); scope.launch { refresh() } },
+            onDismiss = { appsOpen = false }
+        )
+    }
+}
+
+/** The "Apps" popup of the scrobbling row: one switch per music app. The
+ *  well-known ones come first, in a fixed order, followed by any other app
+ *  Stellar has noticed playing music on this phone. */
+@Composable
+private fun ScrobbleAppsDialog(
+    apps: List<com.mediaviewer.util.ScrobbleApp>, liquidGlass: Boolean, tint: Color,
+    onToggle: (String, Boolean) -> Unit, onDismiss: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
+    ) {
+        // Blurs (and dims) everything behind the popup.
+        com.mediaviewer.ui.compat.DialogBlurBehind(radius = 48, dimAmount = 0.45f)
+        Box(
+            Modifier.fillMaxSize().clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null, onClick = onDismiss
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            val shape = RoundedCornerShape(22.dp)
+            @Composable
+            fun Content() {
+                Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                    Text(
+                        "Which apps should Stellar Scrobble?", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        apps.forEach { app ->
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 40.dp).clickable { onToggle(app.packageName, !app.on) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    app.label, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                                )
+                                CompactSwitch(app.on) { want -> onToggle(app.packageName, want) }
+                            }
+                        }
+                    }
+                }
+            }
+            val m = Modifier.fillMaxWidth(0.9f).widthIn(max = 420.dp).clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) {}
+            if (liquidGlass) {
+                LiquidGlassSurface(m, shape = shape, tint = tint) { Content() }
+            } else {
+                Box(m.clip(shape).background(OffBlack).border(1.dp, tint.copy(alpha = 0.5f), shape)) { Content() }
+            }
+        }
+    }
+}
+
 /** The e621 row: shows the signed-in user with a Log out button, or a Login
  *  button that swaps the row for the same inline username + API key + Login
  *  (+ white X to cancel) layout the AT Protocol "Add" row uses. */
@@ -1606,7 +1780,7 @@ internal fun AboutPageContent() {
             Line("Bluesky", "accounts, posts and feeds")
             Line("Leaflet / Standard.site", "long-form blogs")
             Line("Popfeed", "title reviews, backlog and covers")
-            Line("Rocksky", "music listening history and yearly top stats")
+            Line("Rocksky", "music listening history, yearly top stats, and the scrobbler's design")
             Line("Streamplace", "livestreams")
 
             Header("Other services")

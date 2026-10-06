@@ -14,6 +14,12 @@
          running in the background so the check isn't held back for hours. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- "Scrobble Music to Rocksky" (supporters): while it's switched on,
+         a quiet permanent notification keeps the listener running with the
+         screen off, and the phone is kept awake while music is playing so
+         listening time is counted properly. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Item 8: the camera-notch button's "Camera" action launches the
          system camera app via an implicit intent (no permission needed for
          that itself), but VRM mode's own live preview needs direct camera
@@ -121,6 +127,38 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.mediaviewer.worker.ACTION_CHECK_NOTIFICATIONS" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- "Scrobble Music to Rocksky" (supporters; Settings › Integrations).
+             The listener is what Android connects once Stellar has been
+             given "notification access": it sees which song the chosen
+             music apps are playing (the same details the lock screen
+             shows). The job sends saved listens when there's a connection;
+             the receiver puts both back after a restart or an update. -->
+        <service
+            android:name="com.mediaviewer.scrobble.StellarScrobbleListener"
+            android:label="Stellar scrobbling"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled music scrobbling: observe other players' media sessions and save listens while the screen is off" />
+        </service>
+        <service
+            android:name="com.mediaviewer.scrobble.ScrobbleUploadJob"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver
+            android:name="com.mediaviewer.scrobble.ScrobbleBootReceiver"
+            android:exported="false">
+            <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>

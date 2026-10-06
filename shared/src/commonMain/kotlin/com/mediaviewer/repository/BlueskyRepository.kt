@@ -1409,6 +1409,26 @@ class BlueskyRepository {
         if (!resp.isSuccessful && resp.code() != 404) error("clearLiveNowStatus failed: ${resp.code()}")
     }
 
+    /**
+     * Writes one record of any collection into [did]'s own repo, under
+     * [rkey] (com.atproto.repo.putRecord, without the PDS's lexicon check —
+     * exactly how Rocksky's server writes app.rocksky.* records). Used by
+     * util/RockskyScrobbler. A failure's message starts with the HTTP
+     * status and carries the PDS's own error name ("ExpiredToken" …), so
+     * the caller can tell "sign in again" from "this record is no good"
+     * from "try later".
+     */
+    suspend fun putRepoRecord(
+        token: String, did: String, collection: String, rkey: String, record: Map<String, Any>
+    ): Result<String> = runCatching {
+        val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, collection, rkey, record, validate = false))
+        if (!resp.isSuccessful) {
+            val body = resp.errorBody()?.string().orEmpty()
+            error("putRecord failed: ${resp.code()} ${body.take(200)}")
+        }
+        resp.body()?.uri ?: ""
+    }
+
     private fun liveNowPlatformFor(uri: String): LiveNowPlatform {
         val host = runCatching { com.mediaviewer.platform.uriHost(uri)?.lowercase() }.getOrNull() ?: ""
         return when {

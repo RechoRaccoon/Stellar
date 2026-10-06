@@ -36,6 +36,7 @@ object UiToggles {
     private const val KEY_DEV_FORCE_SCAN_BUBBLE = "dev_force_scan_bubble"
     private const val KEY_SCAN_BUBBLE_DISMISSED = "scan_bubble_dismissed"
     private const val KEY_CUSTOMIZE_HUB_COLLAPSED = "customize_hub_collapsed"
+    private const val KEY_COLLAPSED_SETTINGS_SECTIONS = "collapsed_settings_sections"
 
     /** Settings → UI Customization → "Loading Animation". */
     enum class LoadingAnimation(val label: String) {
@@ -154,6 +155,18 @@ object UiToggles {
         prefs?.edit()?.putBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, collapsed)?.apply()
     }
 
+    /** Settings: the categories folded away with the arrow beside their
+     *  title, by title. Remembered. (Customize Hub's own older setting
+     *  above is carried into this the first time.) */
+    var collapsedSettingsSections by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    fun updateSettingsSectionCollapsed(title: String, collapsed: Boolean) {
+        val next = if (collapsed) collapsedSettingsSections + title else collapsedSettingsSections - title
+        collapsedSettingsSections = next
+        prefs?.edit()?.putStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, next)?.apply()
+    }
+
     /** Whether any loading transition/screen plays at all. */
     val loadingScreens: Boolean get() = loadingAnimation != LoadingAnimation.NONE
 
@@ -185,6 +198,8 @@ object UiToggles {
         devForceScanBubble = p.getBoolean(KEY_DEV_FORCE_SCAN_BUBBLE, false)
         scanBubbleDismissed = p.getBoolean(KEY_SCAN_BUBBLE_DISMISSED, false)
         customizeHubCollapsed = p.getBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, false)
+        collapsedSettingsSections = p.getStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, null)?.toSet()
+            ?: if (customizeHubCollapsed) setOf("Customize Hub") else emptySet()
         visualizerCallMode = p.getString(KEY_VISUALIZER_CALL_MODE, null)
             ?.let { name -> VisualizerCallMode.entries.firstOrNull { it.name == name } }
             ?: if (p.getBoolean(KEY_VISUALIZER_DURING_CALLS, false)) VisualizerCallMode.MUSIC_ONLY else VisualizerCallMode.PAUSE

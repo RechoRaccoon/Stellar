@@ -124,6 +124,27 @@ object IosWidgetBridge {
                 if (note == null) "" else buildJsonObject { put("id", note.id); put("title", note.title); put("body", note.body) }.toString(),
                 forKey = "note"
             )
+            // Every note (newest first), for the Note widget's "Choose a
+            // Note" list and its Edit Widget screen. Long notes are cut to
+            // what a widget could ever show.
+            defaults.setObject(
+                JsonArray(notes.sortedByDescending { it.updatedAt }.take(60).map { n ->
+                    buildJsonObject { put("id", n.id); put("title", n.title); put("body", n.body.take(4000)) }
+                }).toString(),
+                forKey = "notes"
+            )
+            // "Widget" on a note inside the app sends that note to the
+            // widget; switching it off (or deleting the note) sends a
+            // widget that was showing it back to its list. Only acted on
+            // when it changes, so a note chosen on the widget itself isn't
+            // overwritten every time something else is published.
+            val fromApp = LocalData.widgetNoteId
+            val sentBefore = defaults.stringForKey("note_pick_app")
+            if (sentBefore != fromApp) {
+                if (fromApp.isNotBlank()) defaults.setObject(fromApp, forKey = "note_pick")
+                else if (!sentBefore.isNullOrBlank() && defaults.stringForKey("note_pick") == sentBefore) defaults.setObject("", forKey = "note_pick")
+                defaults.setObject(fromApp, forKey = "note_pick_app")
+            }
             defaults.setBool(Supporter.active, forKey = "supporter")
             val did = Supporter.selfDid.ifBlank { SelfProfileColors.savedDid.orEmpty() }
             val colors = ProfileColorStore.get(did)

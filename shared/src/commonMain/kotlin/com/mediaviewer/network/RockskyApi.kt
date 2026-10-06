@@ -74,7 +74,52 @@ class RockskyApi(baseUrl: String = "https://api.rocksky.app/", profile: HttpProf
         "GET",
         "xrpc/app.rocksky.spotify.getCurrentlyPlaying",
         query = listOf("actor" to actor)
-    )}
+    )
+
+    /** Rocksky's own matcher (public, no sign-in): the best canonical
+     *  track for a title + artist, from its database and the providers it
+     *  falls back to (MusicBrainz, Spotify, Deezer). It's what fills in
+     *  album art, ids and release details for a scrobble written from
+     *  Stellar — see util/RockskyScrobbler. Answers within ~10 seconds, or
+     *  with an error / an empty object when it finds nothing. */
+    suspend fun matchSong(
+        title: String,
+        artist: String,
+        album: String?
+    ): Response<RockskyMatchedSongDto> = call(
+        "GET",
+        "xrpc/app.rocksky.song.matchSong",
+        query = listOf("title" to title, "artist" to artist, "album" to album)
+    )
+}
+
+/** app.rocksky.song.matchSong's answer: a row of Rocksky's tracks table
+ *  plus what its matcher adds (apps/api/src/xrpc/app/rocksky/song/
+ *  matchSong.ts, `presentation`). Everything is optional. */
+@Serializable
+data class RockskyMatchedSongDto(
+    val title: String? = null,
+    val artist: String? = null,
+    val albumArtist: String? = null,
+    val album: String? = null,
+    val albumArt: String? = null,
+    val duration: Long? = null,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
+    val mbId: String? = null,
+    val isrc: String? = null,
+    val spotifyLink: String? = null,
+    val composer: String? = null,
+    val copyrightMessage: String? = null,
+    val releaseDate: String? = null,
+    val year: Int? = null,
+    val artistPicture: String? = null,
+    val genres: List<String>? = null,
+    val mbArtists: List<RockskyMbArtistDto>? = null
+)
+
+@Serializable
+data class RockskyMbArtistDto(val name: String? = null, val mbid: String? = null)
 
 @Serializable
 data class RockskyScrobblesResponse(

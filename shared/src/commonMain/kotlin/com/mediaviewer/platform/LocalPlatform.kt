@@ -68,4 +68,19 @@ expect object LocalPlatform {
      *  [dms] is the chat list as the app has it right now, or null when
      *  only the on-device data (events, notes) changed. */
     fun updateWidgets(context: PlatformContext, dms: List<WidgetChat>?)
+
+    // ── "Scrobble Music to Rocksky" (Android; elsewhere "not supported") ──
+
+    /** How the scrobbler is set and doing, for its row in Settings. */
+    fun scrobblerStatus(context: PlatformContext): com.mediaviewer.util.ScrobblerStatus
+
+    /** Switches scrobbling on (for the account [did]) or off. */
+    fun setScrobblerEnabled(context: PlatformContext, on: Boolean, did: String)
+
+    /** Chooses whether the app [packageName] is scrobbled. */
+    fun setScrobblerApp(context: PlatformContext, packageName: String, on: Boolean)
+
+    /** Opens the phone's "notification access" page for Stellar — the
+     *  permission that lets it see what other apps are playing. */
+    fun openScrobblerAccessSettings(context: PlatformContext)
 }

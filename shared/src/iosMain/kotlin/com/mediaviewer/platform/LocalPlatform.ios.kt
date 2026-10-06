@@ -70,4 +70,11 @@ actual object LocalPlatform {
     actual fun updateWidgets(context: PlatformContext, dms: List<WidgetChat>?) {
         IosWidgetBridge.publish(dms)
     }
+
+    // "Scrobble Music to Rocksky" works by watching what other apps are
+    // playing, which iOS doesn't let an app do: not supported here.
+    actual fun scrobblerStatus(context: PlatformContext): com.mediaviewer.util.ScrobblerStatus = com.mediaviewer.util.ScrobblerStatus()
+    actual fun setScrobblerEnabled(context: PlatformContext, on: Boolean, did: String) {}
+    actual fun setScrobblerApp(context: PlatformContext, packageName: String, on: Boolean) {}
+    actual fun openScrobblerAccessSettings(context: PlatformContext) {}
 }

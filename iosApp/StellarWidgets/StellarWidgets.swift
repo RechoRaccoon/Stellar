@@ -1,10 +1,13 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
 
 // Stellar's home-screen widgets (a supporter benefit): your DMs with their
 // unread counts, your calendar's upcoming events, and one note in full.
 // The app writes what they show into the app group's shared defaults (see
-// IosWidgetBridge in the Kotlin code); this extension only reads it.
+// IosWidgetBridge in the Kotlin code); this extension only reads it — with
+// one exception: which note the Note widget shows is chosen on the widget
+// itself (iOS 17 and later), and that choice is written here.
 
 private let groupId = "group.rechoraccoon.stellar"
 private let stellarPink = Color(red: 1.0, green: 0.31, blue: 0.63)
@@ -39,6 +42,10 @@ struct StellarSnapshot {
     var chats: [WidgetChat] = []
     var events: [WidgetEvent] = []
     var note: WidgetNote?
+    /// All your notes, the most recently edited first (to choose from).
+    var notes: [WidgetNote] = []
+    /// The note chosen by tapping it in the Note widget's list ("" = none).
+    var notePick = ""
     var colorA = Color(red: 0.13, green: 0.15, blue: 0.36)
     var colorB = Color(red: 0.08, green: 0.09, blue: 0.21)
 
@@ -59,6 +66,11 @@ struct StellarSnapshot {
            let note = try? decoder.decode(WidgetNote.self, from: data) {
             s.note = note
         }
+        if let data = defaults.string(forKey: "notes")?.data(using: .utf8),
+           let notes = try? decoder.decode([WidgetNote].self, from: data) {
+            s.notes = notes
+        }
+        s.notePick = defaults.string(forKey: "note_pick") ?? ""
         if let data = defaults.string(forKey: "colors")?.data(using: .utf8),
            let colors = try? decoder.decode([[Double]].self, from: data),
            colors.count == 2, colors[0].count == 3, colors[1].count == 3 {
@@ -380,13 +392,32 @@ private struct NoteLine: View {
     }
 }
 
+/// A note, shown in full: its title, then as much of it as fits (the rest
+/// is cut off cleanly).
+private struct NoteBody: View {
+    let note: WidgetNote
+
+    var body: some View {
+        let lines = note.body.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("![") }
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { _, line in
+                if line.trimmingCharacters(in: .whitespaces).isEmpty { Spacer().frame(height: 4) } else { NoteLine(raw: line) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+    }
+}
+
+/// iOS 16: one Note widget for everyone, showing the note sent from the
+/// app (Notes → a note → Widget), or else the newest one. From iOS 17 the
+/// widget below replaces it.
 struct NoteWidgetView: View {
     let entry: StellarEntry
 
     var body: some View {
         let s = entry.snapshot
         let note = s.note
-        let lines = (note?.body ?? "").components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("![") }
         VStack(alignment: .leading, spacing: 5) {
             WidgetHeader(title: (note?.title.isEmpty == false ? note!.title : "Note"))
             if !s.supporter {
@@ -394,19 +425,19 @@ struct NoteWidgetView: View {
             } else if note == nil {
                 EmptyNote(text: "No notes yet.")
             } else {
-                // As much of the note as fits; the rest is cut off cleanly.
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { _, line in
-                        if line.trimmingCharacters(in: .whitespaces).isEmpty { Spacer().frame(height: 4) } else { NoteLine(raw: line) }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
+                NoteBody(note: note!)
             }
         }
         .widgetURL(URL(string: note != nil ? "stellar://note/\(note!.id)" : "stellar://notes"))
         .stellarWidgetBackground(s)
     }
+}
+
+/// (No sizes on iOS 17 and later, which keeps it out of the widget
+/// gallery there: the widget that lets you choose its note takes its place.)
+private var legacyNoteFamilies: [WidgetFamily] {
+    if #available(iOS 17.0, *) { return [] }
+    return [.systemSmall, .systemMedium, .systemLarge]
 }
 
 struct NoteWidget: Widget {
@@ -416,6 +447,195 @@ struct NoteWidget: Widget {
         }
         .configurationDisplayName("Note")
         .description("One of your notes, in full.")
+        .supportedFamilies(legacyNoteFamilies)
+    }
+}
+
+// MARK: - Note, with its note chosen on the widget (iOS 17+)
+//
+// A newly placed Note widget is a list of your notes; tapping one turns
+// the widget into that note, and "Change" in its corner brings the list
+// back — the same as on Android. That choice is shared by every Note
+// widget that hasn't been given a note of its own; to have several
+// widgets show different notes, touch and hold one, choose Edit Widget
+// and pick its note there (iOS only lets a widget remember something of
+// its own through that screen).
+
+/// A note, as the Edit Widget screen lists it.
+@available(iOS 17.0, *)
+struct NoteEntity: AppEntity {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Note"
+    static var defaultQuery = NoteQuery()
+
+    var id: String
+    var title: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(title)")
+    }
+}
+
+@available(iOS 17.0, *)
+struct NoteQuery: EntityQuery {
+    private func all() -> [NoteEntity] {
+        return StellarSnapshot.load().notes.map { note in
+            NoteEntity(id: note.id, title: noteTitle(note))
+        }
+    }
+
+    func entities(for identifiers: [String]) async throws -> [NoteEntity] {
+        return all().filter { identifiers.contains($0.id) }
+    }
+
+    func suggestedEntities() async throws -> [NoteEntity] {
+        return all()
+    }
+}
+
+/// Edit Widget's one setting: this widget's own note.
+@available(iOS 17.0, *)
+struct ChooseNoteIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Note"
+    static var description = IntentDescription("Choose which note this widget shows.")
+
+    @Parameter(title: "Note")
+    var note: NoteEntity?
+
+    init() {}
+}
+
+/// A tap in the widget: a note in the list (the widget becomes that
+/// note), or "Change" (an empty id: back to the list).
+@available(iOS 17.0, *)
+struct PickNoteIntent: AppIntent {
+    static var title: LocalizedStringResource = "Show Note"
+
+    @Parameter(title: "Note ID")
+    var noteId: String
+
+    init() {}
+
+    init(noteId: String) {
+        self.noteId = noteId
+    }
+
+    func perform() async throws -> some IntentResult {
+        UserDefaults(suiteName: groupId)?.set(noteId, forKey: "note_pick")
+        WidgetCenter.shared.reloadTimelines(ofKind: "StellarNoteChoice")
+        return .result()
+    }
+}
+
+/// What a note is called in a list: its title, or failing that its first
+/// line of text.
+private func noteTitle(_ note: WidgetNote) -> String {
+    let title = note.title.trimmingCharacters(in: .whitespaces)
+    if !title.isEmpty { return title }
+    let first = noteFirstLine(note)
+    return first.isEmpty ? "Untitled note" : first
+}
+
+private func noteFirstLine(_ note: WidgetNote) -> String {
+    for raw in note.body.components(separatedBy: "\n") {
+        var line = raw.trimmingCharacters(in: .whitespaces)
+        if line.isEmpty || line.hasPrefix("![") { continue }
+        while let c = line.first, "#-*> ".contains(c) { line.removeFirst() }
+        line = line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "~~", with: "").replacingOccurrences(of: "`", with: "")
+        if !line.isEmpty { return line }
+    }
+    return ""
+}
+
+@available(iOS 17.0, *)
+struct NoteChoiceEntry: TimelineEntry {
+    let date: Date
+    let snapshot: StellarSnapshot
+    /// The note given to this widget in Edit Widget, if any.
+    let ownNoteId: String?
+}
+
+@available(iOS 17.0, *)
+struct NoteChoiceProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> NoteChoiceEntry {
+        return NoteChoiceEntry(date: Date(), snapshot: StellarSnapshot(), ownNoteId: nil)
+    }
+
+    func snapshot(for configuration: ChooseNoteIntent, in context: Context) async -> NoteChoiceEntry {
+        return NoteChoiceEntry(date: Date(), snapshot: StellarSnapshot.load(), ownNoteId: configuration.note?.id)
+    }
+
+    func timeline(for configuration: ChooseNoteIntent, in context: Context) async -> Timeline<NoteChoiceEntry> {
+        let entry = NoteChoiceEntry(date: Date(), snapshot: StellarSnapshot.load(), ownNoteId: configuration.note?.id)
+        let next = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date().addingTimeInterval(1800)
+        return Timeline(entries: [entry], policy: .after(next))
+    }
+}
+
+@available(iOS 17.0, *)
+struct NoteChoiceView: View {
+    @Environment(\.widgetFamily) var family
+    let entry: NoteChoiceEntry
+
+    var body: some View {
+        let s = entry.snapshot
+        // This widget's own note if it has one, else the one tapped in the list.
+        let wanted = entry.ownNoteId ?? s.notePick
+        let note = s.notes.first { $0.id == wanted }
+        VStack(alignment: .leading, spacing: 5) {
+            if !s.supporter {
+                WidgetHeader(title: "Note")
+                EmptyNote(text: "A Stellar Supporter benefit.")
+            } else if let note = note {
+                HStack(spacing: 6) {
+                    WidgetHeader(title: note.title.isEmpty ? "Note" : note.title)
+                    // (A widget given its own note is changed in Edit Widget.)
+                    if entry.ownNoteId == nil {
+                        Button(intent: PickNoteIntent(noteId: "")) {
+                            Text("Change")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.white.opacity(0.25)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Link(destination: URL(string: "stellar://note/\(note.id)")!) {
+                    NoteBody(note: note)
+                }
+            } else if s.notes.isEmpty {
+                WidgetHeader(title: "Note")
+                EmptyNote(text: "No notes yet.\nWrite one in Stellar and it will be listed here.")
+            } else {
+                WidgetHeader(title: family == .systemSmall ? "Choose" : "Choose a Note")
+                ForEach(Array(s.notes.prefix(rowCount(family, small: 3, medium: 3, large: 8)).enumerated()), id: \.offset) { _, choice in
+                    Button(intent: PickNoteIntent(noteId: choice.id)) {
+                        Text(noteTitle(choice))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .modifier(RowBackground())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .widgetURL(URL(string: note != nil ? "stellar://note/\(note!.id)" : "stellar://notes"))
+        .stellarWidgetBackground(s)
+    }
+}
+
+@available(iOS 17.0, *)
+struct NoteChoiceWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: "StellarNoteChoice", intent: ChooseNoteIntent.self, provider: NoteChoiceProvider()) { entry in
+            NoteChoiceView(entry: entry)
+        }
+        .configurationDisplayName("Note")
+        .description("One of your notes, in full. Tap a note to choose it.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -426,5 +646,8 @@ struct StellarWidgetBundle: WidgetBundle {
         DmsWidget()
         EventsWidget()
         NoteWidget()
+        if #available(iOS 17.0, *) {
+            NoteChoiceWidget()
+        }
     }
 }

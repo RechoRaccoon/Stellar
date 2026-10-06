@@ -102,6 +102,7 @@ internal val SUPPORTER_BENEFITS = listOf(
     "Bookmark folders!!",
     "Build your own local feeds!!",
     "Pin DMs!!",
+    "Scrobble music to Rocksky",
     "Calendar, notes, calculator, and timer features!!",
     "Android/iOS widgets!!",
     "Hub widgets!!",

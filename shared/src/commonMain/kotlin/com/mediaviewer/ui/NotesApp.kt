@@ -495,8 +495,9 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 LocalChip("Quote", false, tint, { prefixLine("> ") })
                 LocalChip("Code", false, tint, { wrap("`") })
                 LocalChip("Image", false, tint, { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                // The home-screen Note widget shows this note (tap again:
-                // back to showing whichever note is newest).
+                // Sends this note to the home-screen Note widget(s) (tap
+                // again: a widget showing it goes back to its list of
+                // notes). A note can also be chosen on the widget itself.
                 val onWidget = id.isNotBlank() && LocalData.widgetNoteId == id
                 LocalChip("Widget", onWidget, tint, {
                     save()
