@@ -33,17 +33,43 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Notifications while Stellar is closed: iOS wakes the app now and
+	     then ("background app refresh") to check for new DMs / Inbox
+	     activity. The identifier is the one in IosNotifications.kt. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>rechoraccoon.stellar.refresh</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Let ProMotion iPhones run Compose above 60 fps. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- The notch bubble's Camera page (photos and videos for posts).
+	     iOS closes an app that opens the camera without these two. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Stellar uses the camera to take photos and videos for your posts.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Stellar uses the microphone to record sound with the videos you take.</string>
+	<!-- Stellar only uses the encryption built into iOS (https), so App
+	     Store Connect doesn't need to ask about export rules per build. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Stellar saves images and videos you download to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Stellar lets you pick photos and videos to post.</string>
+	<!-- The moment before the app draws: black, like the app's own
+	     first frame (an empty launch screen is white in light mode). -->
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>

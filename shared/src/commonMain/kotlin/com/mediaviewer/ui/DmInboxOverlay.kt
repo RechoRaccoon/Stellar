@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -568,7 +569,14 @@ private fun DmThreadView(
                     bubbleLayer.record {
                         if (backdrop != null) {
                             val sky = backdrop.originInRoot()
-                            translate(sky.x - bubbleOrigin.x, sky.y - bubbleOrigin.y) { drawLayer(backdrop.layer) }
+                            // Only the part of the sky behind the chat: the
+                            // sky is the whole screen, and unclipped it was
+                            // painted over everything above the messages
+                            // too — which is how the DM header vanished
+                            // while bubbles were out.
+                            clipRect(0f, 0f, size.width, size.height) {
+                                translate(sky.x - bubbleOrigin.x, sky.y - bubbleOrigin.y) { drawLayer(backdrop.layer) }
+                            }
                         }
                         this@drawWithContent.drawContent()
                     }

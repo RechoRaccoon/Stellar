@@ -25,6 +25,8 @@ actual object PrivateFiles {
         return dir
     }
 
+    actual fun rootUri(context: PlatformContext): String = "file://" + root()
+
     private fun target(folder: String, name: String): String {
         var dir = root()
         // (Nested folders are made one level at a time.)

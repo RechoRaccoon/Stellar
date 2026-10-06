@@ -180,14 +180,17 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
         modifier = Modifier.padding(top = 2.dp).supporterShine()
     )
     // Notifications: a banner inside Stellar while it's open (anywhere
-    // but the DMs / Inbox themselves), and — on Android — ordinary device
-    // notifications while it's closed, from a background check.
+    // but the DMs / Inbox themselves), and ordinary device notifications
+    // while it's closed, from a background check. Android runs that check
+    // every few minutes; on iOS it runs when the system grants a
+    // "background app refresh", so they arrive later there.
     val android = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
             RowLabel(
                 "DM Notifications", Modifier.weight(1f),
-                sub = if (android) "New messages, in Stellar and while it's closed." else "New messages while Stellar is open."
+                sub = if (android) "New messages, in Stellar and while it's closed."
+                else "New messages, in Stellar and while it's closed. iOS decides how often it checks, so these can take a while."
             )
             SupporterSwitch(local.notifyDms) {
                 local.updateNotifyDms(it)
@@ -198,7 +201,8 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
         BubbleRow {
             RowLabel(
                 "Inbox Notifications", Modifier.weight(1f),
-                sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed." else "Likes, replies, follows and mentions while Stellar is open."
+                sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed."
+                else "Likes, replies, follows and mentions, in Stellar and while it's closed. iOS decides how often it checks."
             )
             SupporterSwitch(local.notifyInbox) {
                 local.updateNotifyInbox(it)
@@ -577,7 +581,22 @@ internal fun SettingsPageContent(
         // ── UI Customization ────────────────────────────────────────────
         SectionHeader("UI Customization", tint, first = !showSupporterSettings && !bskyLoggedIn)
 
-        ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
+        if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.IOS) {
+            // iOS: every animation in the app already follows the iPhone's
+            // own Reduce Motion switch, and an app can't set that itself —
+            // so this row says where the switch is instead of offering one
+            // that wouldn't do anything.
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel(
+                        "Reduced Animations", Modifier.weight(1f),
+                        sub = "Follows your iPhone: Settings › Accessibility › Motion › Reduce Motion."
+                    )
+                }
+            }
+        } else {
+            ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
+        }
         ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         // Twinkling stars + the odd shooting star behind every page (the
         // dim profile-color background stays either way).
@@ -878,7 +897,8 @@ internal fun SettingsPageContent(
 
         // Bluesky profile/post links (a scanned QR code, a link in the
         // browser) can open in Stellar — "Set Up" explains how, with
-        // shortcuts to both apps' Android settings.
+        // shortcuts to both apps' Android settings. (iOS: a share-sheet
+        // shortcut instead; the same popup explains that one.)
         var linkSetupOpen by remember { mutableStateOf(false) }
         PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.OPEN_BY_DEFAULT_LINKS) {
             ActionBubble(
@@ -2012,6 +2032,28 @@ private fun OpenLinksSetupDialog(liquidGlass: Boolean, tint: Color, onDismiss: (
                         "Open Bluesky Links in Stellar", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
                     )
+                    if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.IOS) {
+                        // iOS only lets the owner of bsky.app claim its
+                        // links, so the way in is the share sheet: a
+                        // two-step shortcut that hands the link to Stellar.
+                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                        val prefix = "stellar://open?url="
+                        Step("1", "In the Shortcuts app, make a new shortcut. In its details (ⓘ), turn on \"Show in Share Sheet\".")
+                        Step("2", "Add the action \"Open URLs\". As its URL, paste the text below, then add \"Shortcut Input\" right after it.")
+                        Step("3", "Name it \"Open in Stellar\". From then on: Share a Bluesky profile or post, and pick it.")
+                        Box(
+                            Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(20.dp))
+                                .background(Color.White.copy(alpha = 0.12f))
+                                .border(1.dp, headerColorFor(tint).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                                .clickable {
+                                    tap()
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(prefix))
+                                    com.mediaviewer.ui.compat.showPlatformToast("Copied")
+                                },
+                            contentAlignment = Alignment.Center
+                        ) { Text("Copy  $prefix", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                        return@Column
+                    }
                     Step("1", "Tap Bluesky Settings and choose \"In your browser\".")
                     Step("2", "Tap Stellar Settings, then \"Add link\" and turn on bsky.app.")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

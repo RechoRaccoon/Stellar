@@ -11,6 +11,8 @@ import java.io.File
 actual object PrivateFiles {
     private fun root(context: PlatformContext): File = File(context.applicationContext.filesDir, "private")
 
+    actual fun rootUri(context: PlatformContext): String = Uri.fromFile(root(context)).toString()
+
     private fun target(context: PlatformContext, folder: String, name: String): File {
         val dir = File(root(context), folder).apply { mkdirs() }
         return File(dir, name.replace('/', '_'))

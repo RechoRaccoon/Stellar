@@ -5,6 +5,14 @@ import Shared
 
 @main
 struct iOSApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // Notifications while Stellar is closed: iOS only accepts the
+        // background-refresh handler while the app is still launching.
+        IosNotificationsKt.registerIosBackgroundRefresh()
+    }
+
     var body: some Scene {
         WindowGroup {
             ComposeView()
@@ -16,6 +24,15 @@ struct iOSApp: App {
                 .onOpenURL { url in
                     IosBridgesKt.handleIosOpenUrl(url: url.absoluteString)
                 }
+        }
+        // Leaving the app: ask iOS for the next background check. Coming
+        // back: its notifications have done their job.
+        .onChange(of: scenePhase) { phase in
+            if phase == .background {
+                IosNotificationsKt.iosAppDidEnterBackground()
+            } else if phase == .active {
+                IosNotificationsKt.iosAppDidBecomeActive()
+            }
         }
     }
 }

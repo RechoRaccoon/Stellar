@@ -70,6 +70,15 @@ object SharedAppStartup {
         SelfProfileColors.init(context)
         com.mediaviewer.util.AdultContentPolicy.init(context)
     }
+
+    /** A backup was just imported: the stores it wrote to read their
+     *  files again, so the rebuilt app shows (and from then on saves) the
+     *  imported data rather than what was in memory before. */
+    fun reloadAfterImport(context: PlatformContext) {
+        com.mediaviewer.util.UiToggles.reload(context)
+        com.mediaviewer.util.HubLayout.reload(context)
+        com.mediaviewer.util.LocalData.reload(context)
+    }
 }
 
 @Composable
@@ -108,7 +117,12 @@ fun SharedAppHost(
                     viewModel.setAppForeground(true)
                     onStopOrDispose { viewModel.setAppForeground(false) }
                 }
-                AppRoot(viewModel)
+                // (A Bluesky link handed to Stellar opens that profile/post.)
+                AppRoot(
+                    viewModel,
+                    pendingProfileLink = com.mediaviewer.util.AppLinks.pendingProfile,
+                    onProfileLinkHandled = { com.mediaviewer.util.AppLinks.clearProfile() }
+                )
             }
             AppMessageToast(Modifier.align(Alignment.BottomCenter))
         }

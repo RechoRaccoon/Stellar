@@ -74,6 +74,47 @@ object PostArchive {
         }
     }
 
+    // ── App Data Export / Import ──
+    // The list travels in the backup file as this JSON text; the pictures
+    // and videos travel beside it, laid out as they are under PrivateFiles
+    // (archive/<account>/<post>/<file>).
+
+    /** Every archived post as JSON text, or null when there are none. */
+    fun exportJson(context: PlatformContext): String? {
+        init(context)
+        if (posts.isEmpty()) return null
+        return runCatching { StellarJson.default.encodeToString(ListSerializer(ArchivedPost.serializer()), posts) }.getOrNull()
+    }
+
+    /**
+     * Adds a backup's archived posts to the ones already on this device
+     * (a post that's already here is left as it is). Their files must have
+     * been restored into PrivateFiles first. Returns how many were added.
+     */
+    fun importJson(context: PlatformContext, text: String): Int {
+        init(context)
+        val incoming = runCatching {
+            StellarJson.default.decodeFromString(ListSerializer(ArchivedPost.serializer()), rebased(context, text))
+        }.getOrNull() ?: return 0
+        val have = posts.map { it.did + "/" + it.rkey }.toSet()
+        val fresh = incoming.filter { (it.did + "/" + it.rkey) !in have }
+        if (fresh.isNotEmpty()) save((posts + fresh).sortedByDescending { it.archivedAt })
+        return fresh.size
+    }
+
+    /** Archived posts point at their files by full path, and that path is
+     *  different on the device a backup came from: aim them at this one. */
+    private fun rebased(context: PlatformContext, text: String): String {
+        val here = runCatching { com.mediaviewer.platform.PrivateFiles.rootUri(context) }.getOrNull() ?: return text
+        val start = text.indexOf("file://")
+        if (start < 0) return text
+        val at = text.indexOf("/$FOLDER/", start)
+        if (at < 0) return text
+        val there = text.substring(start, at)
+        if (there == here || there.length < 8 || there.any { it == '"' || it == '\\' }) return text
+        return text.replace(there, here)
+    }
+
     fun isArchived(item: MediaItem?): Boolean = item != null && item.id.startsWith(ID_PREFIX)
 
     /** The archived post a feed item was made from. */

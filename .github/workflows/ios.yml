@@ -4,12 +4,30 @@ name: Build Stellar iOS
 on:
   push:
     branches: [ main ]
+  # Run by hand (Actions › Build Stellar iOS › Run workflow) to try the
+  # other kind of Mac GitHub offers. The usual one (macos-15) has 7 GB of
+  # memory, which the Kotlin build fills; macos-15-intel has 14 GB and
+  # four processors. If it builds faster there, change the default below.
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Which Mac to build on
+        type: choice
+        default: macos-15
+        options:
+          - macos-15
+          - macos-15-intel
+
+# One iOS build at a time: a newer push stops the build of the one before
+# it. (They take about an hour each, and two at once only slow each other.)
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ios:
     name: Build unsigned iOS app
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
 
     steps:
       - name: Checkout repository
@@ -39,8 +57,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ hashFiles('build.gradle.kts', 'shared/build.gradle.kts', 'gradle.properties') }}
-          restore-keys: konan-${{ runner.os }}-
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.gradle.kts', 'shared/build.gradle.kts', 'gradle.properties') }}
+          restore-keys: konan-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build Kotlin framework (iPhone)
         run: gradle :shared:linkReleaseFrameworkIosArm64 --stacktrace

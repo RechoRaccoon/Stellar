@@ -15,9 +15,14 @@ import kotlin.experimental.ExperimentalNativeApi
 /** Entry point the Swift app (iosApp/iosApp/iOSApp.swift) hosts. */
 fun MainViewController(): UIViewController {
     IosCrashLog.install()
+    // Saved file paths follow the app's folder when iOS has moved it.
+    com.mediaviewer.util.healMovedAppFolderPaths()
     IosImageLoading.install()
     IosNativePickers.install()
     IosAudioSession.install()
+    // Tapped notifications, and the next background check.
+    com.mediaviewer.platform.IosNotifications.install()
+    com.mediaviewer.platform.IosNotifications.sync(requestPermission = false)
     val crash = IosCrashLog.read()
     return ComposeUIViewController {
         SharedAppHost(

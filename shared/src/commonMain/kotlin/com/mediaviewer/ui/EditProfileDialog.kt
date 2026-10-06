@@ -133,7 +133,9 @@ fun EditProfileDialog(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null
                 ) {}
-                .heightIn(max = 640.dp)
+                // As tall as everything in it (it used to stop at 640dp
+                // and scroll). It only scrolls when the screen itself has
+                // no room left — the keyboard open, or landscape.
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {

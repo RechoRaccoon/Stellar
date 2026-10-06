@@ -25,7 +25,9 @@ enum class PlatformFeature(val label: String) {
         // iOS: GIFs made with Apple's own image and video frameworks.
         (this == GIF_EXPORT && IosCapabilities.gifExport) ||
         // iOS: fonts imported from the Files app.
-        this == CUSTOM_FONT
+        this == CUSTOM_FONT ||
+        // iOS: through a share-sheet shortcut (Settings explains how).
+        this == OPEN_BY_DEFAULT_LINKS
 }
 
 /** What the iOS app turned out to be able to do, set once at launch when

@@ -22,8 +22,33 @@ object AppLinks {
     var pending by mutableStateOf<String?>(null)
         private set
 
+    /** A Bluesky profile or post Stellar was asked to open, as
+     *  "<actor>" or "<actor>|<post rkey>" (what AppRoot's pendingProfileLink
+     *  takes). Android gets these from bsky.app links directly; this is
+     *  the way in for iOS, where they arrive as stellar:// links. */
+    var pendingProfile by mutableStateOf<String?>(null)
+        private set
+
+    fun clearProfile() { pendingProfile = null }
+
+    private val bskyLink = Regex("""bsky\.app/profile/([^/\s?#&]+)(?:/post/([^/\s?#&]+))?""")
+    private val stellarProfile = Regex("""^stellar://profile/([^/\s?#&]+)(?:/post/([^/\s?#&]+))?""")
+
+    /** "<actor>" / "<actor>|<rkey>" when [link] names a Bluesky profile or
+     *  post: a bsky.app link on its own, one handed over as
+     *  stellar://open?url=<link> (encoded or not), or
+     *  stellar://profile/<actor>[/post/<rkey>]. */
+    private fun profileTarget(link: String): String? {
+        val text = if (link.contains('%')) runCatching { com.mediaviewer.platform.urlDecode(link) }.getOrDefault(link) else link
+        val m = stellarProfile.find(text) ?: bskyLink.find(text) ?: return null
+        val actor = m.groupValues[1]
+        val rkey = m.groupValues[2]
+        return if (rkey.isBlank()) actor else "$actor|$rkey"
+    }
+
     fun open(link: String?) {
         val l = link?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        profileTarget(l)?.let { pendingProfile = it; return }
         // "stellar://dm/abc" → "dm:abc"
         pending = if (l.startsWith("stellar://")) {
             val rest = l.removePrefix("stellar://").trim('/')

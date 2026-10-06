@@ -59,6 +59,10 @@ import platform.posix.mkdir
  * travel in the same file, as a trailing "localMedia" section of base64
  * chunks. Backups without that section import as before.
  *
+ * Archived posts (supporters) travel too, like on Android: the list as
+ * "archivedPosts" and their files as a second trailing section,
+ * "archiveMedia". On import they're added to what's already archived here.
+ *
  * Left out, like on Android: sign-in tokens and per-account caches. The
  * Android-only parts of a backup (the custom font, VRM settings' avatar and
  * the AI-tagged dataset) are skipped on import here, and an iOS export
@@ -85,6 +89,8 @@ actual object AppBackup {
     actual suspend fun export(context: PlatformContext, uri: PlatformUri): String = withContext(Dispatchers.IO) {
         var settingsCount = 0
         val prefs = context.dataStore.data.first()
+        val archivedJson = PostArchive.exportJson(context)
+        val archivedCount = if (archivedJson != null) PostArchive.posts.size else 0
         val root = buildJsonObject {
             put("format", FORMAT)
             put("version", VERSION)
@@ -105,6 +111,7 @@ actual object AppBackup {
                 }
             })
             put("taggedPosts", JsonArray(emptyList()))
+            if (archivedJson != null) put("archivedPosts", archivedJson)
         }
         // Everything but the closing brace, then the local media, streamed.
         val f = fopen(pathOf(uri), "wb") ?: error("Couldn't open the chosen file for writing")
@@ -113,26 +120,35 @@ actual object AppBackup {
         try {
             fun w(s: String) { if (ok) ok = put(f, s.encodeToByteArray()) }
             w(root.toString().dropLast(1))
-            w(",\"localMedia\":{\"root\":" + JsonPrimitive(mediaRoot()).toString() + ",\"files\":[")
-            for (rel in mediaFiles()) {
-                val bytes = readLocalFile(mediaDir() + "/" + rel) ?: continue
-                if (mediaCount > 0) w(",")
-                w("{\"p\":" + JsonPrimitive(rel).toString() + ",\"d\":[")
-                var at = 0
-                while (at < bytes.size) {
-                    val end = minOf(bytes.size, at + CHUNK)
-                    w((if (at > 0) ",\"" else "\"") + Base64.encode(bytes, at, end) + "\"")
-                    at = end
+            /** One "files" array: each file's path under [dir] and its bytes. */
+            fun files(dir: String, rels: List<String>): Int {
+                var count = 0
+                for (rel in rels) {
+                    val bytes = readLocalFile("$dir/$rel") ?: continue
+                    if (count > 0) w(",")
+                    w("{\"p\":" + JsonPrimitive(rel).toString() + ",\"d\":[")
+                    var at = 0
+                    while (at < bytes.size) {
+                        val end = minOf(bytes.size, at + CHUNK)
+                        w((if (at > 0) ",\"" else "\"") + Base64.encode(bytes, at, end) + "\"")
+                        at = end
+                    }
+                    w("]}")
+                    count++
                 }
-                w("]}")
-                mediaCount++
+                return count
             }
+            w(",\"localMedia\":{\"root\":" + JsonPrimitive(mediaRoot()).toString() + ",\"files\":[")
+            mediaCount = files(mediaDir(), filesUnder(mediaDir(), 2))
+            w("]}")
+            w(ARCHIVE_MARKER + "\"files\":[")
+            if (archivedJson != null) files(archiveDir(context), filesUnder(archiveDir(context), 4))
             w("]}}")
         } finally {
             fclose(f)
         }
         if (!ok) error("Couldn't write the backup file")
-        "Exported $settingsCount settings and $mediaCount media files"
+        "Exported $settingsCount settings, $mediaCount media files and $archivedCount archived posts"
     }
 
     actual suspend fun import(context: PlatformContext, uri: PlatformUri): String = withContext(Dispatchers.IO) {
@@ -147,10 +163,14 @@ actual object AppBackup {
 
         var oldMediaRoot: String? = null
         var mediaCount = 0
+        // (The archived posts' files, when the backup has them, follow the
+        // local media.)
+        val archiveAt = if (mediaAt >= 0) indexOf(data, ARCHIVE_MARKER.encodeToByteArray(), mediaAt) else -1
         if (mediaAt >= 0) runCatching {
-            val (r, n) = readMedia(data, mediaAt)
+            val (r, n) = readMedia(data, mediaAt, if (archiveAt >= 0) archiveAt else data.size, mediaDir(), findRoot = true)
             oldMediaRoot = r; mediaCount = n
         }
+        if (archiveAt >= 0) runCatching { readMedia(data, archiveAt, data.size, archiveDir(context), findRoot = false) }
         // Drafts, notes and covers point at their files by full path; aim
         // those at this install's copy of the files.
         val newMediaRoot = mediaRoot()
@@ -191,11 +211,18 @@ actual object AppBackup {
             }
             editor.commit()
         }
-        "Imported $settingsCount settings and $mediaCount media files"
+        // iOS rebuilds the app in place after an import (there's no
+        // process restart), so the stores read the new files now.
+        runCatching { com.mediaviewer.ui.SharedAppStartup.reloadAfterImport(context) }
+        val archivedCount = runCatching {
+            (root["archivedPosts"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { PostArchive.importJson(context, it) }
+        }.getOrNull() ?: 0
+        "Imported $settingsCount settings, $mediaCount media files and $archivedCount archived posts"
     }
 
     private const val CHUNK = 180_000 // bytes per base64 chunk (a multiple of 3)
     private const val MEDIA_MARKER = ",\"localMedia\":{"
+    private const val ARCHIVE_MARKER = ",\"archiveMedia\":{"
 
     private fun mediaDir(): String = IosPaths.filesDir() + "/local_media"
 
@@ -205,14 +232,29 @@ actual object AppBackup {
     private fun list(dir: String): List<String>? =
         NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null)?.map { it.toString() }
 
-    /** Every file under local_media, as "folder/name" (or just "name"). */
-    private fun mediaFiles(): List<String> {
+    /** Where archived posts keep their files (PrivateFiles' "archive" folder). */
+    private fun archiveDir(context: PlatformContext): String =
+        com.mediaviewer.platform.PrivateFiles.rootUri(context).removePrefix("file://") + "/" + PostArchive.FOLDER
+
+    /** Every file under [dir], as its path below it ("folder/name"), looking
+     *  at most [depth] folders deep. */
+    private fun filesUnder(dir: String, depth: Int, prefix: String = ""): List<String> {
         val out = ArrayList<String>()
-        for (name in list(mediaDir()) ?: emptyList()) {
-            val children = list(mediaDir() + "/" + name)
-            if (children == null) out.add(name) else children.forEach { out.add("$name/$it") }
+        for (name in list(dir) ?: emptyList()) {
+            val children = if (depth > 1) list("$dir/$name") else null
+            if (children == null) out.add(prefix + name)
+            else out.addAll(filesUnder("$dir/$name", depth - 1, "$prefix$name/"))
         }
         return out
+    }
+
+    /** mkdir -p for a path made of [dir] plus the folders in [parts]. */
+    private fun makeDirs(dir: String, parts: List<String>) {
+        var d = dir
+        for (part in parts) {
+            d = "$d/$part"
+            mkdir(d, 0x1ED.convert())
+        }
     }
 
     private fun put(f: CPointer<FILE>, bytes: ByteArray): Boolean {
@@ -228,10 +270,10 @@ actual object AppBackup {
         return written == bytes.size
     }
 
-    private fun indexOf(data: ByteArray, pattern: ByteArray, from: Int): Int {
+    private fun indexOf(data: ByteArray, pattern: ByteArray, from: Int, until: Int = data.size): Int {
         val first = pattern[0]
         var i = from
-        val last = data.size - pattern.size
+        val last = minOf(until, data.size) - pattern.size
         while (i <= last) {
             if (data[i] == first) {
                 var j = 1
@@ -257,46 +299,48 @@ actual object AppBackup {
     private fun jsonString(data: ByteArray, openQuote: Int, closeQuote: Int): String =
         Json.parseToJsonElement(data.decodeToString(openQuote, closeQuote + 1)).jsonPrimitive.content
 
-    /** Walks the localMedia section starting at [start], writing each file
-     *  into local_media. Returns the exporting device's media root and how
-     *  many files were restored. */
-    private fun readMedia(data: ByteArray, start: Int): Pair<String?, Int> {
+    /** Walks one media section ([start] until [end]), writing each file
+     *  into [dir]. Returns the exporting device's media root (looked for
+     *  only when [findRoot]) and how many files were restored. */
+    private fun readMedia(data: ByteArray, start: Int, end: Int, dir: String, findRoot: Boolean): Pair<String?, Int> {
         var root: String? = null
         val rootKey = "\"root\":\"".encodeToByteArray()
         val fileKey = "{\"p\":\"".encodeToByteArray()
         val dataKey = "\"d\":[".encodeToByteArray()
+        val quote = byteArrayOf('"'.code.toByte())
         var pos = start
-        val firstFile = indexOf(data, fileKey, pos)
-        val r = indexOf(data, rootKey, pos)
-        if (r >= 0 && (firstFile < 0 || r < firstFile)) {
-            val open = r + rootKey.size - 1
-            val close = stringEnd(data, open + 1)
-            if (close > 0) root = jsonString(data, open, close)
+        if (findRoot) {
+            val firstFile = indexOf(data, fileKey, pos, end)
+            val r = indexOf(data, rootKey, pos, end)
+            if (r >= 0 && (firstFile < 0 || r < firstFile)) {
+                val open = r + rootKey.size - 1
+                val close = stringEnd(data, open + 1)
+                if (close > 0) root = jsonString(data, open, close)
+            }
         }
-        val dir = mediaDir()
-        mkdir(dir, 0x1ED.convert())
+        makeDirs(dir.substringBeforeLast('/'), listOf(dir.substringAfterLast('/')))
         var count = 0
         while (true) {
-            val p = indexOf(data, fileKey, pos)
+            val p = indexOf(data, fileKey, pos, end)
             if (p < 0) break
             val open = p + fileKey.size - 1
             val close = stringEnd(data, open + 1)
-            if (close < 0) break
+            if (close < 0 || close >= end) break
             val rel = jsonString(data, open, close)
-            val d = indexOf(data, dataKey, close)
+            val d = indexOf(data, dataKey, close, end)
             if (d < 0) break
             pos = d + dataKey.size
             val parts = rel.split('/')
-            val safe = rel.isNotBlank() && parts.size <= 2 && parts.none { it.isEmpty() || it == "." || it == ".." }
-            if (safe && parts.size == 2) mkdir(dir + "/" + parts[0], 0x1ED.convert())
+            val safe = rel.isNotBlank() && parts.size <= 4 && parts.none { it.isEmpty() || it == "." || it == ".." }
+            if (safe && parts.size > 1) makeDirs(dir, parts.dropLast(1))
             val f = if (safe) fopen("$dir/$rel", "wb") else null
             var ok = f != null
             try {
-                while (pos < data.size) {
+                while (pos < end) {
                     val c = data[pos].toInt()
                     if (c == '"'.code) {
-                        val e = indexOf(data, byteArrayOf('"'.code.toByte()), pos + 1)
-                        if (e < 0) { pos = data.size; break }
+                        val e = indexOf(data, quote, pos + 1, end)
+                        if (e < 0) { pos = end; break }
                         if (f != null && ok) ok = put(f, Base64.decode(data, pos + 1, e))
                         pos = e + 1
                     } else if (c == ']'.code) {

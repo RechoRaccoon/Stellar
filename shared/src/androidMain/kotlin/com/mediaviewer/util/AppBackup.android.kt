@@ -41,6 +41,12 @@ import java.io.File
  * base64 chunks, so a large video never has to fit in memory. Backups made
  * before this section existed simply don't have it and import as before.
  *
+ * Archived posts (supporters) travel too: the list as "archivedPosts" and
+ * their pictures and videos as a second streamed section, "archiveMedia".
+ * On import they're added to whatever is already archived on the device.
+ * (They're private to the app until exported — the backup file is an
+ * ordinary file, so it's as private as wherever it's kept.)
+ *
  * Left out on purpose: sign-in tokens/passwords (you sign in again, which
  * is safer than a file carrying live credentials), per-account caches,
  * and the VRM avatar file pointer (the file itself isn't in the backup).
@@ -113,9 +119,16 @@ actual object AppBackup {
         }
         root.add("taggedPosts", arr)
 
+        // Archived posts: the list here, their files streamed at the end.
+        val archivedJson = PostArchive.exportJson(context)
+        val archivedCount = if (archivedJson != null) PostArchive.posts.size else 0
+        if (archivedJson != null) root.addProperty("archivedPosts", archivedJson)
+
         // Local media (drafts, notes, folder covers), streamed after the rest.
         val mediaDir = mediaDir(context)
         val mediaFiles = mediaDir.walkTopDown().filter { it.isFile }.toList()
+        val archiveDir = archiveDir(context)
+        val archiveFiles = if (archivedJson != null) archiveDir.walkTopDown().filter { it.isFile }.toList() else emptyList()
         var mediaCount = 0
         context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
             out.bufferedWriter(Charsets.UTF_8).use { w ->
@@ -123,35 +136,47 @@ actual object AppBackup {
                 w.write(json, 0, json.length - 1) // everything but the closing brace
                 w.write(",\"localMedia\":{\"root\":" + JsonPrimitive(mediaRoot(context)).toString() + ",\"files\":[")
                 val buf = ByteArray(CHUNK)
-                for (f in mediaFiles) {
-                    val rel = f.relativeTo(mediaDir).path.replace(File.separatorChar, '/')
-                    runCatching { f.inputStream() }.getOrNull()?.use { input ->
-                        if (mediaCount > 0) w.write(",")
-                        w.write("{\"p\":" + JsonPrimitive(rel).toString() + ",\"d\":[")
-                        var first = true
-                        while (true) {
-                            var n = 0
-                            while (n < buf.size) {
-                                val r = input.read(buf, n, buf.size - n)
-                                if (r < 0) break
-                                n += r
-                            }
-                            if (n <= 0) break
-                            if (!first) w.write(",")
-                            first = false
-                            w.write("\"")
-                            w.write(Base64.encodeToString(buf, 0, n, Base64.NO_WRAP))
-                            w.write("\"")
-                            if (n < buf.size) break
-                        }
-                        w.write("]}")
-                        mediaCount++
-                    }
-                }
+                mediaCount = writeFiles(w, buf, mediaDir, mediaFiles)
+                w.write("]}")
+                w.write(",\"archiveMedia\":{\"files\":[")
+                writeFiles(w, buf, archiveDir, archiveFiles)
                 w.write("]}}")
             }
         } ?: error("Couldn't open the chosen file for writing")
-        "Exported ${ds.size()} settings, ${posts.size} tagged posts and $mediaCount media files"
+        "Exported ${ds.size()} settings, ${posts.size} tagged posts, $mediaCount media files and $archivedCount archived posts"
+    }
+
+    /** Writes [files] (all under [dir]) as the entries of a "files" array:
+     *  each one its path under [dir] and its bytes in base64 chunks.
+     *  Returns how many were written. */
+    private fun writeFiles(w: java.io.Writer, buf: ByteArray, dir: File, files: List<File>): Int {
+        var count = 0
+        for (f in files) {
+            val rel = f.relativeTo(dir).path.replace(File.separatorChar, '/')
+            runCatching { f.inputStream() }.getOrNull()?.use { input ->
+                if (count > 0) w.write(",")
+                w.write("{\"p\":" + JsonPrimitive(rel).toString() + ",\"d\":[")
+                var first = true
+                while (true) {
+                    var n = 0
+                    while (n < buf.size) {
+                        val r = input.read(buf, n, buf.size - n)
+                        if (r < 0) break
+                        n += r
+                    }
+                    if (n <= 0) break
+                    if (!first) w.write(",")
+                    first = false
+                    w.write("\"")
+                    w.write(Base64.encodeToString(buf, 0, n, Base64.NO_WRAP))
+                    w.write("\"")
+                    if (n < buf.size) break
+                }
+                w.write("]}")
+                count++
+            }
+        }
+        return count
     }
 
     /** Reads a backup from [uri] and applies it. Throws on a bad file. The
@@ -174,7 +199,17 @@ actual object AppBackup {
                         while (reader.hasNext()) {
                             when (reader.nextName()) {
                                 "root" -> oldMediaRoot = reader.nextString()
-                                "files" -> mediaCount += readMediaFiles(context, reader)
+                                "files" -> mediaCount += readMediaFiles(mediaDir(context), reader)
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+                    } else if (name == "archiveMedia") {
+                        // Archived posts' pictures and videos.
+                        reader.beginObject()
+                        while (reader.hasNext()) {
+                            when (reader.nextName()) {
+                                "files" -> readMediaFiles(archiveDir(context), reader)
                                 else -> reader.skipValue()
                             }
                         }
@@ -261,20 +296,26 @@ actual object AppBackup {
                 postCount = posts.size
             }
         }
-        "Imported $settingsCount settings, $postCount tagged posts and $mediaCount media files"
+        // Archived posts (their files were written above, as the file was read).
+        val archivedCount = runCatching {
+            root.get("archivedPosts")?.takeIf { it.isJsonPrimitive }?.asString?.let { PostArchive.importJson(context, it) }
+        }.getOrNull() ?: 0
+        "Imported $settingsCount settings, $postCount tagged posts, $mediaCount media files and $archivedCount archived posts"
     }
 
     private const val CHUNK = 180_000 // bytes per base64 chunk (a multiple of 3)
 
     private fun mediaDir(context: Context) = File(context.filesDir, "local_media")
 
+    /** Where archived posts keep their files (PrivateFiles' "archive" folder). */
+    private fun archiveDir(context: Context) = File(File(context.filesDir, "private"), PostArchive.FOLDER)
+
     /** The prefix every stored draft/note/cover file URI on this device starts with. */
     private fun mediaRoot(context: Context) = Uri.fromFile(mediaDir(context)).toString()
 
-    /** Reads the "files" array of the localMedia section, writing each file
-     *  into local_media. Returns how many were restored. */
-    private fun readMediaFiles(context: Context, reader: JsonReader): Int {
-        val dir = mediaDir(context)
+    /** Reads the "files" array of a media section, writing each file into
+     *  [dir]. Returns how many were restored. */
+    private fun readMediaFiles(dir: File, reader: JsonReader): Int {
         var count = 0
         reader.beginArray()
         while (reader.hasNext()) {

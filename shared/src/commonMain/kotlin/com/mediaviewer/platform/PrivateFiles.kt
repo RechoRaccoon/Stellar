@@ -9,6 +9,11 @@ package com.mediaviewer.platform
  * path), usable as image/video sources.
  */
 expect object PrivateFiles {
+    /** The "file://…" prefix everything saved here starts with (no trailing
+     *  slash): a file's uri is this + "/" + folder + "/" + name. It differs
+     *  from device to device, which is what a restored backup has to adjust. */
+    fun rootUri(context: PlatformContext): String
+
     /** Saves [bytes] as [folder]/[name]; its uri, or null if it failed. */
     fun write(context: PlatformContext, folder: String, name: String, bytes: ByteArray): String?
 

@@ -60,9 +60,11 @@ actual object LocalPlatform {
         p.stop()
     }
 
-    /** Device notifications while Stellar is closed are Android-only for
-     *  now (the in-app banner works here too). */
-    actual fun syncNotifications(context: PlatformContext, requestPermission: Boolean) {}
+    /** Device notifications while Stellar is closed: iOS's background
+     *  app refresh runs the same check Android does (IosNotifications). */
+    actual fun syncNotifications(context: PlatformContext, requestPermission: Boolean) {
+        IosNotifications.sync(requestPermission)
+    }
 
     /** Hands the widgets (the iOS app's WidgetKit extension) what they show. */
     actual fun updateWidgets(context: PlatformContext, dms: List<WidgetChat>?) {

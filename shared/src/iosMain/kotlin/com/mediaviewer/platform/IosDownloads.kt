@@ -96,6 +96,13 @@ object IosDownloads {
         }
     }
 
+    /** A file that's already on the device (a photo or video just taken
+     *  with the camera) into Photos. Returns an error message, or null. */
+    suspend fun saveLocalFile(path: String, isVideo: Boolean): String? = runCatching {
+        if (!ensureAccess()) error("Allow Stellar to add to Photos in Settings")
+        saveFileToPhotos(path, isVideo)
+    }.exceptionOrNull()?.let { it.message ?: "unknown error" }
+
     /** The file's real type, from its first bytes (null = not one of these). */
     private fun sniffType(b: ByteArray): String? {
         fun at(i: Int) = if (i < b.size) b[i].toInt() and 0xFF else -1

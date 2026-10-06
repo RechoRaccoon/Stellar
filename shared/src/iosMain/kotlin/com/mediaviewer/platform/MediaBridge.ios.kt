@@ -113,5 +113,5 @@ actual object MediaBridge {
     }
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
-        throw UnsupportedOperationException("Custom video thumbnails aren't supported on iOS yet")
+        IosUri("file://" + IosVideoStitcher.stitch(pathOf(video), pathOf(thumbnail)))
 }

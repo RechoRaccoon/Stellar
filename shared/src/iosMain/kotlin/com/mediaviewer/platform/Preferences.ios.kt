@@ -61,12 +61,13 @@ internal class FilePreferences(private val path: String) : SharedPreferences {
             val v = o["v"] ?: continue
             val value: Any? = runCatching {
                 when (t) {
-                    "s" -> v.jsonPrimitive.content
+                    // (Saved file paths follow the app's folder — see IosPaths.rehome.)
+                    "s" -> IosPaths.rehome(v.jsonPrimitive.content)
                     "i" -> v.jsonPrimitive.content.toInt()
                     "l" -> v.jsonPrimitive.content.toLong()
                     "f" -> v.jsonPrimitive.content.toFloat()
                     "b" -> v.jsonPrimitive.booleanOrNull
-                    "set" -> v.jsonArray.map { it.jsonPrimitive.content }.toSet()
+                    "set" -> v.jsonArray.map { IosPaths.rehome(it.jsonPrimitive.content) }.toSet()
                     else -> null
                 }
             }.getOrNull()

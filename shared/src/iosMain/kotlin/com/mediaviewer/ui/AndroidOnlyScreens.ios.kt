@@ -24,18 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.platform.PlatformUri
 
-/** iOS has no camera ring (the Dynamic Island isn't a tappable cutout, and
- *  Camera/VRM mode are Android only). */
-@Composable
-actual fun CameraNotchButton(
-    liquidGlass: Boolean,
-    tint: Color,
-    modifier: Modifier,
-    interactive: Boolean,
-    onOpenCamera: () -> Unit,
-    onOpenVrm: () -> Unit
-) {}
-
 /** Frames per second, counted from Compose's own frame clock. */
 @Composable
 actual fun DebugOverlay(tint: Color, modifier: Modifier) {
@@ -69,35 +57,14 @@ actual fun DebugOverlay(tint: Color, modifier: Modifier) {
     }
 }
 
-/** Never opened on iOS (nothing leads here); closes straight away if it is. */
+/** VRM mode is Android only (the notch bubble's VRM half says so and
+ *  doesn't open this); closes straight away if it's ever opened. */
 @Composable
 actual fun VrmModeScreen(
     liquidGlass: Boolean,
     tint: Color,
     onClose: () -> Unit,
     onCapture: (imageUri: PlatformUri?, videoUri: PlatformUri?) -> Unit
-) {
-    LaunchedEffect(Unit) { onClose() }
-}
-
-@Composable
-actual fun CameraModeScreen(
-    liquidGlass: Boolean,
-    tint: Color,
-    onClose: () -> Unit,
-    onCapture: (imageUri: PlatformUri?, videoUri: PlatformUri?) -> Unit
-) {
-    LaunchedEffect(Unit) { onClose() }
-}
-
-@Composable
-actual fun CapturePreviewScreen(
-    uri: PlatformUri,
-    isVideo: Boolean,
-    liquidGlass: Boolean,
-    tint: Color,
-    onClose: () -> Unit,
-    onCreatePost: (PlatformUri) -> Unit
 ) {
     LaunchedEffect(Unit) { onClose() }
 }

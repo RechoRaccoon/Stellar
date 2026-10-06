@@ -114,6 +114,15 @@ object HubLayout {
     private var accountDid: String = ""
     private var removedDefaults: Set<String> = emptySet()
 
+    /** Reads everything again from storage. For the one time the saved
+     *  file changes underneath the app while it's running: a backup being
+     *  imported on iOS, which rebuilds the app in place instead of
+     *  restarting it like Android does. */
+    fun reload(context: PlatformContext) {
+        prefs = null
+        init(context)
+    }
+
     fun init(context: PlatformContext) {
         if (prefs != null) return
         val p = context.sharedPreferences(PREFS)
