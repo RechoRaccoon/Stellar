@@ -17,19 +17,24 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 
 # Become a Supporter!!
 For just $4.99 a month, you'll not only be helping me afford food, but you'll also gain these supporter benefits!!
-- Supporter Profile Badge and Animation!!
-- The Ability to Edit Posts!! (with limitations)
-- Save Posts as Drafts!!
-- Build your own local Feeds!! (experimental)
-- Save posts into local Bookmark Folders!!
+- Extra profile customization!!
+- Edit posts!!
+- Archive posts!!
+- Drafts!!
+- Polls
+- Bookmark folders!!
+- Build your own local feeds!!
 - Pin DMs!!
-- Use the Launchpad's Calendar, Notes, Calculator, and Timer features!! (experimental)
-- Create Polls on Stellar!!
-- View Trending Topics in Search!!
-- Use the In-App Multitasking Browser while you explore Stellar!!
-- Receive App Notifications!! (android only) (checks every 15 minutes)
-- Add Notes to Profiles!!
-- Remove the "Stellar Supporters" row from the Hub!!
+- Scrobble music to Rocksky
+- Calendar, notes, calculator, and timer features!!
+- Android/iOS widgets!!
+- Hub widgets!!
+- Trending topics!!
+- In-app multitasking browser!!
+- App notifications!! (Android)
+- VRM scenes, soundboard, and animations!!
+- Profile notes!!
+- Remove the "Stellar Supporters" row from the Hub
 
 You can become a Supporter by donating $4.99 or more to any of these platforms!! Just remember to include your Stellar/Bluesky handle in the note :3
 - https://cash.app/$RechoRaccoon
