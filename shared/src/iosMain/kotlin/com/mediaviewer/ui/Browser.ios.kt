@@ -3,6 +3,8 @@ package com.mediaviewer.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.UIKitInteropInteractionMode
+import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
@@ -13,7 +15,7 @@ import platform.WebKit.WKWebView
 import platform.WebKit.WKWebViewConfiguration
 
 /** The system WKWebView (part of iOS — nothing bundled). */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
     UIKitView(
@@ -23,7 +25,8 @@ actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
                 frame = CGRectMake(0.0, 0.0, 0.0, 0.0),
                 configuration = WKWebViewConfiguration().apply { allowsInlineMediaPlayback = true }
             ).apply {
-                allowsBackForwardNavigationGestures = true
+                // (A page that holds its touches doesn't swipe back either.)
+                allowsBackForwardNavigationGestures = !state.holdsTouches
                 NSURL.URLWithString(state.pendingUrl)?.let { loadRequest(NSURLRequest.requestWithURL(it)) }
             }
             web.removeFromSuperview()
@@ -43,7 +46,14 @@ actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
             web
         },
         modifier = modifier,
-        update = { web -> web.pageZoom = state.zoom.toDouble() }
+        update = { web -> web.pageZoom = state.zoom.toDouble() },
+        // Normally a touch goes to the Compose page around the web view
+        // first, which can claim it as a scroll once it starts moving — so
+        // dragging something on the web page moved it a little and then let
+        // go. A page that holds its touches gets them directly instead.
+        properties = UIKitInteropProperties(
+            interactionMode = if (state.holdsTouches) UIKitInteropInteractionMode.NonCooperative else UIKitInteropInteractionMode.Cooperative()
+        )
     )
     // The page's address, title and history buttons, read a few times a
     // second while it's on screen.

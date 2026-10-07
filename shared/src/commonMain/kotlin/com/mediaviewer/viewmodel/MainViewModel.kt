@@ -3593,16 +3593,35 @@ class MainViewModel(
         }
         flow.resendEmail = {
             val session = pendingSignup
-            if (session == null) "Start again" else bskyRepo.requestEmailConfirmation(session.accessJwt).exceptionOrNull()?.message
+            if (session == null) "Your account is already made. Close this page and sign in." else bskyRepo.requestEmailConfirmation(session.accessJwt).exceptionOrNull()?.message
         }
         flow.confirmEmail = { email, code ->
             val session = pendingSignup
-            if (session == null) "Start again" else bskyRepo.confirmEmail(session.accessJwt, email, code).exceptionOrNull()?.message
+            if (session == null) "Your account is already made. Close this page and sign in." else bskyRepo.confirmEmail(session.accessJwt, email, code).exceptionOrNull()?.message
         }
         flow.finish = {
             val session = pendingSignup
             pendingSignup = null
-            if (session != null) viewModelScope.launch { startSession(session, com.mediaviewer.util.BskyServices.DEFAULT) }
+            if (session != null) {
+                // (Made from Dev Tools' preview of this page: it closes.)
+                com.mediaviewer.util.UiToggles.devLoginPreview = false
+                val service = com.mediaviewer.util.BskyServices.DEFAULT
+                if (_bskyLoggedIn.value && _bskyDid.value.isNotBlank() && _bskyDid.value != session.did) {
+                    // Already signed in to another account: the new one is
+                    // added beside it (Settings › Integrations) and switched
+                    // to, exactly as "Add" then "Switch To" would — the
+                    // account that was in use stays signed in.
+                    viewModelScope.launch {
+                        com.mediaviewer.util.BskyServices.set(session.did, service)
+                        val account = StoredBskyAccount(
+                            did = session.did, handle = session.handle, displayName = session.handle,
+                            accessJwt = session.accessJwt, refreshJwt = session.refreshJwt
+                        )
+                        prefs.addOtherBskyAccount(account)
+                        switchBskyAccountInternal(account, keepOutgoing = true)
+                    }
+                } else viewModelScope.launch { startSession(session, service) }
+            }
         }
     }
 

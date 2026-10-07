@@ -151,8 +151,16 @@ fun LoginScreen(
         working = true; problem = null; notice = null
         scope.launch {
             val error = confirm(newEmail.trim(), emailCode.trim())
-            working = false
-            if (error == null) flow.finish?.invoke() else problem = error
+            if (error == null) {
+                // Confirmed. The page stays busy while the app opens on the
+                // new account, so the button can't be pressed a second time
+                // (which used to answer "Start again" although all was well).
+                notice = "Signing you in…"
+                flow.finish?.invoke()
+            } else {
+                working = false
+                problem = error
+            }
         }
     }
 
@@ -300,7 +308,9 @@ fun LoginScreen(
                             BrowserState(
                                 "https://bsky.social/gate/signup?handle=" + com.mediaviewer.platform.urlEncode(fullHandle) +
                                     "&state=" + gateState + "&colorScheme=dark"
-                            )
+                            // (The check has pieces to drag: the page around
+                            // it mustn't take those drags over as scrolling.)
+                            ).also { it.holdsTouches = true }
                         }
                         DisposableEffect(Unit) { onDispose { browser.dispose() } }
                         val opened = remember { com.mediaviewer.platform.currentTimeMillis() }
@@ -364,7 +374,9 @@ fun LoginScreen(
                                 }
                             }
                             Box(Modifier.weight(1f)) {
-                                LoginButton("Skip", enabled = !working, busy = false, outlined = true) { tap(); flow.finish?.invoke() }
+                                LoginButton("Skip", enabled = !working, busy = false, outlined = true) {
+                                    tap(); working = true; problem = null; notice = "Signing you in…"; flow.finish?.invoke()
+                                }
                             }
                         }
                     }

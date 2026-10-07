@@ -21,6 +21,19 @@ actual fun PlatformBrowserView(state: BrowserState, modifier: Modifier) {
         factory = { ctx ->
             val existing = state.native as? WebView
             val web = existing ?: WebView(ctx).apply {
+                // (See BrowserState.holdsTouches: Android hands a drag to
+                // whatever scrolls around the view unless the view asks it
+                // not to, each time a finger goes down.)
+                if (state.holdsTouches) {
+                    @SuppressLint("ClickableViewAccessibility")
+                    val keep = android.view.View.OnTouchListener { view, event ->
+                        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN || event.actionMasked == android.view.MotionEvent.ACTION_MOVE) {
+                            view.parent?.requestDisallowInterceptTouchEvent(true)
+                        }
+                        false
+                    }
+                    setOnTouchListener(keep)
+                }
                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true

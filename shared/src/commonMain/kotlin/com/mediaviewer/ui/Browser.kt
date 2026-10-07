@@ -80,6 +80,11 @@ class BrowserState(initialUrl: String) {
     /** A popped-out window smaller than a phone page: how much the whole
      *  page is shrunk to fit it (1 = full size). */
     var zoom by mutableStateOf(1f)
+    /** True = a touch that starts on the page stays the page's until the
+     *  finger lifts: nothing around it (a scrolling page, a swipe-back
+     *  gesture) may take the drag over part-way. For pages where things are
+     *  dragged, like Bluesky's human check. Set before the page is shown. */
+    var holdsTouches = false
 
     /** The address to open when the web view is first created. */
     var pendingUrl: String = initialUrl
