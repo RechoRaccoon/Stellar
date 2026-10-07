@@ -300,14 +300,15 @@ object StellarWidgets {
         return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
     }
 
-    /** Your events from today on plus the major holidays (when they're
-     *  switched on in Supporter Settings), soonest first. */
+    /** Your events from today on plus the holidays, major and minor (each
+     *  unless it's switched off in Supporter Settings), soonest first. */
     internal fun upcomingEvents(context: Context): List<JSONObject> {
         val arr = localJson(context, "calendar_events")
         val today = todayKey()
         val own = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optInt("day") >= today }
         val major = context.getSharedPreferences(LocalData.PREFS, Context.MODE_PRIVATE).getBoolean(LocalData.KEY_HOLIDAYS_MAJOR, true)
-        val holidays = com.mediaviewer.util.Holidays.upcoming(today, major, minor = false)
+        val minor = context.getSharedPreferences(LocalData.PREFS, Context.MODE_PRIVATE).getBoolean(LocalData.KEY_HOLIDAYS_MINOR, true)
+        val holidays = com.mediaviewer.util.Holidays.upcoming(today, major, minor)
             .filter { h -> own.none { it.optInt("day") == h.day && it.optString("title").trim().equals(h.title, ignoreCase = true) } }
             .map { JSONObject().put("day", it.day).put("minute", -1).put("title", it.title).put("holiday", true) }
         return (own + holidays)

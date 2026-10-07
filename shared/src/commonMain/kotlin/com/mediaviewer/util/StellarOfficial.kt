@@ -13,6 +13,8 @@ object StellarOfficial {
     const val STELLAR_DID = "did:plc:7wpz3mrznvkoqxndf2sqkmaa"
     const val STELLAR_HANDLE = "stellarsocial.bsky.social"
     const val RECHO_HANDLE = "rechoraccoon.bsky.social"
+    /** Recho's clips account. */
+    const val RECHO_CLIPS_HANDLE = "rechoraccoonclips.bsky.social"
 
     /** "Stellar Supporters" — the list of everyone supporting Stellar
      *  (https://bsky.app/profile/did:plc:7wpz3mrznvkoqxndf2sqkmaa/lists/3mwtjrwphcq2j). */

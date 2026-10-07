@@ -473,14 +473,14 @@ object LocalData {
 
     /**
      * What the "Upcoming Events" lists show (the Hub's and the home
-     * screen's): your events plus the major holidays, soonest first. The
-     * smaller days stay in the Calendar only — there's one most days, and
-     * they would bury everything else here.
+     * screen's): your events plus the holidays — the major ones and
+     * the smaller days, each unless it's switched off in Supporter
+     * Settings — soonest first.
      */
     fun upcomingAgenda(limit: Int = 50): List<CalendarEvent> {
         val today = CalendarMath.todayKey()
         val own = eventSlot.value.filter { it.day >= today }
-        val holidays = Holidays.upcoming(today, majorHolidays, minor = false)
+        val holidays = Holidays.upcoming(today, majorHolidays, minorHolidays)
             .filter { h -> own.none { it.day == h.day && it.title.trim().equals(h.title, ignoreCase = true) } }
             .map { CalendarEvent("holiday:${it.day}:${it.title}", it.day, -1, it.title, holiday = true) }
         return (own + holidays).sortedWith(compareBy({ it.day }, { it.holiday }, { it.minute })).take(limit)

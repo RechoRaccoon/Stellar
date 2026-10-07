@@ -2895,12 +2895,13 @@ class BlueskyRepository {
         hubListOriginalPosts(body.feed).withoutRecho(listUri) to body.cursor?.takeIf { it.isNotBlank() && it != cursor }
     }
 
-    /** Recho and Stellar's own account are on the Stellar Supporters list
+    /** Recho, Recho's clips account and Stellar's own account are on the Stellar Supporters list
      *  (so the supporter features work for them) but aren't shown in the
      *  Stellar Supporters row or feed. */
     private fun isHiddenSupporter(listUri: String, handle: String): Boolean =
         listUri == com.mediaviewer.util.StellarOfficial.SUPPORTERS_LIST_URI && (
             handle.equals(com.mediaviewer.util.StellarOfficial.RECHO_HANDLE, ignoreCase = true) ||
+                handle.equals(com.mediaviewer.util.StellarOfficial.RECHO_CLIPS_HANDLE, ignoreCase = true) ||
                 handle.equals(com.mediaviewer.util.StellarOfficial.STELLAR_HANDLE, ignoreCase = true)
             )
     private fun List<MediaItem>.withoutRecho(listUri: String): List<MediaItem> =

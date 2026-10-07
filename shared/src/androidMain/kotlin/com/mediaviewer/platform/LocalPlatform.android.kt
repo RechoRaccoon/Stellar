@@ -186,7 +186,7 @@ actual object LocalPlatform {
                 connected = com.mediaviewer.scrobble.StellarScrobbleListener.connected,
                 needsNotificationPermission = needsPermission,
                 queued = if (enabled) store.counts(app, did).first else 0,
-                error = p.getString("authError", null) ?: p.getString("serviceError", null),
+                error = p.getString("authError", null) ?: p.getString("serviceError", null) ?: p.getString("statusError", null),
                 apps = known.map { com.mediaviewer.util.ScrobbleApp(it.first, it.second, it.first in chosen) } + others,
                 percent = p.getInt(store.KEY_PERCENT, com.mediaviewer.util.RockskyScrobbler.DEFAULT_PERCENT),
                 seconds = p.getInt(store.KEY_SECONDS, com.mediaviewer.util.RockskyScrobbler.DEFAULT_SECONDS),

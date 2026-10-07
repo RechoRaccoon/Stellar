@@ -113,7 +113,8 @@ class RockskyRepository {
      *  first, then falls back to the Spotify-specific one, since not every
      *  scrobbler integration necessarily answers the general one. */
     suspend fun getNowPlaying(did: String): RockskyTrack? = withContext(Dispatchers.IO) {
-        getStatus(did) ?: runCatching {
+        // (This phone's own scrobbler first: it knows before any server does.)
+        com.mediaviewer.util.RockskyScrobbler.localNowPlaying(did) ?: getStatus(did) ?: runCatching {
             val resp = api.getCurrentlyPlaying(did)
             if (resp.isSuccessful) resp.body()?.toModel() else null
         }.getOrNull()

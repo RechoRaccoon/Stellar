@@ -4337,7 +4337,7 @@ class MainViewModel(
                 // No status and no Music History at all: nothing to keep watching.
                 if ((official == null && inferred?.hasHistory != true) || ++checks > 480) return@launch
                 val endsAt = t?.endsAtMs ?: 0L
-                val longest = if (official != null) 15_000L else 30_000L
+                val longest = 15_000L
                 val wait = if (endsAt > 0L) (endsAt - com.mediaviewer.platform.currentTimeMillis()).coerceIn(1_000L, longest) else longest
                 delay(wait)
                 if (_profileOverlay.value?.author?.did != author.did) return@launch

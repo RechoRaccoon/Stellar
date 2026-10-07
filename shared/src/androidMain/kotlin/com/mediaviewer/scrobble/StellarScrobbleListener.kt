@@ -70,6 +70,7 @@ class StellarScrobbleListener : NotificationListenerService() {
     // status runs out, and since when nothing has been playing.
     private var statusKey: String? = null
     private var statusUntil = 0L
+    private var statusChecked = 0L
     private var candidateKey: String? = null
     private var candidateSince = 0L
     private var silentSince = 0L
@@ -312,7 +313,14 @@ class StellarScrobbleListener : NotificationListenerService() {
         val key = listen.source + "|" + listen.key
         if (key != candidateKey) { candidateKey = key; candidateSince = now }
         if (now - candidateSince < 1500) return
-        if (key == statusKey && now < statusUntil - 5000) return
+        val app = applicationContext
+        // Still the same song, with its status not about to run out: every
+        // twenty seconds, only a look at whether the status is still there.
+        // (Rocksky's own server can remove it — see
+        // RockskyScrobbler.statusPresent.) If it's gone, it's sent again.
+        val checkOnly = key == statusKey && now < statusUntil - 5000
+        if (checkOnly && now - statusChecked < 20_000) return
+        statusChecked = now
         val meta = listen.metadata
         val duration = meta.optLong("duration")
         val track = com.mediaviewer.util.NowPlayingTrack(
@@ -322,9 +330,16 @@ class StellarScrobbleListener : NotificationListenerService() {
         statusKey = key
         statusUntil = now + if (duration > 0) (duration - listen.position).coerceAtLeast(0) +
             com.mediaviewer.util.RockskyScrobbler.NOW_PLAYING_GRACE_MS else 10 * 60_000L
-        val app = applicationContext
+        // (Off the main thread: both the look and the sending use the network.)
         statusWriter.execute {
-            try { kotlinx.coroutines.runBlocking { com.mediaviewer.util.RockskyScrobbler.setNowPlaying(app, did, track) } } catch (_: Exception) {}
+            try {
+                kotlinx.coroutines.runBlocking {
+                    if (checkOnly && com.mediaviewer.util.RockskyScrobbler.statusPresent(did) != false) return@runBlocking
+                    val problem = com.mediaviewer.util.RockskyScrobbler.setNowPlaying(app, did, track)
+                    // (Shown under the switch in Settings, so a refusal isn't silent.)
+                    ScrobbleStore.prefs(app).edit().apply { if (problem == null) remove("statusError") else putString("statusError", problem) }.apply()
+                }
+            } catch (_: Exception) {}
         }
     }
 

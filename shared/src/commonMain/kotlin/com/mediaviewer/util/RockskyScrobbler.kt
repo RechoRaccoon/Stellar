@@ -410,17 +410,28 @@ object RockskyScrobbler {
      * the status runs out by itself (the end of the song, plus a little),
      * so it never lingers if the phone drops off the network mid-song.
      */
-    suspend fun setNowPlaying(context: PlatformContext, did: String, track: NowPlayingTrack): Boolean {
+    suspend fun setNowPlaying(context: PlatformContext, did: String, track: NowPlayingTrack): String? {
         return try {
-            val session = session(context, did) ?: return false
             val title = canonical(track.title)
             val artist = canonical(track.artist)
-            if (title.isEmpty() || artist.isEmpty()) return false
+            if (title.isEmpty() || artist.isEmpty()) return null
+            val started = currentTimeMillis()
+            fun remember(art: String?, length: Long) {
+                val left = if (length > 0) (length - track.positionMs.coerceAtLeast(0)).coerceAtLeast(0) + NOW_PLAYING_GRACE_MS else 10 * 60_000L
+                localStatus = did to com.mediaviewer.model.RockskyTrack(
+                    title = title, artist = artist, album = canonical(track.album), albumArtUrl = art, endsAtMs = started + left
+                )
+            }
+            // Known on this phone at once, before anything has been sent.
+            remember(null, track.durationMs)
+            val session = session(context, did) ?: return "Sign in to Bluesky again to show what you're listening to."
             val match = withTimeoutOrNull(6_000) {
                 runCatching { rocksky.matchSong(title, artist, track.album.trim().ifEmpty { null }) }.getOrNull()
                     ?.takeIf { it.isSuccessful }?.body()
             }
             val duration = track.durationMs.takeIf { it > 0 } ?: match?.duration?.takeIf { it > 0 } ?: 0L
+            // (Only if this is still the song: a quick skip may have moved on.)
+            if (localStatus?.second?.title == title) remember(match?.albumArt?.takeIf { it.startsWith("http") }, duration)
             val now = currentTimeMillis()
             val position = track.positionMs.coerceAtLeast(0)
             val view = LinkedHashMap<String, Any>().apply {
@@ -440,16 +451,55 @@ object RockskyScrobbler {
                 put("startedAt", isoFromSeconds((now - position) / 1000))
                 put("expiresAt", isoFromSeconds((now + left) / 1000))
             }
-            session.call { token -> session.repo.putRepoRecord(token, did, STATUS, "self", record) }.isSuccess
+            val result = session.call { token -> session.repo.putRepoRecord(token, did, STATUS, "self", record) }
+            if (result.isSuccess) null
+            else "The \"Listening to\" status couldn't be sent: " + result.exceptionOrNull()?.message.orEmpty().removePrefix("putRecord failed: ").take(140)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            "The \"Listening to\" status couldn't be sent: " + (e.message ?: "no connection").take(140)
+        }
+    }
+
+    /**
+     * What this phone itself is playing right now, and for which account:
+     * Stellar's own scrobbler knows it the instant a song starts, so your
+     * own profile on this phone shows it without asking any server.
+     */
+    @kotlin.concurrent.Volatile
+    var localStatus: Pair<String, com.mediaviewer.model.RockskyTrack>? = null
+        private set
+
+    /** [did]'s "listening to" as known on this phone; null if none, or it has run out. */
+    fun localNowPlaying(did: String): com.mediaviewer.model.RockskyTrack? =
+        localStatus?.takeIf { it.first == did && currentTimeMillis() < it.second.endsAtMs }?.second
+
+    /**
+     * Whether [did]'s status record is in their repo right now (null =
+     * couldn't tell). Something else that writes to the account — Rocksky's
+     * own server, for a player connected there — can take the record away
+     * while a song is still playing here; the scrobbler checks now and then
+     * and puts it back.
+     */
+    suspend fun statusPresent(did: String): Boolean? {
+        return try {
+            val pds = BlueskyBlobResolver.pdsEndpoint(did)
+            val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.getRecord", listOf("repo" to did, "collection" to STATUS, "rkey" to "self"))
+            when {
+                response.isSuccessful -> true
+                response.code == 400 || response.code == 404 -> false
+                else -> null
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Throwable) {
-            false
+            null
         }
     }
 
     /** Takes the "listening to" status away again (the music stopped). */
     suspend fun clearNowPlaying(context: PlatformContext, did: String): Boolean {
+        if (localStatus?.first == did) localStatus = null
         return try {
             val session = session(context, did) ?: return false
             session.call { token -> session.repo.deleteRepoRecord(token, did, STATUS, "self") }.isSuccess
