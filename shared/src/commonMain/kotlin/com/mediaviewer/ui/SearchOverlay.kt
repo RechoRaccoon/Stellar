@@ -196,7 +196,10 @@ fun SearchOverlay(
     // Posts / Tagged: which content type is shown (profile-style sub-tabs)
     // and, per sub-tab, which layout (the interaction bar's Grid button).
     var postsKind by remember { mutableStateOf(PostKindFilter.ALL) }
-    var taggedKind by remember { mutableStateOf(PostKindFilter.ALL) }
+    // (The Tagged tab's sub-tab and scroll position are kept outside the
+    // page: opening a post takes the Search page away, and coming back
+    // should find it as it was left — see TaggedSearchPlace.)
+    var taggedKind by remember { mutableStateOf(TaggedSearchPlace.kind) }
     val isPosts = state.filter == MainViewModel.SearchFilter.POSTS
     // ── Web Browser tab (supporters) ──
     val isWeb = state.filter == MainViewModel.SearchFilter.WEB
@@ -220,7 +223,7 @@ fun SearchOverlay(
                 BrowserHome.state.load(com.mediaviewer.util.LocalData.searchEngine.urlFor(webQuery))
             }
             isE621Filter -> onE621SearchSubmit()
-            isLiked -> onLikedSearchSubmit()
+            isLiked -> { TaggedSearchPlace.top(); onLikedSearchSubmit() }
             else -> onQueryChange(state.query)
         }
         // Searching puts the keyboard away (iOS has no key for that).
@@ -340,12 +343,20 @@ fun SearchOverlay(
                         barBottomLeft = Offset(pos.x, pos.y + it.size.height)
                         barWidthPx = it.size.width
                     }
-                if (showSuggestions) {
-                    Box(fieldModifier.opaqueMaskPanel(backdrop = searchBackdrop, tint = profileTint, shape = fieldShape)) { SearchFieldContent() }
-                } else if (liquidGlass) {
-                    LiquidGlassSurface(fieldModifier, shape = fieldShape, tint = profileTint, backdrop = searchBackdrop) { SearchFieldContent() }
-                } else {
-                    Box(fieldModifier.clip(fieldShape).background(Color.White.copy(0.06f))) { SearchFieldContent() }
+                // The look behind the text changes when the suggestions open
+                // and close, but the text field itself stays where it is. (It
+                // used to be rebuilt inside whichever surface was showing,
+                // which made it a new field each time — it lost focus, and
+                // on iOS the keyboard closed with every change.)
+                Box(fieldModifier) {
+                    if (showSuggestions) {
+                        Box(Modifier.matchParentSize().opaqueMaskPanel(backdrop = searchBackdrop, tint = profileTint, shape = fieldShape))
+                    } else if (liquidGlass) {
+                        LiquidGlassSurface(Modifier.matchParentSize(), shape = fieldShape, tint = profileTint, backdrop = searchBackdrop) {}
+                    } else {
+                        Box(Modifier.matchParentSize().clip(fieldShape).background(Color.White.copy(0.06f)))
+                    }
+                    SearchFieldContent()
                 }
                 // Round search button on the right — same as the Hub's.
                 val searchTap = rememberHapticTap()
@@ -387,7 +398,11 @@ fun SearchOverlay(
                 lockedIndex = if (supporter) -1 else tabs.indexOf(MainViewModel.SearchFilter.WEB),
                 onSelect = {
                     if (tabs[it] == MainViewModel.SearchFilter.WEB && !supporter) com.mediaviewer.util.Supporter.openPage()
-                    else onSelectFilter(tabs[it])
+                    else {
+                        // Coming to the Tagged tab from another one starts at the top.
+                        if (tabs[it] == MainViewModel.SearchFilter.LIKED_TAGS && !isLiked) TaggedSearchPlace.top()
+                        onSelectFilter(tabs[it])
+                    }
                 }
             )
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
@@ -395,7 +410,10 @@ fun SearchOverlay(
             if (isPosts && state.posts.isNotEmpty()) {
                 PostKindSubTabRow(state.posts, postsKind, liquidGlass, profileTint, showAll = true) { postsKind = it }
             } else if (isLiked && hasTaggedDataset && likedTagResults.isNotEmpty()) {
-                PostKindSubTabRow(likedTagResults, taggedKind, liquidGlass, profileTint) { taggedKind = it }
+                PostKindSubTabRow(likedTagResults, taggedKind, liquidGlass, profileTint) {
+                    if (it != taggedKind) TaggedSearchPlace.top()
+                    taggedKind = it; TaggedSearchPlace.kind = it
+                }
             }
 
             // ── Results ──────────────────────────────────────────────────
@@ -433,7 +451,12 @@ fun SearchOverlay(
                                 CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
                             }
                         } else if (likedTagResults.isEmpty()) EmptyResultsText() else {
-                            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
+                            val taggedList = androidx.compose.foundation.lazy.rememberLazyListState(TaggedSearchPlace.index, TaggedSearchPlace.offset)
+                            LaunchedEffect(taggedList) {
+                                androidx.compose.runtime.snapshotFlow { taggedList.firstVisibleItemIndex to taggedList.firstVisibleItemScrollOffset }
+                                    .collect { (index, offset) -> TaggedSearchPlace.index = index; TaggedSearchPlace.offset = offset }
+                            }
+                            LazyColumn(Modifier.fillMaxSize(), state = taggedList, contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
                                     items = likedTagResults, loading = false, filter = taggedKind,
                                     gridMode = resultsGridMode(gridScreen, taggedKind), tint = profileTint, liquidGlass = liquidGlass,
@@ -624,6 +647,20 @@ fun SearchOverlay(
             )
         }
     }
+}
+
+/**
+ * Where the Tagged tab was left: its sub-tab and how far down its results
+ * were scrolled. Opening a post from the results takes the whole Search
+ * page off the screen, so this is what lets it come back to the same spot
+ * instead of the top. A new search, another sub-tab, or opening the tab
+ * afresh starts from the top again.
+ */
+private object TaggedSearchPlace {
+    var kind = PostKindFilter.ALL
+    var index = 0
+    var offset = 0
+    fun top() { index = 0; offset = 0 }
 }
 
 @Composable

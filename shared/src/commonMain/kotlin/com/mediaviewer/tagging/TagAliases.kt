@@ -39,10 +39,10 @@ object TagAliases {
      *  TagDatabase's doc comment for why.) */
     fun toTagGroups(rawQuery: String): List<List<String>> {
         val terms = rawQuery.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
-        return terms.mapNotNull { term ->
-            val sanitized = term.replace(Regex("[^a-z0-9_]"), "")
-            if (sanitized.isBlank()) null else (aliases[sanitized] ?: listOf(sanitized))
-        }
+        // A word is kept exactly as typed: tags have symbols in them
+        // ("male/male", "name_(artist)", "<3"), and stripping those out
+        // used to leave a word that no tag contains.
+        return terms.map { term -> aliases[term] ?: listOf(term) }
     }
 }
 

@@ -70,6 +70,8 @@ import kotlinx.coroutines.launch
 private val ISLAND_WIDTH = 126.dp
 private val ISLAND_HEIGHT = 37.dp
 private val ISLAND_BELOW_GAP = 11.dp
+/** The older notch at its widest (iPhone X–12: 209 points; later ones are narrower). */
+private val NOTCH_WIDTH = 210.dp
 /** Top insets from here up mean a Dynamic Island (notch iPhones stop at 50). */
 private val ISLAND_MIN_INSET = 51.dp
 /** Top insets below this mean no notch at all (iPhone SE: 20); from here
@@ -77,22 +79,21 @@ private val ISLAND_MIN_INSET = 51.dp
 private val NOTCH_MIN_INSET = 30.dp
 
 /**
- * The notch bubble on iOS: Android's ring around the camera cutout, drawn
- * around the Dynamic Island. Tapping it (or just beside it — the island
- * itself belongs to iOS) opens it out to both sides, "Camera" on the left
- * and "VRM" on the right, exactly like Android.
+ * The Camera and VRM buttons on iOS: two separate bubbles in the camera
+ * row, "Camera" to the left of the Dynamic Island and "VRM" to the right
+ * of it. Nothing is drawn around the island itself (Android's ring around
+ * the camera cutout is Android's alone), and the two bubbles are only
+ * there on the Hub and the posting page ([showButtons]).
  *
- * Where it's drawn:
- *  - iPhones with a Dynamic Island: around the island.
- *  - iPhones with no notch at all (iPhone SE): a small ring at the top
- *    centre, like Android phones without a cutout.
- *  - iPhones with the older notch: the notch reaches the top edge, so
- *    there's nothing to ring; a slim bubble peeks out from under it
- *    instead, in the strip between the notch and the first row of the app.
+ * Where they sit:
+ *  - iPhones with a Dynamic Island: level with the island, one either side.
+ *  - iPhones with the older notch: in the two corners beside the notch.
+ *  - iPhones with no notch at all (iPhone SE): side by side at the top
+ *    centre.
  *  - Landscape: not drawn (the island is on the side).
  *
  * iOS doesn't tell apps where the island is; the size and position above
- * are Apple's published ones. Worth a look on a real phone.
+ * are Apple's published ones.
  */
 @Composable
 actual fun CameraNotchButton(
@@ -100,13 +101,12 @@ actual fun CameraNotchButton(
     tint: Color,
     modifier: Modifier,
     interactive: Boolean,
+    showButtons: Boolean,
     onOpenCamera: () -> Unit,
     onOpenVrm: () -> Unit
 ) {
+    if (!showButtons) return
     val tap = rememberHapticTap()
-    var expanded by remember { mutableStateOf(false) }
-    // Leaving the Hub/profile while expanded collapses it.
-    LaunchedEffect(interactive) { if (!interactive) expanded = false }
     val topInset = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
 
     BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
@@ -114,83 +114,36 @@ actual fun CameraNotchButton(
         val island = topInset >= ISLAND_MIN_INSET
         val notch = !island && topInset >= NOTCH_MIN_INSET
 
-        // Island: the ring sits a little outside it so it shows around it.
-        // Notch: a 20-point bubble ending just above the app's first row
-        // (its top edge is tucked under the notch). Neither: a small ring.
-        val pad = if (island) 3.dp else 0.dp
-        val ringW = if (island) ISLAND_WIDTH + pad * 2 else if (notch) 72.dp else 22.dp
-        val ringH = if (island) ISLAND_HEIGHT + pad * 2 else if (notch) 20.dp else 22.dp
-        val top = if (island) topInset - ISLAND_BELOW_GAP - ISLAND_HEIGHT - pad
-            else if (notch) topInset - ringH - 1.dp
-            else 12.dp
-        val sideWidth = 64.dp
-        val width by animateDpAsState(
-            targetValue = if (expanded) ringW + sideWidth * 2 else ringW,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
-            label = "notchBubbleWidth"
-        )
+        // What the bubbles stand either side of, and how far apart from it.
+        val gap = 8.dp
+        val middleWidth = if (island) ISLAND_WIDTH else if (notch) NOTCH_WIDTH else 0.dp
+        // The room either side of it, less a margin at the screen's edge.
+        val room = (maxWidth - middleWidth) / 2 - gap - 10.dp
+        val bubbleW = minOf(72.dp, room)
+        val bubbleH = if (island) 32.dp else if (notch) 26.dp else 24.dp
+        val centerY = if (island) topInset - ISLAND_BELOW_GAP - ISLAND_HEIGHT / 2
+            else if (notch) topInset / 2 - 2.dp
+            else 16.dp
+        val top = (centerY - bubbleH / 2).coerceAtLeast(2.dp)
         val shape = RoundedCornerShape(50)
 
-        // Tap-away catcher: only while expanded.
-        if (expanded) {
-            Box(
-                Modifier.fillMaxSize()
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { expanded = false }
-            )
-        }
-
-        // Collapsed, the place to tap is the ring plus a band around it:
-        // the island's own surface is the system's, so the taps that reach
-        // Stellar are the ones just beside and below it.
-        if (!expanded && interactive) {
-            // (Under a notch the bubble itself can be tapped, so only a
-            // little extra is needed, and none below it — that's the app.)
-            val reach = if (notch) 6.dp else 12.dp
-            val reachBelow = if (notch) 0.dp else reach
-            val hitTop = (top - reach).coerceAtLeast(0.dp)
+        @Composable
+        fun Bubble(label: String, x: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
             Box(
                 Modifier
-                    .offset(x = (maxWidth - ringW) / 2 - reach, y = hitTop)
-                    .size(ringW + reach * 2, top + ringH + reachBelow - hitTop)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                        tap(); expanded = true
-                    }
-            )
-        }
-
-        Box(
-            Modifier
-                .offset(x = (maxWidth - width) / 2, y = top)
-                .width(width).height(ringH).clip(shape)
-                .then(
-                    if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
-                    else Modifier.background(tint.copy(alpha = 0.28f))
-                )
-                // Same two hairlines as Android's ring: a light one under
-                // the tinted one, so it reads over dark and light pages.
-                .border(1.5.dp, Color.White.copy(alpha = 0.35f), shape)
-                .border(1.dp, tint.copy(alpha = 0.9f), shape)
-        ) {
-            if (expanded) {
-                Row(Modifier.matchParentSize()) {
-                    Box(
-                        Modifier.width(sideWidth).fillMaxHeight()
-                            .clickable { tap(); expanded = false; onOpenCamera() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Camera", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    // The island's own space: tapping it just closes the menu.
-                    Box(Modifier.width(ringW).fillMaxHeight().clickable { tap(); expanded = false })
-                    Box(
-                        Modifier.width(sideWidth).fillMaxHeight()
-                            .clickable { tap(); expanded = false; onOpenVrm() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("VRM", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
+                    .offset(x = x, y = top)
+                    .size(bubbleW, bubbleH).clip(shape)
+                    .then(
+                        if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
+                        else Modifier.background(tint.copy(alpha = 0.28f)).border(1.dp, tint.copy(alpha = 0.9f), shape)
+                    )
+                    .clickable { tap(); onClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
+        Bubble("Camera", (maxWidth - middleWidth) / 2 - gap - bubbleW, onOpenCamera)
+        Bubble("VRM", (maxWidth + middleWidth) / 2 + gap, onOpenVrm)
     }
 }

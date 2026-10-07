@@ -13,6 +13,7 @@ import platform.AVFAudio.AVAudioSessionCategoryOptionAllowBluetooth
 import platform.AVFAudio.AVAudioSessionCategoryOptionDefaultToSpeaker
 import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
+import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
 import platform.AVFAudio.AVAudioUnitTimePitch
 import platform.AVFAudio.setActive
 import platform.Foundation.NSURL
@@ -28,7 +29,7 @@ import kotlin.concurrent.Volatile
  *
  * One of Apple's audio engines, wired like a small mixing desk:
  *
- *     microphone → pitch → mic fader ─┐
+ *     microphone → mic fader → pitch ─┐
  *     soundboard sounds ──────────────┴→ mix → (listened to here) → muted → speaker
  *
  *  - **Pitch** is VRM Settings › Voice pitch (semitones; 0 passes the
@@ -98,18 +99,37 @@ class IosAudioRig(
             e.connect(silencer, to = e.mainMixerNode, format = format)
             silencer.setOutputVolume(0f)
 
-            if (withMic) {
+            // The microphone is only wired in when iOS really has one to
+            // give right now. Apple's engine doesn't report a bad wiring as
+            // an error — it stops the whole app — so everything about the
+            // mic is checked first, and it's wired the most forgiving way:
+            //
+            //     microphone → fader → pitch → mix
+            //
+            // The mic goes straight into a mixer (the fader), in whatever
+            // format the phone's hardware is using at this moment; mixers
+            // take any format and convert it. Only after that, in one fixed
+            // ordinary format (stereo, 44.1 kHz), does it pass through the
+            // pitch effect. (It used to go into the pitch effect first, in
+            // the hardware's own format — mono, and at a rate that changes
+            // with the route — which is the wiring that crashed.)
+            if (withMic && session.recordPermission == AVAudioSessionRecordPermissionGranted) {
                 val input = e.inputNode
+                val hardware = input.inputFormatForBus(0u)
                 val inFormat = input.outputFormatForBus(0u)
-                // (No rate or no channels: the mic isn't really there.)
-                if (inFormat.sampleRate >= 8000.0 && inFormat.channelCount > 0u) {
+                // (No rate or no channels, or the two not agreeing yet: the
+                // mic isn't really there. The recording goes without it.)
+                if (hardware.sampleRate >= 8000.0 && hardware.channelCount > 0u &&
+                    inFormat.sampleRate == hardware.sampleRate && inFormat.channelCount > 0u
+                ) {
+                    val effectFormat = AVAudioFormat(standardFormatWithSampleRate = RATE, channels = 2u)
                     val pitch = AVAudioUnitTimePitch()
                     val fader = AVAudioMixerNode()
                     e.attachNode(pitch)
                     e.attachNode(fader)
-                    e.connect(input, to = pitch, format = inFormat)
-                    e.connect(pitch, to = fader, format = inFormat)
-                    e.connect(fader, to = out, format = inFormat)
+                    e.connect(input, to = fader, format = inFormat)
+                    e.connect(fader, to = pitch, format = effectFormat)
+                    e.connect(pitch, to = out, format = effectFormat)
                     pitch.setPitch(pitchSemitones.coerceIn(-12f, 12f) * 100f)
                     pitch.setBypass(pitchSemitones == 0f)
                     fader.setOutputVolume(if (muted) 0f else 1f)

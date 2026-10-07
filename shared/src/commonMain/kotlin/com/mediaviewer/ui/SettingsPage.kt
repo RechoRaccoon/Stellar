@@ -1510,28 +1510,38 @@ private fun AtProtocolAccountsBubble(
 // ── e621 account bubble ─────────────────────────────────────────────────────
 
 /** Settings → Integrations → "Scrobble Music to Rocksky" (a supporter
- *  feature): Stellar watches what the chosen music apps are playing and
- *  writes each listen to the signed-in account as Rocksky records. An "Apps"
- *  button to the left of the switch picks which apps count — none do until
- *  the user turns them on.
+ *  feature): Stellar watches what the chosen music apps are playing, shows
+ *  it as the official "Listening to" status on Rocksky straight away, and
+ *  writes each listen to the signed-in account as Rocksky records. A
+ *  "Settings" button to the left of the switch opens Scrobble Settings:
+ *  when a listen counts, and which apps count — none do until the user
+ *  turns them on.
  *
  *  Turning the switch on walks through what Android needs: first the
  *  permission to show the quiet "Stellar scrobbling" notification (Android 13
  *  and later), then the phone's "notification access" page, which is the
- *  permission that lets an app see what others are playing. */
+ *  permission that lets an app see what others are playing.
+ *
+ *  While it's on (or while an import is under way) the bubble grows a
+ *  second part: importing a Spotify / YouTube history file, the files being
+ *  imported with how far along each is, and "Work in Background". */
 @Composable
 private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
     val context = com.mediaviewer.ui.compat.LocalContext.current
     val scope = rememberCoroutineScope()
     val platform = com.mediaviewer.platform.LocalPlatform
     var status by remember { mutableStateOf(com.mediaviewer.util.ScrobblerStatus()) }
-    var appsOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
 
     suspend fun refresh() {
         status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { platform.scrobblerStatus(context) }
     }
-    // The permission is granted on a system page outside Stellar, so the row
-    // keeps checking while it's on screen and catches up on the way back.
+    suspend fun signedInDid(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
+    }
+    // The permissions are granted on system pages outside Stellar, and an
+    // import moves along by itself, so the row keeps checking while it's on
+    // screen.
     LaunchedEffect(Unit) {
         while (true) { refresh(); kotlinx.coroutines.delay(1500) }
     }
@@ -1539,10 +1549,9 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
     // scrobbler follows the one that is signed in now.
     LaunchedEffect(bskyLoggedIn, bskyHandle) {
         if (!bskyLoggedIn) return@LaunchedEffect
-        val did = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
-        }
-        if (did.isNotBlank() && platform.scrobblerStatus(context).enabled) platform.setScrobblerEnabled(context, true, did)
+        val did = signedInDid()
+        refresh()
+        if (did.isNotBlank() && status.enabled) platform.setScrobblerEnabled(context, true, did)
     }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
@@ -1550,12 +1559,21 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
         // scrobbling works without the notification, just less reliably.
         if (!platform.scrobblerStatus(context).access) platform.openScrobblerAccessSettings(context)
     }
+    val backgroundPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        // Then the phone is asked not to pause Stellar to save battery.
+        if (platform.scrobblerStatus(context).importBatteryRestricted) platform.requestScrobbleBatteryExemption(context)
+    }
+    val historyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val did = signedInDid()
+            if (did.isNotBlank()) platform.importScrobbleHistory(context, uri, did)
+            refresh()
+        }
+    }
 
     fun turnOn() {
         scope.launch {
-            val did = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
-            }
+            val did = signedInDid()
             if (did.isBlank()) return@launch
             platform.setScrobblerEnabled(context, true, did)
             refresh()
@@ -1572,9 +1590,20 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
         !on -> "Saves the music you listen to on this phone to Rocksky."
         !status.access -> "Needs notification access. Tap here to open it. If the switch there is grayed out, open Stellar's App info, tap the three dots, and choose \"Allow restricted settings\" first."
         status.error != null -> status.error
-        status.apps.none { it.on } -> "On. Tap Apps to choose which apps to scrobble."
+        status.apps.none { it.on } -> "On. Tap Settings to choose which apps to scrobble."
         status.queued > 0 -> "On. ${status.queued} waiting to upload."
         else -> "On. Listening for music in your chosen apps."
+    }
+
+    // Tap-to-arm confirmation for cancelling an import, as elsewhere in
+    // Settings: the first tap asks "Really?", a second within three seconds
+    // does it.
+    var confirmingCancel by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(confirmingCancel) {
+        if (confirmingCancel != null) {
+            kotlinx.coroutines.delay(3000)
+            confirmingCancel = null
+        }
     }
 
     SettingsBubble(liquidGlass, tint, backdrop) {
@@ -1587,8 +1616,8 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                 sub = sub
             )
             Spacer(Modifier.width(8.dp))
-            PillButton("Apps", {
-                if (com.mediaviewer.util.Supporter.active) appsOpen = true else com.mediaviewer.util.Supporter.openPage()
+            PillButton("Settings", {
+                if (com.mediaviewer.util.Supporter.active) settingsOpen = true else com.mediaviewer.util.Supporter.openPage()
             })
             Spacer(Modifier.width(8.dp))
             SupporterSwitch(on) { want ->
@@ -1596,71 +1625,217 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                 else { platform.setScrobblerEnabled(context, false, ""); scope.launch { refresh() } }
             }
         }
-    }
-
-    if (appsOpen) {
-        ScrobbleAppsDialog(
-            apps = status.apps, liquidGlass = liquidGlass, tint = tint,
-            onToggle = { pkg, want -> platform.setScrobblerApp(context, pkg, want); scope.launch { refresh() } },
-            onDismiss = { appsOpen = false }
-        )
-    }
-}
-
-/** The "Apps" popup of the scrobbling row: one switch per music app. The
- *  well-known ones come first, in a fixed order, followed by any other app
- *  Stellar has noticed playing music on this phone. */
-@Composable
-private fun ScrobbleAppsDialog(
-    apps: List<com.mediaviewer.util.ScrobbleApp>, liquidGlass: Boolean, tint: Color,
-    onToggle: (String, Boolean) -> Unit, onDismiss: () -> Unit
-) {
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
-    ) {
-        // Blurs (and dims) everything behind the popup.
-        com.mediaviewer.ui.compat.DialogBlurBehind(radius = 48, dimAmount = 0.45f)
-        Box(
-            Modifier.fillMaxSize().clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null, onClick = onDismiss
-            ),
-            contentAlignment = Alignment.Center
-        ) {
-            val shape = RoundedCornerShape(22.dp)
-            @Composable
-            fun Content() {
-                Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                    Text(
-                        "Which apps should Stellar Scrobble?", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+        if (bskyLoggedIn && (on || status.imports.isNotEmpty() || status.importReading)) {
+            BubbleDivider()
+            BubbleRow {
+                RowLabel(
+                    "Import YouTube/Spotify music history to Rocksky", Modifier.weight(1f),
+                    sub = if (status.importReading) "Reading the file…"
+                    else status.importMessage ?: "Pick the .zip or .json file Spotify or Google sent you."
+                )
+                Spacer(Modifier.width(8.dp))
+                PillButton("Import", {
+                    if (!com.mediaviewer.util.Supporter.active) com.mediaviewer.util.Supporter.openPage()
+                    // (Any file type: phones disagree on what a .zip or .json "is".)
+                    else historyPicker.launch(arrayOf("*/*"))
+                }, enabled = !status.importReading)
+            }
+            // Every imported file, oldest (the one being worked on) first.
+            status.imports.forEach { file ->
+                val finished = file.done + file.failed >= file.total
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel(
+                        file.name, Modifier.weight(1f),
+                        sub = when {
+                            file.failed > 0 -> "${file.failed} couldn't be sent"
+                            finished -> "Finished"
+                            else -> null
+                        }
                     )
-                    Spacer(Modifier.height(10.dp))
-                    Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                        apps.forEach { app ->
-                            Row(
-                                Modifier.fillMaxWidth().heightIn(min = 40.dp).clickable { onToggle(app.packageName, !app.on) },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    app.label, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-                                )
-                                CompactSwitch(app.on) { want -> onToggle(app.packageName, want) }
+                    Spacer(Modifier.width(8.dp))
+                    Text("(${file.done}/${file.total})", color = DimGray, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.width(8.dp))
+                    PillButton(
+                        when {
+                            finished -> "Clear"
+                            confirmingCancel == file.id -> "Really?"
+                            else -> "Cancel"
+                        },
+                        {
+                            if (finished || confirmingCancel == file.id) {
+                                confirmingCancel = null
+                                platform.cancelScrobbleImport(context, file.id)
+                                scope.launch { refresh() }
+                            } else confirmingCancel = file.id
+                        },
+                        color = if (!finished && confirmingCancel == file.id) Color(0xFFFF6B8A) else Color.White
+                    )
+                }
+            }
+            if (status.imports.isNotEmpty()) {
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel(
+                        "Work in Background",
+                        Modifier.weight(1f).then(
+                            if (status.importBackground && status.importBatteryRestricted) Modifier.clickable { platform.requestScrobbleBatteryExemption(context) }
+                            else Modifier
+                        ),
+                        sub = when {
+                            !status.importBackground -> "Keeps importing while Stellar is closed."
+                            status.importBatteryRestricted -> "On, but the phone may still pause it to save battery. Tap here to allow Stellar to keep running."
+                            else -> "On. Importing carries on while Stellar is closed."
+                        }
+                    )
+                    CompactSwitch(status.importBackground) { want ->
+                        platform.setScrobbleImportBackground(context, want)
+                        scope.launch {
+                            refresh()
+                            if (want) when {
+                                status.needsNotificationPermission -> backgroundPermission.launch("android.permission.POST_NOTIFICATIONS")
+                                status.importBatteryRestricted -> platform.requestScrobbleBatteryExemption(context)
                             }
                         }
                     }
                 }
             }
-            val m = Modifier.fillMaxWidth(0.9f).widthIn(max = 420.dp).clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null
-            ) {}
-            if (liquidGlass) {
-                LiquidGlassSurface(m, shape = shape, tint = tint) { Content() }
-            } else {
-                Box(m.clip(shape).background(OffBlack).border(1.dp, tint.copy(alpha = 0.5f), shape)) { Content() }
+        }
+    }
+
+    if (settingsOpen) {
+        ScrobbleSettingsDialog(
+            status = status, tint = tint,
+            onThreshold = { percent, seconds -> platform.setScrobblerThreshold(context, percent, seconds); scope.launch { refresh() } },
+            onToggle = { pkg, want -> platform.setScrobblerApp(context, pkg, want); scope.launch { refresh() } },
+            onClose = { settingsOpen = false }
+        )
+    }
+}
+
+/** "4:00" for 240 seconds. */
+private fun scrobbleTimeText(seconds: Int): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+
+/** Seconds for "4:00", "4.00" or "4" (minutes); null for anything else. */
+private fun parseScrobbleTime(text: String): Int? {
+    val parts = text.trim().split(':', '.')
+    val minutes = parts.getOrNull(0)?.toIntOrNull() ?: return null
+    val seconds = if (parts.size > 1) parts[1].toIntOrNull() ?: return null else 0
+    if (parts.size > 2 || minutes < 0 || seconds !in 0..59) return null
+    return (minutes * 60 + seconds).takeIf { it in 1..3600 }
+}
+
+/** One of the two small boxes in "Scrobble after (…)% or (…) of the track":
+ *  tap it and type. */
+@Composable
+private fun ScrobbleNumberField(value: String, width: androidx.compose.ui.unit.Dp, valid: Boolean, onChange: (String) -> Unit) {
+    androidx.compose.foundation.text.BasicTextField(
+        value = value, onValueChange = onChange, singleLine = true,
+        textStyle = LocalTextStyle.current.copy(color = if (valid) Color.White else Color(0xFFFF6B8A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
+        cursorBrush = SolidColor(Color.White),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+        modifier = Modifier.width(width),
+        decorationBox = { inner ->
+            Box(
+                Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(0.10f)).padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center
+            ) { inner() }
+        }
+    )
+}
+
+/** Scrobble Settings — the same centred, blurred-behind popup as Blocked
+ *  Accounts: a solid panel in the page's color with a close button. On top,
+ *  when a listen counts ("Scrobble after 50% or 4:00 of the track",
+ *  whichever comes first — Rocksky's own rule and starting values, both
+ *  editable); under it, one switch per music app. The well-known apps come
+ *  first, in a fixed order, followed by any other app Stellar has noticed
+ *  playing music on this phone. */
+@Composable
+private fun ScrobbleSettingsDialog(
+    status: com.mediaviewer.util.ScrobblerStatus, tint: Color,
+    onThreshold: (Int, Int) -> Unit, onToggle: (String, Boolean) -> Unit, onClose: () -> Unit
+) {
+    val tap = rememberHapticTap()
+    var percentText by remember { mutableStateOf(status.percent.toString()) }
+    var timeText by remember { mutableStateOf(scrobbleTimeText(status.seconds)) }
+    val percent = percentText.trim().toIntOrNull()?.takeIf { it in 1..100 }
+    val seconds = parseScrobbleTime(timeText)
+    // Saved as it's typed, whenever both boxes make sense.
+    LaunchedEffect(percent, seconds) {
+        if (percent != null && seconds != null && (percent != status.percent || seconds != status.seconds)) onThreshold(percent, seconds)
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onClose,
+        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
+    ) {
+        com.mediaviewer.ui.compat.DialogBlurBehind(radius = 48, dimAmount = 0.45f)
+        BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.Center) {
+            val shape = RoundedCornerShape(26.dp)
+            val panel = androidx.compose.ui.graphics.lerp(Color(0xFF101014), tint, 0.16f)
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
+                    .widthIn(max = 440.dp).fillMaxWidth()
+                    .heightIn(max = maxHeight * 0.82f)
+                    .clip(shape)
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(panel, tint, 0.12f).copy(alpha = 0.97f), panel.copy(alpha = 0.97f))))
+                    .border(1.2.dp, androidx.compose.ui.graphics.Brush.linearGradient(listOf(tint.copy(alpha = 0.9f), Color.White.copy(alpha = 0.25f), tint.copy(alpha = 0.6f))), shape)
+            ) {
+                // ── Header ──
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 8.dp, end = 10.dp, top = 10.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier.size(38.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f))
+                            .clickable { tap(); onClose() },
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(19.dp)) }
+                    Text(
+                        "Scrobble Settings",
+                        color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center, modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.size(38.dp))
+                }
+
+                // ── When a listen counts ──
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Scrobble after", color = Color.White, fontSize = 14.sp, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.width(6.dp))
+                    ScrobbleNumberField(percentText, 44.dp, percent != null) { typed -> percentText = typed.filter { it.isDigit() }.take(3) }
+                    Text("% or", color = Color.White, fontSize = 14.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 6.dp))
+                    ScrobbleNumberField(timeText, 54.dp, seconds != null) { typed -> timeText = typed.filter { it.isDigit() || it == ':' || it == '.' }.take(5) }
+                    Spacer(Modifier.width(6.dp))
+                    Text("of the track", color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+
+                Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.08f)))
+                Text(
+                    "Which apps do you want Stellar to scrobble?",
+                    color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.55f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp)
+                )
+
+                Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 2.dp, bottom = 10.dp)) {
+                    status.apps.forEach { app ->
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable { tap(); onToggle(app.packageName, !app.on) }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                app.label, color = Color.White, fontSize = 14.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                            )
+                            CompactSwitch(app.on) { want -> onToggle(app.packageName, want) }
+                        }
+                    }
+                }
             }
         }
     }

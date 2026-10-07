@@ -495,6 +495,8 @@ fun ProfileOverlay(
     onOpenListEntry: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
     /** The row's button: Add / Pin to Feeds / Follow All / Block All. */
     onListEntryAction: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
+    /** Your own Music History: a listen's deletion was confirmed. */
+    onDeleteScrobble: (RockskyTrack) -> Unit = {},
     /** An @handle in the bio was tapped. */
     onOpenMention: (String) -> Unit = {},
     /** The "Supporter" label was tapped: Settings' Support Stellar page. */
@@ -700,6 +702,8 @@ fun ProfileOverlay(
     // Lists/Feeds: the starter pack / moderation list waiting on a
     // "Follow All" / "Block All" confirmation.
     var pendingListAction by remember(author.did) { mutableStateOf<com.mediaviewer.model.ProfileListEntry?>(null) }
+    // Music History (your own): the listen waiting on a "Delete?" confirmation.
+    var pendingScrobbleDelete by remember(author.did) { mutableStateOf<RockskyTrack?>(null) }
     val isSupporter = com.mediaviewer.util.StellarSupporters.isSupporter(author.did)
     CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
     Box(Modifier.fillMaxSize()) {
@@ -962,6 +966,9 @@ fun ProfileOverlay(
                 postKindFilter = postKindFilter,
                 reviewKindFilter = reviewKindFilter,
                 profileTint = blended,
+                // Pressing and holding a listen offers to delete it — on
+                // your own profile only, since it's your own repo's record.
+                onLongPressTrack = if (selfDid.isNotBlank() && author.did == selfDid) { track -> pendingScrobbleDelete = track } else null,
                 onLoadMore = onLoadMore,
                 // Bug fix: capture scroll position before this profile gets
                 // hidden behind the post that's about to open — see
@@ -1206,6 +1213,17 @@ fun ProfileOverlay(
                 onDismiss = { pendingListAction = null },
                 preview = entry.avatarUrl,
                 destructive = !starter
+            )
+        }
+        pendingScrobbleDelete?.let { track ->
+            ConfirmPopup(
+                title = "Delete this listen?",
+                message = "\"${track.title}\" by ${track.artist} will be removed from your Music History and from Rocksky. This can't be undone.",
+                confirmLabel = "Delete",
+                liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
+                onConfirm = { pendingScrobbleDelete = null; onDeleteScrobble(track) },
+                onDismiss = { pendingScrobbleDelete = null },
+                preview = track.albumArtUrl
             )
         }
         if (editingProfile) {
@@ -2201,6 +2219,8 @@ private fun LazyListScope.profileResultsContent(
     onOpenBlog: (LeafletBlog) -> Unit,
     onOpenReview: (PopfeedReview) -> Unit,
     onOpenTitle: (PopfeedBacklogItem) -> Unit = {},
+    /** Music History: a listen was pressed and held (null = not your profile). */
+    onLongPressTrack: ((RockskyTrack) -> Unit)? = null,
     // Adjustment #5: the interaction bar's Grid button is now a 3-way cycle
     // remembered per (tab, sub-tab) — ProfileOverlay owns that map as a
     // file-level shared map (sharedGridModes) so the choice applies to
@@ -2352,7 +2372,8 @@ private fun LazyListScope.profileResultsContent(
             // profileMusicHistoryRows for the pagination/key fix.
             profileMusicHistoryRows(
                 tracks = tabState?.musicHistory ?: emptyList(), loading = tabState?.loading ?: false,
-                liquidGlass = liquidGlass, tint = profileTint, onLoadMore = onLoadMore
+                liquidGlass = liquidGlass, tint = profileTint, onLoadMore = onLoadMore,
+                onLongPress = onLongPressTrack
             )
             }
         }
@@ -3046,9 +3067,14 @@ private fun VideoCoverBadge(modifier: Modifier = Modifier, @Suppress("UNUSED_PAR
  *  survived. Every scrobble's own AT-URI (see RockskyTrack.uri) is
  *  actually unique per play, so that's the real key now — falling back to
  *  the old composite only for a track with no uri at all. */
-private fun LazyListScope.profileMusicHistoryRows(tracks: List<RockskyTrack>, loading: Boolean, liquidGlass: Boolean, tint: Color, onLoadMore: () -> Unit) {
+private fun LazyListScope.profileMusicHistoryRows(
+    tracks: List<RockskyTrack>, loading: Boolean, liquidGlass: Boolean, tint: Color, onLoadMore: () -> Unit,
+    onLongPress: ((RockskyTrack) -> Unit)? = null
+) {
     items(tracks, key = { it.uri.ifBlank { "track_${it.playedAt}_${it.title}_${it.artist}" } }) { track ->
         MusicHistoryRow(track = track, liquidGlass = liquidGlass, tint = tint,
+            // (Only a listen that is a record of its own can be deleted.)
+            onLongPress = if (onLongPress != null && track.uri.isNotBlank()) { { onLongPress(track) } } else null,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp))
     }
     // Item 7: pages in the next chunk once the person's actually scrolled
@@ -3063,7 +3089,8 @@ private fun LazyListScope.profileMusicHistoryRows(tracks: List<RockskyTrack>, lo
 }
 
 @Composable
-private fun MusicHistoryRow(track: RockskyTrack, liquidGlass: Boolean, tint: Color, modifier: Modifier = Modifier) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun MusicHistoryRow(track: RockskyTrack, liquidGlass: Boolean, tint: Color, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
     // Fix (per feedback): the bubble's outline matches the song's own cover
     // color — the same dominant-color treatment review bubbles get — and
     // the bubble is wrapped tighter around its content (cover closer to the
@@ -3077,6 +3104,12 @@ private fun MusicHistoryRow(track: RockskyTrack, liquidGlass: Boolean, tint: Col
                 if (liquidGlass) Modifier.glassPanel(true, tint = coverTint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
                     .border(1.dp, coverTint.copy(alpha = 0.6f), shape)
+            )
+            .then(
+                if (onLongPress != null) Modifier.clip(shape).combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    onClick = {}, onLongClick = onLongPress
+                ) else Modifier
             )
             .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)

@@ -1027,6 +1027,7 @@ fun AppRoot(viewModel: MainViewModel, pendingProfileLink: String? = null, onProf
                         if (entry.kind == com.mediaviewer.model.ProfileListKind.FEED) viewModel.openProfileFeed(entry)
                         else viewModel.openListMembers(entry)
                     },
+                    onDeleteScrobble = viewModel::deleteScrobble,
                     onListEntryAction = { entry ->
                         when (entry.kind) {
                             com.mediaviewer.model.ProfileListKind.FEED -> viewModel.addFeedFromProfile(entry)
@@ -1350,6 +1351,9 @@ fun AppRoot(viewModel: MainViewModel, pendingProfileLink: String? = null, onProf
                 liquidGlass = liquidGlass,
                 tint = notchTint,
                 interactive = notchInteractive,
+                // iOS's two bubbles: the Hub and the posting page only
+                // (not profile pages, where Android's ring also works).
+                showButtons = notchInteractive && (composePostOpen || !profileVisible),
                 modifier = Modifier.zIndex(11f),
                 // Camera: Stellar's own camera page (see CameraModeScreen).
                 // The QR page closes when Camera / VRM mode opens over it.

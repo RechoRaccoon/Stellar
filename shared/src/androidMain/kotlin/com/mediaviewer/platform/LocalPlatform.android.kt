@@ -1,6 +1,7 @@
 // check:jvm
 package com.mediaviewer.platform
 
+import kotlinx.coroutines.flow.first
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -173,8 +174,11 @@ actual object LocalPlatform {
             // The built-in list, then any other player the listener has seen.
             val known = com.mediaviewer.util.RockskyScrobbler.KNOWN_APPS
             val seen = org.json.JSONObject(p.getString(store.KEY_SEEN, "{}")!!)
+            // (Patched builds of YouTube / YouTube Music go with those two
+            // rows rather than getting rows of their own.)
+            val aliases = com.mediaviewer.util.RockskyScrobbler.APP_ALIASES.values.flatten().toSet()
             val others = seen.keys().asSequence().toList()
-                .filter { pkg -> known.none { it.first == pkg } }
+                .filter { pkg -> pkg !in aliases && known.none { it.first == pkg } }
                 .map { pkg -> com.mediaviewer.util.ScrobbleApp(pkg, seen.optString(pkg, pkg), pkg in chosen) }
                 .sortedBy { it.label.lowercase() }
             com.mediaviewer.util.ScrobblerStatus(
@@ -183,7 +187,15 @@ actual object LocalPlatform {
                 needsNotificationPermission = needsPermission,
                 queued = if (enabled) store.counts(app, did).first else 0,
                 error = p.getString("authError", null) ?: p.getString("serviceError", null),
-                apps = known.map { com.mediaviewer.util.ScrobbleApp(it.first, it.second, it.first in chosen) } + others
+                apps = known.map { com.mediaviewer.util.ScrobbleApp(it.first, it.second, it.first in chosen) } + others,
+                percent = p.getInt(store.KEY_PERCENT, com.mediaviewer.util.RockskyScrobbler.DEFAULT_PERCENT),
+                seconds = p.getInt(store.KEY_SECONDS, com.mediaviewer.util.RockskyScrobbler.DEFAULT_SECONDS),
+                imports = com.mediaviewer.scrobble.ScrobbleImporter.list(app, signedInDid(app)),
+                importReading = com.mediaviewer.scrobble.ScrobbleImporter.reading,
+                importMessage = p.getString(com.mediaviewer.scrobble.ScrobbleImporter.KEY_MESSAGE, null),
+                importBackground = p.getBoolean(com.mediaviewer.scrobble.ScrobbleImporter.KEY_BACKGROUND, false),
+                importBatteryRestricted = app.getSystemService(android.os.PowerManager::class.java)
+                    ?.isIgnoringBatteryOptimizations(app.packageName) == false
             )
         } catch (_: Exception) {
             com.mediaviewer.util.ScrobblerStatus(supported = true)
@@ -214,6 +226,62 @@ actual object LocalPlatform {
             val p = store.prefs(context.applicationContext)
             val chosen = p.getStringSet(store.KEY_APPS, emptySet())!!.toSet()
             p.edit().putStringSet(store.KEY_APPS, if (on) chosen + packageName else chosen - packageName).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    /** The account Stellar is signed in as right now ("" when signed out). */
+    private fun signedInDid(app: android.content.Context): String = try {
+        kotlinx.coroutines.runBlocking { com.mediaviewer.util.PreferencesManager(app).bskyDid.first() }.orEmpty()
+    } catch (_: Exception) { "" }
+
+    actual fun setScrobblerThreshold(context: PlatformContext, percent: Int, seconds: Int) {
+        try {
+            val store = com.mediaviewer.scrobble.ScrobbleStore
+            store.prefs(context.applicationContext).edit()
+                .putInt(store.KEY_PERCENT, percent.coerceIn(1, 100)).putInt(store.KEY_SECONDS, seconds.coerceIn(1, 3600)).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun importScrobbleHistory(context: PlatformContext, uri: PlatformUri, did: String) {
+        com.mediaviewer.scrobble.ScrobbleImporter.add(context.applicationContext, uri, did)
+    }
+
+    actual fun cancelScrobbleImport(context: PlatformContext, id: Long) {
+        try { com.mediaviewer.scrobble.ScrobbleImporter.cancel(context.applicationContext, id) } catch (_: Exception) {}
+    }
+
+    actual fun setScrobbleImportBackground(context: PlatformContext, on: Boolean) {
+        val app = context.applicationContext
+        try {
+            com.mediaviewer.scrobble.ScrobbleStore.prefs(app).edit()
+                .putBoolean(com.mediaviewer.scrobble.ScrobbleImporter.KEY_BACKGROUND, on).commit()
+            // (Switched off, the notification notices and goes away by itself.)
+            if (on) com.mediaviewer.scrobble.ScrobbleImporter.resume(app)
+        } catch (_: Exception) {
+        }
+    }
+
+    @android.annotation.SuppressLint("BatteryLife")
+    actual fun requestScrobbleBatteryExemption(context: PlatformContext) {
+        val app = context.applicationContext
+        // Android's own "Let Stellar always run in the background?" prompt;
+        // on a phone that doesn't have it, the list where it's chosen by hand.
+        val asked = try {
+            (activityOf(context) ?: app).startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + app.packageName))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+        if (!asked) try {
+            (activityOf(context) ?: app).startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         } catch (_: Exception) {
         }
     }

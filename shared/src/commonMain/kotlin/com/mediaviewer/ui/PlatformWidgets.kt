@@ -44,8 +44,9 @@ expect fun EmbeddedWebView(url: String, modifier: Modifier = Modifier)
  *  image uses), or null where Textshot can't render. Blocking. */
 expect fun renderTextshotPreview(text: String, store: EmojiStore): ImageBitmap?
 
-/** The ring around the camera cutout: tap to open Camera / VRM mode
- *  (Android only — on iOS there's nothing drawn there). */
+/** Android: the ring around the camera cutout — tap to open Camera / VRM
+ *  mode. iOS: two separate bubbles, "Camera" and "VRM", either side of the
+ *  Dynamic Island, with nothing drawn around the island. */
 @Composable
 expect fun CameraNotchButton(
     liquidGlass: Boolean,
@@ -53,6 +54,9 @@ expect fun CameraNotchButton(
     modifier: Modifier = Modifier,
     /** False = a passive ring: drawn, but untappable. */
     interactive: Boolean = true,
+    /** iOS only: whether its two bubbles are there at all (the Hub and
+     *  the posting page). Android's ring is always drawn. */
+    showButtons: Boolean = interactive,
     onOpenCamera: () -> Unit,
     onOpenVrm: () -> Unit
 )

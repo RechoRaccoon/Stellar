@@ -17,17 +17,18 @@ import java.util.Locale
 import kotlin.math.min
 
 /**
- * What "Scrobble Music to Rocksky" is set to. The timing rules are
- * Rocksky's own defaults: a listen counts once you've heard half of the
- * song or four minutes of it, whichever comes first, and songs under
- * thirty seconds never count.
+ * What "Scrobble Music to Rocksky" is set to. The timing rules start out
+ * as Rocksky's own: a listen counts once you've heard half of the song or
+ * four minutes of it, whichever comes first (both can be changed under
+ * Scrobble Settings), and songs under thirty seconds never count.
  */
 class ScrobbleSettings(
     /** Switched on in Settings, signed in, and a supporter. */
     val enabled: Boolean,
     /** The account the listens belong to. */
     val did: String,
-    /** The apps chosen under "Apps" (package names). None by default. */
+    /** The apps chosen under Scrobble Settings (package names), together
+     *  with the other builds of them (ReVanced and the like). None by default. */
     val apps: Set<String>,
     val mode: String = "listened",
     val seconds: Int = 240,
@@ -47,6 +48,9 @@ object ScrobbleStore {
     const val KEY_APPS = "apps"
     /** Apps the listener has seen playing something: package → name. */
     const val KEY_SEEN = "seen"
+    /** "Scrobble after …% or … seconds of the track". */
+    const val KEY_PERCENT = "percent"
+    const val KEY_SECONDS = "seconds"
 
     fun prefs(c: Context): SharedPreferences = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -56,7 +60,39 @@ object ScrobbleStore {
         val on = p.getBoolean(KEY_ENABLED, false) && did.isNotBlank() &&
             // (A supporter feature: it rests if the support has lapsed.)
             com.mediaviewer.widget.StellarWidgets.isSupporter(c)
-        return ScrobbleSettings(on, did, p.getStringSet(KEY_APPS, emptySet())!!.toSet())
+        val chosen = p.getStringSet(KEY_APPS, emptySet())!!.toSet()
+        // "YouTube" and "YouTube Music" also mean their patched builds.
+        val apps = chosen + chosen.flatMap { com.mediaviewer.util.RockskyScrobbler.APP_ALIASES[it].orEmpty() }
+        return ScrobbleSettings(
+            on, did, apps,
+            seconds = p.getInt(KEY_SECONDS, com.mediaviewer.util.RockskyScrobbler.DEFAULT_SECONDS).coerceIn(1, 3600),
+            percent = p.getInt(KEY_PERCENT, com.mediaviewer.util.RockskyScrobbler.DEFAULT_PERCENT).coerceIn(1, 100)
+        )
+    }
+
+    /**
+     * What each account's repo already holds (see [com.mediaviewer.util.ScrobbleIndex]),
+     * kept in the same database so it survives restarts — an import of
+     * tens of thousands of listens leans on it to never write one twice.
+     */
+    fun index(c: Context): com.mediaviewer.util.ScrobbleIndex {
+        val app = c.applicationContext
+        return object : com.mediaviewer.util.ScrobbleIndex {
+            override fun has(key: String): Boolean =
+                db(app).rawQuery("SELECT 1 FROM known WHERE id=?", arrayOf(key)).use { it.moveToFirst() }
+
+            override fun addAll(keys: List<String>) {
+                if (keys.isEmpty()) return
+                val db = db(app)
+                db.beginTransaction()
+                try {
+                    keys.forEach { key ->
+                        db.insertWithOnConflict("known", null, ContentValues().apply { put("id", key) }, SQLiteDatabase.CONFLICT_IGNORE)
+                    }
+                    db.setTransactionSuccessful()
+                } finally { db.endTransaction() }
+            }
+        }
     }
 
     @Volatile private var helper: QueueDb? = null
@@ -93,7 +129,7 @@ object ScrobbleStore {
     }
 
     private class QueueDb(c: Context) : SQLiteOpenHelper(
-        c, java.io.File(c.noBackupFilesDir, "stellar_scrobbles.db").absolutePath, null, 1
+        c, java.io.File(c.noBackupFilesDir, "stellar_scrobbles.db").absolutePath, null, 2
     ) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE queue (id TEXT PRIMARY KEY, did TEXT NOT NULL, source TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0)")
@@ -101,9 +137,22 @@ object ScrobbleStore {
             db.execSQL("CREATE TABLE playback (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
             db.execSQL("CREATE TABLE recognitions (id TEXT PRIMARY KEY, seen INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE receipts (id TEXT PRIMARY KEY)")
+            createVersion2(db)
         }
 
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {}
+        /** Added with history importing: what's known to be in each repo,
+         *  the imported files, and every listen in them with whether it has
+         *  been sent (state 0 = waiting, 1 = done, 2 = couldn't be sent). */
+        private fun createVersion2(db: SQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS known (id TEXT PRIMARY KEY)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS imports (id INTEGER PRIMARY KEY AUTOINCREMENT, did TEXT NOT NULL, name TEXT NOT NULL, total INTEGER NOT NULL, created INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS import_plays (id INTEGER PRIMARY KEY AUTOINCREMENT, import_id INTEGER NOT NULL, title TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, ts INTEGER NOT NULL, state INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS import_plays_next ON import_plays(import_id,state,id)")
+        }
+
+        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+            if (old < 2) createVersion2(db)
+        }
     }
 }
 

@@ -164,7 +164,7 @@ private class IosTagStore(private val path: String) {
     fun search(groups: List<List<String>>, limit: Int): List<String> = locked {
         if (groups.isEmpty() || groups.any { it.isEmpty() }) return@locked emptyList()
         posts.values.asSequence()
-            .filter { post -> groups.all { group -> post.tags.any { tag -> group.any { term -> tag.n == term || tag.n.contains(term) } } } }
+            .filter { post -> groups.all { group -> post.tags.any { tag -> group.any { term -> tag.n.contains(term, ignoreCase = true) } } } }
             .sortedByDescending { it.at }
             .take(limit).map { it.uri }.toList()
     }

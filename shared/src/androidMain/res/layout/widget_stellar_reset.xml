@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown for an instant, once, after Stellar has been updated: it makes
+     the home screen throw away the widget it built from the previous
+     version's layout and build the new one from scratch (see
+     StellarWidgets.update). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />

@@ -44,6 +44,7 @@ class ScrobbleUploadJob : JobService() {
                 // At most a hundred a run, so a long offline history doesn't
                 // hold the job open for minutes.
                 var submitted = 0
+                val index = ScrobbleStore.index(this)
                 while (!stop.get() && submitted < 100) {
                     val settings = ScrobbleStore.settings(this)
                     if (!settings.enabled) break
@@ -57,7 +58,11 @@ class ScrobbleUploadJob : JobService() {
                         album = j.optString("album"), albumArtist = j.optString("albumArtist"),
                         durationMs = j.optLong("duration"), timestampSeconds = j.optLong("timestamp")
                     )
-                    val outcome = runBlocking { RockskyScrobbler.upload(applicationContext, settings.did, track) }
+                    // (The first time for an account: find out what its repo
+                    // already holds, so no artist, album or song is written
+                    // a second time. Sending doesn't wait on it succeeding.)
+                    if (!RockskyScrobbler.isIndexed(settings.did, index)) runBlocking { RockskyScrobbler.syncIndex(settings.did, index) }
+                    val outcome = runBlocking { RockskyScrobbler.upload(applicationContext, settings.did, track, index) }
                     val prefs = ScrobbleStore.prefs(this)
                     when (outcome) {
                         ScrobbleUploadOutcome.DONE -> {
@@ -73,7 +78,7 @@ class ScrobbleUploadJob : JobService() {
                             db.execSQL("UPDATE queue SET failed=1 WHERE id=?", arrayOf(row.first))
                             submitted++
                         }
-                        ScrobbleUploadOutcome.RETRY -> {
+                        ScrobbleUploadOutcome.RETRY, ScrobbleUploadOutcome.LIMITED -> {
                             prefs.edit().putString("uploadError", "Waiting for a connection. Your listens are saved and will be sent.").apply()
                             retry = true
                             break
@@ -140,6 +145,8 @@ class ScrobbleUploadJob : JobService() {
 class ScrobbleBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        // (A history import that was under way carries on too.)
+        try { ScrobbleImporter.resume(context) } catch (_: Exception) {}
         try {
             if (!ScrobbleStore.settings(context).enabled) return
             NotificationListenerService.requestRebind(ComponentName(context, StellarScrobbleListener::class.java))

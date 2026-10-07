@@ -39,10 +39,15 @@ import java.util.UUID
  * shows: which app, the song's title, artist and album, how long it is,
  * where it's up to, and whether it's playing. Nothing is read from the
  * sound itself. This service watches those sessions for the apps switched
- * on under Settings › Integrations › Apps (none, to begin with), times how
+ * on under Settings › Integrations › Scrobble Settings (none, to begin with), times how
  * long each song has actually been heard, and once it has been heard for
  * long enough — half of it, or four minutes — saves the listen for
  * [ScrobbleUploadJob] to send.
+ *
+ * The moment a song starts in one of those apps it also becomes your
+ * official "Listening to" status on Rocksky, well before it has been heard
+ * for long enough to count as a listen; the status is taken away again
+ * when the music stops (see [publishStatus]).
  *
  * While it's switched on it shows one quiet, permanent notification (no
  * sound, no pop-up), which is what lets Android keep it running with the
@@ -61,6 +66,14 @@ class StellarScrobbleListener : NotificationListenerService() {
     private var foreground = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var checkpoint = 0L
+    // "Listening to": the song last published as the status, when that
+    // status runs out, and since when nothing has been playing.
+    private var statusKey: String? = null
+    private var statusUntil = 0L
+    private var candidateKey: String? = null
+    private var candidateSince = 0L
+    private var silentSince = 0L
+    private val statusWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val manager by lazy { getSystemService(MediaSessionManager::class.java) }
     private val sessions = MediaSessionManager.OnActiveSessionsChangedListener { attach(it.orEmpty()) }
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -104,6 +117,7 @@ class StellarScrobbleListener : NotificationListenerService() {
         val settings = ScrobbleStore.settings(this)
         val next = settings.did.takeIf { it.isNotBlank() }
         if (next != account || !settings.enabled) {
+            account?.let { clearStatus(it) }
             tracks.clear(); current = null
             pendingRecognition.values.forEach { handler.removeCallbacks(it) }; pendingRecognition.clear()
             // A half-heard song must never carry over to another account.
@@ -224,6 +238,7 @@ class StellarScrobbleListener : NotificationListenerService() {
             group.maxBy { if (it.playbackState?.state == PlaybackState.STATE_PLAYING) 1 else 0 }
         }
         var anyPlaying = false
+        var nowPlaying: Listen? = null
         current = null
         selected.filter { it.packageName in settings.apps }.forEach { c ->
             val meta = metadata(c) ?: return@forEach
@@ -256,6 +271,7 @@ class StellarScrobbleListener : NotificationListenerService() {
             qualify(listen, settings, did)
             if (playing) {
                 anyPlaying = true
+                if (nowPlaying == null) nowPlaying = listen
                 current = meta.optString("title") + " — " + meta.optString("artist")
             }
         }
@@ -268,6 +284,7 @@ class StellarScrobbleListener : NotificationListenerService() {
         // Every few seconds, where each song is up to is written down, so a
         // listen survives Android restarting the service part-way through.
         if (now - checkpoint > 5000) { tracks.values.forEach { save(it, did) }; checkpoint = now }
+        publishStatus(nowPlaying, did, now)
         if (anyPlaying) {
             if (wakeLock?.isHeld != true) {
                 wakeLock = getSystemService(PowerManager::class.java)
@@ -275,6 +292,55 @@ class StellarScrobbleListener : NotificationListenerService() {
             }
         } else releaseWakeLock()
     }
+
+    /**
+     * Keeps the official "Listening to" status in step with what's playing.
+     * A song becomes the status once it has been playing for a second and a
+     * half (so skipping through a playlist doesn't write one for every
+     * skip), and again whenever its status is about to run out while it's
+     * still playing. Ten seconds of nothing playing takes the status away.
+     */
+    private fun publishStatus(listen: Listen?, did: String, now: Long) {
+        if (listen == null) {
+            candidateKey = null
+            if (statusKey == null) return
+            if (silentSince == 0L) silentSince = now
+            if (now - silentSince >= 10_000) clearStatus(did)
+            return
+        }
+        silentSince = 0L
+        val key = listen.source + "|" + listen.key
+        if (key != candidateKey) { candidateKey = key; candidateSince = now }
+        if (now - candidateSince < 1500) return
+        if (key == statusKey && now < statusUntil - 5000) return
+        val meta = listen.metadata
+        val duration = meta.optLong("duration")
+        val track = com.mediaviewer.util.NowPlayingTrack(
+            title = meta.optString("title"), artist = meta.optString("artist"), album = meta.optString("album"),
+            durationMs = duration, positionMs = listen.position, source = appLabel(listen.source)
+        )
+        statusKey = key
+        statusUntil = now + if (duration > 0) (duration - listen.position).coerceAtLeast(0) +
+            com.mediaviewer.util.RockskyScrobbler.NOW_PLAYING_GRACE_MS else 10 * 60_000L
+        val app = applicationContext
+        statusWriter.execute {
+            try { kotlinx.coroutines.runBlocking { com.mediaviewer.util.RockskyScrobbler.setNowPlaying(app, did, track) } } catch (_: Exception) {}
+        }
+    }
+
+    private fun clearStatus(did: String) {
+        if (statusKey == null) return
+        statusKey = null; statusUntil = 0L; silentSince = 0L; candidateKey = null
+        val app = applicationContext
+        statusWriter.execute {
+            try { kotlinx.coroutines.runBlocking { com.mediaviewer.util.RockskyScrobbler.clearNowPlaying(app, did) } } catch (_: Exception) {}
+        }
+    }
+
+    /** "Spotify" for com.spotify.music: the player's name as the phone shows it. */
+    private fun appLabel(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (_: Exception) { pkg }
 
     private fun finish(listen: Listen, now: Long, settings: ScrobbleSettings, did: String) {
         listen.clock.update(now, false)
@@ -386,6 +452,7 @@ class StellarScrobbleListener : NotificationListenerService() {
     private fun releaseWakeLock() { if (wakeLock?.isHeld == true) wakeLock?.release(); wakeLock = null }
 
     private fun disconnect() {
+        account?.let { clearStatus(it) }
         connected = false; current = null
         handler.removeCallbacksAndMessages(null)
         pendingRecognition.clear()
@@ -402,7 +469,12 @@ class StellarScrobbleListener : NotificationListenerService() {
         if (ScrobbleStore.settings(this).enabled) requestRebind(ComponentName(this, StellarScrobbleListener::class.java))
     }
 
-    override fun onDestroy() { disconnect(); super.onDestroy() }
+    override fun onDestroy() {
+        disconnect()
+        // (Lets a last "nothing playing" reach the server before closing.)
+        statusWriter.shutdown()
+        super.onDestroy()
+    }
 
     companion object {
         private const val TAG = "StellarScrobbler"

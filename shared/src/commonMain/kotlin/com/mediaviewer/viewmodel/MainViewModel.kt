@@ -4308,39 +4308,62 @@ class MainViewModel(
         // no Rocksky connection at all — both are a normal null result).
         nowPlayingJob?.cancel()
         nowPlayingJob = viewModelScope.launch(Dispatchers.IO) {
-            // Official now-playing first. Otherwise (the usual case) the
-            // latest scrobble counts as "Listening to" for 5 minutes from
-            // when it started (see RockskyRepository.inferNowPlaying). While
-            // the profile stays open the history is re-checked every 30s, so
-            // a newer song replaces it and the status clears on time.
-            val official = rockskyRepo.getNowPlaying(author.did)
-            if (official != null) {
-                _profileOverlay.value?.takeIf { it.author.did == author.did }?.let { _profileOverlay.value = it.copy(nowPlaying = official) }
-                return@launch
-            }
+            // The official status first — what Rocksky's own players and
+            // Stellar's built-in scrobbler publish the moment a song starts.
+            // Only when there is none does the guess stand in: the latest
+            // scrobble counts as "Listening to" for 5 minutes from when it
+            // started (see RockskyRepository.inferNowPlaying). While the
+            // profile stays open both are re-checked, so the official status
+            // takes over from the guess as soon as it appears, a newer song
+            // replaces an older one, and the status clears on time.
             var checks = 0
             while (true) {
-                val inferred = rockskyRepo.inferNowPlaying(author.did)
+                val official = rockskyRepo.getNowPlaying(author.did)
+                val inferred = if (official == null) rockskyRepo.inferNowPlaying(author.did) else null
+                val t = official ?: inferred?.track
                 val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
-                if (cur.nowPlaying != inferred.track) {
-                    // A new song: show it at the top of the Music History tab
-                    // too, from the scrobble we just read — no extra request.
-                    val t = inferred.track
+                if (cur.nowPlaying != t) {
+                    // A new (guessed) song: show it at the top of the Music
+                    // History tab too, from the scrobble we just read — no
+                    // extra request.
                     val history = cur.tabStates[ProfileTab.MUSIC_HISTORY]
-                    val newTabStates = if (t != null && history != null && history.loaded &&
+                    val newTabStates = if (official == null && t != null && history != null && history.loaded &&
                         history.musicHistory.none { it.uri.isNotBlank() && it.uri == t.uri }
                     ) {
                         cur.tabStates + (ProfileTab.MUSIC_HISTORY to history.copy(musicHistory = listOf(t.copy(endsAtMs = 0L)) + history.musicHistory))
                     } else cur.tabStates
                     _profileOverlay.value = cur.copy(nowPlaying = t, tabStates = newTabStates)
                 }
-                // No Music History at all: nothing to keep watching.
-                if (!inferred.hasHistory || ++checks > 240) return@launch
-                val endsAt = inferred.track?.endsAtMs ?: 0L
-                val wait = if (endsAt > 0L) (endsAt - com.mediaviewer.platform.currentTimeMillis()).coerceIn(1_000L, 30_000L) else 30_000L
+                // No status and no Music History at all: nothing to keep watching.
+                if ((official == null && inferred?.hasHistory != true) || ++checks > 480) return@launch
+                val endsAt = t?.endsAtMs ?: 0L
+                val longest = if (official != null) 15_000L else 30_000L
+                val wait = if (endsAt > 0L) (endsAt - com.mediaviewer.platform.currentTimeMillis()).coerceIn(1_000L, longest) else longest
                 delay(wait)
                 if (_profileOverlay.value?.author?.did != author.did) return@launch
             }
+        }
+    }
+
+    /**
+     * Your own Music History: deletes one listen — its `app.rocksky.scrobble`
+     * record in your repo — and takes it off the open profile's list once
+     * the server has agreed. Rocksky drops it from its own copy by itself.
+     */
+    fun deleteScrobble(track: RockskyTrack) {
+        if (track.uri.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val problem = com.mediaviewer.util.RockskyScrobbler.deleteScrobble(platform.context, track.uri)
+            if (problem != null) { showToast(problem); return@launch }
+            val cur = _profileOverlay.value ?: return@launch
+            val history = cur.tabStates[ProfileTab.MUSIC_HISTORY]
+            _profileOverlay.value = cur.copy(
+                // (It may also be the song the "Listening to" guess was made from.)
+                nowPlaying = cur.nowPlaying?.takeIf { it.uri != track.uri },
+                tabStates = if (history == null) cur.tabStates
+                else cur.tabStates + (ProfileTab.MUSIC_HISTORY to history.copy(musicHistory = history.musicHistory.filter { it.uri != track.uri }))
+            )
+            showToast("Listen deleted")
         }
     }
 

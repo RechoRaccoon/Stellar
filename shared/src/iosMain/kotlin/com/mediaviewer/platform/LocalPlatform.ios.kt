@@ -77,4 +77,9 @@ actual object LocalPlatform {
     actual fun setScrobblerEnabled(context: PlatformContext, on: Boolean, did: String) {}
     actual fun setScrobblerApp(context: PlatformContext, packageName: String, on: Boolean) {}
     actual fun openScrobblerAccessSettings(context: PlatformContext) {}
+    actual fun setScrobblerThreshold(context: PlatformContext, percent: Int, seconds: Int) {}
+    actual fun importScrobbleHistory(context: PlatformContext, uri: PlatformUri, did: String) {}
+    actual fun cancelScrobbleImport(context: PlatformContext, id: Long) {}
+    actual fun setScrobbleImportBackground(context: PlatformContext, on: Boolean) {}
+    actual fun requestScrobbleBatteryExemption(context: PlatformContext) {}
 }

@@ -151,6 +151,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-enabled music scrobbling: observe other players' media sessions and save listens while the screen is off" />
         </service>
+        <!-- History import's "Work in Background": a quiet notification with
+             the import's progress, shown only while listens are left to send. -->
+        <service
+            android:name="com.mediaviewer.scrobble.ScrobbleImportService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started import of their own music listening history, written to their account at a rate-limited pace over hours or days" />
+        </service>
         <service
             android:name="com.mediaviewer.scrobble.ScrobbleUploadJob"
             android:exported="true"

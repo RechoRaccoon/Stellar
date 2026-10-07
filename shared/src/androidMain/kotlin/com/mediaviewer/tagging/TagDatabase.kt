@@ -212,8 +212,10 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val db = readableDatabase
         for (group in termGroups) {
             val exactPlaceholders = group.joinToString(",") { "?" }
-            val likeClauses = group.joinToString(" OR ") { "tag_name LIKE ?" }
-            val likeArgs = group.map { "%$it%" }
+            // (In a LIKE pattern "_" and "%" mean "any character(s)". Tags
+            // are full of underscores, so they're escaped to mean themselves.)
+            val likeClauses = group.joinToString(" OR ") { "tag_name LIKE ? ESCAPE '\\'" }
+            val likeArgs = group.map { "%" + it.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" }
             val matches = LinkedHashSet<String>()
             db.rawQuery(
                 "SELECT DISTINCT post_uri FROM media_tags WHERE tag_name IN ($exactPlaceholders) OR $likeClauses",

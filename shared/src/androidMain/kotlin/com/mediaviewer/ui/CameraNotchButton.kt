@@ -77,6 +77,8 @@ actual fun CameraNotchButton(
     /** False = a passive ring: drawn, but untappable, and touches pass
      *  straight through to whatever is underneath. */
     interactive: Boolean,
+    /** (For iOS's separate Camera / VRM bubbles; the ring here doesn't use it.) */
+    showButtons: Boolean,
     onOpenCamera: () -> Unit,
     onOpenVrm: () -> Unit
 ) {

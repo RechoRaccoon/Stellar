@@ -6,8 +6,13 @@ import com.mediaviewer.platform.PlatformContext
 import com.mediaviewer.platform.currentTimeMillis
 import com.mediaviewer.platform.nanoTime
 import com.mediaviewer.platform.nowIsoString
-import com.mediaviewer.platform.sharedPreferences
 import com.mediaviewer.repository.BlueskyRepository
+import com.mediaviewer.json.JSONObject
+import com.mediaviewer.network.PlainHttp
+import com.mediaviewer.network.bodyString
+import com.mediaviewer.network.isSuccessful
+import com.mediaviewer.worker.BlueskyBlobResolver
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -31,10 +36,34 @@ enum class ScrobbleUploadOutcome {
     /** The server refused this one for good: set it aside. */
     REJECTED,
     /** No connection or a server hiccup: try again later. */
-    RETRY
+    RETRY,
+    /** The account's server said "too many writes for now": wait a good while. */
+    LIMITED
 }
 
-/** An app the scrobbler can listen to, for Settings › Integrations › Apps. */
+/**
+ * What's already in an account's repo, so nothing is written twice — the
+ * job Rocksky's own tools give a local "dedup index" (sdk/typescript/src/
+ * dedup.ts). Each entry stands for one record: an artist, an album, a
+ * song, or one listen of a song at one second.
+ */
+interface ScrobbleIndex {
+    fun has(key: String): Boolean
+    fun addAll(keys: List<String>)
+}
+
+/** The song a music app is playing right now, for the "Listening to" status. */
+class NowPlayingTrack(
+    val title: String, val artist: String, val album: String,
+    val durationMs: Long, val positionMs: Long,
+    /** The player's name, e.g. "Spotify". */
+    val source: String
+)
+
+/** One imported history file and how far along it is. */
+data class ScrobbleImport(val id: Long, val name: String, val done: Int, val total: Int, val failed: Int)
+
+/** An app the scrobbler can listen to, for Settings › Integrations › Scrobble Settings. */
 data class ScrobbleApp(val packageName: String, val label: String, val on: Boolean)
 
 /** How "Scrobble Music to Rocksky" is doing, for its row in Settings. */
@@ -51,38 +80,56 @@ data class ScrobblerStatus(
     /** Listens saved on the phone, waiting to be sent. */
     val queued: Int = 0,
     val error: String? = null,
-    val apps: List<ScrobbleApp> = emptyList()
+    val apps: List<ScrobbleApp> = emptyList(),
+    /** "Scrobble after …% or …:… of the track", whichever comes first. */
+    val percent: Int = RockskyScrobbler.DEFAULT_PERCENT,
+    val seconds: Int = RockskyScrobbler.DEFAULT_SECONDS,
+    /** History files being imported, in the order they'll be worked on. */
+    val imports: List<ScrobbleImport> = emptyList(),
+    /** A picked file is still being read. */
+    val importReading: Boolean = false,
+    /** Why the last picked file couldn't be imported, or how the import is held up. */
+    val importMessage: String? = null,
+    /** "Work in Background" is on. */
+    val importBackground: Boolean = false,
+    /** The phone may still pause background work to save battery. */
+    val importBatteryRestricted: Boolean = false
 )
 
 /**
  * "Scrobble Music to Rocksky" (a supporter feature): the part that turns a
- * finished listen into records in your own AT Protocol repo — the same four
- * records, with the same contents, that Rocksky's server writes when its
- * own app scrobbles (apps/api/src/nowplaying/nowplaying.service.ts in
- * github.com/tsirysndr/rocksky):
+ * listen into records in your own AT Protocol repo.
  *
- *  - `app.rocksky.song`, `app.rocksky.artist`, `app.rocksky.album` — once
- *    each, the first time you play that song / artist / album;
- *  - `app.rocksky.scrobble` — one for every listen, dated when it began.
+ * This is the way Rocksky's official SDK and its `rocksky import` command
+ * do it (sdk/typescript/src/agent.ts in github.com/tsirysndr/rocksky):
+ * signed in with your Bluesky account, they write straight to your PDS —
  *
- * Rocksky's app doesn't write these itself: it hands the listen to
- * Rocksky's server (app.rocksky.scrobble.createScrobble), which needs a
- * Rocksky sign-in Stellar doesn't have. Stellar writes them straight to
- * your repo with your Bluesky session instead. Rocksky watches the network
- * for `app.rocksky.scrobble` records from anyone (crates/jetstream), so the
- * listen shows up on Rocksky the same way.
+ *  - `app.rocksky.artist`, `app.rocksky.album`, `app.rocksky.song` — once
+ *    each, in that order, the first time that artist / album / song turns
+ *    up (what's already in your repo is looked up first, see [syncIndex]);
+ *  - `app.rocksky.scrobble` — one for every listen, dated when it began;
+ *  - `app.rocksky.actor.status` (always the one record, "self") — what
+ *    you're listening to right now, removed again when the music stops.
+ *
+ * Rocksky watches the network for these records from anyone, so they show
+ * up on Rocksky the same as its own. (Rocksky's Android app takes another
+ * road: it signs in to Rocksky's server, which then writes the records for
+ * it. That sign-in is Rocksky's own and can't be borrowed by another app;
+ * the SDK's road is the one meant for everyone else.)
  *
  * Before writing, the song is looked up with Rocksky's public matcher
  * (app.rocksky.song.matchSong), which supplies what a music app's
  * notification doesn't: album art, MusicBrainz ids, ISRC, release date,
- * genres. Title, artist and album stay exactly as your player gave them.
+ * genres. The records carry the same fields Rocksky's server fills in
+ * (apps/api/src/nowplaying/nowplaying.service.ts).
  *
  * Shared code, so it's compiled and checked for both platforms; only
- * Android has the listener that feeds it (androidMain/.../scrobble).
+ * Android has the listener and the importer that feed it
+ * (androidMain/.../scrobble).
  */
 object RockskyScrobbler {
     /**
-     * The apps listed under Settings › Integrations › Apps, in the order
+     * The apps listed under Settings › Integrations › Scrobble Settings, in the order
      * they're shown: the five asked for first, then the rest of what
      * Rocksky's own app lists (apps/app/src/screens/Account/Scrobbling.tsx).
      * The last four don't play music — they recognise what's playing
@@ -103,11 +150,32 @@ object RockskyScrobbler {
         "com.mrsep.musicrecognizer" to "Audile"
     )
 
+    /**
+     * Other builds of the same players: patched YouTube and YouTube Music
+     * (ReVanced and its relatives, and the old Vanced) are installed under
+     * names of their own. Switching on "YouTube" or "YouTube Music" covers
+     * these too.
+     */
+    val APP_ALIASES: Map<String, List<String>> = mapOf(
+        "com.google.android.youtube" to listOf(
+            "app.revanced.android.youtube", "app.rvx.android.youtube", "anddea.youtube",
+            "app.morphe.android.youtube", "com.vanced.android.youtube"
+        ),
+        "com.google.android.apps.youtube.music" to listOf(
+            "app.revanced.android.apps.youtube.music", "app.rvx.android.apps.youtube.music", "anddea.youtube.music",
+            "app.morphe.android.apps.youtube.music", "com.vanced.android.apps.youtube.music"
+        )
+    )
+
+    /** Rocksky's own timing: a listen counts after half the song or four
+     *  minutes of it, whichever comes first. */
+    const val DEFAULT_PERCENT = 50
+    const val DEFAULT_SECONDS = 240
+
     /** Rocksky's stand-in for "no album art" (Last.fm's blank cover): its
      *  records always carry an art URL. */
     private const val DEFAULT_ALBUM_ART = "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"
 
-    private const val PREFS = "rocksky_scrobble_known"
     private val rocksky by lazy { RockskyApi() }
 
     /** Rocksky's own tidying of names: trimmed, and the curly apostrophe
@@ -115,73 +183,211 @@ object RockskyScrobbler {
     private fun canonical(text: String): String = text.trim().replace('’', '\'')
 
     /**
+     * A signed-in account to write to: the Bluesky session Stellar already
+     * has, renewed once (and saved) if it turns out to have run out.
+     */
+    private class Session(val did: String, val prefs: PreferencesManager, val repo: BlueskyRepository, var token: String) {
+        suspend fun <T> call(write: suspend (String) -> Result<T>): Result<T> {
+            var result = write(token)
+            if (result.isFailure && isAuthError(result.exceptionOrNull()?.message.orEmpty())) {
+                val refreshJwt = prefs.bskyRefreshJwt.first().orEmpty()
+                val refreshed = if (refreshJwt.isBlank()) null else repo.refreshToken(refreshJwt).getOrNull()
+                if (refreshed != null && refreshed.did == did) {
+                    prefs.saveBskySession(refreshed.accessJwt, refreshed.refreshJwt, refreshed.did, refreshed.handle)
+                    token = refreshed.accessJwt
+                    result = write(token)
+                }
+            }
+            return result
+        }
+    }
+
+    /** Null unless Stellar is signed in as [did] right now. */
+    private suspend fun session(context: PlatformContext, did: String): Session? {
+        val prefs = PreferencesManager(context)
+        val token = prefs.bskyAccessJwt.first().orEmpty()
+        if (token.isBlank() || did.isBlank() || prefs.bskyDid.first().orEmpty() != did) return null
+        return Session(did, prefs, BlueskyRepository().apply { updateServiceUrl(prefs.bskyServiceUrl.first()) }, token)
+    }
+
+    // ── Pacing ───────────────────────────────────────────────────────────
+    // Bluesky's servers allow an account about 5,000 "points" of writing an
+    // hour, and every record written costs 3. A history import would use
+    // that up in minutes, so its writes are spaced out — the same sum
+    // Rocksky's SDK does (5,000 × 0.9 ÷ 3 = 1,500 an hour), less a little
+    // kept back for the songs you're scrobbling live meanwhile.
+    private const val IMPORT_WRITES_PER_HOUR = 1400
+    private var nextWriteAt = 0L
+    private suspend fun waitForWriteSlot() {
+        val now = currentTimeMillis()
+        val at = maxOf(now, nextWriteAt)
+        nextWriteAt = at + 3_600_000L / IMPORT_WRITES_PER_HOUR
+        if (at > now) delay(at - now)
+    }
+
+    // ── What's already there ─────────────────────────────────────────────
+    // The names Rocksky itself goes by (sdk/typescript/src/hash.ts): a song
+    // is "title - artist - album", an album "album - album artist", an
+    // artist its name — all in lower case.
+    private fun artistKey(did: String, name: String) = "$did|A|" + name.lowercase()
+    private fun albumKey(did: String, album: String, albumArtist: String) = "$did|L|" + "$album - $albumArtist".lowercase()
+    private fun songKey(did: String, title: String, artist: String, album: String) = "$did|S|" + "$title - $artist - $album".lowercase()
+    private fun playKey(did: String, title: String, artist: String, album: String, seconds: Long) =
+        "$did|P|" + "$title - $artist - $album".lowercase() + "|" + seconds
+    private fun syncedKey(did: String, collection: String) = "$did|synced|$collection"
+
+    private fun isoSeconds(iso: String): Long? =
+        (runCatching { com.mediaviewer.platform.parseIsoInstantMillis(iso) }.getOrNull()
+            ?: runCatching { com.mediaviewer.platform.parseIsoOffsetDateTimeMillis(iso) }.getOrNull())?.floorDiv(1000L)
+
+    /**
+     * Reads which artists, albums, songs and listens [did]'s repo already
+     * holds into [index] — whoever wrote them (Rocksky, another scrobbler,
+     * Stellar on another phone). The first time it reads everything, a
+     * hundred records a request; after that only what's new since, newest
+     * first, stopping at the first page it has seen all of. False if it
+     * couldn't finish (no connection): nothing is lost, it carries on next
+     * time.
+     */
+    suspend fun syncIndex(did: String, index: ScrobbleIndex): Boolean {
+        return try {
+            val pds = BlueskyBlobResolver.pdsEndpoint(did)
+            for (collection in listOf("app.rocksky.artist", "app.rocksky.album", "app.rocksky.song", "app.rocksky.scrobble")) {
+                val caughtUp = index.has(syncedKey(did, collection))
+                var cursor: String? = null
+                while (true) {
+                    val query = mutableListOf("repo" to did, "collection" to collection, "limit" to "100")
+                    cursor?.let { query += "cursor" to it }
+                    val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.listRecords", query)
+                    if (!response.isSuccessful) return false
+                    val body = JSONObject(response.bodyString())
+                    val records = body.optJSONArray("records")
+                    val keys = ArrayList<String>()
+                    for (i in 0 until (records?.length() ?: 0)) {
+                        val v = records?.optJSONObject(i)?.optJSONObject("value") ?: continue
+                        val title = v.optString("title"); val artist = v.optString("artist"); val album = v.optString("album")
+                        val key = when (collection) {
+                            "app.rocksky.artist" -> v.optString("name").takeIf { it.isNotEmpty() }?.let { artistKey(did, it) }
+                            "app.rocksky.album" -> if (title.isNotEmpty() && artist.isNotEmpty()) albumKey(did, title, artist) else null
+                            "app.rocksky.song" -> if (title.isNotEmpty() && artist.isNotEmpty() && album.isNotEmpty()) songKey(did, title, artist, album) else null
+                            else -> isoSeconds(v.optString("createdAt"))?.takeIf { title.isNotEmpty() && artist.isNotEmpty() }
+                                ?.let { playKey(did, title, artist, album, it) }
+                        } ?: continue
+                        if (!index.has(key)) keys += key
+                    }
+                    index.addAll(keys)
+                    cursor = body.optString("cursor").takeIf { it.isNotBlank() }
+                    if (cursor == null || (records?.length() ?: 0) == 0) break
+                    if (caughtUp && keys.isEmpty()) break
+                }
+                index.addAll(listOf(syncedKey(did, collection)))
+            }
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** True once [syncIndex] has read [did]'s whole repo at least once. */
+    fun isIndexed(did: String, index: ScrobbleIndex): Boolean = index.has(syncedKey(did, "app.rocksky.scrobble"))
+
+    // ── YouTube titles ───────────────────────────────────────────────────
+    private val VIDEO_NOISE = Regex(
+        "\\s*[(\\[]\\s*(official\\s+)?(music\\s+video|video|audio|visuali[sz]er|lyric\\s+video|lyrics?(\\s+video)?|m/?v|hd|hq|4k[^)\\]]*)\\s*[)\\]]",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** "Song (Official Music Video) [HD]" → "Song": a video's title with
+     *  the parts that aren't the song's name taken off. */
+    fun cleanVideoTitle(raw: String): String =
+        raw.replace(VIDEO_NOISE, "").replace(Regex("\\s{2,}"), " ").trim().ifEmpty { raw.trim() }
+
+    /** "Artist - Topic" (YouTube's automatic artist channels) → "Artist". */
+    fun cleanChannelName(raw: String): String =
+        raw.trim().replace(Regex("\\s+-\\s+Topic$", RegexOption.IGNORE_CASE), "").trim().ifEmpty { raw.trim() }
+
+    private fun letters(text: String) = text.lowercase().filter { it.isLetterOrDigit() }
+
+    /**
      * Writes [track] to the repo of [did]. Never throws. Call from a
      * background thread; it can take ten seconds or so.
+     *
+     * [history] is for imported listens: the writes are paced (see above),
+     * and — as `rocksky import` does — the song goes by the name Rocksky's
+     * matcher knows it under where the matcher recognises it, since an
+     * export often has a looser title than a player would give.
      */
-    suspend fun upload(context: PlatformContext, did: String, track: ScrobbleTrack): ScrobbleUploadOutcome {
+    suspend fun upload(
+        context: PlatformContext, did: String, track: ScrobbleTrack, index: ScrobbleIndex, history: Boolean = false
+    ): ScrobbleUploadOutcome {
         return try {
-            val prefs = PreferencesManager(context)
-            var token = prefs.bskyAccessJwt.first().orEmpty()
-            val sessionDid = prefs.bskyDid.first().orEmpty()
-            if (token.isBlank() || sessionDid != did) return ScrobbleUploadOutcome.AUTH
-            val repo = BlueskyRepository().apply { updateServiceUrl(prefs.bskyServiceUrl.first()) }
+            val session = session(context, did) ?: return ScrobbleUploadOutcome.AUTH
 
-            val title = canonical(track.title)
-            val artist = canonical(track.artist)
+            var title = canonical(track.title)
+            var artist = canonical(track.artist)
             if (title.isEmpty() || artist.isEmpty()) return ScrobbleUploadOutcome.REJECTED
-            // (Rocksky's server needs an album and album artist too; its app
-            // fills them in the same way when a player gives none.)
-            val album = canonical(track.album).ifEmpty { title }
-            val albumArtist = canonical(track.albumArtist).ifEmpty { artist }
 
-            val match = withTimeoutOrNull(12_000) {
-                runCatching { rocksky.matchSong(title, artist, track.album.trim().ifEmpty { null }) }.getOrNull()
+            val asked = if (history) cleanVideoTitle(title) else title
+            var match = withTimeoutOrNull(12_000) {
+                runCatching { rocksky.matchSong(asked, artist, track.album.trim().ifEmpty { null }) }.getOrNull()
                     ?.takeIf { it.isSuccessful }?.body()
+            }?.takeIf { !it.title.isNullOrBlank() }
+            var album = canonical(track.album)
+            var albumArtist = canonical(track.albumArtist)
+            if (history && match != null) {
+                // Only a match that is plainly the same song is believed.
+                val theirs = letters(match.title.orEmpty())
+                val ours = letters(asked)
+                if (theirs.isNotEmpty() && ours.isNotEmpty() && (theirs.contains(ours) || ours.contains(theirs))) {
+                    title = canonical(match.title.orEmpty())
+                    artist = canonical(match.artist.orEmpty()).ifEmpty { artist }
+                    if (albumArtist.isEmpty()) albumArtist = canonical(match.albumArtist.orEmpty())
+                    if (album.isEmpty()) album = canonical(match.album.orEmpty())
+                } else {
+                    match = null
+                    title = asked
+                }
             }
+            // (Rocksky's records need an album and album artist; its app
+            // fills them in the same way when a player gives none.)
+            if (album.isEmpty()) album = title
+            if (albumArtist.isEmpty()) albumArtist = artist
+
+            // This very listen is already in the repo: nothing to do.
+            val play = playKey(did, title, artist, album, track.timestampSeconds)
+            if (index.has(play)) return ScrobbleUploadOutcome.DONE
+
             val fields = Fields(title, artist, album, albumArtist, track, match)
-
-            /** One write, with the session renewed once if it has run out. */
             suspend fun put(collection: String, record: Map<String, Any>): Result<String> {
-                var result = repo.putRepoRecord(token, did, collection, newTid(), record)
-                val message = result.exceptionOrNull()?.message.orEmpty()
-                if (result.isFailure && isAuthError(message)) {
-                    val refreshJwt = prefs.bskyRefreshJwt.first().orEmpty()
-                    val refreshed = if (refreshJwt.isBlank()) null else repo.refreshToken(refreshJwt).getOrNull()
-                    if (refreshed != null && refreshed.did == did) {
-                        prefs.saveBskySession(refreshed.accessJwt, refreshed.refreshJwt, refreshed.did, refreshed.handle)
-                        token = refreshed.accessJwt
-                        result = repo.putRepoRecord(token, did, collection, newTid(), record)
-                    }
-                }
-                return result
+                if (history) waitForWriteSlot()
+                return session.call { token -> session.repo.putRepoRecord(token, did, collection, newTid(), record) }
             }
 
-            // The song, its artist and its album: once each per account, as
-            // Rocksky does. (A failure here is logged by Rocksky and passed
-            // over; the listen itself still counts.)
-            val known = context.sharedPreferences(PREFS)
-            suspend fun once(kind: String, key: String, collection: String, record: () -> Map<String, Any>) {
-                val name = "$kind:$did"
-                val seen = known.getStringSet(name, null) ?: emptySet()
-                val id = key.lowercase()
-                if (id in seen) return
-                if (put(collection, record()).isSuccess) {
-                    // (Kept to a few thousand: past that it simply starts over.)
-                    known.edit().putStringSet(name, if (seen.size >= 4000) setOf(id) else seen + id).apply()
-                }
+            // The artist, the album and the song, in that order and once
+            // each per account. (A failure here is passed over, as Rocksky
+            // does; the listen itself still counts.)
+            suspend fun once(key: String, collection: String, record: () -> Map<String, Any>) {
+                if (index.has(key)) return
+                if (put(collection, record()).isSuccess) index.addAll(listOf(key))
             }
-            once("songs", "$title\n$artist\n$album", "app.rocksky.song") { fields.song() }
-            once("artists", albumArtist, "app.rocksky.artist") { fields.artist() }
-            once("albums", "$album\n$albumArtist", "app.rocksky.album") { fields.album() }
+            once(artistKey(did, albumArtist), "app.rocksky.artist") { fields.artist() }
+            once(albumKey(did, album, albumArtist), "app.rocksky.album") { fields.album() }
+            once(songKey(did, title, artist, album), "app.rocksky.song") { fields.song() }
 
             val result = put("app.rocksky.scrobble", fields.scrobble())
-            if (result.isSuccess) return ScrobbleUploadOutcome.DONE
+            if (result.isSuccess) {
+                index.addAll(listOf(play))
+                return ScrobbleUploadOutcome.DONE
+            }
             val message = result.exceptionOrNull()?.message.orEmpty()
             when {
                 isAuthError(message) -> ScrobbleUploadOutcome.AUTH
+                message.contains("failed: 429") || message.contains("RateLimit", true) -> ScrobbleUploadOutcome.LIMITED
                 // (The PDS read it and said no: sending it again won't help.)
-                message.startsWith("putRecord failed: 400") || message.startsWith("putRecord failed: 413") ||
-                    message.startsWith("putRecord failed: 422") -> ScrobbleUploadOutcome.REJECTED
+                message.contains("failed: 400") || message.contains("failed: 413") ||
+                    message.contains("failed: 422") -> ScrobbleUploadOutcome.REJECTED
                 else -> ScrobbleUploadOutcome.RETRY
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -192,8 +398,90 @@ object RockskyScrobbler {
     }
 
     private fun isAuthError(message: String): Boolean =
-        message.startsWith("putRecord failed: 401") || message.contains("ExpiredToken", true) ||
+        message.contains("failed: 401") || message.contains("ExpiredToken", true) ||
             message.contains("InvalidToken", true) || message.contains("AuthMissing", true)
+
+    // ── "Listening to" ───────────────────────────────────────────────────
+
+    /**
+     * Sets [did]'s official Rocksky status to "listening to [track]" — the
+     * `app.rocksky.actor.status` record, as the SDK's setNowPlaying and
+     * Rocksky's own server write it. It says when the song began and when
+     * the status runs out by itself (the end of the song, plus a little),
+     * so it never lingers if the phone drops off the network mid-song.
+     */
+    suspend fun setNowPlaying(context: PlatformContext, did: String, track: NowPlayingTrack): Boolean {
+        return try {
+            val session = session(context, did) ?: return false
+            val title = canonical(track.title)
+            val artist = canonical(track.artist)
+            if (title.isEmpty() || artist.isEmpty()) return false
+            val match = withTimeoutOrNull(6_000) {
+                runCatching { rocksky.matchSong(title, artist, track.album.trim().ifEmpty { null }) }.getOrNull()
+                    ?.takeIf { it.isSuccessful }?.body()
+            }
+            val duration = track.durationMs.takeIf { it > 0 } ?: match?.duration?.takeIf { it > 0 } ?: 0L
+            val now = currentTimeMillis()
+            val position = track.positionMs.coerceAtLeast(0)
+            val view = LinkedHashMap<String, Any>().apply {
+                put("name", title)
+                put("artist", artist)
+                canonical(track.album).takeIf { it.isNotEmpty() }?.let { put("album", it) }
+                put("albumCoverUrl", match?.albumArt?.takeIf { it.startsWith("http") } ?: DEFAULT_ALBUM_ART)
+                put("durationMs", duration)
+                put("source", track.source.ifBlank { "Stellar" })
+                match?.mbId?.takeIf { it.isNotBlank() }?.let { put("recordingMbId", it) }
+                match?.trackNumber?.takeIf { it > 0 }?.let { put("trackNumber", it) }
+            }
+            val left = if (duration > 0) (duration - position).coerceAtLeast(0) + NOW_PLAYING_GRACE_MS else 10 * 60_000L
+            val record = LinkedHashMap<String, Any>().apply {
+                put("\$type", STATUS)
+                put("track", view)
+                put("startedAt", isoFromSeconds((now - position) / 1000))
+                put("expiresAt", isoFromSeconds((now + left) / 1000))
+            }
+            session.call { token -> session.repo.putRepoRecord(token, did, STATUS, "self", record) }.isSuccess
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Takes the "listening to" status away again (the music stopped). */
+    suspend fun clearNowPlaying(context: PlatformContext, did: String): Boolean {
+        return try {
+            val session = session(context, did) ?: return false
+            session.call { token -> session.repo.deleteRepoRecord(token, did, STATUS, "self") }.isSuccess
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private const val STATUS = "app.rocksky.actor.status"
+    /** How long past the end of a song its status is still believed. */
+    const val NOW_PLAYING_GRACE_MS = 30_000L
+
+    /**
+     * Deletes one listen — the `app.rocksky.scrobble` record at [uri] —
+     * from the signed-in account's repo. Rocksky notices and takes it out
+     * of the history. Null on success, otherwise what went wrong.
+     */
+    suspend fun deleteScrobble(context: PlatformContext, uri: String): String? {
+        return try {
+            val parts = uri.removePrefix("at://").split('/')
+            if (parts.size != 3 || parts[1] != "app.rocksky.scrobble") return "This listen can't be deleted from here."
+            val session = session(context, parts[0]) ?: return "Sign in to the account this listen belongs to."
+            val result = session.call { token -> session.repo.deleteRepoRecord(token, parts[0], parts[1], parts[2]) }
+            if (result.isSuccess) null else "Couldn't delete it. Check your connection and try again."
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            "Couldn't delete it. Check your connection and try again."
+        }
+    }
 
     /** What goes into the four records: your player's title / artist /
      *  album, plus whatever Rocksky's matcher knew. */

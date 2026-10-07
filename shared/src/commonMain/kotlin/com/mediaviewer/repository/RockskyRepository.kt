@@ -113,7 +113,7 @@ class RockskyRepository {
      *  first, then falls back to the Spotify-specific one, since not every
      *  scrobbler integration necessarily answers the general one. */
     suspend fun getNowPlaying(did: String): RockskyTrack? = withContext(Dispatchers.IO) {
-        runCatching {
+        getStatus(did) ?: runCatching {
             val resp = api.getCurrentlyPlaying(did)
             if (resp.isSuccessful) resp.body()?.toModel() else null
         }.getOrNull()
@@ -122,6 +122,37 @@ class RockskyRepository {
                 if (resp.isSuccessful) resp.body()?.toModel() else null
             }.getOrNull()
     }
+
+    /**
+     * [did]'s official "listening to" status: the `app.rocksky.actor.status`
+     * record in their own repo, which Rocksky's server keeps for the players
+     * it's connected to and Stellar's built-in scrobbler writes the moment a
+     * song starts. Read straight from the account's PDS, so it's as live as
+     * it gets. Null when there is none, or when it has run out — the record
+     * says when (otherwise: the end of the song plus a little, or ten
+     * minutes for a song of unknown length).
+     */
+    private suspend fun getStatus(did: String): RockskyTrack? = runCatching {
+        val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
+        val response = com.mediaviewer.network.PlainHttp.get(
+            "$pds/xrpc/com.atproto.repo.getRecord",
+            listOf("repo" to did, "collection" to "app.rocksky.actor.status", "rkey" to "self")
+        )
+        if (response.code !in 200..299) return@runCatching null
+        val value = com.mediaviewer.json.JSONObject(response.body.decodeToString()).optJSONObject("value") ?: return@runCatching null
+        val track = value.optJSONObject("track") ?: return@runCatching null
+        val title = track.optString("name").takeIf { it.isNotBlank() } ?: return@runCatching null
+        val started = parseTimeMs(value.optString("startedAt")) ?: return@runCatching null
+        val duration = track.optLong("durationMs")
+        val endsAt = parseTimeMs(value.optString("expiresAt").takeIf { it.isNotBlank() })
+            ?: if (duration > 0) started + duration + com.mediaviewer.util.RockskyScrobbler.NOW_PLAYING_GRACE_MS else started + 10 * 60_000L
+        if (com.mediaviewer.platform.currentTimeMillis() >= endsAt) return@runCatching null
+        RockskyTrack(
+            title = title, artist = track.optString("artist"), album = track.optString("album"),
+            albumArtUrl = track.optString("albumCoverUrl").takeIf { it.startsWith("http") },
+            endsAtMs = endsAt
+        )
+    }.getOrNull()
 
     /** [did]'s Rocksky year in review for [year] (Rocksky "Wrapped"), or a
      *  failure. A year with no plays comes back with totalScrobbles 0. */

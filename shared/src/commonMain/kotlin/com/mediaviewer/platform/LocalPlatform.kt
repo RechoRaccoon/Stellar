@@ -83,4 +83,21 @@ expect object LocalPlatform {
     /** Opens the phone's "notification access" page for Stellar — the
      *  permission that lets it see what other apps are playing. */
     fun openScrobblerAccessSettings(context: PlatformContext)
+
+    /** "Scrobble after [percent]% or [seconds] of the track", whichever comes first. */
+    fun setScrobblerThreshold(context: PlatformContext, percent: Int, seconds: Int)
+
+    /** Reads a Spotify / YouTube history file and queues its listens to be
+     *  sent to Rocksky for the account [did]. Returns at once. */
+    fun importScrobbleHistory(context: PlatformContext, uri: PlatformUri, did: String)
+
+    /** Takes an imported file off the list; what it hasn't sent yet isn't sent. */
+    fun cancelScrobbleImport(context: PlatformContext, id: Long)
+
+    /** "Work in Background": keep importing while Stellar is closed. */
+    fun setScrobbleImportBackground(context: PlatformContext, on: Boolean)
+
+    /** Asks the phone to let Stellar run in the background without being
+     *  paused to save battery (Android's own prompt, or its settings page). */
+    fun requestScrobbleBatteryExemption(context: PlatformContext)
 }

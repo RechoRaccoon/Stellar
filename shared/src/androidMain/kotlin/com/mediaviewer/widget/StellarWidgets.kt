@@ -48,7 +48,9 @@ import kotlin.math.roundToInt
  * The Note widget chooses its note on the widget itself: a newly placed
  * one is a list of all your notes, and tapping one turns the widget into
  * that note ("Change" in its corner brings the list back). Each Note
- * widget remembers its own, so several can show different notes.
+ * widget remembers its own, so several can show different notes. A
+ * checklist line in the note can be ticked and unticked right on the
+ * widget, and the note itself changes with it.
  *
  * A widget is drawn by the launcher from RemoteViews, so none of the app's
  * Compose UI can run in it; everything here reads plain saved data:
@@ -72,10 +74,15 @@ object StellarWidgets {
     /** What [KEY_NOTE_ID] was when the widgets last acted on it. */
     private const val KEY_NOTE_SEEN = "note_id_seen"
     private const val KEY_NOTE_MIGRATED = "note_per_widget"
-    /** A note in the list was tapped / "Change" was tapped. */
+    /** + a widget's id: the installed version it was last built afresh for. */
+    private const val KEY_BUILT_FOR = "built_for:"
+    /** A row of the Note widget was tapped (a note in the list, or a line
+     *  of the note it shows) / "Change" was tapped. */
     const val ACTION_PICK_NOTE = "com.mediaviewer.widget.PICK_NOTE"
     const val ACTION_CHOOSE_NOTE = "com.mediaviewer.widget.CHOOSE_NOTE"
     const val EXTRA_NOTE_ID = "stellar_widget_note"
+    /** A checklist line was tapped: which line of the note's text it is. */
+    const val EXTRA_NOTE_LINE = "stellar_widget_note_line"
 
     private fun provider(kind: String): Class<out AppWidgetProvider> = when (kind) {
         KIND_DMS -> DmWidgetProvider::class.java
@@ -155,6 +162,24 @@ object StellarWidgets {
     internal fun update(context: Context, mgr: AppWidgetManager, id: Int, kind: String) {
         try {
             syncNoteChoices(context)
+            // After Stellar is updated, the home screen still holds each
+            // widget as it built it from the OLD version's layout, and
+            // applies the new version's changes on top. But the parts of a
+            // layout are told apart by numbers that are dealt out afresh in
+            // every build — so "hide the Change button" could land on what
+            // used to be the title, and the DMs and Upcoming Events headers
+            // vanished. Showing a different (empty) layout for an instant,
+            // once per installed version, makes the home screen build the
+            // widget anew from the current layout.
+            try {
+                val stamp = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                if (prefs.getLong(KEY_BUILT_FOR + id, 0L) != stamp) {
+                    mgr.updateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_stellar_reset))
+                    prefs.edit().putLong(KEY_BUILT_FOR + id, stamp).apply()
+                }
+            } catch (_: Exception) {
+            }
             val views = RemoteViews(context.packageName, R.layout.widget_stellar_list)
             // The bubble: three plain shapes colored here — the first
             // profile color, the second fading in across it, and a bright
@@ -189,7 +214,10 @@ object StellarWidgets {
             val service = Intent(context, StellarWidgetService::class.java).apply {
                 putExtra(EXTRA_KIND, kind)
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                data = Uri.parse("stellarwidget://$kind/$id")
+                // (A Note widget's list of notes and the note it then shows
+                // are different lists: each gets an adapter of its own, so
+                // rows of one are never left showing under the other.)
+                data = Uri.parse("stellarwidget://$kind/$id" + if (choosing) "/choose" else "")
             }
             views.setRemoteAdapter(R.id.widget_list, service)
             views.setEmptyView(R.id.widget_list, R.id.widget_empty)
@@ -212,9 +240,11 @@ object StellarWidgets {
                 else -> note?.optString("id")?.takeIf { it.isNotBlank() }?.let { "note:$it" } ?: "notes"
             }
             val mutable = if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-            val template = if (choosing) {
-                // Choosing: a row's tap doesn't open anything — it tells this
-                // widget which note to become (see NoteWidgetProvider).
+            val template = if (kind == KIND_NOTE) {
+                // The Note widget's rows report to the widget itself, which
+                // then does what that row is for: becomes the tapped note,
+                // ticks a checklist line, or opens the note in Stellar (see
+                // NoteWidgetProvider).
                 PendingIntent.getBroadcast(
                     context, id, noteIntent(context, ACTION_PICK_NOTE, id), PendingIntent.FLAG_UPDATE_CURRENT or mutable
                 )
@@ -319,6 +349,34 @@ object StellarWidgets {
         }
     }
 
+    /** "- [ ] task" / "- [x] done" (also with *), after any indent — the
+     *  same lines the Notes page shows as checkboxes. */
+    internal val checklistLine = Regex("""^(\s*[-*] \[)([ xX])(\].*)$""")
+
+    /**
+     * A checklist line was tapped on a Note widget: ticks or unticks that
+     * line in the note itself (so it's changed in Stellar's Notes too),
+     * then redraws the Note widgets.
+     */
+    fun toggleNoteLine(context: Context, noteId: String, line: Int) {
+        try {
+            LocalData.init(context.applicationContext)
+            val note = LocalData.notes.firstOrNull { it.id == noteId } ?: return
+            val lines = note.body.split('\n').toMutableList()
+            val match = checklistLine.find(lines.getOrNull(line) ?: return) ?: return
+            lines[line] = match.groupValues[1] + (if (match.groupValues[2] == " ") "x" else " ") + match.groupValues[3]
+            LocalData.saveNote(note.copy(body = lines.joinToString("\n")))
+        } catch (e: Exception) {
+            android.util.Log.e("StellarWidgets", "ticking a note line failed", e)
+        }
+        refresh(context, KIND_NOTE)
+    }
+
+    /** Opens Stellar on [link] (a line of a note was tapped). */
+    fun open(context: Context, link: String) {
+        try { context.startActivity(openIntent(context, link)) } catch (_: Exception) {}
+    }
+
     fun forgetNoteWidget(context: Context, widgetId: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_NOTE_OF + widgetId).apply()
     }
@@ -382,14 +440,22 @@ abstract class StellarWidgetProvider(private val kind: String) : AppWidgetProvid
 class DmWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_DMS)
 class EventsWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_EVENTS)
 class NoteWidgetProvider : StellarWidgetProvider(StellarWidgets.KIND_NOTE) {
-    /** Taps on the widget that change what it shows: a note in the list
-     *  (the widget becomes that note) and "Change" (back to the list). */
+    /** Taps on the widget: a note in the list (the widget becomes that
+     *  note), a checklist line (ticked / unticked in the note), any other
+     *  line (opens the note in Stellar), and "Change" (back to the list). */
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         when (intent.action) {
             StellarWidgets.ACTION_PICK_NOTE -> {
                 val note = intent.getStringExtra(StellarWidgets.EXTRA_NOTE_ID).orEmpty()
-                if (id != AppWidgetManager.INVALID_APPWIDGET_ID && note.isNotBlank()) StellarWidgets.chooseNote(context, id, note)
+                val line = intent.getIntExtra(StellarWidgets.EXTRA_NOTE_LINE, -1)
+                val link = intent.getStringExtra(AppLinks.EXTRA)
+                when {
+                    link != null -> StellarWidgets.open(context, link)
+                    note.isBlank() -> {}
+                    line >= 0 -> StellarWidgets.toggleNoteLine(context, note, line)
+                    id != AppWidgetManager.INVALID_APPWIDGET_ID -> StellarWidgets.chooseNote(context, id, note)
+                }
             }
             StellarWidgets.ACTION_CHOOSE_NOTE -> {
                 if (id != AppWidgetManager.INVALID_APPWIDGET_ID) StellarWidgets.chooseNote(context, id, "")
@@ -415,7 +481,8 @@ class StellarWidgetService : RemoteViewsService() {
         private var chats: List<WidgetChat> = emptyList()
         private var events: List<JSONObject> = emptyList()
         private var noteId: String = ""
-        private var lines: List<String> = emptyList()
+        /** The shown note's lines, each with where it is in the note's text. */
+        private var lines: List<Pair<Int, String>> = emptyList()
         /** The Note widget before a note is chosen: all of them, to pick from. */
         private var choices: List<JSONObject> = emptyList()
         private val avatars = HashMap<String, Bitmap?>()
@@ -445,8 +512,9 @@ class StellarWidgetService : RemoteViewsService() {
                     noteId = note?.optString("id").orEmpty()
                     // Pictures in a note are left out here (text only).
                     lines = note?.optString("body").orEmpty().split('\n')
-                        .filterNot { it.trim().startsWith("![") }
-                        .dropLastWhile { it.isBlank() }
+                        .mapIndexed { index, line -> index to line }
+                        .filterNot { it.second.trim().startsWith("![") }
+                        .dropLastWhile { it.second.isBlank() }
                 }
             }
         }
@@ -461,7 +529,7 @@ class StellarWidgetService : RemoteViewsService() {
             when (kind) {
                 StellarWidgets.KIND_DMS -> chatRow(chats[position])
                 StellarWidgets.KIND_EVENTS -> eventRow(events[position])
-                else -> if (noteId.isBlank()) choiceRow(choices[position]) else lineRow(lines[position])
+                else -> if (noteId.isBlank()) choiceRow(choices[position]) else lineRow(lines[position].first, lines[position].second)
             }
         } catch (_: Exception) {
             null
@@ -544,7 +612,7 @@ class StellarWidgetService : RemoteViewsService() {
         /** One line of the note, with the markdown it starts with turned
          *  into how it reads: headings bigger and bold, bullets, ticked /
          *  unticked boxes, quotes. */
-        private fun lineRow(raw: String): RemoteViews {
+        private fun lineRow(index: Int, raw: String): RemoteViews {
             val row = RemoteViews(context.packageName, R.layout.widget_stellar_row_line)
             val line = raw.trimEnd()
             val trimmed = line.trimStart()
@@ -570,7 +638,17 @@ class StellarWidgetService : RemoteViewsService() {
             if (struck && clean.length > 3) styled.setSpan(StrikethroughSpan(), 3, clean.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             row.setTextViewText(R.id.row_line, styled)
             row.setTextViewTextSize(R.id.row_line, TypedValue.COMPLEX_UNIT_SP, size)
-            row.setOnClickFillInIntent(R.id.row_line, fillIn(if (noteId.isNotBlank()) "note:$noteId" else "notes"))
+            // A checklist line ticks itself when tapped (and is given a
+            // little more height, so it's easy to hit); any other line
+            // opens the note in Stellar.
+            val checklist = StellarWidgets.checklistLine.matches(line)
+            val d = context.resources.displayMetrics.density
+            row.setViewPadding(R.id.row_line, (5 * d).roundToInt(), ((if (checklist) 5 else 1) * d).roundToInt(), (5 * d).roundToInt(), ((if (checklist) 5 else 1) * d).roundToInt())
+            row.setOnClickFillInIntent(
+                R.id.row_line,
+                if (checklist) Intent().putExtra(StellarWidgets.EXTRA_NOTE_ID, noteId).putExtra(StellarWidgets.EXTRA_NOTE_LINE, index)
+                else fillIn(if (noteId.isNotBlank()) "note:$noteId" else "notes")
+            )
             return row
         }
 

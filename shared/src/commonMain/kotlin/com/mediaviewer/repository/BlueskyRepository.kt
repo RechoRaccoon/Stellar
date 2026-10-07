@@ -1429,6 +1429,16 @@ class BlueskyRepository {
         resp.body()?.uri ?: ""
     }
 
+    /** Deletes one record from [did]'s repo, whatever its collection.
+     *  (A record that's already gone counts as deleted.) */
+    suspend fun deleteRepoRecord(token: String, did: String, collection: String, rkey: String): Result<Unit> = runCatching {
+        val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, collection, rkey))
+        if (!resp.isSuccessful) {
+            val body = resp.errorBody()?.string().orEmpty()
+            error("deleteRecord failed: ${resp.code()} ${body.take(200)}")
+        }
+    }
+
     private fun liveNowPlatformFor(uri: String): LiveNowPlatform {
         val host = runCatching { com.mediaviewer.platform.uriHost(uri)?.lowercase() }.getOrNull() ?: ""
         return when {

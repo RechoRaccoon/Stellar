@@ -197,6 +197,8 @@ class MainActivity : ComponentActivity() {
         installCrashHandler(applicationContext)
         com.mediaviewer.util.CrashBreadcrumbs.init(applicationContext)
         com.mediaviewer.util.UiToggles.init(applicationContext)
+        // A music-history import that was interrupted carries on.
+        try { com.mediaviewer.scrobble.ScrobbleImporter.resume(applicationContext) } catch (_: Exception) {}
         com.mediaviewer.util.FontStore.init(applicationContext)
         com.mediaviewer.util.ListRecency.init(applicationContext)
         com.mediaviewer.util.HubLayout.init(applicationContext)
