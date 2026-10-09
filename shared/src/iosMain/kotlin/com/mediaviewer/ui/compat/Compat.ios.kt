@@ -24,6 +24,7 @@ actual fun showPlatformToast(message: String, long: Boolean) = AppEvents.postMes
 
 private object IosPlatformView : PlatformView {
     override fun performHapticFeedback(feedbackConstant: Int): Boolean {
+        if (!com.mediaviewer.util.UiToggles.hapticsEnabled) return false
         IosFeedback.perform(feedbackConstant)
         return true
     }
@@ -34,7 +35,7 @@ private object IosPlatformView : PlatformView {
      *  the top safe-area clearance. */
     override fun displayCutoutCenterYPx(maxTopPx: Float): Float? = null
 
-    override fun crunchHaptic() = IosFeedback.crunch()
+    override fun crunchHaptic() { if (com.mediaviewer.util.UiToggles.hapticsEnabled) IosFeedback.crunch() }
 }
 
 @Composable
@@ -117,6 +118,7 @@ actual object PlatformColor {
 }
 
 actual fun vibrateOneShot(context: PlatformContext, ms: Long) {
+    if (!com.mediaviewer.util.UiToggles.hapticsEnabled) return
     IosFeedback.perform(HapticFeedbackConstants.LONG_PRESS)
 }
 

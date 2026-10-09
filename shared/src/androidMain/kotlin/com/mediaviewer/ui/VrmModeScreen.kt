@@ -581,6 +581,25 @@ actual fun VrmModeScreen(
     val prefsManager = remember { PreferencesManager(context) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     var pickedVrmUri by remember { mutableStateOf<Uri?>(null) }
+    // Every avatar added (VRM Settings › Avatar's row of thumbnails). Each
+    // is a link to the file where the person keeps it; only the selected
+    // one is ever read and loaded.
+    val libraryPrefs = remember { context.getSharedPreferences(com.mediaviewer.util.VrmLibrary.PREFS, android.content.Context.MODE_PRIVATE) }
+    var vrmModels by remember { mutableStateOf(com.mediaviewer.util.VrmLibrary.load(libraryPrefs)) }
+    var selectedModelId by remember { mutableStateOf(com.mediaviewer.util.VrmLibrary.selected(libraryPrefs)) }
+    var modelBusy by remember { mutableStateOf(false) }
+    var modelToDelete by remember { mutableStateOf<com.mediaviewer.util.VrmModel?>(null) }
+    var thumbFor by remember { mutableStateOf<com.mediaviewer.util.VrmModel?>(null) }
+    fun saveModels(next: List<com.mediaviewer.util.VrmModel>, selected: String?) {
+        vrmModels = next; selectedModelId = selected
+        com.mediaviewer.util.VrmLibrary.save(libraryPrefs, next, selected)
+    }
+    /** The thumbnail inside a .vrm, saved as the button's picture. */
+    suspend fun extractThumb(id: String, bytes: ByteArray?): String = withContext(Dispatchers.IO) {
+        bytes?.let { com.mediaviewer.util.VrmLibrary.embeddedThumbnail(it) }?.let { (img, ext) ->
+            com.mediaviewer.platform.PrivateFiles.write(context, com.mediaviewer.util.VrmLibrary.THUMB_FOLDER, "$id.$ext", img)
+        }.orEmpty()
+    }
     var vrmBytes by remember { mutableStateOf<ByteArray?>(null) }
     var parsedVrmData by remember { mutableStateOf<VrmData?>(null) }
     // True when we had a saved/picked Uri but the file itself couldn't be
@@ -599,6 +618,15 @@ actual fun VrmModeScreen(
     // starts once they're ready, and the screen shows a small "Warming up"
     // line meanwhile.
     var trackersReady by remember { mutableStateOf(false) }
+    /** 0…1 while the trackers' model files download (first open only). */
+    var trackerDownload by remember { mutableStateOf<Float?>(null) }
+    var trackerDownloadFailed by remember { mutableStateOf<String?>(null) }
+    // The trackers are optional: VRM mode asks before downloading them,
+    // every time it opens until they're downloaded. Answered through this;
+    // "Not now" closes VRM mode. A failed download can be retried by
+    // tapping the note at the top ([trackerAttempt]).
+    var trackerQuestion by remember { mutableStateOf<kotlinx.coroutines.CompletableDeferred<Boolean>?>(null) }
+    var trackerAttempt by remember { mutableStateOf(0) }
     var faceHelper by remember { mutableStateOf<FaceLandmarkerHelper?>(null) }
     var handHelper by remember { mutableStateOf<HandLandmarkerHelper?>(null) }
     var poseHelper by remember { mutableStateOf<PoseLandmarkerHelper?>(null) }
@@ -622,7 +650,7 @@ actual fun VrmModeScreen(
         }
     }
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    androidx.compose.runtime.LaunchedEffect(trackerAttempt) {
         // Genuinely off the UI thread this time. The old version ran inside
         // a plain LaunchedEffect — which is the MAIN dispatcher — so building
         // three GPU landmarker pipelines froze the UI for seconds on entry
@@ -635,6 +663,31 @@ actual fun VrmModeScreen(
         val pending = arrayOfNulls<Any>(3)
         var handedOff = false
         try {
+            // The trackers' model files are downloaded the first time VRM
+            // mode opens (they no longer ship inside the app).
+            if (!com.mediaviewer.util.TrackingModels.isReady(context)) {
+                trackerDownloadFailed = null
+                val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                trackerQuestion = answer
+                val yes = try { answer.await() } finally { trackerQuestion = null }
+                // "Not now": VRM mode closes (it asks again next time it's
+                // opened, until the trackers are downloaded).
+                if (!yes) {
+                    onClose()
+                    return@LaunchedEffect
+                }
+                trackerDownload = 0f
+                try {
+                    com.mediaviewer.util.TrackingModels.ensure(context) { p -> trackerDownload = p }
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    trackerDownload = null
+                    faceHelperError = t.message
+                    trackerDownloadFailed = t.message ?: "Couldn't download the trackers"
+                    return@LaunchedEffect
+                }
+                trackerDownload = null
+            }
             withContext(Dispatchers.Default) {
                 // Results land in the pipeline (plain fields, no Compose
                 // state): nothing recomposes per tracking result any more.
@@ -701,7 +754,16 @@ actual fun VrmModeScreen(
     var materialsPatched by remember { mutableStateOf("") }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        prefsManager.vrmAvatarUri.firstOrNull()?.let { pickedVrmUri = Uri.parse(it) }
+        val saved = prefsManager.vrmAvatarUri.firstOrNull()
+        // An avatar picked before the row existed becomes its first entry.
+        if (vrmModels.isEmpty() && !saved.isNullOrBlank()) {
+            val uri = Uri.parse(saved)
+            val id = "m" + System.currentTimeMillis()
+            val name = com.mediaviewer.util.VrmLibrary.nameFrom(com.mediaviewer.platform.PrivateFiles.displayName(context, uri))
+            val bytes = withContext(Dispatchers.IO) { runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() }
+            saveModels(listOf(com.mediaviewer.util.VrmModel(id, saved, name, extractThumb(id, bytes))), id)
+        }
+        saved?.takeIf { it.isNotBlank() }?.let { pickedVrmUri = Uri.parse(it) }
     }
     androidx.compose.runtime.LaunchedEffect(pickedVrmUri) {
         val uri = pickedVrmUri
@@ -764,8 +826,65 @@ actual fun VrmModeScreen(
         // and all of its parts start visible.
         com.mediaviewer.util.CrashBreadcrumbs.resetVrmTextureMode()
         if (uri != pickedVrmUri) hiddenParts = emptySet()
+        // Added to the row (or, if it's already there, just selected).
+        val existing = vrmModels.firstOrNull { it.source == uri.toString() }
+        if (existing != null) {
+            saveModels(vrmModels, existing.id)
+        } else {
+            modelBusy = true
+            coroutineScope.launch {
+                val id = "m" + System.currentTimeMillis()
+                val name = com.mediaviewer.util.VrmLibrary.nameFrom(com.mediaviewer.platform.PrivateFiles.displayName(context, uri))
+                val bytes = withContext(Dispatchers.IO) { runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() }
+                saveModels(vrmModels + com.mediaviewer.util.VrmModel(id, uri.toString(), name, extractThumb(id, bytes)), id)
+                modelBusy = false
+            }
+        }
         pickedVrmUri = uri
         coroutineScope.launch { prefsManager.setVrmAvatarUri(uri.toString()) }
+    }
+    /** Loads [model] (and lets the one before it go). */
+    fun selectModel(model: com.mediaviewer.util.VrmModel) {
+        val uri = Uri.parse(model.source)
+        if (uri != pickedVrmUri) {
+            hiddenParts = emptySet()
+            com.mediaviewer.util.CrashBreadcrumbs.resetVrmTextureMode()
+        }
+        saveModels(vrmModels, model.id)
+        pickedVrmUri = uri
+        coroutineScope.launch { prefsManager.setVrmAvatarUri(model.source) }
+    }
+    fun deleteModel(model: com.mediaviewer.util.VrmModel) {
+        val rest = vrmModels.filterNot { it.id == model.id }
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(Uri.parse(model.source), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (model.thumb.isNotBlank()) com.mediaviewer.platform.PrivateFiles.delete(context, model.thumb)
+        if (model.id == selectedModelId || Uri.parse(model.source) == pickedVrmUri) {
+            val next = rest.firstOrNull()
+            saveModels(rest, next?.id)
+            if (next != null) selectModel(next) else {
+                pickedVrmUri = null
+                coroutineScope.launch { prefsManager.setVrmAvatarUri("") }
+            }
+        } else saveModels(rest, selectedModelId)
+    }
+    val thumbPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val target = thumbFor
+        thumbFor = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            // Cropped to a VRM thumbnail's square.
+            val bytes = withContext(Dispatchers.IO) { com.mediaviewer.platform.MediaBridge.squareJpeg(context, uri, 512) }
+            if (bytes == null) { captureError = "Couldn't open that picture"; return@launch }
+            val path = withContext(Dispatchers.IO) {
+                if (target.thumb.isNotBlank()) com.mediaviewer.platform.PrivateFiles.delete(context, target.thumb)
+                com.mediaviewer.platform.PrivateFiles.write(context, com.mediaviewer.util.VrmLibrary.THUMB_FOLDER, target.id + "_" + System.currentTimeMillis() + ".jpg", bytes)
+            }
+            if (path != null) saveModels(vrmModels.map { if (it.id == target.id) it.copy(thumb = path, customThumb = true) else it }, selectedModelId)
+        }
     }
 
 
@@ -848,9 +967,15 @@ actual fun VrmModeScreen(
                     onCameraError = { cameraError = it }
                 )
             } else {
-                Box(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.navBarSpace).padding(top = 72.dp)) {
+                Box(
+                    Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.navBarSpace).padding(top = 72.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = trackerDownloadFailed != null && trackerQuestion == null && trackerDownload == null) { trackerAttempt++ }
+                ) {
                     Text(
-                        "Warming up trackers…",
+                        trackerDownloadFailed
+                            ?: trackerDownload?.let { "Downloading trackers… ${(it * 100).toInt()}%" }
+                            ?: "Warming up trackers…",
                         color = Color.White.copy(0.7f), fontSize = 12.sp,
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -1075,6 +1200,18 @@ actual fun VrmModeScreen(
                 onDismiss = { liveDialogOpen = false }
             )
         }
+        trackerQuestion?.let { question ->
+            VrmConfirmDialog(
+                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                title = "Download trackers?",
+                message = "VRM mode needs a one-time download of about 21 MB for its face, hand and body tracking.",
+                confirmLabel = "Download",
+                cancelLabel = "Not now",
+                destructive = false,
+                onConfirm = { question.complete(true) },
+                onDismiss = { question.complete(false) }
+            )
+        }
         if (endLiveConfirmOpen) {
             VrmConfirmDialog(
                 liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
@@ -1133,6 +1270,12 @@ actual fun VrmModeScreen(
                     onShowAllParts = { hiddenParts = emptySet() },
                     hasAvatar = vrmBytes != null,
                     onPickAvatar = { vrmAvatarPickerLauncher.launch(arrayOf("*/*")) },
+                    models = vrmModels,
+                    selectedModelId = selectedModelId.takeIf { pickedVrmUri != null },
+                    modelBusy = modelBusy || (pickedVrmUri != null && vrmBytes == null && !vrmFileUnreadable),
+                    onSelectModel = { selectModel(it) },
+                    onRequestDeleteModel = { modelToDelete = it },
+                    onChangeModelThumb = { thumbFor = it; thumbPicker.launch(arrayOf("image/*")) },
                     supporter = supporter,
                     hasBackgroundMedia = backgroundMedia != null,
                     onPickBackgroundMedia = {
@@ -1146,6 +1289,16 @@ actual fun VrmModeScreen(
                     }
                 ),
                 onDismiss = { settingsOpen = false }
+            )
+        }
+        modelToDelete?.let { model ->
+            VrmConfirmDialog(
+                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                title = "Delete avatar?",
+                message = "Remove \"${model.name}\" from your avatars?",
+                confirmLabel = "Delete",
+                onConfirm = { modelToDelete = null; deleteModel(model) },
+                onDismiss = { modelToDelete = null }
             )
         }
     }
@@ -1916,6 +2069,12 @@ private class VrmSettingsUi(
     val onShowAllParts: () -> Unit,
     val hasAvatar: Boolean,
     val onPickAvatar: () -> Unit,
+    val models: List<com.mediaviewer.util.VrmModel>,
+    val selectedModelId: String?,
+    val modelBusy: Boolean,
+    val onSelectModel: (com.mediaviewer.util.VrmModel) -> Unit,
+    val onRequestDeleteModel: (com.mediaviewer.util.VrmModel) -> Unit,
+    val onChangeModelThumb: (com.mediaviewer.util.VrmModel) -> Unit,
     val supporter: Boolean,
     val hasBackgroundMedia: Boolean,
     val onPickBackgroundMedia: () -> Unit,
@@ -2036,8 +2195,11 @@ private fun VrmSettingsSheet(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+                // (Avatar parts open: as tall as the screen allows, from
+                // under the notch to over the gesture bar.)
+                val bodyMax = if (tab == VrmSettingsTab.AVATAR && partsExpanded) rememberVrmPopupMaxBody() else 430.dp
                 Box(
-                    Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 430.dp)
+                    Modifier.fillMaxWidth().heightIn(min = 260.dp, max = bodyMax)
                         .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 ) {
                     Column(Modifier.fillMaxWidth()) {
@@ -2063,6 +2225,14 @@ private fun VrmSettingsSheet(
                                 )
                             }
                             VrmSettingsTab.AVATAR -> {
+                                // Your avatars: tap to load, hold to delete,
+                                // double-tap for a new picture, + to add.
+                                VrmModelRow(
+                                    models = ui.models, selectedId = ui.selectedModelId, tint = tint, busy = ui.modelBusy,
+                                    onSelect = ui.onSelectModel, onAdd = ui.onPickAvatar,
+                                    onRequestDelete = ui.onRequestDeleteModel, onChangeThumb = ui.onChangeModelThumb
+                                )
+                                Spacer(Modifier.height(8.dp))
                                 VrmTileGrid(tint, listOf(
                                     VrmTile("Follow my head", ui.followHead) { ui.onToggleFollowHead(it) },
                                     VrmTile("Physics", ui.springBones) { ui.onToggleSpringBones(it) },
@@ -2088,10 +2258,6 @@ private fun VrmSettingsSheet(
                                     ) { ui.onEyeClosed(it) }
                                 }
                                 Spacer(Modifier.height(6.dp))
-                                VrmActionRow(
-                                    label = if (ui.hasAvatar) "Change avatar" else "Choose avatar",
-                                    value = ".vrm", tint = tint
-                                ) { ui.onPickAvatar() }
                                 VrmActionRow(label = "Reset camera", value = "Reset", tint = tint) { ui.onResetCamera() }
                                 // Avatar parts: every mesh piece (clothes, hair,
                                 // accessories …) can be hidden.
@@ -2711,7 +2877,10 @@ internal fun VrmConfirmDialog(
     message: String,
     confirmLabel: String,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    cancelLabel: String = "Cancel",
+    /** Red confirm button (ending, deleting) or one in your colour. */
+    destructive: Boolean = true
 ) {
     val tap = rememberHapticTap()
     Box(
@@ -2738,10 +2907,10 @@ internal fun VrmConfirmDialog(
                             .border(1.dp, tint.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                             .clickable { tap(); onDismiss() },
                         contentAlignment = Alignment.Center
-                    ) { Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
+                    ) { Text(cancelLabel, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                     Box(
                         Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFFF3B30))
+                            .background(if (destructive) Color(0xFFFF3B30) else androidx.compose.ui.graphics.lerp(tint, Color.Black, 0.1f))
                             .clickable { tap(); onConfirm() },
                         contentAlignment = Alignment.Center
                     ) { Text(confirmLabel, color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }

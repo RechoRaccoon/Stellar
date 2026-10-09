@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
@@ -23,14 +24,14 @@ import kotlinx.serialization.Serializable
 data class ProfileStyle(
     /** A slightly rounded square profile icon instead of the round one. */
     val squareIcon: Boolean = false,
-    /** "confetti" (the default) or another id from [ProfileStyles.EFFECTS]. */
-    val effect: String = "confetti",
+    /** "none" (the default) or another id from [ProfileStyles.EFFECTS]. */
+    val effect: String = "none",
     /** The two profile colors (ARGB), or null to take them from the
      *  banner and profile picture as usual. */
     val colorA: Int? = null,
     val colorB: Int? = null
 ) {
-    val isDefault: Boolean get() = !squareIcon && effect == "confetti" && colorA == null && colorB == null
+    val isDefault: Boolean get() = !squareIcon && effect == "none" && colorA == null && colorB == null
 }
 
 /**
@@ -51,15 +52,17 @@ data class ProfileStyle(
 object ProfileStyles {
     const val COLLECTION = "com.rechoraccoon.stellar.profile"
     const val RKEY = "self"
+    private const val KEY_EFFECT_RESET = "effects_reset_v2"
 
     /** Effect id → the name shown in the picker. */
     val EFFECTS = listOf(
-        "confetti" to "Confetti", "balloons" to "Balloons", "snow" to "Snow", "fireworks" to "Fireworks",
+        "none" to "None", "confetti" to "Confetti", "balloons" to "Balloons", "snow" to "Snow", "fireworks" to "Fireworks",
         "bats" to "Bats", "hearts" to "Hearts", "rain" to "Rain", "bubbles" to "Bubbles"
     )
 
-    /** The animation an effect id stands for (confetti when it's unknown). */
-    fun effectOf(id: String?): com.mediaviewer.ui.DmEffect = when (id) {
+    /** The animation an effect id stands for (null for "none" / unknown). */
+    fun effectOf(id: String?): com.mediaviewer.ui.DmEffect? = when (id) {
+        "confetti" -> com.mediaviewer.ui.DmEffect.CONFETTI
         "balloons" -> com.mediaviewer.ui.DmEffect.BIRTHDAY
         "snow" -> com.mediaviewer.ui.DmEffect.SNOW
         "fireworks" -> com.mediaviewer.ui.DmEffect.FIREWORKS
@@ -67,15 +70,21 @@ object ProfileStyles {
         "hearts" -> com.mediaviewer.ui.DmEffect.HEARTS
         "rain" -> com.mediaviewer.ui.DmEffect.RAIN
         "bubbles" -> com.mediaviewer.ui.DmEffect.BUBBLES
-        else -> com.mediaviewer.ui.DmEffect.CONFETTI
+        else -> null
     }
-    fun effectLabel(id: String): String = EFFECTS.firstOrNull { it.first == id }?.second ?: "Confetti"
+    fun effectLabel(id: String): String = EFFECTS.firstOrNull { it.first == id }?.second ?: "None"
+
+    /** Customizations used to be a supporter benefit; now everyone can have
+     *  them, so every account may be looked up (see [request]'s limits). */
+    private fun lookupAllowed(did: String): Boolean =
+        FeatureFlags.ALL_FEATURES_FREE || StellarSupporters.isSupporter(did)
 
     private val styles = mutableStateMapOf<String, ProfileStyle>()
     /** Looked up already this session (whatever the answer was). */
     private val asked = HashSet<String>()
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lookups = kotlinx.coroutines.sync.Semaphore(3)
 
     /** Reads one account's style record (null = it has none). Set by the ViewModel. */
     @kotlin.concurrent.Volatile var fetcher: (suspend (did: String) -> ProfileStyle?)? = null
@@ -87,15 +96,22 @@ object ProfileStyles {
         val p = context.sharedPreferences("profile_style")
         prefs = p
         val did = p.getString("did", null)?.takeIf { it.isNotBlank() } ?: return
-        val saved = p.getString("style", null)?.let {
+        var saved = p.getString("style", null)?.let {
             runCatching { StellarJson.default.decodeFromString(ProfileStyle.serializer(), it) }.getOrNull()
         } ?: return
+        // (The old default, confetti, kept on this device from before
+        // "None" existed, becomes "none" too — once.)
+        if (!p.getBoolean(KEY_EFFECT_RESET, false)) {
+            if (saved.effect == "confetti") saved = saved.copy(effect = "none")
+            p.edit().putBoolean(KEY_EFFECT_RESET, true)
+                .putString("style", StellarJson.default.encodeToString(ProfileStyle.serializer(), saved)).apply()
+        }
         styles[did] = saved
     }
 
     /** What's known right now, without asking (safe from any thread). */
     fun peek(did: String?): ProfileStyle? =
-        if (did.isNullOrBlank() || !StellarSupporters.isSupporter(did)) null else styles[did]
+        if (did.isNullOrBlank() || !lookupAllowed(did)) null else styles[did]
 
     /**
      * [did]'s style, for drawing. Reads Compose state, so whatever shows it
@@ -103,7 +119,7 @@ object ProfileStyles {
      * session starts the one lookup; later calls only read the answer.
      */
     fun of(did: String?): ProfileStyle? {
-        if (did.isNullOrBlank() || !StellarSupporters.isSupporter(did)) return null
+        if (did.isNullOrBlank() || !lookupAllowed(did)) return null
         request(did)
         return styles[did]
     }
@@ -112,7 +128,9 @@ object ProfileStyles {
         val fetch = fetcher ?: return
         if (!synchronizedAdd(did)) return
         scope.launch {
-            val result = runCatching { fetch(did) }
+            // Everyone can have a style now, so feeds full of new faces could
+            // fire dozens of lookups at once: a few at a time is plenty.
+            val result = lookups.withPermit { runCatching { fetch(did) } }
             withContext(Dispatchers.Main) {
                 result.onSuccess { style ->
                     val own = did == Supporter.selfDid

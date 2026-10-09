@@ -216,10 +216,20 @@ private fun SupporterSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit
  *  the supporter pink with the same sweeping shine as the profile badge. */
 @Composable
 private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    CollapsibleSection("Supporter Settings", tint, supporter = true) {
+        SupporterSettingsBubbles(liquidGlass, tint, backdrop)
+    }
+}
+
+/** The former Supporter Settings' bubbles: notifications, holidays and the
+ *  browser's search engine. While every feature is free they sit at the end
+ *  of App Functionality instead of a category of their own. */
+@Composable
+private fun SupporterSettingsBubbles(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
     val local = com.mediaviewer.util.LocalData
     val context = com.mediaviewer.ui.compat.LocalContext.current
     val supporter = com.mediaviewer.util.Supporter.active
-    CollapsibleSection("Supporter Settings", tint, supporter = true) {
+    run {
         // Notifications: a banner inside Stellar while it's open (anywhere
         // but the DMs / Inbox themselves), and ordinary device notifications
         // while it's closed, from a background check. Android runs that check
@@ -575,7 +585,9 @@ internal fun SettingsPageContent(
     ) {
         // ── Supporter Settings ──────────────────────────────────────────
         // (Only shown to supporters.)
-        val showSupporterSettings = com.mediaviewer.util.Supporter.active
+        // (While every feature is free, its bubbles live in App
+        // Functionality instead — see below.)
+        val showSupporterSettings = com.mediaviewer.util.Supporter.active && !com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE
         if (showSupporterSettings) SupporterSettingsSection(liquidGlass, tint, backdrop)
 
         // ── Customize Hub ───────────────────────────────────────────────
@@ -819,6 +831,9 @@ internal fun SettingsPageContent(
         // ── App Functionality ───────────────────────────────────────────
         CollapsibleSection("App Functionality", tint) {
 
+            // Every vibration the app makes (on by default).
+            ToggleBubble("Haptics", com.mediaviewer.util.UiToggles.hapticsEnabled, { com.mediaviewer.util.UiToggles.updateHapticsEnabled(it) }, liquidGlass, tint, backdrop)
+
             ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
             // NSFW Content: managed by the Bluesky account itself ("Enable adult
             // content" on the Bluesky website). On iOS that account setting is
@@ -919,6 +934,10 @@ internal fun SettingsPageContent(
             if (linkSetupOpen) {
                 OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
             }
+
+            // Notifications, holidays, browser search engine (formerly
+            // "Supporter Settings").
+            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) SupporterSettingsBubbles(liquidGlass, tint, backdrop)
         }
 
         // ── Integrations ────────────────────────────────────────────────

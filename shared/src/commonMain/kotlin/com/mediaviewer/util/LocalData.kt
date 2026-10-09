@@ -24,8 +24,11 @@ object Supporter {
     /** The signed-in account (kept current by AppRoot). */
     var selfDid by mutableStateOf("")
 
-    /** True while the signed-in account is on the Stellar Supporters list. */
-    val active: Boolean get() = StellarSupporters.isSupporter(selfDid)
+    /** True when supporter features are unlocked: for everyone while
+     *  [FeatureFlags.ALL_FEATURES_FREE] is on, otherwise only while the
+     *  signed-in account is on the Stellar Supporters list. (The profile
+     *  badge reads [StellarSupporters.isSupporter] directly.) */
+    val active: Boolean get() = FeatureFlags.ALL_FEATURES_FREE || StellarSupporters.isSupporter(selfDid)
 
     /** Set by AppRoot: closes whatever is open and shows the support page. */
     var openPageHook: (() -> Unit)? = null

@@ -479,6 +479,10 @@ class VrmStage {
      * for the person looking at the screen.
      */
     suspend fun load(bytes: ByteArray, options: VrmSceneOptions): String? {
+        // Only one avatar in memory at a time: the old one goes BEFORE the
+        // new one is built (holding both at once could run a phone out of
+        // memory with two big avatars — iOS then closes the app).
+        unload()
         val built = withContext(Dispatchers.IO) {
             runCatching {
                 val glb = GlbReader.read(bytes) ?: return@runCatching "That file isn't a VRM avatar (it isn't a .glb file inside)."
@@ -529,6 +533,13 @@ class VrmStage {
     private fun distance(a: FloatArray, b: FloatArray): Float {
         val dx = a[0] - b[0]; val dy = a[1] - b[1]; val dz = a[2] - b[2]
         return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+    }
+
+    /** Takes the avatar off stage and lets it go. Main thread. */
+    fun unload() {
+        val old = loaded ?: return
+        loaded = null
+        old.model.modelRoot.removeFromParentNode()
     }
 
     fun hasAvatar(): Boolean = loaded != null

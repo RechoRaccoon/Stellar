@@ -97,7 +97,7 @@ class StellarNotificationWorker(context: Context, params: WorkerParameters) : Co
         // Supporters only.
         val supporters = app.getSharedPreferences("stellar_supporters", Context.MODE_PRIVATE)
             .getString("dids", null)?.split(',')?.toSet() ?: emptySet()
-        if (did !in supporters) return
+        if (!com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE && did !in supporters) return
 
         // (An account on its own PDS is checked there.)
         BskyServices.init(app)
@@ -119,8 +119,10 @@ class StellarNotificationWorker(context: Context, params: WorkerParameters) : Co
         }
 
         if (wantDms || dmWidget) {
-            var convos = repo.listConvos(token, did)
-            if (convos.isFailure && authError(convos.exceptionOrNull()) && refresh()) convos = repo.listConvos(token, did)
+            // (The 50 most recently active chats: anything unread is among
+            // them — one request instead of three, every few minutes.)
+            var convos = repo.listConvos(token, did, maxPages = 1)
+            if (convos.isFailure && authError(convos.exceptionOrNull()) && refresh()) convos = repo.listConvos(token, did, maxPages = 1)
             val list = convos.getOrNull()
             if (list != null) {
                 // The DMs widget shows exactly what was just read.
@@ -271,7 +273,9 @@ object StellarNotificationScheduler {
         // (setAndAllowWhileIdle needs no special permission.)
         runCatching {
             val am = app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val at = SystemClock.elapsedRealtime() + ALARM_INTERVAL_MS
+            // Battery Saver on: every 15 minutes instead of 5.
+            val saver = runCatching { (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode }.getOrDefault(false)
+            val at = SystemClock.elapsedRealtime() + if (saver) 3 * ALARM_INTERVAL_MS else ALARM_INTERVAL_MS
             if (Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, alarmIntent(app))
             else am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, alarmIntent(app))
         }

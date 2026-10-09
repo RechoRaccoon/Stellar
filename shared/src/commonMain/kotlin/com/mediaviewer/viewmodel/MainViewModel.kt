@@ -939,7 +939,13 @@ class MainViewModel(
         dmQuickRefreshJob = viewModelScope.launch(Dispatchers.IO) {
             bskyRepo.listConvos(bskyToken, _bskyDid.value).onSuccess { convos ->
                 val openId = _dmThread.value?.convo?.convoId
-                val fresh = convos.map { if (it.convoId == openId) it.copy(unreadCount = 0) else it }
+                // (The chat list alone doesn't say who's a mutual: kept from
+                // the last full load.)
+                val mutualDids = _dmConversations.value.filter { it.isMutual }.mapTo(HashSet()) { it.member.did }
+                val fresh = convos.map {
+                    val c = if (it.convoId == openId) it.copy(unreadCount = 0) else it
+                    if (!c.isGroup && c.member.did in mutualDids) c.copy(isMutual = true) else c
+                }
                 val haveDids = fresh.map { it.member.did }.toSet()
                 // Mutuals you haven't chatted with yet stay listed after them.
                 val rest = _dmConversations.value.filter { it.convoId.isBlank() && it.member.did !in haveDids }
@@ -1829,7 +1835,7 @@ class MainViewModel(
                     bskyRepo.createPollPost(bskyToken, did, post.text, draft.pollOptions, draft.selfLabels)
                 }
                 else runCatching {
-                    val images = post.images.map { uri -> bskyRepo.uploadImageBlob(bskyToken, context, uri).getOrElse { throw it } }
+                    val images = bskyRepo.uploadImageBlobs(bskyToken, context, post.images)
                     bskyRepo.createPost(bskyToken, did, post.text, images, selfLabels = draft.selfLabels).getOrElse { throw it }
                 }
             }
@@ -2191,7 +2197,8 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             bskyRepo.getOrCreateConvo(bskyToken, _bskyDid.value, listOf(author.did))
                 .onSuccess { convoId ->
-                    val convo = DmConversation(convoId = convoId, member = author, lastSentByUsAt = "", lastActivityAt = "")
+                    val wasMutual = _dmConversations.value.any { it.member.did == author.did && it.isMutual }
+                    val convo = DmConversation(convoId = convoId, member = author, lastSentByUsAt = "", lastActivityAt = "", isMutual = wasMutual)
                     _dmThread.value = DmThreadState(convo = convo, loading = true)
                     // Newly started chats show up in the DM list right away.
                     _dmConversations.value = listOf(convo) + _dmConversations.value.filter {
@@ -3667,7 +3674,7 @@ class MainViewModel(
             _inboxUnreadCount.value = 0
             _inboxItems.value = emptyList()
             inboxRaw = emptyList(); inboxCursor = null; inboxPostCache.clear()
-            _dmConversations.value = emptyList()
+            _dmConversations.value = emptyList(); dmFreshLoaded = false
             _blockedAccounts.value = emptyList()
             com.mediaviewer.util.BlockedAccounts.clear()
             if (_appMode.value == AppMode.BLUESKY) {
@@ -4359,6 +4366,9 @@ class MainViewModel(
                 val longest = 15_000L
                 val wait = if (endsAt > 0L) (endsAt - com.mediaviewer.platform.currentTimeMillis()).coerceIn(1_000L, longest) else longest
                 delay(wait)
+                // (Paused while Stellar is in the background — no point
+                // checking a profile nobody can see.)
+                while (!appInForeground) delay(2_000)
                 if (_profileOverlay.value?.author?.did != author.did) return@launch
             }
         }
@@ -6052,12 +6062,17 @@ class MainViewModel(
     private fun decodeDmCache(json: String?): List<DmConversation> =
         json?.takeIf { it.isNotBlank() }?.let { com.mediaviewer.json.StellarJson.default.decodeFromString<List<DmConversation>>(it) } ?: emptyList()
 
+    /** True once this session's full chat + mutuals load has succeeded.
+     *  (The list shown at launch can be the on-disk copy, which mustn't
+     *  count as loaded — it stopped the Mutuals row ever refreshing.) */
+    @kotlin.concurrent.Volatile private var dmFreshLoaded = false
+
     private suspend fun ensureDmConversationsLoadedSuspend(silent: Boolean) {
-        if (_dmConversations.value.isNotEmpty()) return
+        if (dmFreshLoaded) return
         dmConversationsMutex.withLock {
             // Re-check inside the lock: another caller may have already
             // finished loading while we were waiting for the lock.
-            if (_dmConversations.value.isNotEmpty()) return@withLock
+            if (dmFreshLoaded) return@withLock
             loadDmConversationsBlocking(silent)
         }
     }
@@ -6286,6 +6301,7 @@ class MainViewModel(
         bskyRepo.loadDmRecipients(bskyToken, _bskyDid.value)
             .onSuccess {
                 _dmConversations.value = it
+                dmFreshLoaded = true
                 runCatching {
                     prefs.setHubMutualsCache(com.mediaviewer.json.StellarJson.default.encodeToString<List<DmConversation>>(it))
                 }
@@ -6496,6 +6512,40 @@ class MainViewModel(
                     _mediaItems.value = list
                 }
             }
+        }
+    }
+
+    /** The Tags page: adds ([oldTag] null), deletes ([newTag] null) or
+     *  renames one of the on-screen post's tags in the tagger's dataset,
+     *  and shows the result straight away. Bluesky posts only (e621's tags
+     *  are e621's own). */
+    fun editCurrentPostTag(oldTag: String?, newTag: String?) {
+        if (_appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
+        val idx = _currentIndex.value
+        val item = _mediaItems.value.getOrNull(idx) ?: return
+        if (item.postUri.isBlank()) return
+        val cleanNew = newTag?.let { com.mediaviewer.tagging.normalizeTypedTag(it) }?.takeIf { it.isNotBlank() }
+        if (newTag != null && cleanNew == null) return
+        if (oldTag == null && cleanNew == null) return
+        // Shown first, saved behind it.
+        fun applyLocally(tags: List<String>) {
+            val list = _mediaItems.value.toMutableList()
+            val i = list.indexOfFirst { it.postUri == item.postUri }.takeIf { it >= 0 } ?: return
+            list[i] = list[i].copy(tags = tags.joinToString(" "))
+            _mediaItems.value = list
+        }
+        val now = item.tags.split(" ").filter { it.isNotBlank() }
+        applyLocally(when {
+            cleanNew == null -> now.filterNot { it == oldTag }
+            oldTag == null -> now.filterNot { it == cleanNew } + cleanNew
+            else -> now.map { if (it == oldTag) cleanNew else it }.distinct()
+        })
+        tapHaptic()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, oldTag, cleanNew)
+            }.onSuccess { saved -> withContext(Dispatchers.Main) { applyLocally(saved) } }
+                .onFailure { _errorMessage.value = "Couldn't save the tag: ${it.message}" }
         }
     }
 
@@ -7343,7 +7393,14 @@ class MainViewModel(
         for (item in likeTagQueue) {
             // Never overlap the full "Tag all liked posts" pass either.
             while (_taggingUiState.value.isRunning) delay(500)
-            _likeTagPhase.value = if (taggingRepo.isTaggerLoaded()) LikeTagPhase.TAGGING else LikeTagPhase.ACTIVATING
+            // Fix: loading the model is its own step now, so the bubble
+            // goes "Activating tagger…" → "Tagging…" (it used to show
+            // Activating for the whole first post, then vanish).
+            if (!taggingRepo.isTaggerLoaded()) {
+                _likeTagPhase.value = LikeTagPhase.ACTIVATING
+                runCatching { taggingRepo.warmUp() }
+            }
+            _likeTagPhase.value = LikeTagPhase.TAGGING
             runCatching { taggingRepo.tagOnLike(item) }
                 .onFailure { Log.e("MainViewModel", "Tag-on-like failed", it) }
             likeTagQueued.remove(item.postUri)
@@ -7705,7 +7762,17 @@ class MainViewModel(
     }
 
     private fun updateComment(commentId: String, transform: (CommentItem) -> CommentItem) {
-        _comments.value = _comments.value.map { if (it.id == commentId) transform(it) else it }
+        // Fix: replies live inside their parent's `replies`, any number of
+        // levels down — liking one used to change nothing on screen (only
+        // top-level comments were looked at).
+        fun walk(list: List<CommentItem>): List<CommentItem> = list.map {
+            when {
+                it.id == commentId -> transform(it)
+                it.replies.isNotEmpty() -> it.copy(replies = walk(it.replies))
+                else -> it
+            }
+        }
+        _comments.value = walk(_comments.value)
         commentsShownFor?.let { key -> if (cachedComments(key) != null) putCachedComments(key, _comments.value) }
     }
 
@@ -8339,15 +8406,16 @@ class MainViewModel(
         if (_welcome.value != null || _tutorialOpen.value || !_bskyLoggedIn.value) return
         val official = com.mediaviewer.util.StellarOfficial
         _welcome.value = WelcomeState(
-            feeds = listOf(
+            feeds = listOfNotNull(
                 WelcomeEntry(
                     welcomeFeedForYou, "For You", "@" + official.FOR_YOU_FEED_BY,
                     "Recommended feed for Stellar due to it's accurate, algorithmic nature."
                 ),
+                // (Switched off with FeatureFlags.SUPPORTERS_FEED_ENABLED.)
                 WelcomeEntry(
                     welcomeFeedSupporters, "Stellar Supporters", "@" + official.STELLAR_HANDLE,
                     "A feed of people who support Stellar financially!!"
-                )
+                ).takeIf { com.mediaviewer.util.FeatureFlags.SUPPORTERS_FEED_ENABLED }
             ),
             accounts = listOf(
                 WelcomeEntry(
@@ -8370,7 +8438,7 @@ class MainViewModel(
         }
         viewModelScope.launch(Dispatchers.IO) {
             launch { setImage(welcomeFeedForYou, bskyRepo.getFeedGeneratorInfo(bskyToken, official.FOR_YOU_FEED_URI).getOrNull()?.avatar) }
-            launch { setImage(welcomeFeedSupporters, bskyRepo.getListInfo(bskyToken, official.SUPPORTERS_LIST_URI).getOrNull()?.avatarUrl) }
+            if (com.mediaviewer.util.FeatureFlags.SUPPORTERS_FEED_ENABLED) launch { setImage(welcomeFeedSupporters, bskyRepo.getListInfo(bskyToken, official.SUPPORTERS_LIST_URI).getOrNull()?.avatarUrl) }
             launch { setImage(welcomeFollowStellar, bskyRepo.getProfileBasics(bskyToken, official.STELLAR_DID).getOrNull()?.avatarUrl) }
             launch { setImage(welcomeFollowRecho, bskyRepo.getProfileBasics(bskyToken, official.RECHO_HANDLE).getOrNull()?.avatarUrl) }
         }
@@ -8393,7 +8461,7 @@ class MainViewModel(
                 feedPrefsMutex.withLock {
                     // Both go to the top of the feeds list: For You first, then
                     // Stellar Supporters (so Supporters is put in first).
-                    if (welcomeFeedSupporters in selected && _availableFeeds.value.none { it.uri == official.SUPPORTERS_LIST_URI }) {
+                    if (com.mediaviewer.util.FeatureFlags.SUPPORTERS_FEED_ENABLED && welcomeFeedSupporters in selected && _availableFeeds.value.none { it.uri == official.SUPPORTERS_LIST_URI }) {
                         bskyRepo.addSavedFeed(bskyToken, official.SUPPORTERS_LIST_URI, type = "list", pinned = true, atFront = true)
                             .onSuccess { feedsChanged = true }
                     }
@@ -8454,7 +8522,7 @@ class MainViewModel(
         viewModelScope.launch {
             _dmConversations.collectLatest { list ->
                 delay(1500)
-                if (!_bskyLoggedIn.value || !com.mediaviewer.util.StellarSupporters.isSupporter(_bskyDid.value)) return@collectLatest
+                if (!_bskyLoggedIn.value || !com.mediaviewer.util.Supporter.active) return@collectLatest
                 val chats = com.mediaviewer.platform.widgetChats(list)
                 withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
             }

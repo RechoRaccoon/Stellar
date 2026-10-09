@@ -59,6 +59,14 @@ import com.mediaviewer.util.countdownLabel
 internal val HUB_BLOG_CARD_WIDTH = 168.dp
 internal val HUB_BLOG_CARD_PAGE_HEIGHT = 238.dp
 
+/** A blog's page: a soft, dark version of the author's colour, lighter at
+ *  the top. The reader and the Hub's blog cards both use it, so a card
+ *  looks like the page it opens. */
+internal fun blogPageBrush(tint: Color): Brush {
+    val soft = lerp(Color(0xFF141418), tint, 0.30f)
+    return Brush.verticalGradient(listOf(lerp(soft, Color.White, 0.05f), soft, lerp(soft, Color.Black, 0.35f)))
+}
+
 /**
  * A blog in the Hub's Blogs row: one fixed, portrait, page-like card that
  * reads like the blog itself does once opened — its cover along the top
@@ -88,17 +96,17 @@ internal fun HubBlogCard(
     // The opening of the text, as flowing prose (no blank lines, and never
     // the title or tagline repeated).
     val opening = remember(blog.bodyText, blog.title, tagline) {
-        blog.bodyText.lineSequence().map { it.trim() }
+        markdownPlain(blog.bodyText).lineSequence().map { it.trim() }
             .filter { it.isNotEmpty() && !it.equals(blog.title.trim(), ignoreCase = true) && !it.equals(tagline, ignoreCase = true) }
             .joinToString(" ").take(420)
     }
+    val page = remember(tint) { blogPageBrush(tint) }
     Column(
         Modifier.size(width = HUB_BLOG_CARD_WIDTH, height = HUB_BLOG_CARD_PAGE_HEIGHT)
             .clip(shape)
-            .then(
-                if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
-                else Modifier.background(lerp(Color(0xFF121216), tint, 0.18f)).border(1.dp, tint.copy(alpha = 0.4f), shape)
-            )
+            // The same page the blog opens onto (BlogDetailOverlay).
+            .background(page)
+            .border(1.dp, lerp(tint, Color.White, 0.3f).copy(alpha = 0.35f), shape)
             .clickable { tap(); onOpen() }
     ) {
         val cover = blog.thumbnailUrl
@@ -123,27 +131,11 @@ internal fun HubBlogCard(
             )
         }
         Column(Modifier.fillMaxSize().padding(start = 11.dp, end = 11.dp, top = 9.dp, bottom = 0.dp)) {
-            // Who and when.
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { tap(); onOpenAuthor() },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(Modifier.size(16.dp).clip(profileIconShape(author.did)).background(Color.White.copy(alpha = 0.15f))) {
-                    if (author.avatarUrl != null) AsyncImage(
-                        model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    author.displayName.ifBlank { author.handle }, color = Color.White.copy(alpha = 0.9f), fontSize = 10.sp, lineHeight = 12.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-                )
-            }
+            // (Whose blog it is shows in the bubble above the card.)
             Spacer(Modifier.height(7.dp))
             Text(
                 blog.title.ifBlank { "Untitled" }, color = Color.White, fontSize = 15.sp, lineHeight = 18.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
                 fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis
             )
             if (tagline.isNotEmpty()) {

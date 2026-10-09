@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -26,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -65,7 +67,12 @@ fun ConfirmPopup(
     /** Red confirm button (delete/remove/block) or the page's own color. */
     destructive: Boolean = true,
     /** The confirm action is running: shows a spinner, taps are ignored. */
-    busy: Boolean = false
+    busy: Boolean = false,
+    /** Non-null: a one-line text field under the message (Add Tag,
+     *  rename …), focused straight away; Done on the keyboard confirms. */
+    input: String? = null,
+    onInputChange: (String) -> Unit = {},
+    inputPlaceholder: String = ""
 ) {
     BackHandler(onBack = { if (!busy) onDismiss() })
     val tap = rememberHapticTap()
@@ -82,7 +89,8 @@ fun ConfirmPopup(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
             .background(Color.Black.copy(alpha = 0.45f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy) onDismiss() },
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy) onDismiss() }
+            .then(if (input != null) Modifier.imePadding() else Modifier),
         contentAlignment = Alignment.Center
     ) {
         val cardModifier = Modifier
@@ -104,8 +112,32 @@ fun ConfirmPopup(
                     Spacer(Modifier.height(12.dp))
                 }
                 Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(6.dp))
-                Text(message, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                if (message.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(message, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                }
+                if (input != null) {
+                    Spacer(Modifier.height(12.dp))
+                    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+                    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+                    val fieldShape = RoundedCornerShape(14.dp)
+                    BasicTextField(
+                        value = input, onValueChange = onInputChange, singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (!busy) onConfirm() }),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus).clip(fieldShape)
+                            .background(Color.White.copy(alpha = 0.08f)).border(1.dp, tint.copy(alpha = 0.5f), fieldShape)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (input.isEmpty()) Text(inputPlaceholder, color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp)
+                                inner()
+                            }
+                        }
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     val pill = RoundedCornerShape(19.dp)

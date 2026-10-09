@@ -155,7 +155,7 @@ object IosNotifications {
         // Supporters only (the widget included, like on Android).
         val supporters = context.sharedPreferences("stellar_supporters")
             .getString("dids", null)?.split(',')?.toSet() ?: emptySet()
-        if (did !in supporters) return
+        if (!com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE && did !in supporters) return
 
         // (An account on its own PDS is checked there.)
         BskyServices.init(context)
@@ -176,8 +176,10 @@ object IosNotifications {
             return m.contains("401") || m.contains("400") || m.contains("ExpiredToken", true) || m.contains("InvalidToken", true)
         }
 
-        var convos = repo.listConvos(token, did)
-        if (convos.isFailure && authError(convos.exceptionOrNull()) && refresh()) convos = repo.listConvos(token, did)
+        // (Only the 50 most recently active chats: anything unread is
+        // among them, and iOS gives a background check little time.)
+        var convos = repo.listConvos(token, did, maxPages = 1)
+        if (convos.isFailure && authError(convos.exceptionOrNull()) && refresh()) convos = repo.listConvos(token, did, maxPages = 1)
         val list = convos.getOrNull()
         if (list != null) {
             // The DMs widget shows exactly what was just read. (Streaks

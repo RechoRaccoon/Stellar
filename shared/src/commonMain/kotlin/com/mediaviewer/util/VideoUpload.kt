@@ -11,7 +11,7 @@ import androidx.compose.runtime.setValue
  * video. Readable anywhere as Compose state.
  */
 object VideoUpload {
-    enum class Stage { IDLE, UPLOADING, PROCESSING, READY, FAILED }
+    enum class Stage { IDLE, PREPARING, UPLOADING, PROCESSING, READY, FAILED }
 
     var stage by mutableStateOf(Stage.IDLE)
         private set
@@ -29,6 +29,7 @@ object VideoUpload {
 
     val label: String get() = when (stage) {
         Stage.IDLE -> ""
+        Stage.PREPARING -> "Preparing video…"
         Stage.UPLOADING -> "Uploading…"
         Stage.PROCESSING -> if (progress in 1..99) "Processing… $progress%" else "Processing…"
         Stage.READY -> "Ready to post"

@@ -120,7 +120,12 @@ class FaceLandmarkerHelper private constructor(
             onResult: (FaceLandmarkerResult) -> Unit
         ): FaceLandmarker {
                 val baseOptions = BaseOptions.builder()
-                    .setModelAssetPath(MODEL_ASSET_PATH)
+                    .apply {
+                        // Downloaded on first use (TrackingModels), or the
+                        // bundled asset in a build that still has it.
+                        val downloaded = TrackingModels.buffer(context, TrackingModels.Model.FACE)
+                        if (downloaded != null) setModelAssetBuffer(downloaded) else setModelAssetPath(MODEL_ASSET_PATH)
+                    }
                     .setDelegate(delegate)
                     .build()
                 val options = FaceLandmarker.FaceLandmarkerOptions.builder()

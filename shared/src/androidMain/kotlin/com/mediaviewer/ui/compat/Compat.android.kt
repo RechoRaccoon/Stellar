@@ -33,7 +33,8 @@ actual fun showPlatformToast(message: String, long: Boolean) {
 }
 
 internal class AndroidPlatformView(val view: android.view.View) : PlatformView {
-    override fun performHapticFeedback(feedbackConstant: Int): Boolean = view.performHapticFeedback(feedbackConstant)
+    override fun performHapticFeedback(feedbackConstant: Int): Boolean =
+        com.mediaviewer.util.UiToggles.hapticsEnabled && view.performHapticFeedback(feedbackConstant)
 
     override suspend fun captureScreen(): androidx.compose.ui.graphics.ImageBitmap? =
         runCatching { com.mediaviewer.ui.captureWindow(view).asImageBitmap() }.getOrNull()
@@ -45,7 +46,7 @@ internal class AndroidPlatformView(val view: android.view.View) : PlatformView {
         return rect?.exactCenterY()
     }
 
-    override fun crunchHaptic() = com.mediaviewer.ui.shatterCrunch(view)
+    override fun crunchHaptic() { if (com.mediaviewer.util.UiToggles.hapticsEnabled) com.mediaviewer.ui.shatterCrunch(view) }
 }
 
 @Composable
@@ -110,6 +111,7 @@ actual object PlatformColor {
 }
 
 actual fun vibrateOneShot(context: PlatformContext, ms: Long) {
+    if (!com.mediaviewer.util.UiToggles.hapticsEnabled) return
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
         (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager)
             .defaultVibrator.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))

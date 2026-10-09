@@ -155,6 +155,24 @@ private class IosTagStore(private val path: String) {
         changed()
     }
 
+    /** The Tags page's hand edits (see TaggingService.editPostTag). */
+    fun editTag(uri: String, cid: String, url: String, oldTag: String?, newTag: String?) {
+        locked {
+            val post = posts[uri] ?: StoredPost(uri, cid, url, currentTimeMillis(), "", emptyList())
+            var tags = post.tags
+            when {
+                oldTag != null && newTag == null -> tags = tags.filterNot { it.n == oldTag }
+                oldTag == null && newTag != null -> tags = tags.filterNot { it.n == newTag } + StoredTag(newTag, 1f)
+                oldTag != null && newTag != null && oldTag != newTag -> {
+                    val kept = tags.firstOrNull { it.n == oldTag }?.c ?: 1f
+                    tags = tags.filterNot { it.n == oldTag || it.n == newTag } + StoredTag(newTag, kept)
+                }
+            }
+            posts[uri] = post.copy(tags = tags)
+        }
+        changed(urgent = true)
+    }
+
     fun scannedCount(): Int = locked { posts.size }
     fun taggedCount(): Int = locked { posts.values.count { it.tags.isNotEmpty() } }
     fun sizeBytes(): Long = synchronizedCompat(lock) { bytesOnDisk }
@@ -474,6 +492,14 @@ class IosTaggingRepository(
         }
     }
 
+    override suspend fun warmUp(): Boolean {
+        if (tagger.isLoaded()) return true
+        if (!isModelReady()) return false
+        return withContext(Dispatchers.IO) {
+            try { ensureLoaded { }; true } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
+        }
+    }
+
     override suspend fun tagOnLike(item: MediaItem) {
         if (!isModelReady() || item.postUri.isBlank()) return
         withContext(Dispatchers.IO) {
@@ -494,6 +520,11 @@ class IosTaggingRepository(
 
     override fun browseAllTagged(limit: Int): List<String> = store.allTagged(limit)
     override fun tagsForPost(postUri: String): List<String> = store.tagsFor(postUri)
+    override suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
+        withContext(Dispatchers.IO) {
+            store.editTag(postUri, cid, mediaUrl, oldTag, newTag)
+            store.tagsFor(postUri)
+        }
 
     companion object {
         // The same files Android downloads (see TaggerModelManager).

@@ -313,6 +313,12 @@ class TaggingRepository(
      *  downloaded yet — realtime tagging only makes sense once the person
      *  has already run the initial "Locally Tag All Liked Posts" pass, at
      *  which point the model is guaranteed to already be on disk. */
+    override suspend fun warmUp(): Boolean {
+        if (tagger != null) return true
+        if (!modelManager.isReady()) return false
+        return withContext(Dispatchers.IO) { runCatching { ensureTagger { } }.isSuccess }
+    }
+
     override suspend fun tagOnLike(item: MediaItem) {
         if (!modelManager.isReady()) return
         withContext(Dispatchers.IO) {
@@ -520,6 +526,12 @@ class TaggingRepository(
     /** Full tag list for one post — item 3's "Tags mode needs to display
      *  ALL the tags on the post", sorted highest confidence first. */
     override fun tagsForPost(postUri: String): List<String> = db.tagsForPost(postUri)
+
+    override suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
+        withContext(Dispatchers.IO) {
+            db.editTag(postUri, cid, mediaUrl, oldTag, newTag)
+            db.tagsForPost(postUri)
+        }
 
     companion object {
         @Volatile private var instance: TaggingRepository? = null

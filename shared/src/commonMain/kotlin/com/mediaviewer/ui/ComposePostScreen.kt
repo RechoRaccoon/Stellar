@@ -1325,8 +1325,12 @@ fun ComposePostScreen(
                                         }
                                         GrowingTextField(
                                             value = row.text,
-                                            onValueChange = { onBlogRowText(index, it) },
-                                            placeholder = if (index == 0 && blogRows.size == 1) "Write your blog…" else "",
+                                            // Markdown, like Notes: Return carries a list or
+                                            // checklist on to the next line.
+                                            onValueChange = {
+                                                onBlogRowText(index, if (row.kind == com.mediaviewer.model.BlogRowKind.TEXT) continueMarkdownList(row.text, it) else it)
+                                            },
+                                            placeholder = if (index == 0 && blogRows.size == 1) "Write your blog… (markdown works: **bold**, *italic*, - list, - [ ] checklist)" else "",
                                             onFocus = {
                                                 if (blogSelected != index) pruneEmptyBlogRows(index)
                                                 blogSelected = blogRows.indexOfFirst { it.id == row.id }.coerceAtLeast(0)

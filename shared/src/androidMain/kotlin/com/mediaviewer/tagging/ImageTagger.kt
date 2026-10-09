@@ -34,7 +34,13 @@ class ImageTagger(modelFile: File, tagsFile: File) : AutoCloseable {
         // person is actively scrolling the feed) rather than the old
         // coerceIn(2, 6), which left 2-3 of the 8a's 9 cores idle for no
         // reason on a batch/background workload like this.
-        val threads = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(2, 8)
+        // Speed: only the phone's fast cores. Phones mix fast and slow cores
+        // (e.g. 1+3 fast, 4 slow); a pass split across all of them waits on
+        // the slow ones at every layer, so using every core was slower than
+        // using just the fast ones. (iPhones only have a couple of slow
+        // cores, which is a big part of why iOS tagged faster.)
+        val threads = performanceCoreCount()
+        var xnnpack = false
         val options = OrtSession.SessionOptions().apply {
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             // Bug fix (this is the real fix for the "10-20s/image" report —
@@ -71,8 +77,17 @@ class ImageTagger(modelFile: File, tagsFile: File) : AutoCloseable {
             // mixing in whatever precision the device's specific NNAPI
             // driver happened to pick for the fraction of the graph it
             // could claim.
-            try { addXnnpack(mapOf("intra_op_num_threads" to threads.toString())) } catch (_: Throwable) { /* AAR build doesn't include it — falls back to ORT's generic CPU EP */ }
-            setIntraOpNumThreads(threads)
+            try {
+                addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+                xnnpack = true
+            } catch (_: Throwable) { /* AAR build doesn't include it — falls back to ORT's generic CPU EP */ }
+            // With XNNPACK, ONNX Runtime's own pool should be a single thread
+            // (its documented setup): XNNPACK runs its own pool, and two
+            // full-size pools spinning against each other on the same cores
+            // cost far more than the few small ops XNNPACK leaves to ORT.
+            setIntraOpNumThreads(if (xnnpack) 1 else threads)
+            setInterOpNumThreads(1)
+            setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
             // Free perf win, zero accuracy impact: without this, x86/ARM FPUs
             // drop into a much slower microcoded path any time an
             // intermediate value underflows into the denormal range, which
@@ -103,6 +118,22 @@ class ImageTagger(modelFile: File, tagsFile: File) : AutoCloseable {
                 session.run(mapOf(inputName to t)).close()
             }
         } catch (_: Throwable) { /* best-effort — a failed warm-up just means the first real image pays the cost instead */ }
+    }
+
+    /** How many of the phone's cores are its fast ones: cores whose top
+     *  clock is within 25% of the fastest. Falls back to all-but-one. */
+    private fun performanceCoreCount(): Int {
+        val all = Runtime.getRuntime().availableProcessors()
+        val fallback = (all - 1).coerceIn(2, 8)
+        return try {
+            val freqs = (0 until all).mapNotNull { i ->
+                File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq").takeIf { it.canRead() }
+                    ?.readText()?.trim()?.toLongOrNull()
+            }
+            if (freqs.size < all || freqs.isEmpty()) return fallback
+            val top = freqs.max()
+            freqs.count { it >= top * 0.75 }.coerceIn(2, 8)
+        } catch (_: Throwable) { fallback }
     }
 
     /** WD/Z3D-family taggers ship a `selected_tags.csv`/`tags-selected.csv`
@@ -142,6 +173,7 @@ class ImageTagger(modelFile: File, tagsFile: File) : AutoCloseable {
     private val letterboxTargetTL = ThreadLocal.withInitial { Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888) }
     private val pixelsTL = ThreadLocal.withInitial { IntArray(inputSize * inputSize) }
     private val floatBufferTL = ThreadLocal.withInitial { FloatBuffer.allocate(inputSize * inputSize * 3) }
+    private val floatArrayTL = ThreadLocal.withInitial { FloatArray(inputSize * inputSize * 3) }
 
     /** Preprocesses [bitmap] to a 448x448 NHWC float tensor with RAW [0,255]
      *  pixel values in BGR channel order (this model was trained via a
@@ -176,12 +208,18 @@ class ImageTagger(modelFile: File, tagsFile: File) : AutoCloseable {
         val floatBuffer = floatBufferTL.get().also { it.clear() }
         val pixels = pixelsTL.get()
         letterboxed.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        // (Filled into a plain array, then copied in one go: ~600,000
+        // single put() calls were a measurable slice of each image.)
+        val floats = floatArrayTL.get()
+        var o = 0
         for (pixel in pixels) {
             // NHWC, BGR (see doc comment above), RAW [0,255] floats.
-            floatBuffer.put((pixel and 0xFF).toFloat())            // B
-            floatBuffer.put(((pixel shr 8) and 0xFF).toFloat())    // G
-            floatBuffer.put(((pixel shr 16) and 0xFF).toFloat())   // R
+            floats[o] = (pixel and 0xFF).toFloat()                // B
+            floats[o + 1] = ((pixel shr 8) and 0xFF).toFloat()    // G
+            floats[o + 2] = ((pixel shr 16) and 0xFF).toFloat()   // R
+            o += 3
         }
+        floatBuffer.put(floats)
         floatBuffer.rewind()
 
         val shape = longArrayOf(1, inputSize.toLong(), inputSize.toLong(), 3)

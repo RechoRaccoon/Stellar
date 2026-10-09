@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 object UiToggles {
     private const val PREFS = "ui_toggles"
     private const val KEY_DEBUG_OVERLAY = "debug_overlay"
+    private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
@@ -68,6 +69,16 @@ object UiToggles {
      *  Translate To): the "Translated X to Y" bubble on the timeline. */
     var showTranslationStatus by mutableStateOf(true)
         private set
+
+    /** Settings → App Functionality → "Haptics": every vibration the app
+     *  makes (taps, drags, effects). On by default. */
+    var hapticsEnabled by mutableStateOf(true)
+        private set
+
+    fun updateHapticsEnabled(enabled: Boolean) {
+        hapticsEnabled = enabled
+        prefs?.edit()?.putBoolean(KEY_HAPTICS, enabled)?.apply()
+    }
 
     /** Which loading transition plays (default: Space). */
     var loadingAnimation by mutableStateOf(LoadingAnimation.SPACE)
@@ -184,6 +195,7 @@ object UiToggles {
         val p = context.sharedPreferences(PREFS)
         prefs = p
         debugOverlay = p.getBoolean(KEY_DEBUG_OVERLAY, false)
+        hapticsEnabled = p.getBoolean(KEY_HAPTICS, true)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)

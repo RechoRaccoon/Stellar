@@ -29,6 +29,10 @@ expect object MediaBridge {
      *  [maxBytes] (quality 90 down in steps of 10, not below 20). */
     fun scaledJpeg(context: PlatformContext, uri: PlatformUri, maxW: Int, maxH: Int, maxBytes: Int): ByteArray
 
+    /** The picked picture upright, centre-cropped to a square and scaled
+     *  to [size]×[size], as JPEG — or null if it can't be read. */
+    fun squareJpeg(context: PlatformContext, uri: PlatformUri, size: Int): ByteArray?
+
     /** PNG bytes of a rendered image (Textshot). */
     fun encodePng(bitmap: PlatformBitmap): ByteArray
     fun bitmapWidth(bitmap: PlatformBitmap): Int
@@ -39,6 +43,10 @@ expect object MediaBridge {
 
     /** The video as an upload body, streamed from disk where possible. */
     fun videoUploadBody(context: PlatformContext, uri: PlatformUri, mimeType: String): RequestBody
+
+    /** The video, re-encoded first when it's bigger than Bluesky plays
+     *  (1080p) or too large a file; otherwise [uri] itself. */
+    suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri
 
     /** Splices [thumbnail] in as the video's first frame (so Bluesky shows
      *  it as the thumbnail); returns the new file. Throws if unsupported. */

@@ -437,7 +437,7 @@ private fun BrowserOverlayWindow(
                                         val dx = ev.rawX - startX; val dy = ev.rawY - startY
                                         if (!dragging && kotlin.math.hypot(dx, dy) >= slopPx) {
                                             dragging = true; editing = false
-                                            v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                            if (com.mediaviewer.util.UiToggles.hapticsEnabled) v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                                         }
                                         if (dragging) {
                                             val w = latestRootW.coerceAtLeast(1f); val h = latestRootH.coerceAtLeast(1f)

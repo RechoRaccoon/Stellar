@@ -54,28 +54,65 @@ actual object MediaBridge {
     private fun jpeg(image: UIImage, quality: Int): ByteArray =
         UIImageJPEGRepresentation(image, quality / 100.0)?.toByteArray() ?: error("Couldn't encode image")
 
+    /** Whether [image] has see-through pixels to keep (it carries alpha). */
+    private fun hasAlpha(image: UIImage): Boolean {
+        val info = CGImageGetAlphaInfo(image.CGImage ?: return false)
+        return info != CGImageAlphaInfo.kCGImageAlphaNone &&
+            info != CGImageAlphaInfo.kCGImageAlphaNoneSkipFirst &&
+            info != CGImageAlphaInfo.kCGImageAlphaNoneSkipLast
+    }
+
+    /** Like [redraw], but keeping transparency. */
+    private fun redrawClear(image: UIImage, w: Int, h: Int): UIImage {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(w.toDouble(), h.toDouble()), false, 1.0)
+        image.drawInRect(CGRectMake(0.0, 0.0, w.toDouble(), h.toDouble()))
+        val out = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return out ?: image
+    }
+
     actual fun prepareImageForUpload(context: PlatformContext, uri: PlatformUri, maxBytes: Int, maxDimension: Int): Pair<ByteArray, String> {
         val original = readBytes(context, uri) ?: error("Couldn't read image")
         val declaredType = mimeTypeOf(context, uri)
-        if (original.size <= maxBytes && declaredType != null &&
-            (declaredType == "image/jpeg" || declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
-            val (w, h) = imageSize(original)
-            if (w in 1..maxDimension && h in 1..maxDimension) return original to declaredType
+        val isJpeg = com.mediaviewer.util.JpegMeta.isJpeg(original)
+        val orientation = com.mediaviewer.util.JpegMeta.orientation(original)
+        val (w0, h0) = imageSize(original)
+        // Fast path: within the limits and upright — the original picture.
+        // (A JPEG only loses its EXIF: camera details and, often, where the
+        // photo was taken.)
+        if (w0 in 1..maxDimension && h0 in 1..maxDimension && orientation == 1) {
+            if (isJpeg) {
+                val clean = com.mediaviewer.util.JpegMeta.stripMetadata(original)
+                if (clean != null && clean.size <= maxBytes) return clean to "image/jpeg"
+            } else if (original.size <= maxBytes &&
+                (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
+                return original to declaredType
+            }
         }
+        // Otherwise redrawn upright (UIImage applies the orientation),
+        // scaled to fit, and encoded under the limit: quality steps down,
+        // then the size. A see-through picture stays a PNG.
         val image = decode(original) ?: error("Couldn't decode image")
-        var (w, h) = image.pixelSize()
-        if (w > maxDimension || h > maxDimension) {
-            val scale = maxDimension.toFloat() / maxOf(w, h)
-            w = (w * scale).toInt().coerceAtLeast(1); h = (h * scale).toInt().coerceAtLeast(1)
+        val transparent = !isJpeg && hasAlpha(image)
+        val (pw, ph) = image.pixelSize()
+        var scale = minOf(1f, maxDimension.toFloat() / maxOf(pw, ph).coerceAtLeast(1))
+        while (true) {
+            val w = (pw * scale).toInt().coerceAtLeast(1)
+            val h = (ph * scale).toInt().coerceAtLeast(1)
+            if (transparent) {
+                val drawn = redrawClear(image, w, h)
+                val png = UIImagePNGRepresentation(drawn)?.toByteArray() ?: error("Couldn't encode image")
+                if (png.size <= maxBytes) return png to "image/png"
+            } else {
+                val drawn = redraw(image, w, h)
+                for (q in intArrayOf(92, 85, 78, 70, 62)) {
+                    val out = jpeg(drawn, q)
+                    if (out.size <= maxBytes) return out to "image/jpeg"
+                }
+            }
+            scale *= 0.8f
+            if (maxOf(pw, ph) * scale < 320f) error("This picture can't be made small enough to upload")
         }
-        val drawn = redraw(image, w, h)
-        var quality = 92
-        var out = jpeg(drawn, quality)
-        while (out.size > maxBytes && quality > 30) {
-            quality -= 12
-            out = jpeg(drawn, quality)
-        }
-        return out to "image/jpeg"
     }
 
     actual fun scaledJpeg(context: PlatformContext, uri: PlatformUri, maxW: Int, maxH: Int, maxBytes: Int): ByteArray {
@@ -95,6 +132,19 @@ actual object MediaBridge {
         return bytes
     }
 
+    actual fun squareJpeg(context: PlatformContext, uri: PlatformUri, size: Int): ByteArray? = runCatching {
+        val image = decode(readBytes(context, uri) ?: return null) ?: return null
+        val (w, h) = image.size.useContents { width to height }
+        if (w <= 0.0 || h <= 0.0) return null
+        val scale = maxOf(size / w, size / h)
+        val dw = w * scale; val dh = h * scale
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(size.toDouble(), size.toDouble()), true, 1.0)
+        image.drawInRect(CGRectMake((size - dw) / 2.0, (size - dh) / 2.0, dw, dh))
+        val out = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        out?.let { jpeg(it, 90) }
+    }.getOrNull()
+
     actual fun encodePng(bitmap: PlatformBitmap): ByteArray = bitmap.pngBytes
     actual fun bitmapWidth(bitmap: PlatformBitmap): Int = bitmap.width
     actual fun bitmapHeight(bitmap: PlatformBitmap): Int = bitmap.height
@@ -109,7 +159,18 @@ actual object MediaBridge {
 
     actual fun videoUploadBody(context: PlatformContext, uri: PlatformUri, mimeType: String): RequestBody {
         val path = pathOf(uri)
-        return streamRequestBody(mimeType, IosFileStreamSource(path, -1L))
+        // (The real length: Bluesky's video service refuses an upload
+        // without one.)
+        val size = runCatching {
+            (NSFileManager.defaultManager.attributesOfItemAtPath(path, null)?.get(NSFileSize) as? NSNumber)?.longLongValue
+        }.getOrNull() ?: -1L
+        return streamRequestBody(mimeType, IosFileStreamSource(path, size))
+    }
+
+    actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri {
+        val path = pathOf(uri)
+        val out = IosVideoCompressor.prepare(path)
+        return if (out == path) uri else IosUri("file://$out")
     }
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =

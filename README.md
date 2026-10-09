@@ -15,28 +15,8 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 - **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter, and special animations for holiday related messages!!
 - (and so much more!!)
 
-# Become a Supporter!!
-For just $4.99 a month, you'll not only be helping me afford food, but you'll also gain these supporter benefits!!
-- Extra profile customization!!
-- Edit posts!!
-- Archive posts!!
-- Drafts!!
-- Polls
-- Bookmark folders!!
-- Build your own local feeds!!
-- Pin DMs!!
-- Scrobble music to Rocksky
-- Calendar, notes, calculator, and timer features!!
-- Android/iOS widgets!!
-- Hub widgets!!
-- Trending topics!!
-- In-app multitasking browser!!
-- App notifications!! (Android)
-- VRM scenes, soundboard, and animations!!
-- Profile notes!!
-- Remove the "Stellar Supporters" row from the Hub
-
-You can become a Supporter by donating $4.99 or more to any of these platforms!! Just remember to include your Stellar/Bluesky handle in the note :3
+# Support Recho!!
+Every feature in Stellar is free for everyone!! If you'd like to help Recho afford food, you can donate with any of the links below :3
 - https://cash.app/$RechoRaccoon
 - https://paypal.biz/rechoraccoon
 - https://ko-fi.com/rechoraccoon

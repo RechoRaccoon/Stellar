@@ -62,7 +62,12 @@ class HandLandmarkerHelper private constructor(
         ): HandLandmarkerHelper? =
             runCatching {
                 val baseOptions = BaseOptions.builder()
-                    .setModelAssetPath(MODEL_ASSET_PATH)
+                    .apply {
+                        // Downloaded on first use (TrackingModels), or the
+                        // bundled asset in a build that still has it.
+                        val downloaded = TrackingModels.buffer(context, TrackingModels.Model.HAND)
+                        if (downloaded != null) setModelAssetBuffer(downloaded) else setModelAssetPath(MODEL_ASSET_PATH)
+                    }
                     .setDelegate(delegate)
                     .build()
                 val options = HandLandmarker.HandLandmarkerOptions.builder()

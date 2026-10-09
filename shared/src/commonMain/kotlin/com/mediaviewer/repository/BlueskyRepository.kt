@@ -2459,15 +2459,20 @@ class BlueskyRepository {
             } while (!cursor.isNullOrBlank())
             return out
         }
-        val (follows, followerDids) = coroutineScope {
-            val f1 = async { fetchAllFollows() }
-            val f2 = async { fetchAllFollowers() }
-            f1.await() to f2.await()
-        }
+        // Each followed account comes with the viewer state, whose
+        // "followedBy" says whether they follow back — so the follows alone
+        // give the mutuals. (Paging through every follower as well doubled
+        // the requests and, for big accounts, took most of the time.) Only
+        // when the server leaves the viewer state out are the followers read.
+        val follows = fetchAllFollows()
+        val hasViewer = follows.values.any { it.viewer != null }
+        val followerDids: Set<String>? = if (hasViewer) null else fetchAllFollowers()
         // Item 12 bugfix: never surface the current user's own account as a DM
         // recipient (can happen via odd follow-graph edge cases like a stale
         // self-follow record).
-        follows.values.filter { followerDids.contains(it.did) && it.did != myDid }.map {
+        follows.values.filter {
+            it.did != myDid && (if (followerDids != null) it.did in followerDids else it.viewer?.followedBy != null)
+        }.map {
             AuthorInfo(
                 did = it.did, handle = it.handle,
                 displayName = it.displayName?.takeIf { n -> n.isNotBlank() } ?: it.handle,
@@ -2537,15 +2542,19 @@ class BlueskyRepository {
             throw mutualsResult.exceptionOrNull() ?: convosResult.exceptionOrNull() ?: Exception("Failed to load conversations")
         }
 
+        val mutuals = mutualsResult.getOrDefault(emptyList())
+        val mutualDids = mutuals.mapTo(HashSet()) { it.did }
         val convos = convosResult.getOrDefault(emptyList()).filter { it.member.did !in blockedDids }
         val byDid = LinkedHashMap<String, DmConversation>()
-        convos.forEach { byDid[it.member.did] = it }
+        // (isMutual: the Hub's Mutuals row shows only these — a chat with
+        // someone you don't both follow isn't a mutual.)
+        convos.forEach { byDid[it.member.did] = if (!it.isGroup && it.member.did in mutualDids) it.copy(isMutual = true) else it }
 
-        mutualsResult.getOrDefault(emptyList()).forEach { mutual ->
+        mutuals.forEach { mutual ->
             if (mutual.did !in blockedDids && !byDid.containsKey(mutual.did)) {
                 // Mutual we can message but haven't started a conversation with yet —
                 // convoId is resolved lazily (fetch-or-create) at send time.
-                byDid[mutual.did] = DmConversation(convoId = "", member = mutual, lastSentByUsAt = "", lastActivityAt = "")
+                byDid[mutual.did] = DmConversation(convoId = "", member = mutual, lastSentByUsAt = "", lastActivityAt = "", isMutual = true)
             }
         }
 
@@ -2562,7 +2571,7 @@ class BlueskyRepository {
      *  anything in — which biased the order toward people you message a lot
      *  rather than genuine recency, and wasn't what "most recent
      *  interaction" should mean. */
-    suspend fun listConvos(token: String, myDid: String): Result<List<DmConversation>> = runCatching {
+    suspend fun listConvos(token: String, myDid: String, maxPages: Int = 3): Result<List<DmConversation>> = runCatching {
         // Speed fix: this used to also fetch 30 messages of history for
         // every single conversation (to find "the last one WE sent") — one
         // extra request per chat, every time the list loaded, which is what
@@ -2578,7 +2587,7 @@ class BlueskyRepository {
             all += body.convos
             cursor = body.cursor
             pages++
-        } while (!cursor.isNullOrBlank() && pages < 3)
+        } while (!cursor.isNullOrBlank() && pages < maxPages)
         all.map { conversationFor(it, myDid) }
             .sortedByDescending { it.lastActivityAt.ifBlank { it.lastSentByUsAt } }
     }
@@ -3406,10 +3415,17 @@ class BlueskyRepository {
         token: String, context: com.mediaviewer.platform.PlatformContext, uri: com.mediaviewer.platform.PlatformUri
     ): Result<UploadedImage> = withContext(Dispatchers.IO) {
         runCatching {
-            val (bytes, mimeType) = prepareImageForUpload(context, uri)
+            // One picture decoded at a time (several big photos decoded at
+            // once could run the phone out of memory); uploads overlap.
+            val (bytes, mimeType) = imagePrepareLock.withLock { prepareImageForUpload(context, uri) }
             val body = bytes.toRequestBody(mimeType.toMediaType())
-            val resp = api.uploadBlob("Bearer $token", mimeType, body)
-            val blob = resp.body()?.blob ?: error("uploadBlob ${resp.code()}: ${resp.errorBody()?.string()}")
+            // A dropped connection gets one more try before giving up.
+            var resp = runCatching { api.uploadBlob("Bearer $token", mimeType, body) }.getOrNull()
+            if (resp == null || (!resp.isSuccessful && resp.code() >= 500)) {
+                delay(800)
+                resp = api.uploadBlob("Bearer $token", mimeType, bytes.toRequestBody(mimeType.toMediaType()))
+            }
+            val blob = resp.body()?.blob ?: error("Picture upload failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
             // Measure the exact bytes uploaded (they may have been
             // downscaled/re-encoded by prepareImageForUpload above) —
             // inJustDecodeBounds reads the dimensions without decoding the
@@ -3461,6 +3477,16 @@ class BlueskyRepository {
         return resp.body()?.blob ?: error("Picture upload failed (${resp.code()})")
     }
 
+    private val imagePrepareLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Uploads several pictures, up to three at a time, keeping their order. */
+    suspend fun uploadImageBlobs(
+        token: String, context: com.mediaviewer.platform.PlatformContext, uris: List<com.mediaviewer.platform.PlatformUri>
+    ): List<UploadedImage> = coroutineScope {
+        val gate = kotlinx.coroutines.sync.Semaphore(3)
+        uris.map { uri -> async { gate.withPermit { uploadImageBlob(token, context, uri).getOrThrow() } } }.awaitAll()
+    }
+
     /** An image blob that was just uploaded, plus the exact pixel dimensions
      *  of the bytes that were sent — so post embeds can carry the
      *  `aspectRatio` metadata Bluesky needs to render correct (non-square)
@@ -3493,7 +3519,15 @@ class BlueskyRepository {
         } else {
             mapOf(
                 "\$type" to "app.bsky.embed.gallery",
-                "items" to images.mapIndexed { i, img -> mapOf("\$type" to "app.bsky.embed.gallery#image", "image" to img.blob, "alt" to (alts.getOrNull(i) ?: "")) }
+                // (aspectRatio is REQUIRED on a gallery image — without it
+                // the post was refused, which is why 5+ pictures failed.)
+                "items" to images.mapIndexed { i, img ->
+                    mapOf(
+                        "\$type" to "app.bsky.embed.gallery#image", "image" to img.blob, "alt" to (alts.getOrNull(i) ?: ""),
+                        "aspectRatio" to (if (img.width > 0 && img.height > 0) mapOf("width" to img.width, "height" to img.height)
+                            else mapOf("width" to 1, "height" to 1))
+                    )
+                }
             )
         }
     }
@@ -3721,7 +3755,14 @@ class BlueskyRepository {
         fun text(key: String): String? = (value[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
         val colors = (value["colors"] as? kotlinx.serialization.json.JsonArray)
             ?.map { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()
-        val effect = text("effect")?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } } ?: "confetti"
+        // Confetti used to be every supporter's default, and records always
+        // carried it — so before styleVersion 2 a "confetti" just means
+        // "nothing picked" and reads as "none" (the default now). Any other
+        // effect someone picked is kept; confetti picked since is version 2.
+        val version = (value["styleVersion"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 1
+        val effect = text("effect")
+            ?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } }
+            ?.takeUnless { it == "confetti" && version < 2 } ?: "none"
         return com.mediaviewer.util.ProfileStyle(
             squareIcon = text("iconShape") == "square",
             effect = effect,
@@ -3742,6 +3783,7 @@ class BlueskyRepository {
             record["\$type"] = com.mediaviewer.util.ProfileStyles.COLLECTION
             record["iconShape"] = if (style.squareIcon) "square" else "circle"
             record["effect"] = style.effect
+            record["styleVersion"] = 2
             val a = style.colorA
             val b = style.colorB
             if (a != null && b != null) record["colors"] = listOf(colorToHex(a), colorToHex(b))
@@ -3941,9 +3983,7 @@ class BlueskyRepository {
         val created = mutableListOf<BskyRef>()
         var root: BskyRef? = null
         for (post in posts) {
-            val images = post.images.map { uri ->
-                uploadImageBlob(token, context, uri).getOrElse { throw it }
-            }
+            val images = uploadImageBlobs(token, context, post.images)
             val reply = root?.let { r -> BskyReplyRef(root = r, parent = created.last()) }
             val ref = createPost(token, did, post.text, images, reply, selfLabels = selfLabels).getOrElse { throw it }
             if (root == null) root = ref
@@ -4047,15 +4087,23 @@ class BlueskyRepository {
         // platform always shows frame 0 as the thumbnail. Falls back to the
         // original video untouched if splicing fails for any reason (a
         // missing thumbnail beats a failed post).
+        // First, within Bluesky's limits: a 4K or very large video is
+        // re-encoded to 1080p H.264 (see VideoCompressor) — it was the big,
+        // high-quality videos that failed to upload.
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.PREPARING)
+        val sizedUri = runCatching { MediaBridge.prepareVideoForUpload(context, videoUri) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .getOrDefault(videoUri)
         val uploadUri = if (thumbnailUri != null) {
-            runCatching { MediaBridge.stitchVideoThumbnail(context, videoUri, thumbnailUri) }
+            runCatching { MediaBridge.stitchVideoThumbnail(context, sizedUri, thumbnailUri) }
                 .onFailure { com.mediaviewer.platform.Log.e("BlueskyRepository", "Custom thumbnail couldn't be added — posting without it", it) }
-                .getOrDefault(videoUri)
-        } else videoUri
-        // Transformer always re-muxes to mp4, so once stitching has happened
-        // the original URI's declared type (mov, etc.) no longer applies.
+                .getOrDefault(sizedUri)
+        } else sizedUri
+        // Re-encoding/stitching always writes an mp4, so the original URI's
+        // declared type (mov, etc.) no longer applies then.
         val mimeType = if (uploadUri != videoUri) "video/mp4" else (MediaBridge.mimeTypeOf(context, videoUri) ?: "video/mp4")
         val (videoW, videoH) = runCatching { videoDimensions(context, uploadUri) }.getOrDefault(0 to 0)
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.UPLOADING)
 
         val viaService = runCatching { uploadVideoThroughService(token, did, context, uploadUri, mimeType) }
         viaService.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
@@ -4388,8 +4436,16 @@ class BlueskyRepository {
                     // style grid to size tiles to their true proportions.
                     fun resolvedRatio(img: BskyImageView): Float? =
                         img.aspectRatio?.takeIf { it.height > 0 }?.let { it.width.toFloat() / it.height.toFloat() }
+                    // Transparent pictures (PNG/WebP) as "@png", not "@jpeg"
+                    // (which turned their see-through parts black).
+                    val alphaCids = runCatching { post.record.alphaImageCids }.getOrDefault(emptySet())
+                    fun keepAlpha(url: String?): String? {
+                        if (url == null || alphaCids.isEmpty() || !url.endsWith("@jpeg")) return url
+                        return if (alphaCids.any { url.contains("/$it@") }) url.removeSuffix("@jpeg") + "@png" else url
+                    }
                     val images = (embed.images?.takeIf { it.isNotEmpty() } ?: embed.items ?: emptyList())
                         .filter { !it.fullsize.isNullOrBlank() && (!it.thumb.isNullOrBlank() || !it.thumbnail.isNullOrBlank()) }
+                        .map { if (alphaCids.isEmpty()) it else it.copy(fullsize = keepAlpha(it.fullsize) ?: it.fullsize, thumb = keepAlpha(it.thumb) ?: it.thumb, thumbnail = keepAlpha(it.thumbnail)) }
                     if (images.isEmpty()) textOnlyItem() else {
                         val first = images.first()
                         val firstAlt = first.alt

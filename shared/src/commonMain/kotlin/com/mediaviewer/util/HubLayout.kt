@@ -95,7 +95,11 @@ object HubLayout {
         REVIEWS to "Reviews",
         SUPPORTERS to "Stellar Supporters",
         SWITCH_ACCOUNTS to "Switch Accounts"
-    )
+    ).apply {
+        // The Stellar Supporters row is switched off (its code is kept):
+        // not offered in Add → Default, and taken out of saved layouts.
+        if (!FeatureFlags.SUPPORTERS_FEED_ENABLED) remove(SUPPORTERS)
+    }
 
     /** The default rows, in their default order (Add → Default's list). */
     val defaultRowIds: List<String> get() = BUILT_IN_LABELS.keys.toList()
@@ -130,6 +134,87 @@ object HubLayout {
         accountDid = p.getString(KEY_ACTIVE_DID, null) ?: ""
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
+        launchpad = readLaunchpad(p, accountDid)
+    }
+
+    // ── Launchpad order ──────────────────────────────────────────────────
+    // The Launchpad's buttons, page by page (two pages, up to three rows of
+    // three on each), rearranged by holding a button and dragging it. Kept
+    // per account on this device, in this same file (so App Data Export
+    // carries it along with the rest of Customize Hub).
+
+    const val LP_INBOX = "inbox"
+    const val LP_PROFILE = "profile"
+    const val LP_DMS = "dms"
+    const val LP_SAVED = "saved"
+    const val LP_HISTORY = "history"
+    const val LP_FRIENDS = "friends"
+    const val LP_ARCHIVED = "archived"
+    const val LP_CALENDAR = "calendar"
+    const val LP_NOTES = "notes"
+    const val LP_CALCULATOR = "calculator"
+    const val LP_TIMER = "timer"
+    const val LAUNCHPAD_PAGES = 2
+    const val LAUNCHPAD_PER_ROW = 3
+    const val LAUNCHPAD_PER_PAGE = 9
+
+    val DEFAULT_LAUNCHPAD: List<List<String>> = listOf(
+        listOf(LP_INBOX, LP_PROFILE, LP_DMS, LP_SAVED, LP_HISTORY, LP_FRIENDS),
+        listOf(LP_ARCHIVED, LP_CALENDAR, LP_NOTES, LP_CALCULATOR, LP_TIMER)
+    )
+    private val ALL_LAUNCHPAD = DEFAULT_LAUNCHPAD.flatten()
+    private fun launchpadKeyFor(did: String) = "launchpad@" + did.ifBlank { "signed_out" }
+
+    /** The Launchpad's pages, each a list of button ids in order. */
+    var launchpad by mutableStateOf(DEFAULT_LAUNCHPAD)
+        private set
+
+    private fun readLaunchpad(p: SharedPreferences, did: String): List<List<String>> {
+        val raw = p.getString(launchpadKeyFor(did), null) ?: return DEFAULT_LAUNCHPAD
+        val pages = raw.split('|').map { page -> page.split(',').filter { it in ALL_LAUNCHPAD } }
+        return normalizeLaunchpad(pages)
+    }
+
+    /** Every button exactly once, at most [LAUNCHPAD_PER_PAGE] a page, and
+     *  any button new since the order was saved put where it is by default. */
+    private fun normalizeLaunchpad(input: List<List<String>>): List<List<String>> {
+        val seen = HashSet<String>()
+        val pages = MutableList(LAUNCHPAD_PAGES) { i ->
+            (input.getOrNull(i) ?: emptyList()).filter { seen.add(it) }.toMutableList()
+        }
+        // (Overflow from a full page moves on to the next one with room.)
+        for (i in pages.indices) while (pages[i].size > LAUNCHPAD_PER_PAGE) {
+            val extra = pages[i].removeAt(pages[i].lastIndex)
+            pages.firstOrNull { it.size < LAUNCHPAD_PER_PAGE }?.add(extra)
+        }
+        DEFAULT_LAUNCHPAD.forEachIndexed { i, defaults ->
+            defaults.filter { it !in seen }.forEach { id ->
+                (pages.getOrNull(i)?.takeIf { it.size < LAUNCHPAD_PER_PAGE } ?: pages.first { it.size < LAUNCHPAD_PER_PAGE }).add(id)
+                seen.add(id)
+            }
+        }
+        return pages.map { it.toList() }
+    }
+
+    /** Moves button [id] to [page] at [index] (clamped to that page). */
+    fun moveLaunchpadButton(id: String, page: Int, index: Int) {
+        if (page !in 0 until LAUNCHPAD_PAGES) return
+        val pages = launchpad.map { it.toMutableList() }
+        val fromPage = pages.indexOfFirst { id in it }
+        if (fromPage < 0) return
+        if (fromPage != page && pages[page].size >= LAUNCHPAD_PER_PAGE) return
+        pages[fromPage].remove(id)
+        pages[page].add(index.coerceIn(0, pages[page].size), id)
+        val next = normalizeLaunchpad(pages)
+        if (next == launchpad) return
+        launchpad = next
+        prefs?.edit()?.putString(launchpadKeyFor(accountDid), next.joinToString("|") { it.joinToString(",") })?.apply()
+    }
+
+    /** Back to the default arrangement. */
+    fun resetLaunchpad() {
+        launchpad = DEFAULT_LAUNCHPAD
+        prefs?.edit()?.remove(launchpadKeyFor(accountDid))?.apply()
     }
 
     /** The signed-in account changed (or became known): show its layout. */
@@ -140,6 +225,7 @@ object HubLayout {
         p.edit().putString(KEY_ACTIVE_DID, did).commit()
         removedDefaults = readRemoved(p, did)
         rows = normalize(parse(readFor(p, did)))
+        launchpad = readLaunchpad(p, did)
     }
 
     private fun readRemoved(p: SharedPreferences, did: String): Set<String> =
@@ -270,6 +356,7 @@ object HubLayout {
         val p = prefs ?: return
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
+        launchpad = readLaunchpad(p, accountDid)
     }
 
     private fun update(newRows: List<Row>) {
@@ -284,6 +371,7 @@ object HubLayout {
         val out = ArrayList<Row>()
         for (r in input) {
             if (!seen.add(r.id)) continue
+            if (r.id == SUPPORTERS && !FeatureFlags.SUPPORTERS_FEED_ENABLED) continue
             val builtIn = BUILT_IN_LABELS.containsKey(r.id)
             if (!builtIn && !r.isList && !r.isProfiles && !(r.isWidget && WIDGET_LABELS.containsKey(r.id))) continue
             if (builtIn && r.id in removedDefaults) continue

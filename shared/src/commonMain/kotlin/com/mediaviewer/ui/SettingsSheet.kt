@@ -861,7 +861,7 @@ private fun AtProtocolPageContent(
                         if (!change.pressed) break
                         val d = change.positionChange()
                         dy += d.y; dx += d.x
-                        if (!fired && feedDrag.active.not() && -dy > threshold && -dy > kotlin.math.abs(dx) * 1.5f) {
+                        if (!fired && feedDrag.active.not() && !feedDrag.launchActive && -dy > threshold && -dy > kotlin.math.abs(dx) * 1.5f) {
                             fired = true
                             swipeView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY)
                             latestSwipeBack()
@@ -906,68 +906,235 @@ private fun AtProtocolPageContent(
             )
             HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
         }
-        // The Launchpad swipes sideways: page two holds the supporter
-        // apps (Calendar, Notes, Calculator, Timer).
-        val launchPager = androidx.compose.foundation.pager.rememberPagerState { 2 }
-        androidx.compose.foundation.pager.HorizontalPager(
-            state = launchPager,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            pageSpacing = 16.dp,
-            // The badges poke out past the buttons' corners.
-            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
-            verticalAlignment = Alignment.Top
-        ) { page ->
-        if (page == 0) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Inbox (Bluesky notifications) replaced Liked Posts; DMs and
-                // From Friends swapped places. The two badges count what
-                // you haven't seen yet.
-                SettingsGridButton("Inbox", Icons.Default.Email, Color.White, liquidGlass, Modifier.weight(1f), onOpenInbox, panelTint = dominantColor, backdrop = backdrop, badge = inboxUnreadCount)
-                ProfileGridButton(selfProfile, bskyHandle, liquidGlass, Modifier.weight(1f), onOpenOwnProfile, panelTint = dominantColor, backdrop = backdrop)
-                // (Drop a held feed on DMs to share it in a chat.)
-                SettingsGridButton(
-                    "DMs", Icons.Default.Chat, Color.White, liquidGlass,
-                    Modifier.weight(1f).onGloballyPositioned { feedDrag.dmBounds = it.boundsInRoot() }
-                        .graphicsLayer { val sc = if (feedDrag.overDm) 1.08f else 1f; scaleX = sc; scaleY = sc },
-                    onOpenDmInbox, panelTint = if (feedDrag.overDm) vividAccent(dominantColor) else dominantColor, backdrop = backdrop, badge = dmUnreadCount
-                )
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGridButton("Saved Posts", Icons.Default.Star, BookmarkYellow, liquidGlass, Modifier.weight(1f), onShowSaves, panelTint = dominantColor, backdrop = backdrop)
-                SettingsGridButton("History", Icons.Default.History, Color.White, liquidGlass, Modifier.weight(1f), onShowHistory, panelTint = dominantColor, backdrop = backdrop)
-                SettingsGridButton("From Friends", Icons.Default.Send, Color.White, liquidGlass, Modifier.weight(1f), onShowFriends, panelTint = dominantColor, backdrop = backdrop)
-            }
-        }
-        } else {
-        // Page two (supporters): everyone else sees the buttons in the
-        // supporter pink, and tapping one opens the Support page.
+        // The Launchpad swipes sideways between two pages. Hold any button
+        // and drag it to rearrange: anywhere on its page, onto the other
+        // page (hold it at the side of the pad to turn the page), or into a
+        // third row once a page has two full rows. The order is kept per
+        // account on this device (HubLayout.launchpad).
+        val launchPager = androidx.compose.foundation.pager.rememberPagerState { com.mediaviewer.util.HubLayout.LAUNCHPAD_PAGES }
+        val launchpad = com.mediaviewer.util.HubLayout.launchpad
+        val lpDrag = remember { LaunchpadDragState() }
+        val lpView = rememberPlatformView()
+        val lpScope = rememberCoroutineScope()
+        val lpSlots = remember { HashMap<Pair<Int, Int>, Rect>() }
+        var lpOrigin by remember { mutableStateOf(Offset.Zero) }
+        var lpBounds by remember { mutableStateOf<Rect?>(null) }
+        val latestLaunchpad by rememberUpdatedState(launchpad)
         val supporter = com.mediaviewer.util.Supporter.active
         val openArchived: () -> Unit = {
             if (supporter) LocalOverlays.openArchive?.invoke() else com.mediaviewer.util.Supporter.openPage()
         }
-        fun open(app: LaunchApp): () -> Unit = {
+        fun openApp(app: LaunchApp): () -> Unit = {
             if (supporter) LocalOverlays.launchApp = app else com.mediaviewer.util.Supporter.openPage()
         }
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGridButton("Archived", Icons.Default.Inventory2, Color.White, liquidGlass, Modifier.weight(1f), openArchived, panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                SettingsGridButton("Calendar", Icons.Default.CalendarMonth, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.CALENDAR), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                SettingsGridButton("Notes", Icons.Default.StickyNote2, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.NOTES), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
+        fun lpAction(id: String): () -> Unit = when (id) {
+            com.mediaviewer.util.HubLayout.LP_INBOX -> onOpenInbox
+            com.mediaviewer.util.HubLayout.LP_PROFILE -> onOpenOwnProfile
+            com.mediaviewer.util.HubLayout.LP_DMS -> onOpenDmInbox
+            com.mediaviewer.util.HubLayout.LP_SAVED -> onShowSaves
+            com.mediaviewer.util.HubLayout.LP_HISTORY -> onShowHistory
+            com.mediaviewer.util.HubLayout.LP_FRIENDS -> onShowFriends
+            com.mediaviewer.util.HubLayout.LP_ARCHIVED -> openArchived
+            com.mediaviewer.util.HubLayout.LP_CALENDAR -> openApp(LaunchApp.CALENDAR)
+            com.mediaviewer.util.HubLayout.LP_NOTES -> openApp(LaunchApp.NOTES)
+            com.mediaviewer.util.HubLayout.LP_CALCULATOR -> openApp(LaunchApp.CALCULATOR)
+            com.mediaviewer.util.HubLayout.LP_TIMER -> openApp(LaunchApp.TIMER)
+            else -> ({})
+        }
+        /** One Launchpad button's face (no tap handling: the slot does that). */
+        @Composable
+        fun LaunchButtonFace(id: String, modifier: Modifier) {
+            val locked = !supporter && id in setOf(
+                com.mediaviewer.util.HubLayout.LP_ARCHIVED, com.mediaviewer.util.HubLayout.LP_CALENDAR, com.mediaviewer.util.HubLayout.LP_NOTES,
+                com.mediaviewer.util.HubLayout.LP_CALCULATOR, com.mediaviewer.util.HubLayout.LP_TIMER
+            )
+            fun grid(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, iconTint: Color = Color.White, badge: Int = 0,
+                     tint: Color = dominantColor, m: Modifier = modifier): @Composable () -> Unit = {
+                SettingsGridButton(label, icon, iconTint, liquidGlass, m, {}, panelTint = tint, backdrop = backdrop, badge = badge, locked = locked, tappable = false)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGridButton("Calculator", Icons.Default.Calculate, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.CALCULATOR), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                SettingsGridButton("Timer", Icons.Default.Timer, Color.White, liquidGlass, Modifier.weight(1f), open(LaunchApp.TIMER), panelTint = dominantColor, backdrop = backdrop, locked = !supporter)
-                // The last spot is empty for now.
-                Spacer(Modifier.weight(1f).height(36.dp))
+            when (id) {
+                com.mediaviewer.util.HubLayout.LP_INBOX -> grid("Inbox", Icons.Default.Email, badge = inboxUnreadCount)()
+                com.mediaviewer.util.HubLayout.LP_PROFILE -> ProfileGridButton(selfProfile, bskyHandle, liquidGlass, modifier, {}, panelTint = dominantColor, backdrop = backdrop, tappable = false)
+                // (Drop a held feed on DMs to share it in a chat.)
+                com.mediaviewer.util.HubLayout.LP_DMS -> grid(
+                    "DMs", Icons.Default.Chat, badge = dmUnreadCount,
+                    tint = if (feedDrag.overDm) vividAccent(dominantColor) else dominantColor,
+                    m = modifier.onGloballyPositioned { if (!lpDrag.active) feedDrag.dmBounds = it.boundsInRoot() }
+                        .graphicsLayer { val sc = if (feedDrag.overDm) 1.08f else 1f; scaleX = sc; scaleY = sc }
+                )()
+                com.mediaviewer.util.HubLayout.LP_SAVED -> grid("Saved Posts", Icons.Default.Star, BookmarkYellow)()
+                com.mediaviewer.util.HubLayout.LP_HISTORY -> grid("History", Icons.Default.History)()
+                com.mediaviewer.util.HubLayout.LP_FRIENDS -> grid("From Friends", Icons.Default.Send)()
+                com.mediaviewer.util.HubLayout.LP_ARCHIVED -> grid("Archived", Icons.Default.Inventory2)()
+                com.mediaviewer.util.HubLayout.LP_CALENDAR -> grid("Calendar", Icons.Default.CalendarMonth)()
+                com.mediaviewer.util.HubLayout.LP_NOTES -> grid("Notes", Icons.Default.StickyNote2)()
+                com.mediaviewer.util.HubLayout.LP_CALCULATOR -> grid("Calculator", Icons.Default.Calculate)()
+                com.mediaviewer.util.HubLayout.LP_TIMER -> grid("Timer", Icons.Default.Timer)()
             }
         }
+        /** Where the held button would land: the slot under the finger on
+         *  the page showing (past the last button = at the end). */
+        fun lpRetarget() {
+            val id = lpDrag.id ?: return
+            val page = launchPager.currentPage
+            val hit = lpSlots.entries.firstOrNull { (k, r) -> k.first == page && r.contains(lpDrag.pointer) }?.key ?: return
+            val others = latestLaunchpad.getOrNull(page).orEmpty().filter { it != id }
+            val fromPage = latestLaunchpad.indexOfFirst { id in it }
+            if (page != fromPage && others.size >= com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_PAGE) return
+            val index = hit.second.coerceAtMost(others.size)
+            if (page != lpDrag.targetPage || index != lpDrag.targetIndex) {
+                lpDrag.targetPage = page
+                lpDrag.targetIndex = index
+                lpView.hubHaptic(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+        // Holding a button at the pad's left/right edge turns the page.
+        val lpDensity = LocalDensity.current.density
+        LaunchedEffect(lpDrag.active) {
+            var edgeSince = 0L
+            while (lpDrag.active) {
+                androidx.compose.runtime.withFrameMillis { }
+                val b = lpBounds ?: continue
+                val x = lpDrag.pointer.x
+                val edge = 30f * lpDensity
+                val dir = when {
+                    x < b.left + edge -> -1
+                    x > b.right - edge -> 1
+                    else -> 0
+                }
+                val next = launchPager.currentPage + dir
+                if (dir == 0 || next !in 0 until launchPager.pageCount || launchPager.isScrollInProgress) { edgeSince = 0L; continue }
+                val now = com.mediaviewer.platform.currentTimeMillis()
+                if (edgeSince == 0L) edgeSince = now
+                else if (now - edgeSince > 450L) {
+                    edgeSince = 0L
+                    lpView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY)
+                    launchPager.animateScrollToPage(next)
+                    lpRetarget()
+                }
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth().zIndex(if (lpDrag.active) 5f else 0f)
+                .onGloballyPositioned { lpOrigin = it.positionInRoot(); lpBounds = it.boundsInRoot() }
+                // Hold and drag, handled here for the whole pad (not on each
+                // button) so the gesture survives the button moving between
+                // slots and pages while it's held.
+                .pointerInput(Unit) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { off ->
+                            val at = lpOrigin + off
+                            val page = launchPager.currentPage
+                            val hit = lpSlots.entries.firstOrNull { (k, r) -> k.first == page && r.contains(at) }
+                                ?: return@detectDragGesturesAfterLongPress
+                            val id = latestLaunchpad.getOrNull(page)?.getOrNull(hit.key.second)
+                                ?: return@detectDragGesturesAfterLongPress
+                            lpDrag.id = id
+                            lpDrag.grab = at - hit.value.topLeft
+                            lpDrag.size = hit.value.size
+                            lpDrag.pointer = at
+                            lpDrag.targetPage = page
+                            lpDrag.targetIndex = hit.key.second
+                            lpDrag.active = true
+                            feedDrag.launchActive = true
+                            lpView.hubHaptic(HapticFeedbackConstants.LONG_PRESS)
+                        },
+                        onDrag = { change, amount ->
+                            if (!lpDrag.active) return@detectDragGesturesAfterLongPress
+                            change.consume()
+                            lpDrag.pointer += amount
+                            lpRetarget()
+                        },
+                        onDragEnd = {
+                            val moved = lpDrag.id
+                            if (lpDrag.active && moved != null) {
+                                com.mediaviewer.util.HubLayout.moveLaunchpadButton(moved, lpDrag.targetPage, lpDrag.targetIndex)
+                                lpView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            lpDrag.reset(); feedDrag.launchActive = false
+                        },
+                        onDragCancel = { lpDrag.reset(); feedDrag.launchActive = false }
+                    )
+                }
+        ) {
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = launchPager,
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            pageSpacing = 16.dp,
+            // (No swiping while a button is held: the edges turn the page.)
+            userScrollEnabled = !lpDrag.active,
+            // The badges poke out past the buttons' corners.
+            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+            verticalAlignment = Alignment.Top
+        ) { page ->
+            val held = lpDrag.id.takeIf { lpDrag.active }
+            val base = launchpad.getOrNull(page).orEmpty().filter { it != held }
+            val shown: List<String> = if (held != null && lpDrag.targetPage == page)
+                base.toMutableList().apply { add(lpDrag.targetIndex.coerceIn(0, size), held) } else base
+            val perRow = com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_ROW
+            // While a button is held, every page with room shows one more
+            // slot (a third row appears under two full ones).
+            val wanted = if (held != null) maxOf(shown.size, base.size + 1) else shown.size
+            val slotCount = ((wanted + perRow - 1) / perRow * perRow)
+                .coerceIn(perRow, com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_PAGE)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (row in 0 until slotCount / perRow) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (col in 0 until perRow) {
+                            val slot = row * perRow + col
+                            val id = shown.getOrNull(slot)
+                            Box(
+                                Modifier.weight(1f).height(36.dp)
+                                    .onGloballyPositioned { lpSlots[page to slot] = it.boundsInRoot() }
+                            ) {
+                                if (id == null) {
+                                    // An empty slot: a faint outline while dragging.
+                                    if (held != null) Box(
+                                        Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(12.dp))
+                                    )
+                                } else key(id) {
+                                    val isHeld = id == held
+                                    val action by rememberUpdatedState(lpAction(id))
+                                    Box(
+                                        Modifier.fillMaxSize()
+                                            .graphicsLayer { alpha = if (isHeld) 0.25f else 1f }
+                                            .pointerInput(id) {
+                                                detectTapGestures(onTap = { lpView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY); action() })
+                                            }
+                                    ) { LaunchButtonFace(id, Modifier.fillMaxWidth()) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The held button, lifted and following the finger.
+        val ghostId = lpDrag.id
+        if (lpDrag.active && ghostId != null) {
+            val lift = remember(ghostId) { Animatable(1f) }
+            LaunchedEffect(ghostId) { lift.animateTo(1.1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 600f)) }
+            val density = LocalDensity.current
+            Box(
+                Modifier
+                    .offset {
+                        IntOffset(
+                            (lpDrag.pointer.x - lpDrag.grab.x - lpOrigin.x).roundToInt(),
+                            (lpDrag.pointer.y - lpDrag.grab.y - lpOrigin.y).roundToInt()
+                        )
+                    }
+                    .size(with(density) { lpDrag.size.width.toDp() }, with(density) { lpDrag.size.height.toDp() })
+                    .graphicsLayer {
+                        scaleX = lift.value; scaleY = lift.value
+                        shadowElevation = 14.dp.toPx()
+                        shape = RoundedCornerShape(12.dp)
+                        clip = false
+                    }
+            ) { LaunchButtonFace(ghostId, Modifier.fillMaxWidth()) }
         }
         }
         // Two little dots for the Launchpad's page — drawn over the gap
@@ -977,7 +1144,7 @@ private fun AtProtocolPageContent(
                 Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true).padding(top = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                repeat(2) { i ->
+                repeat(launchPager.pageCount) { i ->
                     val on = launchPager.currentPage == i
                     Box(
                         Modifier.size(if (on) 5.dp else 4.dp).clip(CircleShape)
@@ -997,7 +1164,7 @@ private fun AtProtocolPageContent(
         // button above, which is a different, broader concept.
         // No mutuals at all (once loading has finished): no Mutuals row —
         // not an empty header over a blank strip.
-        if (!dmConversationsLoading && dmConversations.none { !it.isGroup }) return
+        if (!dmConversationsLoading && dmConversations.none { !it.isGroup && it.isMutual }) return
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
@@ -1028,7 +1195,9 @@ private fun AtProtocolPageContent(
         // lazily at send time), so this quick-access row should show all of
         // them, not just people already messaged. Already sorted by most
         // recent interaction by loadDmRecipients.
-        val friends = remember(dmConversations) { dmConversations.filter { !it.isGroup }.map { it.member } }
+        // Fix: only people you both follow — open chats with anyone else
+        // used to fill this row too.
+        val friends = remember(dmConversations) { dmConversations.filter { !it.isGroup && it.isMutual }.map { it.member } }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1221,17 +1390,25 @@ private fun AtProtocolPageContent(
                     // visually matches the card it belongs to.
                     // No image: the author's real profile color (banner +
                     // avatar blend) rather than the avatar-only one.
-                    val blogThumb = fb.blog.thumbnailUrl
-                    val blogTint = if (blogThumb != null) rememberDominantColor(blogThumb)
-                        else rememberAuthorProfileTint(fb.author.did, fb.author.avatarUrl)
-                    // Every card is the same portrait page: cover (when
-                    // there is one), who wrote it and when, the title, the
-                    // tagline and the start of the text — a small version
-                    // of how the blog reads once it's opened.
-                    HubBlogCard(
-                        blog = fb.blog, author = fb.author, tint = blogTint, liquidGlass = liquidGlass,
-                        onOpen = { onOpenBlog(fb) }, onOpenAuthor = { onOpenProfile(fb.author) }
-                    )
+                    // The author's own profile colour — the colour the blog's
+                    // page has once it's opened.
+                    val blogTint = rememberAuthorProfileTint(fb.author.did, fb.author.avatarUrl)
+                    // Whose blog it is, in a small bubble above the card
+                    // (like the Reviews row), then the card: the same page
+                    // the blog opens onto — cover, title, tagline, date and
+                    // the start of the text.
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        HubAuthorBubble(
+                            displayName = fb.author.displayName.ifBlank { fb.author.handle }, avatarUrl = fb.author.avatarUrl,
+                            liquidGlass = liquidGlass, tint = blogTint, cardWidth = HUB_BLOG_CARD_WIDTH,
+                            onClick = { onOpenProfile(fb.author) }
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        HubBlogCard(
+                            blog = fb.blog, author = fb.author, tint = blogTint, liquidGlass = liquidGlass,
+                            onOpen = { onOpenBlog(fb) }, onOpenAuthor = { onOpenProfile(fb.author) }
+                        )
+                    }
                 }
             }
         }
@@ -2117,7 +2294,7 @@ private fun SettingsCreditsSwitch(
         Row(Modifier.padding(3.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf(
                 SettingsTab.SETTINGS to "Settings",
-                SettingsTab.SUPPORT to "Support Stellar",
+                SettingsTab.SUPPORT to "Support Recho",
                 SettingsTab.CREDITS to "About"
             ).forEach { (tab, label) ->
                 val isSelected = tab == selected
@@ -2502,11 +2679,14 @@ private fun SettingsGridButton(
     /** Unseen count: a small bubble on the button's top-right corner. */
     badge: Int = 0,
     /** A supporter-only button shown to a non-supporter: shimmering pink. */
-    locked: Boolean = false
+    locked: Boolean = false,
+    /** False when the caller handles taps itself (the Launchpad, whose
+     *  buttons can also be held and dragged). */
+    tappable: Boolean = true
 ) {
     val shape = RoundedCornerShape(12.dp)
     Box(modifier) {
-        SettingsGridButtonBody(label, icon, iconTint, liquidGlass, Modifier.fillMaxWidth(), onClick, panelTint, backdrop, shape, locked)
+        SettingsGridButtonBody(label, icon, iconTint, liquidGlass, Modifier.fillMaxWidth(), onClick, panelTint, backdrop, shape, locked, tappable)
         HubCountBadge(badge, panelTint, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-6).dp))
     }
 }
@@ -2552,14 +2732,15 @@ private fun SettingsGridButtonBody(
     panelTint: Color,
     backdrop: GlassBackdrop?,
     shape: RoundedCornerShape,
-    locked: Boolean = false
+    locked: Boolean = false,
+    tappable: Boolean = true
 ) {
     @Composable
     fun ButtonContent() {
         // Item 1: half the previous height, icon and label share one row
         // with the icon on the right instead of stacked icon-over-label.
         Row(
-            Modifier.fillMaxSize().clickable(onClick = onClick).padding(horizontal = 8.dp).supporterShine(locked),
+            Modifier.fillMaxSize().then(if (tappable) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 8.dp).supporterShine(locked),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -2595,7 +2776,8 @@ private fun ProfileGridButton(
     // The banner image itself still shows blurred through the glass behind
     // the rim; only the rim/tint color changed source.
     panelTint: Color = NeutralGlassTint,
-    backdrop: GlassBackdrop? = null
+    backdrop: GlassBackdrop? = null,
+    tappable: Boolean = true
 ) {
     val shape = RoundedCornerShape(12.dp)
     val avatarUrl = profile?.author?.avatarUrl
@@ -2606,7 +2788,7 @@ private fun ProfileGridButton(
         modifier
             .height(36.dp)
             .clip(shape)
-            .clickable(onClick = onClick)
+            .then(if (tappable) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         // Item: the banner should be blurred/magnified into the glass the
         // same way every other liquid-glass panel treats its live backdrop
@@ -2834,7 +3016,22 @@ internal fun ExportDatasetNameDialog(
 /** What's being dragged. Lives at the Hub's root so the floating chip and
  *  the Remove bubble (both outside the scrolling page) can see it. */
 @Stable
+/** A Launchpad button being held and dragged (see ButtonsSection). */
+private class LaunchpadDragState {
+    var active by mutableStateOf(false)
+    var id by mutableStateOf<String?>(null)
+    /** Finger position, root coordinates. */
+    var pointer by mutableStateOf(Offset.Zero)
+    var grab by mutableStateOf(Offset.Zero)
+    var size by mutableStateOf(androidx.compose.ui.geometry.Size.Zero)
+    var targetPage by mutableIntStateOf(0)
+    var targetIndex by mutableIntStateOf(0)
+    fun reset() { active = false; id = null }
+}
+
 class HubFeedDragState {
+    /** A Launchpad button is being dragged (the page mustn't swipe away). */
+    var launchActive by mutableStateOf(false)
     var active by mutableStateOf(false)
     var feed by mutableStateOf<BskyFeedInfo?>(null)
     var fromIndex by mutableIntStateOf(-1)

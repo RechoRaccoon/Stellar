@@ -68,10 +68,26 @@ interface TaggingService {
         onProgress: (TaggingProgress) -> Unit
     )
     suspend fun tagOnLike(item: MediaItem)
+    /** Loads the model into memory if it isn't yet (the "Activating
+     *  tagger" step). True when it's ready to tag. */
+    suspend fun warmUp(): Boolean = isTaggerLoaded()
     fun search(query: String): List<String>
     fun browseAllTagged(limit: Int = 200): List<String>
     fun tagsForPost(postUri: String): List<String>
+
+    /**
+     * Edits one post's tags by hand (the Tags page): [oldTag] null adds
+     * [newTag]; [newTag] null removes [oldTag]; both renames. A post that
+     * isn't in the dataset yet is added to the device's own dataset.
+     * Returns the post's tags afterwards.
+     */
+    suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
+        tagsForPost(postUri)
 }
+
+/** A tag as typed on the Tags page: trimmed, spaces become "_". */
+fun normalizeTypedTag(text: String): String =
+    text.trim().replace(Regex("\\s+"), "_")
 
 /** For platforms without the on-device tagger: everything is empty/no-op. */
 object UnavailableTaggingService : TaggingService {

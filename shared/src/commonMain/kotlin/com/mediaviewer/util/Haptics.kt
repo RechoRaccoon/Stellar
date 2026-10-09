@@ -23,3 +23,21 @@ fun rememberHapticTap(): () -> Unit {
         { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
     }
 }
+
+/** Compose's haptics, silenced while Settings → Haptics is off. Provided
+ *  as LocalHapticFeedback at the root of the app (SharedAppHost / Android's
+ *  MainActivity), so every Compose haptic goes through it. */
+class SwitchableHapticFeedback(private val base: androidx.compose.ui.hapticfeedback.HapticFeedback) :
+    androidx.compose.ui.hapticfeedback.HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+        if (UiToggles.hapticsEnabled) base.performHapticFeedback(hapticFeedbackType)
+    }
+}
+
+/** Wraps [content] so its Compose haptics follow Settings → Haptics. */
+@Composable
+fun SwitchableHaptics(content: @Composable () -> Unit) {
+    val base = LocalHapticFeedback.current
+    val wrapped = remember(base) { SwitchableHapticFeedback(base) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalHapticFeedback provides wrapped, content = content)
+}

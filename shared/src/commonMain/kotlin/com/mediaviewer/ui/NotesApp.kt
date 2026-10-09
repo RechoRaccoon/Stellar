@@ -131,6 +131,25 @@ internal fun toggleChecklistLine(body: String, lineIndex: Int): String {
     return lines.joinToString("\n")
 }
 
+/** Markdown as plain text (for previews): markers and list prefixes gone. */
+internal fun markdownPlain(text: String): String = text.lineSequence().joinToString("\n") { raw ->
+    var line = raw.trim()
+    checklistLine.find(raw)?.let { line = it.groupValues[3] }
+    line = line.replace(Regex("""^#{1,6}\s+"""), "").replace(Regex("""^([-*>]|\d+\.)\s+"""), "")
+    if (noteImageLine.matches(line)) "" else markdownInline(line).text
+}
+
+/** True when [text] uses markdown that's worth rendering. */
+internal fun looksLikeMarkdown(text: String): Boolean =
+    text.contains("**") || text.contains("~~") || text.contains('`') ||
+        text.lineSequence().any { l ->
+            val t = l.trimStart()
+            checklistLine.containsMatchIn(l) || numberedLine.containsMatchIn(l) ||
+                t.startsWith("# ") || t.startsWith("## ") || t.startsWith("### ") ||
+                t.startsWith("- ") || t.startsWith("* ") || t.startsWith("> ") ||
+                Regex("""(^|\s)[*_][^*_\s][^*_]*[*_](\s|$|[.,!?])""").containsMatchIn(l)
+        }
+
 /** Inline markdown: **bold**, *italic* / _italic_, `code`, ~~strike~~. */
 internal fun markdownInline(text: String): AnnotatedString = buildAnnotatedString {
     var i = 0

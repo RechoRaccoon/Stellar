@@ -9,6 +9,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -152,7 +153,16 @@ fun CommentsSheet(
 
     // Item 3 bug fix: Bluesky posts opened from the Liked search tab carry
     // the AI tagger's tags too, so the toggle isn't e621-only.
-    val showTagsToggle = currentItem != null && (appMode == AppMode.E621 || currentItem.tags.isNotBlank())
+    // Bluesky posts' tags (the tagger's, on this device) can be edited by
+    // hand: hold to delete, double-tap to rename, "Add Tag" at the bottom.
+    val canEditTags = currentItem != null && appMode == AppMode.BLUESKY &&
+        currentItem.postUri.isNotBlank() && LocalOverlays.canEditTags
+    val showTagsToggle = currentItem != null && (appMode == AppMode.E621 || currentItem.tags.isNotBlank() || canEditTags)
+    // Which tag popup is up: delete / rename / add.
+    var tagToDelete by remember(currentItem?.id) { mutableStateOf<String?>(null) }
+    var tagToRename by remember(currentItem?.id) { mutableStateOf<String?>(null) }
+    var addingTag by remember(currentItem?.id) { mutableStateOf(false) }
+    var tagInput by remember { mutableStateOf("") }
 
     Box(
         Modifier
@@ -222,12 +232,33 @@ fun CommentsSheet(
                 if (showTags && currentItem != null) {
                     // Per request: tags shown alphabetically.
                     val tags = currentItem.tags.split(" ").filter { it.isNotBlank() }.sortedBy { it.lowercase() }
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+                    ) {
                         if (tags.isEmpty()) {
-                            item { Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) { Text("no tags", color = DimGray, fontSize = 14.sp) } }
+                            item {
+                                Box(
+                                    if (canEditTags) Modifier.fillMaxWidth().padding(vertical = 28.dp) else Modifier.fillParentMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) { Text("no tags", color = DimGray, fontSize = 14.sp) }
+                            }
                         } else {
-                            items(tags) { tag -> TagRow(tag, liquidGlass, dominantColor, backdrop, onTagClick) }
+                            items(tags, key = { it }) { tag ->
+                                TagRow(
+                                    tag, liquidGlass, dominantColor, backdrop, onTagClick,
+                                    onLongPress = if (canEditTags) ({ tagToDelete = tag }) else null,
+                                    onDoubleTap = if (canEditTags) ({ tagInput = tag.replace('_', ' '); tagToRename = tag }) else null
+                                )
+                            }
                         }
+                        if (canEditTags) {
+                            item(key = "add_tag") {
+                                AddTagRow(liquidGlass, dominantColor, backdrop) { tagInput = ""; addingTag = true }
+                            }
+                        }
+                        // Clear of the gesture bar.
+                        item { Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navBarSpace)) }
                     }
                 } else {
                     // Item 16: reply-chain navigation. The AnimatedContent's
@@ -251,7 +282,10 @@ fun CommentsSheet(
                         },
                         label = "thread-nav"
                     ) { stack ->
-                        val parent = stack.lastOrNull()
+                        // (Looked up again in the live list, so a like on a
+                        // reply shows straight away — the stack holds the
+                        // comment as it was when it was opened.)
+                        val parent = stack.lastOrNull()?.let { opened -> findComment(comments, opened.id) ?: opened }
                         val displayedComments = parent?.replies ?: comments
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -376,15 +410,93 @@ fun CommentsSheet(
                 }
             }
         }
+
+        // ── Tag popups (hold = delete, double-tap = rename, Add Tag) ──
+        tagToDelete?.let { tag ->
+            ConfirmPopup(
+                title = "Delete Tag?",
+                message = "Remove \"${tag.replace('_', ' ')}\" from this post?",
+                confirmLabel = "Delete",
+                liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                onConfirm = { tagToDelete = null; LocalOverlays.editPostTag?.invoke(tag, null) },
+                onDismiss = { tagToDelete = null }
+            )
+        }
+        tagToRename?.let { tag ->
+            ConfirmPopup(
+                title = "Rename Tag",
+                message = "",
+                confirmLabel = "Rename",
+                liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                destructive = false,
+                input = tagInput, onInputChange = { tagInput = it }, inputPlaceholder = "Tag name",
+                onConfirm = {
+                    val typed = com.mediaviewer.tagging.normalizeTypedTag(tagInput)
+                    if (typed.isNotBlank()) {
+                        tagToRename = null
+                        if (typed != tag) LocalOverlays.editPostTag?.invoke(tag, typed)
+                    }
+                },
+                onDismiss = { tagToRename = null }
+            )
+        }
+        if (addingTag) {
+            ConfirmPopup(
+                title = "Add Tag",
+                message = "",
+                confirmLabel = "Add",
+                liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                destructive = false,
+                input = tagInput, onInputChange = { tagInput = it }, inputPlaceholder = "Tag name",
+                onConfirm = {
+                    val typed = com.mediaviewer.tagging.normalizeTypedTag(tagInput)
+                    if (typed.isNotBlank()) {
+                        addingTag = false
+                        LocalOverlays.editPostTag?.invoke(null, typed)
+                    }
+                },
+                onDismiss = { addingTag = false }
+            )
+        }
+    }
+}
+
+/** The Tags page's last row: adds a tag typed by hand. */
+@Composable
+private fun AddTagRow(liquidGlass: Boolean, dominantColor: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(14.dp)
+    val m = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp, vertical = 6.dp)
+        .height(36.dp)
+        .clip(shape)
+        .clickable { tap(); onClick() }
+    val label: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add Tag", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    if (liquidGlass) {
+        LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop, contentAlignment = Alignment.Center) { label() }
+    } else {
+        Box(m.background(Color.White.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { label() }
     }
 }
 
 /** One tag on the Tags page: its own short, compact blurred bubble,
  *  edge to edge, with the tag centered. Tap searches that tag. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TagRow(
     tag: String, liquidGlass: Boolean, dominantColor: Color, backdrop: GlassBackdrop?,
-    onTagClick: (String) -> Unit
+    onTagClick: (String) -> Unit,
+    /** Hold: delete (with a confirm popup). */
+    onLongPress: (() -> Unit)? = null,
+    /** Double-tap: rename. */
+    onDoubleTap: (() -> Unit)? = null
 ) {
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(14.dp)
@@ -393,7 +505,14 @@ private fun TagRow(
         .padding(horizontal = 12.dp, vertical = 3.dp)
         .height(34.dp)
         .clip(shape)
-        .clickable { tap(); onTagClick(tag) }
+        .then(
+            if (onLongPress == null && onDoubleTap == null) Modifier.clickable { tap(); onTagClick(tag) }
+            else Modifier.combinedClickable(
+                onClick = { tap(); onTagClick(tag) },
+                onLongClick = onLongPress,
+                onDoubleClick = onDoubleTap?.let { f -> { tap(); f() } }
+            )
+        )
     val label: @Composable () -> Unit = {
         Text(
             tag.replace('_', ' '), color = Color.White, fontSize = 13.sp,
@@ -566,4 +685,13 @@ private fun ThreadParentHeader(
             Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(0.06f))) { ParentPillContent() }
         }
     }
+}
+
+/** [id] anywhere in [list], replies included. */
+private fun findComment(list: List<CommentItem>, id: String): CommentItem? {
+    for (c in list) {
+        if (c.id == id) return c
+        findComment(c.replies, id)?.let { return it }
+    }
+    return null
 }

@@ -77,6 +77,12 @@ internal const val PROFILE_COLOR_WAIT_MS = 1500L
  */
 @Composable
 fun AppRoot(viewModel: MainViewModel, pendingProfileLink: String? = null, onProfileLinkHandled: () -> Unit = {}) {
+    // Every Compose haptic below follows Settings → Haptics.
+    com.mediaviewer.util.SwitchableHaptics { AppRootContent(viewModel, pendingProfileLink, onProfileLinkHandled) }
+}
+
+@Composable
+private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?, onProfileLinkHandled: () -> Unit) {
     val context            = com.mediaviewer.ui.compat.LocalContext.current
     val mediaItems         by viewModel.mediaItems.collectAsState()
     val currentIndex       by viewModel.currentIndex.collectAsState()
@@ -1461,7 +1467,9 @@ fun AppRoot(viewModel: MainViewModel, pendingProfileLink: String? = null, onProf
         }
         // The Support popup: on the tenth open, once the Hub is up and the
         // welcome flow isn't.
-        val supportDue = com.mediaviewer.util.Onboarding.supportPopupDue
+        // (Switched off with FeatureFlags.SUPPORT_POPUP_ENABLED; Dev Tools'
+        // preview still opens it.)
+        val supportDue = com.mediaviewer.util.FeatureFlags.SUPPORT_POPUP_ENABLED && com.mediaviewer.util.Onboarding.supportPopupDue
         val devSupport = com.mediaviewer.util.UiToggles.devSupportPreview
         // Never for someone on the Stellar Supporters list.
         val isSupporter = com.mediaviewer.util.StellarSupporters.isSupporter(bskyDid)

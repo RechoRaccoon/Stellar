@@ -148,7 +148,14 @@ class IosCameraRig : LiveFeeder {
         // Upright frames, whichever way the sensor is mounted.
         (output.connectionWithMediaType(AVMediaTypeVideo))?.let { c ->
             if (c.isVideoOrientationSupported()) c.setVideoOrientation(AVCaptureVideoOrientationPortrait)
-            if (c.isVideoMirroringSupported()) c.setVideoMirrored(false)
+            // Crash fix: a connection mirrors the selfie camera by itself
+            // until told not to, and setting the mirroring while that's on
+            // throws an Objective-C exception — which closes the app the
+            // moment the Camera page opens. Automatic off first, then set.
+            if (c.isVideoMirroringSupported()) {
+                c.setAutomaticallyAdjustsVideoMirroring(false)
+                c.setVideoMirrored(false)
+            }
         }
         session.commitConfiguration()
         frameCount = 0

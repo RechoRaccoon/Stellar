@@ -273,6 +273,37 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
 
 
 
+    /** The Tags page's hand edits: add ([oldTag] null), remove ([newTag]
+     *  null) or rename. Tags added by hand get full confidence; a renamed
+     *  one keeps its own. The post is added (to the device's own dataset)
+     *  if the tagger never saw it; its place in "newest first" is kept. */
+    fun editTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL(
+                "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)",
+                arrayOf(postUri, cid, mediaUrl, System.currentTimeMillis(), LOCAL_DATASET_ID)
+            )
+            when {
+                oldTag != null && newTag == null ->
+                    db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, oldTag))
+                oldTag == null && newTag != null -> {
+                    db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
+                    db.execSQL("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, 1.0)", arrayOf(postUri, newTag))
+                }
+                oldTag != null && newTag != null && oldTag != newTag -> {
+                    // (Renaming onto a tag it already has merges the two.)
+                    db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
+                    db.execSQL("UPDATE media_tags SET tag_name = ? WHERE post_uri = ? AND tag_name = ?", arrayOf(newTag, postUri, oldTag))
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     /** Every post currently in the database, across every dataset — the
      *  source data for an Export. */
     fun allPostsForExport(): List<TagExportedPost> {

@@ -1181,21 +1181,20 @@ fun ProfileOverlay(
             )
         }
     }
-        // A Stellar supporter's profile opens with confetti.
-        // (Only once the loading screen is completely gone and the page is
-        // actually showing.)
+        // A profile opens with the effect its owner picked in Edit Profile
+        // ("None" — the default — plays nothing). Only once the loading
+        // screen is completely gone and the page is actually showing.
+        val profileEffect = com.mediaviewer.util.ProfileStyles.effectOf(com.mediaviewer.util.ProfileStyles.of(author.did)?.effect)
         var confettiStarted by remember(author.did) { mutableStateOf(false) }
-        if (isSupporter && !reducedAnimations && loadingScreenDone && !state.hidden && !state.loadingProfile) {
+        if (profileEffect != null && !reducedAnimations && loadingScreenDone && !state.hidden && !state.loadingProfile) {
             LaunchedEffect(author.did) { confettiStarted = true }
         }
         // Stays composed once started, so it plays once per visit.
-        // (Confetti unless they picked another effect in Edit Profile.)
-        if (confettiStarted) {
-            val effect = com.mediaviewer.util.ProfileStyles.effectOf(com.mediaviewer.util.ProfileStyles.of(author.did)?.effect)
+        if (confettiStarted && profileEffect != null) {
             // (Hearts take this profile's own two colors.)
             val heartColors = styledProfileColors(author.did) ?: ProfileColorStore.get(author.did)
             DmEffectLayer(
-                effect = effect, playKey = author.did.hashCode(),
+                effect = profileEffect, playKey = author.did.hashCode(),
                 colors = heartColors?.let { listOf(it.banner, it.avatar) } ?: listOf(blended),
                 backdrop = backdrop
             )
@@ -2865,7 +2864,12 @@ private fun PinterestEntryTile(
     if (item.isTextOnly) {
         CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = textShape, onOpen = onClick)
     } else {
-        PinterestTile(item, tint, mediaShape, liquidGlass, onSeedSubImageIndex, onClick)
+        // A quote repost: the quoter's words over the quoted post's media,
+        // like the From Friends grid.
+        val quoter = item.sentByAuthor?.takeIf { item.sentByIsRepost && item.sentByMessage.isNotBlank() }
+        if (quoter != null) SentByTileOverlay(quoter, item.sentByMessage, tint, liquidGlass) {
+            PinterestTile(item, tint, mediaShape, liquidGlass, onSeedSubImageIndex, onClick)
+        } else PinterestTile(item, tint, mediaShape, liquidGlass, onSeedSubImageIndex, onClick)
     }
 }
 
@@ -4046,13 +4050,7 @@ private fun BlogDetailOverlay(
 ) {
     // Item 12: the reader's page is a soft, dark version of the author's own
     // color — white text stays crisp on it — instead of flat black.
-    val soft = remember(tint) { androidx.compose.ui.graphics.lerp(Color(0xFF141418), tint, 0.30f) }
-    val pageBrush = remember(soft) {
-        Brush.verticalGradient(listOf(
-            androidx.compose.ui.graphics.lerp(soft, Color.White, 0.05f), soft,
-            androidx.compose.ui.graphics.lerp(soft, Color.Black, 0.35f)
-        ))
-    }
+    val pageBrush = remember(tint) { blogPageBrush(tint) }
     val tap = rememberHapticTap()
     val context = com.mediaviewer.ui.compat.LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
@@ -4141,7 +4139,9 @@ private fun BlogDetailOverlay(
                 if (blog.blocks.isNotEmpty()) {
                     LeafletBlocksContent(blocks = blog.blocks, liquidGlass = liquidGlass, tint = tint)
                 } else {
-                    Text(blog.bodyText.ifBlank { "This blog has no readable text content." },
+                    if (blog.bodyText.isNotBlank() && looksLikeMarkdown(blog.bodyText)) {
+                        MarkdownView(blog.bodyText, tint, Modifier.fillMaxWidth())
+                    } else Text(blog.bodyText.ifBlank { "This blog has no readable text content." },
                         color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 23.sp)
                 }
                 Spacer(Modifier.height(120.dp + WindowInsets.navBarSpace.asPaddingValues().calculateBottomPadding()))
@@ -4278,19 +4278,29 @@ private fun LeafletBlocksContent(blocks: List<LeafletBlock>, liquidGlass: Boolea
             when (block) {
                 is LeafletBlock.Header -> {
                     val fontSize = when (block.level) { 1 -> 22.sp; 2 -> 19.sp; 3 -> 17.sp; else -> 15.sp }
-                    Text(block.text, color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Bold,
+                    Text(markdownInline(block.text), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Bold,
                         lineHeight = fontSize.value.times(1.3f).sp, textAlign = block.alignment.toTextAlign(),
                         modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp))
                     i++
                 }
                 is LeafletBlock.Paragraph -> {
+                    // Markdown (the way Notes is written): rendered like
+                    // Notes renders it — bold, italics, checklists, lists,
+                    // headings, quotes.
+                    val plainRuns = block.spans.none { it.bold }
+                    val joined = block.spans.joinToString("") { it.text }
+                    if (plainRuns && looksLikeMarkdown(joined)) {
+                        MarkdownView(joined, tint, Modifier.fillMaxWidth().padding(bottom = 10.dp))
+                        i++
+                        continue
+                    }
                     Text(
                         buildAnnotatedString {
                             block.spans.forEach { span ->
                                 if (span.bold) {
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(span.text) }
+                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(markdownInline(span.text)) }
                                 } else {
-                                    append(span.text)
+                                    append(markdownInline(span.text))
                                 }
                             }
                         },
@@ -4373,7 +4383,7 @@ private fun LeafletBlocksContent(blocks: List<LeafletBlock>, liquidGlass: Boolea
                                         }
                                     }
                                     Text(
-                                        item.text, color = if (item.checked) Color.White.copy(0.55f) else Color.White.copy(0.92f),
+                                        markdownInline(item.text), color = if (item.checked) Color.White.copy(0.55f) else Color.White.copy(0.92f),
                                         fontSize = 14.sp, lineHeight = 19.sp,
                                         textDecoration = if (item.checked) TextDecoration.LineThrough else null
                                     )

@@ -15,6 +15,24 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        // Size: only phone processors. The x86/x86_64 copies of every
+        // native library (ONNX Runtime, MediaPipe, Filament, ML Kit …) are
+        // for emulators and Chromebooks and made up a large share of the
+        // APK; no Android phone uses them.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+    }
+
+    buildTypes {
+        release {
+            // Size + speed: R8 drops library code the app never uses — most
+            // of all the ~2,000 Material icons it doesn't draw. Stellar's own
+            // classes and the native-backed libraries are kept whole and
+            // nothing is renamed (proguard-rules.pro), so nothing that's
+            // looked up by name can go missing. If a release build ever
+            // misbehaves where a debug one doesn't, set this to false.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+        }
     }
 
     // lifecycle 2.9's bundled lint checks were compiled against a newer lint

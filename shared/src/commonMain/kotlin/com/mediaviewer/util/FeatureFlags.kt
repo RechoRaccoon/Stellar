@@ -23,4 +23,20 @@ object FeatureFlags {
      *  iOS build leaves it out entirely (App Store guideline 1.1.4). */
     val E621_ENABLED: Boolean
         get() = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
+
+    /**
+     * Every former supporter benefit is free for everyone. Only the pink
+     * "Supporter" badge still depends on being on the
+     * Stellar Supporters list. Set to false to bring the supporter gates
+     * back — all of their code is still in place.
+     */
+    const val ALL_FEATURES_FREE: Boolean = true
+
+    /** The "Support Stellar" popup on the 10th/25th/50th… open. Off; its
+     *  code (Onboarding.supportPopupDue, SupportPopup) is kept. */
+    const val SUPPORT_POPUP_ENABLED: Boolean = false
+
+    /** The Hub's "Stellar Supporters" row and the Stellar Supporters feed
+     *  the welcome popup offered new accounts. Off; code kept. */
+    const val SUPPORTERS_FEED_ENABLED: Boolean = false
 }

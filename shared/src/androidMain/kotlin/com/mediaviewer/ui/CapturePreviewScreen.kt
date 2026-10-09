@@ -232,7 +232,7 @@ actual fun CapturePreviewScreen(
                                 val before = cropZoom
                                 val z = (cropZoom * zoomChange).coerceIn(1f, 5f)
                                 if ((before > 1f && z == 1f) || (before < 5f && z == 5f)) {
-                                    hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                    if (com.mediaviewer.util.UiToggles.hapticsEnabled) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                                 }
                                 cropZoom = z
                                 cropPan = clampPan(cropPan + panChange, z)

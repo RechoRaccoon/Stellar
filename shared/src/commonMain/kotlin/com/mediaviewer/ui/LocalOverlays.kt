@@ -106,6 +106,12 @@ object LocalOverlays {
 
     // ── Actions supplied by AppRoot (ViewModel calls) ──
     var onEditCurrentPost: (() -> Unit)? = null
+    /** The Tags page's hand edits on the post on screen (see
+     *  MainViewModel.editCurrentPostTag): old null = add, new null = delete. */
+    var editPostTag: ((oldTag: String?, newTag: String?) -> Unit)? = null
+    /** Whether the post on screen's tags can be edited (Bluesky posts,
+     *  where the tagger's dataset exists). */
+    var canEditTags by mutableStateOf(false)
     var pollTally: (suspend (postUri: String) -> PollTally?)? = null
     var pollVote: ((item: MediaItem, letter: String, onDone: (Boolean) -> Unit) -> Unit)? = null
     /** Re-counts a chat's streak from its history. */

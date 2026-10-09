@@ -148,8 +148,9 @@ internal fun SupporterBenefitsPanel(tint: Color, modifier: Modifier = Modifier, 
     }
 }
 
-/** Settings → "Support Stellar": the logo, what supporting unlocks, and a
- *  compact row for each way to chip in, on one scrolling page. */
+/** Settings → "Support Recho": the logo, one line, and a compact row for
+ *  each way to chip in. (Every feature is free now — see
+ *  FeatureFlags.ALL_FEATURES_FREE — so there are no benefits to list.) */
 @Composable
 internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
     val glow = rememberInfiniteTransition(label = "supportGlow")
@@ -180,24 +181,14 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Text(
-                "Help fund Stellar's development (and Recho's survival) by donating \$4.99 or more, and you'll unlock these exclusive benefits for a month!!",
-                color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, lineHeight = 18.sp,
+                "Help Recho afford food by donating with any of the links below.",
+                color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp)
             )
 
-            Spacer(Modifier.height(8.dp))
-            // ── Benefits, in their own softly pink panel ──
-            SupporterBenefitsPanel(tint, Modifier.widthIn(max = 460.dp).fillMaxWidth())
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "You can donate through any of these platforms!! Just make sure to attach your Stellar/Bluesky handle to the note!!",
-                color = lerp(pink, Color.White, 0.4f), fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp)
-            )
-
+            Spacer(Modifier.height(4.dp))
             Spacer(Modifier.height(8.dp))
             // ── The compact links (same rows as the Support popup) ──
             Column(Modifier.widthIn(max = 460.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {

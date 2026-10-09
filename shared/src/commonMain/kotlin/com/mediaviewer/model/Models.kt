@@ -420,7 +420,37 @@ data class BskyRecord(
      *  earlier versions (oldest first). Extra fields on the post record —
      *  other apps ignore them. */
     val stellarEditedAt: String? = null,
-    val stellarEditHistory: List<com.mediaviewer.util.PostEditVersion>? = null
+    val stellarEditHistory: List<com.mediaviewer.util.PostEditVersion>? = null,
+    /** The record's own embed — read only for its image blobs' types (see
+     *  [alphaImageCids]). */
+    val embed: BskyRecordEmbedLite? = null
+) {
+    /** CIDs of this post's PNG/WebP pictures: the ones that can be
+     *  transparent. Bluesky's view hands out "@jpeg" CDN links for every
+     *  picture, and JPEG has no transparency — the see-through parts came
+     *  out black — so these are asked for as "@png" instead. */
+    val alphaImageCids: Set<String> get() {
+        val e = embed ?: return emptySet()
+        val all = (e.images.orEmpty() + e.items.orEmpty() + e.media?.images.orEmpty() + e.media?.items.orEmpty())
+        return all.mapNotNull { img ->
+            val b = img.image ?: return@mapNotNull null
+            val mime = b.mimeType.orEmpty()
+            if (mime == "image/png" || mime == "image/webp") b.ref?.link else null
+        }.toSet()
+    }
+}
+
+@Serializable
+data class BskyBlobLinkLite(@SerialName("\$link") val link: String? = null)
+@Serializable
+data class BskyRecordBlobLite(val mimeType: String? = null, val ref: BskyBlobLinkLite? = null)
+@Serializable
+data class BskyRecordImageLite(val image: BskyRecordBlobLite? = null)
+@Serializable
+data class BskyRecordEmbedLite(
+    val images: List<BskyRecordImageLite>? = null,
+    val items: List<BskyRecordImageLite>? = null,
+    val media: BskyRecordEmbedLite? = null
 )
 
 @Serializable
@@ -1307,7 +1337,9 @@ data class DmConversation(
     /** The newest message/activity, shown under the name in the DM list. */
     val lastMessageText: String = "",
     /** Messages in this chat you haven't read yet. */
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    /** You follow each other (the Hub's Mutuals row). */
+    val isMutual: Boolean = false
 )
 
 /** A shared post rendered inline inside a DM bubble — item 12. Parsed from a

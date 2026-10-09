@@ -58,9 +58,14 @@ fun LocalOverlayHost(
     // (Read here, in the composition, so a change is always passed on.)
     val archiveBusyNow = archiveBusy
     LaunchedEffect(archiveBusyNow) { LocalOverlays.archiveBusy = archiveBusyNow }
+    // Tags can be edited by hand wherever the tagger's dataset is in use.
+    val tagOnLike by viewModel.tagPostWhenLiked.collectAsState()
+    val tagsEditable = viewModel.taggingSupported && tagOnLike
+    LaunchedEffect(tagsEditable) { LocalOverlays.canEditTags = tagsEditable }
 
     SideEffect {
         LocalOverlays.onEditCurrentPost = viewModel::editCurrentPost
+        LocalOverlays.editPostTag = viewModel::editCurrentPostTag
         LocalOverlays.pollTally = { uri -> viewModel.pollTally(uri) }
         LocalOverlays.pollVote = viewModel::votePoll
         LocalOverlays.scanDmStreak = viewModel::scanDmStreak

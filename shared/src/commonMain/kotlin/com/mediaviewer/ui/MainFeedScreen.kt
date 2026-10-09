@@ -1351,7 +1351,41 @@ private fun PostContent(
                         // event, before any drag could happen, so there's no new
                         // risk of misfiring mid-pan by dropping the scale check here.
                         if (downTime - lastTapMs < 280L && isNearLastTap) {
-                            onDoubleTap(); down.consume(); lastTapMs = 0L; lastTapPos = null; return@awaitEachGesture
+                            down.consume(); lastTapMs = 0L; lastTapPos = null
+                            // Double-tap and drag (like Firefox / Maps): the
+                            // second touch held and dragged zooms around where
+                            // it landed — down zooms in, up zooms out. Only a
+                            // double-tap that's let go without dragging likes
+                            // the post, so zooming never likes by accident.
+                            val zoomable = !item.isTextOnly && !(isImageGrid && viewerIndex == null)
+                            if (!zoomable) { onDoubleTap(); return@awaitEachGesture }
+                            val slop = 12.dp.toPx()
+                            val perDoubling = 160.dp.toPx()
+                            val startScale = scale
+                            var totalDy = 0f
+                            var zooming = false
+                            while (true) {
+                                val ev = awaitPointerEvent(PointerEventPass.Main)
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
+                                if (!ch.pressed || ev.changes.none { it.pressed }) break
+                                if (ev.changes.count { it.pressed } > 1) { zooming = true; break }
+                                totalDy += ch.positionChange().y
+                                if (!zooming && abs(totalDy) > slop) zooming = true
+                                if (zooming) {
+                                    val oldScale = scale
+                                    val newScale = (startScale * kotlin.math.exp(totalDy / perDoubling)).coerceIn(1f, 8f)
+                                    scale = newScale
+                                    offset = if (newScale > 1.02f) {
+                                        val containerCenter = Offset(containerSize.width / 2f, containerSize.height / 2f)
+                                        val ratio = if (oldScale != 0f) newScale / oldScale else 1f
+                                        clampOffset(offset * ratio + (downPos - containerCenter) * (1f - ratio), newScale)
+                                    } else Offset.Zero
+                                }
+                                ch.consume()
+                            }
+                            if (!zooming) onDoubleTap()
+                            else if (scale <= 1.02f) { scale = 1f; offset = Offset.Zero }
+                            return@awaitEachGesture
                         }
                         lastTapMs = downTime
                         lastTapPos = downPos

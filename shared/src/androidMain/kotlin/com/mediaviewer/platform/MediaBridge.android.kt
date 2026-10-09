@@ -23,39 +23,89 @@ actual object MediaBridge {
     }
 
     actual fun prepareImageForUpload(context: PlatformContext, uri: PlatformUri, maxBytes: Int, maxDimension: Int): Pair<ByteArray, String> {
-        val IMAGE_MAX_BLOB_BYTES = maxBytes
-        val IMAGE_MAX_DIMENSION = maxDimension
         val resolver = context.contentResolver
         val original = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Couldn't read image")
-        val declaredType = resolver.getType(uri)
+        val declaredType = resolver.getType(uri) ?: mimeTypeOf(context, uri)
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(original, 0, original.size, bounds)
+        val isJpeg = com.mediaviewer.util.JpegMeta.isJpeg(original)
+        val orientation = com.mediaviewer.util.JpegMeta.orientation(original)
+        val fits = bounds.outWidth in 1..maxDimension && bounds.outHeight in 1..maxDimension
 
-        // Fast path: already within both limits and a format Bluesky
-        // accepts as-is (jpeg/png/webp/gif) — upload the original bytes
-        // untouched rather than a re-encoded copy.
-        if (original.size <= IMAGE_MAX_BLOB_BYTES && declaredType != null &&
-            (declaredType == "image/jpeg" || declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeByteArray(original, 0, original.size, bounds)
-            if (bounds.outWidth <= IMAGE_MAX_DIMENSION && bounds.outHeight <= IMAGE_MAX_DIMENSION) {
+        // Fast path: within the limits, upright and a format Bluesky takes
+        // as-is — the original picture, untouched. (A JPEG only loses its
+        // EXIF: camera details and, often, where the photo was taken.)
+        if (fits && orientation == 1) {
+            if (isJpeg) {
+                val clean = com.mediaviewer.util.JpegMeta.stripMetadata(original)
+                if (clean != null && clean.size <= maxBytes) return clean to "image/jpeg"
+            } else if (original.size <= maxBytes &&
+                (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
                 return original to declaredType
             }
         }
 
-        var bitmap = android.graphics.BitmapFactory.decodeByteArray(original, 0, original.size)
+        // Otherwise: decoded no bigger than needed (a 50 MP photo decoded in
+        // full needs ~200 MB and could run the app out of memory), turned
+        // upright, scaled to fit and JPEG-encoded under the size limit —
+        // stepping the quality down, then the size, until it fits.
+        val w0 = bounds.outWidth.coerceAtLeast(1)
+        val h0 = bounds.outHeight.coerceAtLeast(1)
+        var sample = 1
+        while (maxOf(w0, h0) / (sample * 2) >= maxDimension) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+        }
+        // (HEIC/HEIF and other non-JPEGs go through ImageDecoder, which
+        // also turns them upright; JPEG orientation is applied below.)
+        var bitmap: android.graphics.Bitmap = (if (!isJpeg && android.os.Build.VERSION.SDK_INT >= 28) runCatching {
+            android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(original))) { decoder, info, _ ->
+                decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                if (sample > 1) decoder.setTargetSize((info.size.width / sample).coerceAtLeast(1), (info.size.height / sample).coerceAtLeast(1))
+            }
+        }.getOrNull() else null)
+            ?: android.graphics.BitmapFactory.decodeByteArray(original, 0, original.size, opts)
             ?: error("Couldn't decode image")
-        if (bitmap.width > IMAGE_MAX_DIMENSION || bitmap.height > IMAGE_MAX_DIMENSION) {
-            val scale = IMAGE_MAX_DIMENSION.toFloat() / maxOf(bitmap.width, bitmap.height)
-            bitmap = android.graphics.Bitmap.createScaledBitmap(
-                bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true
-            )
+        val matrix = android.graphics.Matrix()
+        when (orientation) {
+            2 -> matrix.setScale(-1f, 1f)
+            3 -> matrix.setRotate(180f)
+            4 -> matrix.setScale(1f, -1f)
+            5 -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            6 -> matrix.setRotate(90f)
+            7 -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+            8 -> matrix.setRotate(-90f)
         }
-        var quality = 92
-        var out = java.io.ByteArrayOutputStream().apply { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, this) }
-        while (out.size() > IMAGE_MAX_BLOB_BYTES && quality > 30) {
-            quality -= 12
-            out = java.io.ByteArrayOutputStream().apply { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, this) }
+        var scale = minOf(1f, maxDimension.toFloat() / maxOf(bitmap.width, bitmap.height))
+        fun render(scale: Float): android.graphics.Bitmap {
+            val m = android.graphics.Matrix(matrix).apply { postScale(scale, scale) }
+            if (m.isIdentity) return bitmap
+            return android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
         }
-        return out.toByteArray() to "image/jpeg"
+        var shaped = render(scale)
+        // A see-through picture stays a PNG (JPEG has no transparency —
+        // it would come out black on Bluesky): only its size steps down.
+        val transparent = bitmap.hasAlpha() && !isJpeg
+        fun encode(b: android.graphics.Bitmap, q: Int): ByteArray = java.io.ByteArrayOutputStream().also {
+            b.compress(if (transparent) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG, q, it)
+        }.toByteArray()
+        val qualities = if (transparent) intArrayOf(100) else intArrayOf(92, 85, 78, 70, 62)
+        while (true) {
+            for (q in qualities) {
+                val out = encode(shaped, q)
+                if (out.size <= maxBytes) {
+                    if (shaped !== bitmap) shaped.recycle()
+                    bitmap.recycle()
+                    return out to (if (transparent) "image/png" else "image/jpeg")
+                }
+            }
+            // Still too big: 80% the size, and again.
+            scale *= 0.8f
+            if (shaped !== bitmap) shaped.recycle()
+            if (maxOf(bitmap.width, bitmap.height) * scale < 320f) error("This picture can't be made small enough to upload")
+            shaped = render(scale)
+        }
     }
 
     actual fun scaledJpeg(context: PlatformContext, uri: PlatformUri, maxW: Int, maxH: Int, maxBytes: Int): ByteArray {
@@ -75,6 +125,36 @@ actual object MediaBridge {
         } while (bytes.size > maxBytes && quality > 20)
         return bytes
     }
+
+    actual fun squareJpeg(context: PlatformContext, uri: PlatformUri, size: Int): ByteArray? = runCatching {
+        val decoded: android.graphics.Bitmap = if (android.os.Build.VERSION.SDK_INT >= 28) {
+            // (ImageDecoder turns the picture upright by itself.)
+            android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(context.contentResolver, uri)) { d, info, _ ->
+                d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                val s = maxOf(1, minOf(info.size.width, info.size.height) / (size * 2))
+                if (s > 1) d.setTargetSize(info.size.width / s, info.size.height / s)
+            }
+        } else {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+            val raw = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val o = com.mediaviewer.util.JpegMeta.orientation(bytes)
+            val m = android.graphics.Matrix().apply { when (o) { 3 -> setRotate(180f); 6 -> setRotate(90f); 8 -> setRotate(-90f) } }
+            if (m.isIdentity) raw else android.graphics.Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+        }
+        val side = minOf(decoded.width, decoded.height)
+        val out = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(out).apply {
+            drawColor(android.graphics.Color.BLACK)
+            drawBitmap(
+                decoded,
+                android.graphics.Rect((decoded.width - side) / 2, (decoded.height - side) / 2, (decoded.width + side) / 2, (decoded.height + side) / 2),
+                android.graphics.Rect(0, 0, size, size),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+            )
+        }
+        decoded.recycle()
+        java.io.ByteArrayOutputStream().also { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it); out.recycle() }.toByteArray()
+    }.getOrNull()
 
     actual fun encodePng(bitmap: PlatformBitmap): ByteArray {
         val out = java.io.ByteArrayOutputStream()
@@ -125,6 +205,9 @@ actual object MediaBridge {
         return if (copy.length() > 0L) streamRequestBody(mimeType, AndroidUriStreamSource(context, android.net.Uri.fromFile(copy), copy.length()))
         else streamRequestBody(mimeType, AndroidUriStreamSource(context, uri, -1L))
     }
+
+    actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri =
+        com.mediaviewer.util.VideoCompressor.prepare(context, uri)
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         com.mediaviewer.util.VideoThumbnailStitcher.stitch(context, video, thumbnail)

@@ -134,6 +134,7 @@ private const val KEY_CAPTURE_MODE = "capture_mode" // 0 photo, 1 video, 2 live
 private const val KEY_BACKGROUND_MEDIA = "ios_background_media" // file name in the app's storage, "" = none
 private const val KEY_BACKGROUND_MEDIA_VIDEO = "background_media_video"
 private const val KEY_AVATAR = "ios_avatar_file"
+private const val KEY_LOAD_GUARD = "ios_avatar_loading"
 private const val KEY_FLIP_TEXTURES = "ios_flip_textures"
 private const val KEY_BLEND_CUTOUTS = "ios_blend_cutouts"
 private const val KEY_ABSOLUTE_MORPHS = "ios_absolute_morphs"
@@ -193,6 +194,21 @@ actual fun VrmModeScreen(
     val supporter = Supporter.active
 
     var avatarFile by remember { mutableStateOf(prefs.getString(KEY_AVATAR, null).orEmpty()) }
+    // Every avatar added (VRM Settings › Avatar's row); the selected one is
+    // [avatarFile]. Only that one is ever loaded.
+    var models by remember { mutableStateOf(com.mediaviewer.util.VrmLibrary.load(prefs)) }
+    var selectedModel by remember { mutableStateOf(com.mediaviewer.util.VrmLibrary.selected(prefs)) }
+    var modelToDelete by remember { mutableStateOf<com.mediaviewer.util.VrmModel?>(null) }
+    var thumbFor by remember { mutableStateOf<com.mediaviewer.util.VrmModel?>(null) }
+    fun saveModels(next: List<com.mediaviewer.util.VrmModel>, selected: String?) {
+        models = next; selectedModel = selected
+        com.mediaviewer.util.VrmLibrary.save(prefs, next, selected)
+    }
+    // Crash guard: set while an avatar loads, cleared after. Still set when
+    // the page opens means loading it closed the app last time — so it
+    // isn't loaded again by itself (tap it in the row to try again).
+    val crashedOn = remember { prefs.getString(KEY_LOAD_GUARD, null).orEmpty() }
+    var skipAutoLoad by remember { mutableStateOf(crashedOn.isNotBlank() && crashedOn == avatarFile) }
     var loading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var hasAvatar by remember { mutableStateOf(false) }
@@ -375,16 +391,36 @@ actual fun VrmModeScreen(
     }
 
     // (Re)loads the avatar whenever the file or a drawing option changes.
-    LaunchedEffect(avatarFile, flipTextures, blendCutouts, absoluteMorphs) {
+    // An avatar picked before the row existed becomes its first entry.
+    LaunchedEffect(Unit) {
+        if (models.isEmpty() && avatarFile.isNotBlank()) {
+            val id = "m" + currentTimeMillis()
+            val thumb = withContext(Dispatchers.IO) {
+                PrivateFiles.read(IosContext, PrivateFiles.rootUri(IosContext) + "/" + AVATAR_FOLDER + "/" + avatarFile)
+                    ?.let { com.mediaviewer.util.VrmLibrary.embeddedThumbnail(it) }
+                    ?.let { (img, ext) -> PrivateFiles.write(IosContext, com.mediaviewer.util.VrmLibrary.THUMB_FOLDER, "$id.$ext", img) }
+            }
+            saveModels(listOf(com.mediaviewer.util.VrmModel(id, avatarFile, "Avatar", thumb.orEmpty())), id)
+        }
+    }
+
+    LaunchedEffect(avatarFile, flipTextures, blendCutouts, absoluteMorphs, skipAutoLoad) {
         avatarParts = emptyList()
         if (avatarFile.isBlank()) { hasAvatar = false; return@LaunchedEffect }
+        if (skipAutoLoad) {
+            hasAvatar = false
+            loadError = "This avatar closed Stellar while it was loading last time. Tap it in VRM Settings › Avatar to try again."
+            return@LaunchedEffect
+        }
         loading = true
         loadError = null
+        prefs.edit().putString(KEY_LOAD_GUARD, avatarFile).commit()
         val bytes = withContext(Dispatchers.IO) {
             PrivateFiles.read(IosContext, PrivateFiles.rootUri(IosContext) + "/" + AVATAR_FOLDER + "/" + avatarFile)
         }
         val error = if (bytes == null) "The avatar file is missing — choose it again."
             else stage.load(bytes, VrmSceneOptions(flipTextures, blendCutouts, absoluteMorphs))
+        prefs.edit().remove(KEY_LOAD_GUARD).apply()
         loading = false
         loadError = error
         hasAvatar = stage.hasAvatar()
@@ -398,27 +434,70 @@ actual fun VrmModeScreen(
         }
     }
 
+    /** Loads [model] (and only it). */
+    fun selectModel(model: com.mediaviewer.util.VrmModel) {
+        skipAutoLoad = false
+        if (model.source != avatarFile) {
+            hiddenParts = emptySet()
+            prefs.edit().putString(KEY_AVATAR, model.source).putStringSet(KEY_HIDDEN_PARTS, emptySet()).apply()
+        }
+        saveModels(models, model.id)
+        avatarFile = model.source
+    }
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             loading = true
-            // Kept in the app's own storage under a new name each time, so
-            // the page notices the change and the old one can be removed.
-            val name = "avatar_" + currentTimeMillis() + ".vrm"
+            // Kept in the app's own storage under a name of its own; the
+            // row remembers what the file was called.
+            val id = "m" + currentTimeMillis()
+            val name = "avatar_$id.vrm"
+            val shown = com.mediaviewer.util.VrmLibrary.nameFrom(PrivateFiles.displayName(IosContext, uri))
             val saved = withContext(Dispatchers.IO) { PrivateFiles.copyIn(IosContext, uri, AVATAR_FOLDER, name) }
             if (saved == null) {
                 loading = false
                 loadError = "That file couldn't be read."
             } else {
-                val old = avatarFile
-                // A newly picked avatar starts with all of its parts showing.
-                hiddenParts = emptySet()
-                prefs.edit().putString(KEY_AVATAR, name).putStringSet(KEY_HIDDEN_PARTS, emptySet()).apply()
-                avatarFile = name
-                if (old.isNotBlank() && old != name) withContext(Dispatchers.IO) {
-                    PrivateFiles.delete(IosContext, PrivateFiles.rootUri(IosContext) + "/" + AVATAR_FOLDER + "/" + old)
+                val thumb = withContext(Dispatchers.IO) {
+                    PrivateFiles.read(IosContext, saved)?.let { com.mediaviewer.util.VrmLibrary.embeddedThumbnail(it) }
+                        ?.let { (img, ext) -> PrivateFiles.write(IosContext, com.mediaviewer.util.VrmLibrary.THUMB_FOLDER, "$id.$ext", img) }
                 }
+                val model = com.mediaviewer.util.VrmModel(id, name, shown, thumb.orEmpty())
+                models = models + model
+                selectModel(model)
             }
         }
+    }
+    val pickThumb = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = thumbFor
+        thumbFor = null
+        if (uri != null && target != null) scope.launch {
+            val bytes = withContext(Dispatchers.IO) { MediaBridge.squareJpeg(IosContext, uri, 512) }
+            if (bytes == null) { message = "Couldn't open that picture"; return@launch }
+            val path = withContext(Dispatchers.IO) {
+                if (target.thumb.isNotBlank()) PrivateFiles.delete(IosContext, target.thumb)
+                PrivateFiles.write(IosContext, com.mediaviewer.util.VrmLibrary.THUMB_FOLDER, target.id + "_" + currentTimeMillis() + ".jpg", bytes)
+            }
+            if (path != null) saveModels(models.map { if (it.id == target.id) it.copy(thumb = path, customThumb = true) else it }, selectedModel)
+        }
+    }
+    fun deleteModel(model: com.mediaviewer.util.VrmModel) {
+        val rest = models.filterNot { it.id == model.id }
+        val wasSelected = model.id == selectedModel || model.source == avatarFile
+        scope.launch(Dispatchers.IO) {
+            PrivateFiles.delete(IosContext, PrivateFiles.rootUri(IosContext) + "/" + AVATAR_FOLDER + "/" + model.source)
+            if (model.thumb.isNotBlank()) PrivateFiles.delete(IosContext, model.thumb)
+        }
+        if (wasSelected) {
+            val next = rest.firstOrNull()
+            saveModels(rest, next?.id)
+            if (next != null) selectModel(next) else {
+                prefs.edit().remove(KEY_AVATAR).apply()
+                avatarFile = ""
+                stage.unload()
+                hasAvatar = false
+                avatarParts = emptyList()
+            }
+        } else saveModels(rest, selectedModel)
     }
     val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
@@ -729,7 +808,10 @@ actual fun VrmModeScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Box(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 430.dp).verticalScroll(rememberScrollState())) {
+                        // (Avatar parts open: as tall as the screen allows,
+                        // from under the notch to over the gesture bar.)
+                        val bodyMax = if (tab == 1 && partsExpanded) rememberVrmPopupMaxBody() else 430.dp
+                        Box(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = bodyMax).verticalScroll(rememberScrollState())) {
                             Column(Modifier.fillMaxWidth()) {
                                 when (tab) {
                                     0 -> {
@@ -755,6 +837,16 @@ actual fun VrmModeScreen(
                                         )
                                     }
                                     1 -> {
+                                        // Your avatars: tap to load, hold to delete,
+                                        // double-tap for a new picture, + to add.
+                                        VrmModelRow(
+                                            models = models, selectedId = selectedModel.takeIf { hasAvatar || loading || skipAutoLoad }, tint = tint, busy = loading,
+                                            onSelect = { selectModel(it) },
+                                            onAdd = { pickAvatar.launch(arrayOf("*/*")) },
+                                            onRequestDelete = { modelToDelete = it },
+                                            onChangeThumb = { thumbFor = it; pickThumb.launch(arrayOf("image/*")) }
+                                        )
+                                        Spacer(Modifier.height(8.dp))
                                         VrmTileGrid(tint, listOf(
                                             VrmTile("Follow my head", followHead) {
                                                 followHead = it; save(KEY_FOLLOW_HEAD, it)
@@ -779,7 +871,6 @@ actual fun VrmModeScreen(
                                             ) { eyeClosed = it; prefs.edit().putFloat(KEY_EYE_CLOSED, it).apply() }
                                         }
                                         Spacer(Modifier.height(6.dp))
-                                        VrmActionRow(if (hasAvatar) "Change avatar" else "Choose avatar", ".vrm", tint) { settingsOpen = false; pickAvatar.launch(arrayOf("*/*")) }
                                         VrmActionRow("Reset camera", "Reset", tint) { stage.yawDegrees = 0f; stage.zoom = 1f; stage.lift = 0f }
                                         // Avatar parts: every mesh piece (clothes, hair,
                                         // accessories …) can be hidden.
@@ -917,6 +1008,13 @@ actual fun VrmModeScreen(
                     }
                 )
             }
+        }
+        modelToDelete?.let { model ->
+            VrmConfirmDialog(
+                tint = tint, title = "Delete avatar?", message = "Remove \"${model.name}\" from your avatars?",
+                confirmLabel = "Delete",
+                onConfirm = { modelToDelete = null; deleteModel(model) }, onDismiss = { modelToDelete = null }
+            )
         }
     }
 }

@@ -467,7 +467,8 @@ fun GridScreen(
                     )
                 }
                 // From Friends: who sent it, and what they said, on the tile.
-                val sender = item.sentByAuthor?.takeIf { !item.sentByIsRepost }
+                // A quote repost shows its quoter and their words the same way.
+                val sender = item.sentByAuthor?.takeIf { !item.sentByIsRepost || item.sentByMessage.isNotBlank() }
                 if (sender != null) SentByTileOverlay(sender, item.sentByMessage, tint, liquidGlass, tile) else tile()
             }
             if (isLoading && items.isNotEmpty()) {
@@ -533,7 +534,7 @@ private fun GridPlaceholderTile(index: Int, lanes: Int, tint: Color, rounded: Bo
  * bubble can blur the media right behind it (real blur on Android 12+).
  */
 @Composable
-private fun SentByTileOverlay(
+internal fun SentByTileOverlay(
     sender: com.mediaviewer.model.AuthorInfo,
     message: String,
     tint: Color,

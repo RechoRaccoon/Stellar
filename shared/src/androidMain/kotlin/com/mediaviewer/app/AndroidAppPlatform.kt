@@ -34,6 +34,7 @@ class AndroidAppPlatform(
     // without needing a Compose/View context at each call site. Uses the
     // Vibrator system service directly via the Application context.
     override fun haptic() {
+        if (!com.mediaviewer.util.UiToggles.hapticsEnabled) return
         try {
             val context = application
             val vibrator: android.os.Vibrator? =
