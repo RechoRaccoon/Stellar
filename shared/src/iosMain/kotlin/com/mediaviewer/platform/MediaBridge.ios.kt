@@ -84,9 +84,10 @@ actual object MediaBridge {
             if (isJpeg) {
                 val clean = com.mediaviewer.util.JpegMeta.stripMetadata(original)
                 if (clean != null && clean.size <= maxBytes) return clean to "image/jpeg"
-            } else if (original.size <= maxBytes &&
-                (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
-                return original to declaredType
+            } else if (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif") {
+                // (Their text/EXIF/XMP/comment metadata comes out too.)
+                val clean = com.mediaviewer.util.MetadataScrub.image(original)
+                if (clean.size <= maxBytes) return clean to declaredType
             }
         }
         // Otherwise redrawn upright (UIImage applies the orientation),
@@ -166,6 +167,25 @@ actual object MediaBridge {
         }.getOrNull() ?: -1L
         return streamRequestBody(mimeType, IosFileStreamSource(path, size))
     }
+
+    actual suspend fun scrubVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching {
+                val path = pathOf(uri)
+                // Stellar's own temporary files are cleaned where they are;
+                // anything else is copied first (the original is never changed).
+                val own = path.startsWith(IosPaths.cacheDir())
+                val target = if (own) path else {
+                    val ext = path.substringAfterLast('.', "mp4").lowercase().takeIf { it == "mov" || it == "mp4" || it == "m4v" } ?: "mp4"
+                    val copy = IosPaths.cacheDir() + "/upload-clean-" + currentTimeMillis() + "." + ext
+                    deleteLocalFile(copy)
+                    if (!NSFileManager.defaultManager.copyItemAtPath(path, toPath = copy, error = null)) error("Couldn't copy the video")
+                    copy
+                }
+                if (!IosSeekableFile.scrub(target)) error("Not an MP4/MOV")
+                IosUri("file://$target")
+            }.getOrDefault(uri)
+        }
 
     actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri {
         val path = pathOf(uri)

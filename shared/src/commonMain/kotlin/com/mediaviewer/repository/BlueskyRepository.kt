@@ -3940,10 +3940,18 @@ class BlueskyRepository {
                 val mime = blob.mimeType.ifBlank { "application/octet-stream" }
                 // Sent from memory when it fits (pictures always do): the
                 // length is known up front, which every PDS wants.
+                // Personal metadata comes out on the way back up too
+                // (MetadataScrub) — the record is pointed at whatever the
+                // new upload gives, so the bytes may change.
+                val isVideo = mime.startsWith("video/")
                 val size = com.mediaviewer.platform.PrivateFiles.size(context, blob.file)
-                val bytes = if (size <= 64L * 1024 * 1024) com.mediaviewer.platform.PrivateFiles.read(context, blob.file) else null
-                val body = bytes?.toRequestBody(mime.toMediaType())
-                    ?: MediaBridge.videoUploadBody(context, com.mediaviewer.platform.LocalPlatform.parseUri(blob.file), mime)
+                val bytes = if (!isVideo && size <= 64L * 1024 * 1024)
+                    com.mediaviewer.platform.PrivateFiles.read(context, blob.file)?.let { com.mediaviewer.util.MetadataScrub.image(it) } else null
+                val body = bytes?.toRequestBody(mime.toMediaType()) ?: run {
+                    val original = com.mediaviewer.platform.LocalPlatform.parseUri(blob.file)
+                    val clean = if (isVideo) runCatching { MediaBridge.scrubVideoForUpload(context, original) }.getOrDefault(original) else original
+                    MediaBridge.videoUploadBody(context, clean, mime)
+                }
                 val resp = kotlinx.coroutines.withTimeoutOrNull(if (mime.startsWith("video/")) 600_000L else 120_000L) {
                     api.uploadBlob("Bearer $token", mime, body)
                 } ?: error("Uploading took too long. Check your connection and try again.")
@@ -4094,14 +4102,19 @@ class BlueskyRepository {
         val sizedUri = runCatching { MediaBridge.prepareVideoForUpload(context, videoUri) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrDefault(videoUri)
-        val uploadUri = if (thumbnailUri != null) {
+        val stitchedUri = if (thumbnailUri != null) {
             runCatching { MediaBridge.stitchVideoThumbnail(context, sizedUri, thumbnailUri) }
                 .onFailure { com.mediaviewer.platform.Log.e("BlueskyRepository", "Custom thumbnail couldn't be added — posting without it", it) }
                 .getOrDefault(sizedUri)
         } else sizedUri
+        // Last: personal metadata out (location, phone, dates — see
+        // MetadataScrub), whatever the steps above did or didn't do.
+        val uploadUri = runCatching { MediaBridge.scrubVideoForUpload(context, stitchedUri) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .getOrDefault(stitchedUri)
         // Re-encoding/stitching always writes an mp4, so the original URI's
         // declared type (mov, etc.) no longer applies then.
-        val mimeType = if (uploadUri != videoUri) "video/mp4" else (MediaBridge.mimeTypeOf(context, videoUri) ?: "video/mp4")
+        val mimeType = if (stitchedUri != videoUri) "video/mp4" else (MediaBridge.mimeTypeOf(context, videoUri) ?: "video/mp4")
         val (videoW, videoH) = runCatching { videoDimensions(context, uploadUri) }.getOrDefault(0 to 0)
         com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.UPLOADING)
 
@@ -4701,7 +4714,8 @@ class BlueskyRepository {
     private suspend fun uploadBlogImage(token: String, context: com.mediaviewer.platform.PlatformContext, uri: com.mediaviewer.platform.PlatformUri): Triple<BskyBlob, Int, Int> {
         val type = MediaBridge.mimeTypeOf(context, uri).orEmpty()
         if (type == "image/png" || type == "image/webp") {
-            val bytes = MediaBridge.readBytes(context, uri) ?: error("Couldn't read an image")
+            // (Its text/EXIF/XMP metadata taken out first — MetadataScrub.)
+            val bytes = MediaBridge.readBytes(context, uri)?.let { com.mediaviewer.util.MetadataScrub.image(it) } ?: error("Couldn't read an image")
             if (bytes.size <= 1_000_000) {
                 val (outWidth, outHeight) = MediaBridge.imageSize(bytes)
                 val resp = api.uploadBlob("Bearer $token", type, bytes.toRequestBody(type.toMediaType()))

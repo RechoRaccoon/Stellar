@@ -44,6 +44,11 @@ expect object MediaBridge {
     /** The video as an upload body, streamed from disk where possible. */
     fun videoUploadBody(context: PlatformContext, uri: PlatformUri, mimeType: String): RequestBody
 
+    /** The video as it'll be uploaded: a copy (or, for a file Stellar
+     *  made itself, the file) with its personal metadata taken out — see
+     *  util/MetadataScrub. [uri] itself if that can't be done. */
+    suspend fun scrubVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri
+
     /** The video, re-encoded first when it's bigger than Bluesky plays
      *  (1080p) or too large a file; otherwise [uri] itself. */
     suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri

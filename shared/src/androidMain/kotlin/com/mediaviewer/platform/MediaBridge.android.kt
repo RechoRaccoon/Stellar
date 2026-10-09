@@ -39,9 +39,10 @@ actual object MediaBridge {
             if (isJpeg) {
                 val clean = com.mediaviewer.util.JpegMeta.stripMetadata(original)
                 if (clean != null && clean.size <= maxBytes) return clean to "image/jpeg"
-            } else if (original.size <= maxBytes &&
-                (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif")) {
-                return original to declaredType
+            } else if (declaredType == "image/png" || declaredType == "image/webp" || declaredType == "image/gif") {
+                // (Their text/EXIF/XMP/comment metadata comes out too.)
+                val clean = com.mediaviewer.util.MetadataScrub.image(original)
+                if (clean.size <= maxBytes) return clean to declaredType
             }
         }
 
@@ -205,6 +206,30 @@ actual object MediaBridge {
         return if (copy.length() > 0L) streamRequestBody(mimeType, AndroidUriStreamSource(context, android.net.Uri.fromFile(copy), copy.length()))
         else streamRequestBody(mimeType, AndroidUriStreamSource(context, uri, -1L))
     }
+
+    actual suspend fun scrubVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                // Stellar's own temporary files are cleaned where they are;
+                // anything else is copied first (the original is never changed).
+                val own = uri.scheme == "file" && uri.path?.startsWith(context.cacheDir.path) == true
+                val file = if (own) java.io.File(uri.path!!) else {
+                    val ext = if ((mimeTypeOf(context, uri) ?: "").contains("quicktime")) ".mov" else ".mp4"
+                    val copy = java.io.File.createTempFile("upload-clean-", ext, context.cacheDir)
+                    context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
+                        ?: error("Couldn't read the video")
+                    copy
+                }
+                java.io.RandomAccessFile(file, "rw").use { raf ->
+                    com.mediaviewer.util.MetadataScrub.mp4(object : com.mediaviewer.util.MetadataScrub.Seekable {
+                        override val size = raf.length()
+                        override fun read(at: Long, count: Int): ByteArray { raf.seek(at); return ByteArray(count).also { raf.readFully(it) } }
+                        override fun write(at: Long, bytes: ByteArray) { raf.seek(at); raf.write(bytes) }
+                    })
+                }
+                android.net.Uri.fromFile(file)
+            }.getOrDefault(uri)
+        }
 
     actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri =
         com.mediaviewer.util.VideoCompressor.prepare(context, uri)
