@@ -656,7 +656,7 @@ fun SearchOverlay(
  * instead of the top. A new search, another sub-tab, or opening the tab
  * afresh starts from the top again.
  */
-private object TaggedSearchPlace {
+internal object TaggedSearchPlace {
     var kind = PostKindFilter.ALL
     var index = 0
     var offset = 0

@@ -619,7 +619,7 @@ actual fun VrmModeScreen(
     // line meanwhile.
     var trackersReady by remember { mutableStateOf(false) }
     /** 0…1 while the trackers' model files download (first open only). */
-    var trackerDownload by remember { mutableStateOf<Float?>(null) }
+    val trackerDownload = com.mediaviewer.util.TrackerDownload.progress
     var trackerDownloadFailed by remember { mutableStateOf<String?>(null) }
     // The trackers are optional: VRM mode asks before downloading them,
     // every time it opens until they're downloaded. Answered through this;
@@ -667,26 +667,29 @@ actual fun VrmModeScreen(
             // mode opens (they no longer ship inside the app).
             if (!com.mediaviewer.util.TrackingModels.isReady(context)) {
                 trackerDownloadFailed = null
-                val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
-                trackerQuestion = answer
-                val yes = try { answer.await() } finally { trackerQuestion = null }
+                // (Already downloading — VRM mode was left and opened again
+                // meanwhile: no need to ask twice.)
+                val yes = if (com.mediaviewer.util.TrackingModels.isDownloading()) true else {
+                    val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                    trackerQuestion = answer
+                    try { answer.await() } finally { trackerQuestion = null }
+                }
                 // "Not now": VRM mode closes (it asks again next time it's
                 // opened, until the trackers are downloaded).
                 if (!yes) {
                     onClose()
                     return@LaunchedEffect
                 }
-                trackerDownload = 0f
+                // (Runs in the app's own scope, shown as a status bubble in
+                // the Timeline too, so leaving VRM mode doesn't stop it.)
                 try {
-                    com.mediaviewer.util.TrackingModels.ensure(context) { p -> trackerDownload = p }
+                    com.mediaviewer.util.TrackingModels.startDownload(context).await()
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
-                    trackerDownload = null
                     faceHelperError = t.message
                     trackerDownloadFailed = t.message ?: "Couldn't download the trackers"
                     return@LaunchedEffect
                 }
-                trackerDownload = null
             }
             withContext(Dispatchers.Default) {
                 // Results land in the pipeline (plain fields, no Compose

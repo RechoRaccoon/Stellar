@@ -807,7 +807,9 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             // profile overlay — see the doc comment on this param in
             // MainFeedScreen for why the grid case doesn't need this too.
             externallyPaused           = profileOverlay?.hidden == false,
-            onTagClick                = { tag -> viewModel.searchSingleTag(tag) },
+            // A tag tapped on the Tags page: searched in Search › Tagged
+            // (e621 posts' tags still search e621).
+            onTagClick                = { tag -> com.mediaviewer.ui.TaggedSearchPlace.top(); viewModel.searchTagInTagged(tag) },
             onTagAdd                  = { tag -> viewModel.addTagToSearch(tag, exclude = false) },
             onTagExclude              = { tag -> viewModel.addTagToSearch(tag, exclude = true) },
             onSendPost                = viewModel::openSendPopup,

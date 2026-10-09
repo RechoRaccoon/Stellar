@@ -2,6 +2,7 @@ package com.mediaviewer.util
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -34,6 +35,25 @@ object TrackingModels {
 
     private fun inAssets(context: Context, model: Model): Boolean =
         runCatching { context.assets.open(model.fileName).close(); true }.getOrDefault(false)
+
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    @Volatile private var running: kotlinx.coroutines.Deferred<Unit>? = null
+
+    /**
+     * Starts the download (or joins the one already running) in the app's
+     * own scope, so it finishes even if VRM mode is closed meanwhile. Its
+     * progress shows as [TrackerDownload.progress] (the Timeline's status
+     * bubble and VRM mode both show it). Await it for the result.
+     */
+    fun startDownload(context: Context): kotlinx.coroutines.Deferred<Unit> = synchronized(this) {
+        running?.takeIf { it.isActive } ?: scope.async {
+            TrackerDownload.progress = 0f
+            try { ensure(context.applicationContext) { TrackerDownload.progress = it } }
+            finally { TrackerDownload.progress = null }
+        }.also { running = it }
+    }
+
+    fun isDownloading(): Boolean = running?.isActive == true
 
     fun isReady(context: Context): Boolean =
         Model.entries.all { inAssets(context, it) || file(context, it).length() > 0L }

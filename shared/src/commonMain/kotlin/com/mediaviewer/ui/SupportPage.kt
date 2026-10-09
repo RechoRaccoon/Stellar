@@ -167,7 +167,7 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
             // ── Logo with a soft breathing glow in the profile color ──
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Box(
-                    Modifier.size(width = 280.dp, height = 78.dp)
+                    Modifier.size(width = 300.dp, height = 90.dp)
                         .graphicsLayer { alpha = 0.35f + 0.25f * breathe; scaleX = 1.1f; scaleY = 1.3f }
                         .background(
                             Brush.radialGradient(listOf(tint.copy(alpha = 0.55f), Color.Transparent)),
@@ -177,7 +177,7 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
                 Image(
                     painterResource(com.mediaviewer.resources.Res.drawable.stellar_logo_vector), contentDescription = "Stellar",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(0.7f)
+                    modifier = Modifier.widthIn(max = 340.dp).fillMaxWidth(0.82f)
                 )
             }
 

@@ -5259,6 +5259,20 @@ class MainViewModel(
     }
 
     /** Replace search with a single tag and execute the search immediately (tag tap). */
+    /** A tag tapped on a post's Tags page (Bluesky): Search opens on its
+     *  Tagged tab, searching that tag, with the post closed behind it. */
+    fun searchTagInTagged(tag: String) {
+        if (_appMode.value != AppMode.BLUESKY) { searchSingleTag(tag); return }
+        tapHaptic()
+        searchJob?.cancel()
+        _tagSuggestions.value = emptyList()
+        _searchState.value = SearchState(filter = SearchFilter.LIKED_TAGS, query = tag)
+        _screenState.value = ScreenState.FEED
+        _searchHiddenBehindPost.value = false
+        _searchOpen.value = true
+        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(tag) }
+    }
+
     fun searchSingleTag(tag: String) {
         e621ShowingFavorites = false
         _e621SearchTags.value = tag

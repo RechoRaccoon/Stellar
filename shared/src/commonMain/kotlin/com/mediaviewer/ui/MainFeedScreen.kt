@@ -2737,6 +2737,14 @@ private fun PostStatusRow(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
+        // VRM mode's trackers downloading (keeps going if VRM mode is left).
+        AnimatedStatus(com.mediaviewer.util.TrackerDownload.label, reducedAnimations) { label ->
+            StatusPill(
+                label = label, spinning = true, liquidGlass = liquidGlass,
+                tint = tint, backdrop = backdrop, onClick = null,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
     }
 }
 
