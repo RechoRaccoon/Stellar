@@ -59,7 +59,7 @@ object VideoCompressor {
         val output = withContext(Dispatchers.IO) { File.createTempFile("upload-", ".mp4", context.cacheDir) }
         try {
             withContext(Dispatchers.Main) {
-                suspendCancellableCoroutine { cont ->
+                suspendCancellableCoroutine<Unit> { cont ->
                     val item = EditedMediaItem.Builder(MediaItem.fromUri(uri))
                         .setEffects(Effects(emptyList(), listOf(Presentation.createForWidthAndHeight(outW, outH, Presentation.LAYOUT_SCALE_TO_FIT))))
                         .build()
