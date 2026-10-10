@@ -10,9 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
 
 /**
  * A supporter's profile customizations: icon shape, the effect their
@@ -86,7 +86,6 @@ object ProfileStyles {
     private val failures = HashMap<String, Int>()
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val lookups = kotlinx.coroutines.sync.Semaphore(3)
 
     /** Reads one account's style record (null = it has none). Set by the ViewModel. */
     @kotlin.concurrent.Volatile var fetcher: (suspend (did: String) -> ProfileStyle?)? = null
@@ -97,6 +96,7 @@ object ProfileStyles {
         if (prefs != null) return
         val p = context.sharedPreferences("profile_style")
         prefs = p
+        runCatching { loadOthers(context) }
         val did = p.getString("did", null)?.takeIf { it.isNotBlank() } ?: return
         var saved = p.getString("style", null)?.let {
             runCatching { StellarJson.default.decodeFromString(ProfileStyle.serializer(), it) }.getOrNull()
@@ -126,56 +126,127 @@ object ProfileStyles {
         return styles[did]
     }
 
-    /** When each account was last looked up (main thread only). */
+    /** When each account's lookup last finished (main thread only). */
     private val checkedAt = HashMap<String, Long>()
 
+    // Lookups waiting their turn, newest LAST (main thread only). Taken
+    // newest-first: what's on screen now goes before the faces a feed
+    // scrolled past a minute ago. (They used to wait in arrival order
+    // behind every author of every feed, three at a time — a profile's own
+    // lookup could sit for minutes, which looked like it never loading.)
+    private val pending = ArrayList<String>()
+    private val inFlight = HashSet<String>()
+    private var running = 0
+    private const val WORKERS = 6
+
     /**
-     * Opening someone's profile reads their style again (at most once a
-     * minute), so a change they just made shows without restarting the
-     * app. Not for your own account: the device copy is the truth there.
+     * Opening someone's profile reads their style straight away, ahead of
+     * everything queued, and again on every open (at most once every 30 s),
+     * so a change they just made shows without restarting the app. Not for
+     * your own account: the device copy is the truth there.
      */
     fun refresh(did: String?) {
         if (did.isNullOrBlank() || !lookupAllowed(did) || did == Supporter.selfDid) return
+        val fetch = fetcher ?: return
+        if (did in inFlight) return
         val last = checkedAt[did] ?: 0L
-        if (com.mediaviewer.platform.currentTimeMillis() - last < 60_000L) { request(did); return }
-        synchronizedRemove(did)
-        request(did)
+        if (com.mediaviewer.platform.currentTimeMillis() - last < 30_000L) return
+        pending.remove(did)
+        synchronizedAdd(did)
+        run(did, fetch)
     }
 
     private fun request(did: String) {
-        val fetch = fetcher ?: return
+        if (fetcher == null) return
         if (!synchronizedAdd(did)) return
-        checkedAt[did] = com.mediaviewer.platform.currentTimeMillis()
+        pending.remove(did)
+        pending.add(did)
+        if (pending.size > 300) pending.removeAt(0).let { synchronizedRemove(it) }
+        pump()
+    }
+
+    private fun pump() {
+        val fetch = fetcher ?: return
+        while (running < WORKERS && pending.isNotEmpty()) {
+            val did = pending.removeAt(pending.size - 1)
+            if (did in inFlight) continue
+            running++
+            run(did, fetch, pooled = true)
+        }
+    }
+
+    private fun run(did: String, fetch: suspend (String) -> ProfileStyle?, pooled: Boolean = false) {
+        inFlight.add(did)
         scope.launch {
-            // Everyone can have a style now, so feeds full of new faces could
-            // fire dozens of lookups at once: a few at a time is plenty.
-            val result = lookups.withPermit { runCatching { fetch(did) } }
+            val result = runCatching { fetch(did) }
             withContext(Dispatchers.Main) {
-                result.onSuccess { style ->
-                    val own = did == Supporter.selfDid
-                    val kept = styles[did]
-                    if (style != null) {
-                        styles[did] = style
-                        if (own) persistOwn(did, style)
-                    } else if (own && kept != null && !kept.isDefault) {
-                        // Yours is saved on this device but the server has
-                        // none: the device's copy stays, and is sent again.
-                        saver?.invoke(kept) { }
-                    } else styles.remove(did)
-                }.onFailure {
-                    // Offline or the PDS didn't answer: try again on its own
-                    // a little later (a few times), rather than only when
-                    // something happens to redraw this account.
-                    synchronizedRemove(did)
-                    val tries = (failures[did] ?: 0) + 1
-                    failures[did] = tries
-                    if (tries <= 4) scope.launch {
-                        kotlinx.coroutines.delay(5_000L * tries)
-                        withContext(Dispatchers.Main) { request(did) }
-                    }
-                }
+                inFlight.remove(did)
+                if (pooled) running--
+                deliver(did, result)
+                pump()
             }
         }
+    }
+
+    private fun deliver(did: String, result: Result<ProfileStyle?>) {
+        result.onSuccess { style ->
+            checkedAt[did] = com.mediaviewer.platform.currentTimeMillis()
+            failures.remove(did)
+            val own = did == Supporter.selfDid
+            val kept = styles[did]
+            if (style != null && !style.isDefault) {
+                styles[did] = style
+                if (own) persistOwn(did, style) else cacheOther(did, style)
+            } else if (own && kept != null && !kept.isDefault) {
+                // Yours is saved on this device but the server has
+                // none: the device's copy stays, and is sent again.
+                saver?.invoke(kept) { }
+            } else {
+                styles.remove(did)
+                if (!own) cacheOther(did, null)
+            }
+        }.onFailure {
+            // Offline or the PDS didn't answer: try again on its own a
+            // little later (a few times). What was cached stays meanwhile.
+            synchronizedRemove(did)
+            val tries = (failures[did] ?: 0) + 1
+            failures[did] = tries
+            if (tries <= 3) scope.launch {
+                kotlinx.coroutines.delay(8_000L * tries)
+                withContext(Dispatchers.Main) { request(did) }
+            }
+        }
+    }
+
+    // Other people's styles, kept on the device (up to 400) so a profile
+    // opens with its icon shape and colors at once; each is still read
+    // again from the network once a session.
+    private var otherCache: SharedPreferences? = null
+    private val cachedOrder = ArrayList<String>()
+
+    private fun loadOthers(context: PlatformContext) {
+        val c = context.sharedPreferences("profile_style_others")
+        otherCache = c
+        val raw = c.getString("styles", null) ?: return
+        runCatching {
+            val map = StellarJson.default.decodeFromString(
+                kotlinx.serialization.builtins.MapSerializer(String.serializer(), ProfileStyle.serializer()), raw
+            )
+            map.forEach { (d, st) -> if (!styles.containsKey(d)) styles[d] = st; cachedOrder += d }
+        }
+    }
+
+    private fun cacheOther(did: String, style: ProfileStyle?) {
+        val c = otherCache ?: return
+        cachedOrder.remove(did)
+        if (style != null) cachedOrder += did
+        while (cachedOrder.size > 400) cachedOrder.removeAt(0)
+        val map = LinkedHashMap<String, ProfileStyle>()
+        for (d in cachedOrder) styles[d]?.takeIf { d != Supporter.selfDid }?.let { map[d] = it }
+        val text = StellarJson.default.encodeToString(
+            kotlinx.serialization.builtins.MapSerializer(String.serializer(), ProfileStyle.serializer()), map
+        )
+        c.edit().putString("styles", text).apply()
     }
 
     private fun synchronizedAdd(did: String): Boolean = com.mediaviewer.platform.synchronizedCompat(asked) { asked.add(did) }
