@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -81,7 +79,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-private enum class OnboardingStage { NONE, WELCOME, TUTORIAL, SUPPORT, PINCH_TIP }
+private enum class OnboardingStage { NONE, WELCOME, TUTORIAL, SUPPORT }
 
 /**
  * The first-run popups, drawn over the whole app while it is blurred behind
@@ -93,9 +91,8 @@ private enum class OnboardingStage { NONE, WELCOME, TUTORIAL, SUPPORT, PINCH_TIP
  *     play), then "Go beyond the Atmosphere", which fades the popup away
  *     as the Hub comes back into focus.
  *
- * Also hosts the "Support Stellar" popup of the tenth open, and the
- * one-time "Pinch in with two fingers to enter Explore mode" tip shown the
- * first time a post is opened in Timeline mode.
+ * Also hosts the "Support Stellar" popup of the tenth open. (First-time
+ * tips are not popups: see Tips.kt.)
  */
 @Composable
 fun OnboardingPopupHost(
@@ -110,15 +107,12 @@ fun OnboardingPopupHost(
     onContinue: (Set<String>) -> Unit,
     onFinishTutorial: () -> Unit,
     onCloseSupport: () -> Unit,
-    modifier: Modifier = Modifier,
-    pinchTipOpen: Boolean = false,
-    onClosePinchTip: () -> Unit = {}
+    modifier: Modifier = Modifier
 ) {
     val stage = when {
         welcome != null -> OnboardingStage.WELCOME
         tutorialOpen -> OnboardingStage.TUTORIAL
         supportOpen -> OnboardingStage.SUPPORT
-        pinchTipOpen -> OnboardingStage.PINCH_TIP
         else -> OnboardingStage.NONE
     }
     // Kept while the welcome popup fades out (its state is already gone).
@@ -198,12 +192,6 @@ fun OnboardingPopupHost(
                 }
                 OnboardingStage.SUPPORT -> OnboardingPanel(tint) {
                     SupportPopupContent(openCount = openCount, tint = tint, onClose = onCloseSupport)
-                }
-                OnboardingStage.PINCH_TIP -> OnboardingPanel(tint) {
-                    PinchTipContent(tint = tint, onContinue = {
-                        runCatching { view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS) }
-                        onClosePinchTip()
-                    })
                 }
             }
         }
@@ -329,75 +317,6 @@ private fun WelcomeRow(
                     checkedThumbColor = Color.White, checkedTrackColor = lerp(tint, Color.White, 0.25f),
                     uncheckedThumbColor = DimGray, uncheckedTrackColor = Color.White.copy(0.1f)
                 )
-            )
-        }
-    }
-}
-
-/** "Pinch in with two fingers to enter Explore mode": two fingertips
- *  gliding together over a little grid, then Continue. */
-@Composable
-private fun PinchTipContent(tint: Color, onContinue: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        PinchIllustration(tint)
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "Pinch in with two fingers to enter Explore mode", color = Color.White, fontSize = 17.sp,
-            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 22.sp,
-            modifier = Modifier.padding(horizontal = 6.dp)
-        )
-        Spacer(Modifier.height(16.dp))
-        OnboardingWideButton("Continue", tint, onClick = onContinue)
-    }
-}
-
-@Composable
-private fun PinchIllustration(tint: Color) {
-    val pinch = androidx.compose.animation.core.rememberInfiniteTransition(label = "pinchTip")
-    // 0 = fingers apart, 1 = pinched together (then a pause, and again).
-    val t by pinch.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            androidx.compose.animation.core.keyframes {
-                durationMillis = 1800
-                0f at 0
-                0f at 250
-                1f at 1100 using FastOutSlowInEasing
-                1f at 1500
-            }
-        ),
-        label = "pinchAmount"
-    )
-    val shape = RoundedCornerShape(18.dp)
-    Box(
-        Modifier.size(width = 150.dp, height = 104.dp).clip(shape)
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, tint.copy(alpha = 0.45f), shape),
-        contentAlignment = Alignment.Center
-    ) {
-        // Explore mode's grid, growing in as the fingers close.
-        Column(
-            Modifier.graphicsLayer { alpha = 0.25f + 0.55f * t; val sc = 0.85f + 0.15f * t; scaleX = sc; scaleY = sc },
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            repeat(2) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    repeat(3) {
-                        Box(Modifier.size(width = 22.dp, height = 26.dp).clip(RoundedCornerShape(5.dp)).background(lerp(tint, Color.White, 0.35f).copy(alpha = 0.6f)))
-                    }
-                }
-            }
-        }
-        // The two fingertips, moving diagonally towards the middle.
-        val reach = 34f * (1f - t) + 9f
-        listOf(-1f, 1f).forEach { side ->
-            Box(
-                Modifier.offset((reach * side).dp, (-reach * 0.55f * side).dp).size(22.dp).clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.9f))
-                    .border(2.dp, tint, CircleShape)
             )
         }
     }

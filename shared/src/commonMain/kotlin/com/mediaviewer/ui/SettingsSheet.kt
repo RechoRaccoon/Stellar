@@ -329,6 +329,7 @@ fun SettingsSheet(
     // Settings.
     var settingsTab by remember { mutableStateOf(SettingsTab.SETTINGS) }
     LaunchedEffect(hubPage) { if (hubPage != HubPage.SETTINGS) settingsTab = SettingsTab.SETTINGS }
+    androidx.compose.runtime.SideEffect { Tips.hubMainShowing = hubPage == HubPage.MAIN }
     // Tracks the direction of the most recent page change (Settings <-> Main
     // via the More button / its own back action).
     var hubPageForward by remember { mutableStateOf(true) }
@@ -884,6 +885,7 @@ private fun AtProtocolPageContent(
         }
         Spacer(Modifier.height(6.dp))
 
+        Box(Modifier.fillMaxWidth().tipAnchor("hub.feeds")) {
         HubFeedRow(
             availableFeeds = availableFeeds, selectedFeedUri = selectedFeedUri, authorFeedState = authorFeedState,
             liquidGlass = liquidGlass, dominantColor = dominantColor, drag = feedDrag,
@@ -891,6 +893,7 @@ private fun AtProtocolPageContent(
             highlightedFeedUri = highlightedFeedUri, authorChipSelected = authorChipSelected,
             onTapAuthorChip = onTapAuthorChip
         )
+        }
         }
 
         @Composable
@@ -1016,6 +1019,7 @@ private fun AtProtocolPageContent(
         }
         Box(
             Modifier.fillMaxWidth().zIndex(if (lpDrag.active) 5f else 0f)
+                .tipAnchor("hub.launchpad")
                 .onGloballyPositioned { lpOrigin = it.positionInRoot(); lpBounds = it.boundsInRoot() }
                 // Hold and drag, handled here for the whole pad (not on each
                 // button) so the gesture survives the button moving between
@@ -2442,8 +2446,8 @@ private fun ReturnToFeedBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             @Composable
-            fun HalfPill(label: String, onClick: () -> Unit) {
-                val m = Modifier.weight(1f).fillMaxHeight()
+            fun HalfPill(label: String, anchor: String? = null, onClick: () -> Unit) {
+                val m = Modifier.weight(1f).fillMaxHeight().tipAnchor(anchor)
                 if (liquidGlass) {
                     LiquidGlassSurface(m.clickable(onClick = onClick), shape = shape, tint = tint, backdrop = backdrop) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2462,12 +2466,12 @@ private fun ReturnToFeedBar(
             if (returnToProfile) {
                 HalfPill("Return to Profile") { tap(); onReturnToProfile() }
             } else {
-                HalfPill("Timeline", onTimeline)
-                HalfPill("Explore", onExplore)
+                HalfPill("Timeline", "hub.timeline", onTimeline)
+                HalfPill("Explore", "hub.explore", onExplore)
             }
         }
         HubUploadBubble(
-            liquidGlass, tint, size = barHeight, modifier = Modifier.align(Alignment.CenterEnd),
+            liquidGlass, tint, size = barHeight, modifier = Modifier.align(Alignment.CenterEnd).tipAnchor("hub.post"),
             backdrop = backdrop, menuBackdrop = uploadBackdrop,
             onOpenComposePost = onOpenComposePost
         )
@@ -2484,7 +2488,7 @@ private fun ReturnToFeedBar(
         // pre-login.
         HubSettingsButton(
             liquidGlass, tint, onOpenSettings = onOpenSettings, onRefresh = onRefresh,
-            size = barHeight, modifier = Modifier.align(Alignment.CenterStart), backdrop = backdrop,
+            size = barHeight, modifier = Modifier.align(Alignment.CenterStart).tipAnchor("hub.settings"), backdrop = backdrop,
             // Fix (per feedback): on the Settings page the More button
             // becomes a right-arrow "back to Hub" button.
             settingsOpen = settingsOpen

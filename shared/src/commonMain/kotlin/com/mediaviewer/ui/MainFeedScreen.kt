@@ -2513,6 +2513,7 @@ private fun AuthorRow(
         // a horizontal swipe that starts on it is handled here the same way.
         val pillModifier = Modifier
             .weight(1f, fill = false)
+            .tipAnchor("tl.author")
             .fillMaxHeight()
             .heightIn(min = 30.dp)
             .clip(pillShape)
@@ -2537,7 +2538,7 @@ private fun AuthorRow(
             tint = dominantColor,
             backdrop = backdrop,
             onClick = onToggleFollow,
-            modifier = Modifier.fillMaxHeight().heightIn(min = 30.dp),
+            modifier = Modifier.fillMaxHeight().heightIn(min = 30.dp).tipAnchor("tl.follow"),
             enabled = followEnabled,
             clickable = !ownPost
         )
@@ -2618,6 +2619,7 @@ private fun PostTextBubble(
         else progress.animateTo(target, spring(dampingRatio = 0.86f, stiffness = 340f))
     }
     val bubbleModifier = modifier
+        .tipAnchor("tl.text")
         .clip(shape)
         .horizontalSwipeWatcher(onHorizontalSwipe)
         .clickable(
@@ -3202,20 +3204,24 @@ private fun ActionRow(
                 // profile color (brightened to read on the glass) instead
                 // of fixed red/green/yellow — like the rest of the UI.
                 val activeTint = vividAccent(dominantColor)
+                Box(Modifier.tipAnchor("tl.like")) {
                 ActionButton(if (item.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     if (interactionsBlocked) blockedTint else if (item.isLiked) activeTint else Color.White, null, onToggleLike)
+                }
+                Box(Modifier.tipAnchor("tl.save")) {
                 ActionButton(if (item.isBookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                     if (item.isBookmarked) activeTint else Color.White, null, onToggleBookmark)
+                }
                 ActionButton(Icons.Default.Repeat,
                     if (interactionsBlocked) blockedTint else if (item.isReposted) activeTint else Color.White, null, onToggleRepost)
                 ActionButton(Icons.Default.EditNote, if (interactionsBlocked) blockedTint else if (item.isQuoteReposted) activeTint else Color.White, null, onQuoteRepost)
                 ActionButton(Icons.Default.Download, if (item.isDownloaded) activeTint else Color.White, null, onDownload)
                 GifActionButton(onDownloadGif, if (item.isGifDownloaded) activeTint else Color.White)
-                ActionButton(Icons.Default.Send, Color.White, null, onShare)
+                Box(Modifier.tipAnchor("tl.send")) { ActionButton(Icons.Default.Send, Color.White, null, onShare) }
                 // Item 6: the hamburger icon flips to an X while the menu is
                 // up, and back again once it closes — same button, same
                 // tap target, just toggling moreMenuExpanded either way.
-                Box(Modifier.onGloballyPositioned { onMoreButtonBounds(it.positionInRoot(), it.size) }) {
+                Box(Modifier.tipAnchor("tl.more").onGloballyPositioned { onMoreButtonBounds(it.positionInRoot(), it.size) }) {
                     ActionButton(if (moreMenuExpanded) Icons.Default.Close else Icons.Default.Menu, Color.White, null, onToggleMoreMenu)
                 }
             }
@@ -3247,11 +3253,11 @@ private fun ActionRow(
     if (liquidGlass) {
         val shape = RoundedCornerShape(26.dp)
         LiquidGlassSurface(
-            modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp).then(boundsModifier),
+            modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp).then(boundsModifier).tipAnchor("tl.actions"),
             shape = shape, tint = dominantColor, backdrop = backdrop
         ) { content() }
     } else {
-        Box(modifier.then(boundsModifier).background(Color.Black.copy(0.55f))) { content() }
+        Box(modifier.then(boundsModifier).tipAnchor("tl.actions").background(Color.Black.copy(0.55f))) { content() }
     }
 }
 

@@ -3430,7 +3430,7 @@ internal fun CaptureControlsBar(
         }
         Spacer(Modifier.height(8.dp))
         val gap = 14.dp
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.tipAnchor("capture.bar"), verticalAlignment = Alignment.CenterVertically) {
             // Far left: mic mute. Locked mid-recording (a MediaRecorder
             // can't add/drop its audio track once started); live, it
             // mutes the stream instantly.

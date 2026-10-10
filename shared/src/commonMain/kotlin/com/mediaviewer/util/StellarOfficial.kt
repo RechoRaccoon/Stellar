@@ -96,8 +96,6 @@ object Onboarding {
     private const val KEY_SUPPORT_MILESTONE = "support_popup_milestone"
     private const val KEY_SKIP_NEXT = "skip_next_open"
     private const val KEY_WELCOMED = "welcomed_dids"
-    private const val KEY_PINCH_TIP = "pinch_tip_seen"
-    private const val KEY_PINCH_TIP_DECIDED = "pinch_tip_decided"
 
     private var prefs: SharedPreferences? = null
     private var counted = false
@@ -111,11 +109,6 @@ object Onboarding {
         private set
 
     private var welcomed by mutableStateOf<Set<String>>(emptySet())
-
-    /** The one-time "Pinch in with two fingers to enter Explore mode" tip,
-     *  shown the first time a post is opened in Timeline mode. */
-    var pinchTipSeen by mutableStateOf(true)
-        private set
 
     fun init(context: PlatformContext) {
         if (prefs != null) return
@@ -134,14 +127,6 @@ object Onboarding {
             }
         }
         openCount = opens
-        // The pinch tip is for new users: someone who had already been
-        // using Stellar before it existed (more than a few opens) never
-        // gets it. Decided once; Dev Tools can bring it back.
-        pinchTipSeen = if (!p.getBoolean(KEY_PINCH_TIP_DECIDED, false)) {
-            val seen = opens > 5
-            p.edit().putBoolean(KEY_PINCH_TIP_DECIDED, true).putBoolean(KEY_PINCH_TIP, seen).apply()
-            seen
-        } else p.getBoolean(KEY_PINCH_TIP, false)
         // (The earlier one-time flag counts as having seen the 10th-open one.)
         val seen = maxOf(p.getInt(KEY_SUPPORT_MILESTONE, 0), if (p.getBoolean(KEY_SUPPORT_SHOWN, false)) 10 else 0)
         supportPopupDue = supportMilestone(opens) > seen
@@ -164,18 +149,6 @@ object Onboarding {
         if (did.isBlank() || did in welcomed) return
         welcomed = welcomed + did
         prefs?.edit()?.putStringSet(KEY_WELCOMED, welcomed)?.apply()
-    }
-
-    /** Continue on the pinch tip: never shown again. */
-    fun markPinchTipSeen() {
-        pinchTipSeen = true
-        prefs?.edit()?.putBoolean(KEY_PINCH_TIP, true)?.apply()
-    }
-
-    /** Dev Tools: the pinch tip shows again the next time Timeline mode opens. */
-    fun resetPinchTip() {
-        pinchTipSeen = false
-        prefs?.edit()?.putBoolean(KEY_PINCH_TIP_DECIDED, true)?.putBoolean(KEY_PINCH_TIP, false)?.apply()
     }
 
     /** Dev Tools: show the welcome popup again for [did]. */

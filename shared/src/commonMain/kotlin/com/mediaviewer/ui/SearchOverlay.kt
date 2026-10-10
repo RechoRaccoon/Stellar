@@ -290,7 +290,7 @@ fun SearchOverlay(
                     }
                 )
             Row(
-                Modifier.fillMaxSize().padding(start = 52.dp * p.coerceAtLeast(0f)),
+                Modifier.fillMaxSize().padding(start = 52.dp * p.coerceAtLeast(0f)).tipAnchor("search.bar"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -390,6 +390,7 @@ fun SearchOverlay(
                     !(filter == MainViewModel.SearchFilter.LIKED_TAGS && !hasTaggedDataset)
             }
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            Box(Modifier.fillMaxWidth().tipAnchor("search.tabs")) {
             ProfileStyleTabRow(
                 labels = tabs.map { it.label() }, selectedIndex = tabs.indexOf(state.filter),
                 liquidGlass = liquidGlass, tint = profileTint,
@@ -405,6 +406,7 @@ fun SearchOverlay(
                     }
                 }
             )
+            }
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
             // Content-type sub-tabs — Posts and Tagged only.
             if (isPosts && state.posts.isNotEmpty()) {

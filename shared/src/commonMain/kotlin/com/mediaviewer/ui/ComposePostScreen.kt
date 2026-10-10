@@ -945,9 +945,10 @@ fun ComposePostScreen(
                     )
                     PostButton(
                         enabled = canPost && !submitting, submitting = submitting,
+                        modifier = Modifier.align(Alignment.CenterEnd).tipAnchor("compose.post"),
                         label = if (editBlog != null && mode == ComposeMode.BLOG) "Save" else if (editPost != null) "Edit" else "Post",
                         liquidGlass = liquidGlass, tint = dominantColor,
-                        modifier = Modifier.align(Alignment.CenterEnd), onClick = ::handlePost
+                        onClick = ::handlePost
                     )
                 }
 
@@ -1452,7 +1453,7 @@ fun ComposePostScreen(
                         // (in thread mode) Auto Format the row can be wider
                         // than a small phone. The "+" stays pinned at right.
                         Row(
-                            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            Modifier.weight(1f).tipAnchor("compose.tools").horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically
                         ) {
                             GlassCircleButton(
@@ -1582,6 +1583,7 @@ fun ComposePostScreen(
                         } else {
                             GlassCircleButton(
                                 icon = Icons.Default.Add, contentDescription = "Add post to thread",
+                                modifier = Modifier.tipAnchor("compose.thread"),
                                 liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, size = 36.dp,
                                 enabled = mode != ComposeMode.VIDEO && mode != ComposeMode.REVIEW && editPost == null &&
                                     (!pollOn || pollOptions.size < PollFormat.MAX_OPTIONS),

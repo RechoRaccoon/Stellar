@@ -440,6 +440,8 @@ private fun DmThreadView(
     val view = com.mediaviewer.ui.compat.rememberPlatformView()
     val scope = rememberCoroutineScope()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    // First chat opened: how to react and reply (Tips.kt).
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(1000); Tips.request(TipTours.DMS) }
     var text by remember { mutableStateOf("") }
     val isGroup = thread.convo.isGroup
     val myDid = selfDid.ifBlank {

@@ -538,7 +538,7 @@ internal fun CaptureControlsBar(
         }
         Spacer(Modifier.height(8.dp))
         val gap = 14.dp
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.tipAnchor("capture.bar"), verticalAlignment = Alignment.CenterVertically) {
             // Far left: mic mute. Locked mid-recording; live, it mutes the
             // stream at once.
             VrmBubble(48.dp, liquidGlass, tint, enabled = micEnabled, onClick = onToggleMic) {

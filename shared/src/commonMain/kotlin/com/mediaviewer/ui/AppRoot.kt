@@ -220,9 +220,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val tutorialOpen           by viewModel.tutorialOpen.collectAsState()
     val tutorialVideo          by viewModel.tutorialVideo.collectAsState()
     var supportPopupOpen by remember { mutableStateOf(false) }
-    // The one-time "Pinch in with two fingers to enter Explore mode" tip.
-    var pinchTipOpen by remember { mutableStateOf(false) }
-    val onboardingShown = welcomeState != null || tutorialOpen || supportPopupOpen || pinchTipOpen
+    val onboardingShown = welcomeState != null || tutorialOpen || supportPopupOpen
     // 0–1: how blurred (and dimmed) the app is behind those popups. Read
     // only while drawing, so animating it doesn't recompose this page.
     val onboardingBlur = androidx.compose.animation.core.animateFloatAsState(
@@ -1487,25 +1485,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 if (!com.mediaviewer.util.StellarSupporters.isSupporter(bskyDid)) supportPopupOpen = true
             }
         }
-        // The pinch tip: once (new users), the first time a post is open in
-        // Timeline mode with nothing covering it. Dev Tools can reset it.
-        val timelineShowing = appInitialized && screenState == ScreenState.FEED &&
-            profileOverlay?.hidden != false && pixelController.phase == PixelPhase.HIDDEN
-        val pinchTipDue = !com.mediaviewer.util.Onboarding.pinchTipSeen
-        LaunchedEffect(timelineShowing, pinchTipDue, welcomeState != null, tutorialOpen, supportPopupOpen) {
-            if (timelineShowing && pinchTipDue && welcomeState == null && !tutorialOpen && !supportPopupOpen) {
-                // A beat, so the post is seen arriving first.
-                kotlinx.coroutines.delay(700)
-                pinchTipOpen = true
-            }
-        }
         com.mediaviewer.ui.OnboardingPopupHost(
             welcome = welcomeState,
-            pinchTipOpen = pinchTipOpen,
-            onClosePinchTip = {
-                pinchTipOpen = false
-                com.mediaviewer.util.Onboarding.markPinchTipSeen()
-            },
             tutorialOpen = tutorialOpen,
             tutorialVideo = tutorialVideo,
             supportOpen = supportPopupOpen,
@@ -1522,6 +1503,38 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             },
             modifier = Modifier.zIndex(20f)
         )
+
+        // ── First-time tips (Tips.kt / TipTours.kt) ──
+        // Each screen's walkthrough starts the first time that screen is
+        // properly showing (nothing loading over it, no welcome popup up),
+        // a beat after it arrives. Once seen, never again (Dev Tools ›
+        // Reset Tips brings them back).
+        val tipsContext = com.mediaviewer.ui.compat.LocalContext.current
+        LaunchedEffect(Unit) { com.mediaviewer.ui.Tips.init(tipsContext) }
+        val settled = appInitialized && bskyLoggedIn && pixelController.phase == PixelPhase.HIDDEN
+        androidx.compose.runtime.SideEffect { com.mediaviewer.ui.Tips.blocked = onboardingShown || !settled }
+        val profileShowing = profileOverlay?.let { !it.hidden && !it.loadingProfile } == true
+        val tipScreen: String? = when {
+            !settled || onboardingShown -> null
+            vrmModeOpen -> com.mediaviewer.ui.TipTours.VRM
+            cameraModeOpen -> com.mediaviewer.ui.TipTours.CAMERA
+            composePostOpen -> com.mediaviewer.ui.TipTours.COMPOSE
+            searchOpen -> com.mediaviewer.ui.TipTours.SEARCH
+            profileShowing -> com.mediaviewer.ui.TipTours.PROFILE
+            profileOverlay?.hidden == false -> null
+            screenState == ScreenState.SETTINGS -> if (com.mediaviewer.ui.Tips.hubMainShowing) com.mediaviewer.ui.TipTours.HUB else null
+            screenState == ScreenState.FEED -> com.mediaviewer.ui.TipTours.TIMELINE
+            screenState == ScreenState.GRID -> com.mediaviewer.ui.TipTours.EXPLORE
+            screenState == ScreenState.COMMENTS -> com.mediaviewer.ui.TipTours.COMMENTS
+            else -> null
+        }
+        LaunchedEffect(tipScreen) {
+            val id = tipScreen ?: return@LaunchedEffect
+            // A beat, so the screen is seen arriving (and has laid out) first.
+            kotlinx.coroutines.delay(if (id == com.mediaviewer.ui.TipTours.VRM || id == com.mediaviewer.ui.TipTours.CAMERA) 1500 else 800)
+            com.mediaviewer.ui.Tips.request(id)
+        }
+        com.mediaviewer.ui.TipOverlay(tint = selfProfileTint, modifier = Modifier.zIndex(30f))
     }
     }
 

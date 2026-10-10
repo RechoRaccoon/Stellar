@@ -384,8 +384,10 @@ fun GridScreen(
                         val offset = if (saved != null) 1 else 0
                         val selected = if (saved != null) 0 else availableFeeds.indexOfFirst { it.uri == selectedFeedUri }.let { if (it >= 0) it + offset else -1 }
                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                        Box(Modifier.fillMaxWidth().tipAnchor("ex.feeds")) {
                         ProfileStyleTabRow(labels = labels, selectedIndex = selected, liquidGlass = liquidGlass, tint = tint) { i ->
                             if (i >= offset) availableFeeds.getOrNull(i - offset)?.let { onSelectFeed(it.uri) }
+                        }
                         }
                     } else {
                         Row(
@@ -418,11 +420,13 @@ fun GridScreen(
                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
                     // ── Content-type sub-tabs ──────────────────────────────────────
                     if (items.isNotEmpty()) {
+                        Box(Modifier.fillMaxWidth().tipAnchor("ex.kinds")) {
                         PostKindSubTabRow(items, kind, liquidGlass, tint) { newKind ->
                             if (newKind != kind) {
                                 pendingAnchor = middleAnchor(gridState)
                                 kind = newKind
                             }
+                        }
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -489,7 +493,8 @@ fun GridScreen(
                 pendingAnchor = middleAnchor(gridState)
                 cycleResultsGridMode(gridScreen, kind)
             },
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier.align(Alignment.BottomCenter),
+            refreshAnchor = "ex.refresh", gridAnchor = "ex.layout"
         )
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(

@@ -854,10 +854,12 @@ fun ProfileOverlay(
                         // pills underneath. Kept as an opt-in fallback
                         // (Settings → Classic Profile Tabs) for anyone who
                         // preferred it to the new icon row below.
+                        Box(Modifier.fillMaxWidth().tipAnchor("profile.tabs")) {
                         ProfileTabsRow(
                             tabs = availableTabs, selected = state.selectedTab,
                             liquidGlass = liquidGlass, tint = blended, onSelect = onSelectTab
                         )
+                        }
                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
                         // Feature request #7: a pill only shows up once
                         // there's at least one loaded item it would actually
@@ -1392,9 +1394,9 @@ private fun ProfileInteractionBar(
                     }
                 }
             }
-            BigIconButton(onClick = { tap(); onAddTo() }) {
+            Box(Modifier.tipAnchor("profile.addto")) { BigIconButton(onClick = { tap(); onAddTo() }) {
                 Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add To", tint = Color.White, modifier = Modifier.size(addToIconSize))
-            }
+            } }
             if (showDm) {
                 // Tap: open (or start) your chat with them. Hold: start a
                 // group chat with them instead.
@@ -1884,7 +1886,7 @@ private fun ProfileBannerOverlayLayout(
                 // bubble the size of the X on the left (and level with it).
                 EditGlassBubble(liquidGlass = liquidGlass, tint = bannerColor, onClick = onEditProfile, backdrop = backdrop)
             } else {
-                FollowButton(isFollowing = author.isFollowing, liquidGlass = liquidGlass, tint = bannerColor, onClick = onToggleFollow, backdrop = backdrop, isMutual = isMutual, enabled = followEnabled)
+                FollowButton(isFollowing = author.isFollowing, liquidGlass = liquidGlass, tint = bannerColor, onClick = onToggleFollow, backdrop = backdrop, isMutual = isMutual, enabled = followEnabled, modifier = Modifier.tipAnchor("profile.follow"))
             }
         }.first().measure(loose)
 
@@ -4132,6 +4134,7 @@ private fun BlogDetailOverlay(
     // color — white text stays crisp on it — instead of flat black.
     val pageBrush = remember(tint) { blogPageBrush(tint) }
     val tap = rememberHapticTap()
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(900); Tips.request(TipTours.BLOG) }
     val context = com.mediaviewer.ui.compat.LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -4814,6 +4817,8 @@ fun TitleDetailOverlay(
     }
     val tint = rememberDominantColor(posterImage ?: ownBackdrop ?: wikiCover ?: "")
     LaunchedEffect(title.id, title.title) { onCheckBacklog(title) }
+    // First time on a title page: its walkthrough (Tips.kt).
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(900); Tips.request(TipTours.TITLE) }
     // "Backlog" to add it, "Remove" once it's in your backlog; "…" while
     // that's being checked or changed. Null = not signed in (no button).
     val backlogLabel: String? = if (selfDid.isBlank()) null else when {
@@ -5015,12 +5020,14 @@ fun TitleDetailOverlay(
                 Spacer(Modifier.height(18.dp))
 
                 // ── Item 12: Summary/Reviews tab strip ──────────────────
+                Box(Modifier.fillMaxWidth().tipAnchor("title.tabs")) {
                 TabBubbleRow(
                     reviews = reviews, selectedIndex = selectedIndex, listState = tabsListState,
                     liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                     onSelect = { selectedIndex = it },
                     onSelectorMoved = { selectorCenterX = it }
                 )
+                }
                 TabConnectorNotch(centerX = selectorCenterX, tint = tint, liquidGlass = liquidGlass)
 
                 // Swiping anywhere under the movie info section (on top of
@@ -5416,7 +5423,7 @@ private fun TitleReviewBar(
         }
     }
     Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace).height(60.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxSize().tipAnchor("title.bar"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill("Review", 2f, Color.White, onClick)
             if (backlogLabel != null) {
                 Pill(backlogLabel, 1f, if (backlogLabel == "Remove") Color(0xFFFF6B6B) else Color.White, onBacklog)
@@ -5457,7 +5464,7 @@ private fun LikeReviewCommentBar(
         }
     }
     Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace).height(60.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxSize().tipAnchor("title.bar"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Segment("Like", if (likedByMe) Color(0xFFFF4D6D) else Color.White, onLike)
             Segment("Review", Color.White, onReview)
             Segment("Comment", Color.White, onComment)
@@ -5645,7 +5652,10 @@ fun ResultsInteractionBar(
     liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
     refreshing: Boolean, animateRefresh: Boolean, onRefresh: () -> Unit,
     filter: PostKindFilter?, gridMode: Int, onGrid: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Tips: names for the Refresh and layout buttons (see Tips.kt). */
+    refreshAnchor: String? = null,
+    gridAnchor: String? = null
 ) {
     val shape = RoundedCornerShape(26.dp)
     val iconSize = 20.dp
@@ -5660,7 +5670,7 @@ fun ResultsInteractionBar(
             horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)
         ) {
             Box(
-                Modifier.size(44.dp).clip(CircleShape).clickable { if (!refreshing) { tap(); onRefresh() } },
+                Modifier.size(44.dp).tipAnchor(refreshAnchor).clip(CircleShape).clickable { if (!refreshing) { tap(); onRefresh() } },
                 contentAlignment = Alignment.Center
             ) {
                 val angleState: androidx.compose.runtime.State<Float>? = if (refreshing && animateRefresh) {
@@ -5681,7 +5691,7 @@ fun ResultsInteractionBar(
             if (showGrid) {
                 val listKind = filter!!.isListKind()
                 Box(
-                    Modifier.size(44.dp).clip(CircleShape).clickable { tap(); onGrid() },
+                    Modifier.size(44.dp).tipAnchor(gridAnchor).clip(CircleShape).clickable { tap(); onGrid() },
                     contentAlignment = Alignment.Center
                 ) {
                     when {
