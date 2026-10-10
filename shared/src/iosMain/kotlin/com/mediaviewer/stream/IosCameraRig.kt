@@ -125,6 +125,15 @@ class IosCameraRig : LiveFeeder {
         val camera = device(front) ?: return "This device has no camera Stellar can use"
         val newInput = AVCaptureDeviceInput.deviceInputWithDevice(camera, error = null) ?: return "The camera couldn't be opened"
         session.beginConfiguration()
+        // The camera has no sound of its own here; recordings get theirs
+        // from the audio rig. Left on, the capture session re-configures
+        // the phone's audio while the rig is wiring the microphone — the
+        // format changing underneath the audio engine, which crashed
+        // recording on this page.
+        runCatching {
+            session.setAutomaticallyConfiguresApplicationAudioSession(false)
+            session.setUsesApplicationAudioSession(true)
+        }
         input?.let { session.removeInput(it) }
         if (!session.canAddInput(newInput)) {
             input?.let { if (session.canAddInput(it)) session.addInput(it) }

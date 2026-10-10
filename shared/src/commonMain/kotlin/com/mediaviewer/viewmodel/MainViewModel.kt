@@ -8531,12 +8531,19 @@ class MainViewModel(
         com.mediaviewer.util.PostArchive.init(platform.context)
         connectProfileStyles()
         connectLoginFlow()
-        // The DMs home-screen widget (supporters) shows the chat list as the
-        // app has it: handed over a moment after every change.
+        // The home-screen widgets (free for everyone): events and notes are
+        // handed over once at launch, so a widget placed before anything
+        // changed still has something to show…
+        viewModelScope.launch {
+            delay(2500)
+            withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, null) } }
+        }
+        // …and the DMs widget shows the chat list as the app has it, handed
+        // over a moment after every change.
         viewModelScope.launch {
             _dmConversations.collectLatest { list ->
                 delay(1500)
-                if (!_bskyLoggedIn.value || !com.mediaviewer.util.Supporter.active) return@collectLatest
+                if (!_bskyLoggedIn.value) return@collectLatest
                 val chats = com.mediaviewer.platform.widgetChats(list)
                 withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
             }

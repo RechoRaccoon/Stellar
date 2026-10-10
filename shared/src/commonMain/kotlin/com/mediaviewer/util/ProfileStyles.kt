@@ -82,6 +82,8 @@ object ProfileStyles {
     private val styles = mutableStateMapOf<String, ProfileStyle>()
     /** Looked up already this session (whatever the answer was). */
     private val asked = HashSet<String>()
+    /** Failed lookups per account this session (main thread only). */
+    private val failures = HashMap<String, Int>()
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lookups = kotlinx.coroutines.sync.Semaphore(3)
@@ -124,9 +126,26 @@ object ProfileStyles {
         return styles[did]
     }
 
+    /** When each account was last looked up (main thread only). */
+    private val checkedAt = HashMap<String, Long>()
+
+    /**
+     * Opening someone's profile reads their style again (at most once a
+     * minute), so a change they just made shows without restarting the
+     * app. Not for your own account: the device copy is the truth there.
+     */
+    fun refresh(did: String?) {
+        if (did.isNullOrBlank() || !lookupAllowed(did) || did == Supporter.selfDid) return
+        val last = checkedAt[did] ?: 0L
+        if (com.mediaviewer.platform.currentTimeMillis() - last < 60_000L) { request(did); return }
+        synchronizedRemove(did)
+        request(did)
+    }
+
     private fun request(did: String) {
         val fetch = fetcher ?: return
         if (!synchronizedAdd(did)) return
+        checkedAt[did] = com.mediaviewer.platform.currentTimeMillis()
         scope.launch {
             // Everyone can have a style now, so feeds full of new faces could
             // fire dozens of lookups at once: a few at a time is plenty.
@@ -144,8 +163,16 @@ object ProfileStyles {
                         saver?.invoke(kept) { }
                     } else styles.remove(did)
                 }.onFailure {
-                    // Offline or the PDS didn't answer: worth another go later.
+                    // Offline or the PDS didn't answer: try again on its own
+                    // a little later (a few times), rather than only when
+                    // something happens to redraw this account.
                     synchronizedRemove(did)
+                    val tries = (failures[did] ?: 0) + 1
+                    failures[did] = tries
+                    if (tries <= 4) scope.launch {
+                        kotlinx.coroutines.delay(5_000L * tries)
+                        withContext(Dispatchers.Main) { request(did) }
+                    }
                 }
             }
         }

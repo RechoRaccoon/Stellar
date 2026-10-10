@@ -220,7 +220,9 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val tutorialOpen           by viewModel.tutorialOpen.collectAsState()
     val tutorialVideo          by viewModel.tutorialVideo.collectAsState()
     var supportPopupOpen by remember { mutableStateOf(false) }
-    val onboardingShown = welcomeState != null || tutorialOpen || supportPopupOpen
+    // The one-time "Pinch in with two fingers to enter Explore mode" tip.
+    var pinchTipOpen by remember { mutableStateOf(false) }
+    val onboardingShown = welcomeState != null || tutorialOpen || supportPopupOpen || pinchTipOpen
     // 0–1: how blurred (and dimmed) the app is behind those popups. Read
     // only while drawing, so animating it doesn't recompose this page.
     val onboardingBlur = androidx.compose.animation.core.animateFloatAsState(
@@ -1485,8 +1487,25 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 if (!com.mediaviewer.util.StellarSupporters.isSupporter(bskyDid)) supportPopupOpen = true
             }
         }
+        // The pinch tip: once (new users), the first time a post is open in
+        // Timeline mode with nothing covering it. Dev Tools can reset it.
+        val timelineShowing = appInitialized && screenState == ScreenState.FEED &&
+            profileOverlay?.hidden != false && pixelController.phase == PixelPhase.HIDDEN
+        val pinchTipDue = !com.mediaviewer.util.Onboarding.pinchTipSeen
+        LaunchedEffect(timelineShowing, pinchTipDue, welcomeState != null, tutorialOpen, supportPopupOpen) {
+            if (timelineShowing && pinchTipDue && welcomeState == null && !tutorialOpen && !supportPopupOpen) {
+                // A beat, so the post is seen arriving first.
+                kotlinx.coroutines.delay(700)
+                pinchTipOpen = true
+            }
+        }
         com.mediaviewer.ui.OnboardingPopupHost(
             welcome = welcomeState,
+            pinchTipOpen = pinchTipOpen,
+            onClosePinchTip = {
+                pinchTipOpen = false
+                com.mediaviewer.util.Onboarding.markPinchTipSeen()
+            },
             tutorialOpen = tutorialOpen,
             tutorialVideo = tutorialVideo,
             supportOpen = supportPopupOpen,

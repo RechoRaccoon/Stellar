@@ -1,11 +1,13 @@
 package com.mediaviewer.stream
 
+import com.mediaviewer.platform.IosAudioGuardBridge
 import com.mediaviewer.platform.Log
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AVFAudio.AVAudioEngine
 import platform.AVFAudio.AVAudioFile
 import platform.AVFAudio.AVAudioFormat
 import platform.AVFAudio.AVAudioMixerNode
+import platform.AVFAudio.AVAudioNode
 import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioPlayerNode
 import platform.AVFAudio.AVAudioSession
@@ -80,6 +82,29 @@ class IosAudioRig(
      * had at all — the recording or stream then goes without.
      */
     fun start(withMic: Boolean): Boolean {
+        // With the mic first; if the engine won't take it, again without
+        // (soundboard over silence) rather than no sound at all.
+        if (startOnce(withMic)) return true
+        return withMic && startOnce(false)
+    }
+
+    /** [connect] inside Objective-C's @try when the app provides it. */
+    private fun connect(e: AVAudioEngine, from: AVAudioNode, to: AVAudioNode, format: AVAudioFormat?): Boolean {
+        val guard = IosAudioGuardBridge.audioGuard ?: run { e.connect(from, to = to, format = format); return true }
+        val error = guard.connect(e, from, to, format) ?: return true
+        Log.e("IosAudioRig", "Audio wiring refused: $error")
+        return false
+    }
+
+    private fun startEngine(e: AVAudioEngine): Boolean {
+        val guard = IosAudioGuardBridge.audioGuard ?: run { e.prepare(); return e.startAndReturnError(null) }
+        val error = guard.start(e) ?: return true
+        Log.e("IosAudioRig", "Audio engine didn't start: $error")
+        return false
+    }
+
+    private fun startOnce(withMic: Boolean): Boolean {
+        pitchUnit = null; micFader = null
         return runCatching {
             val session = AVAudioSession.sharedInstance()
             session.setCategory(
@@ -95,47 +120,43 @@ class IosAudioRig(
             val silencer = AVAudioMixerNode()
             e.attachNode(out)
             e.attachNode(silencer)
-            e.connect(out, to = silencer, format = format)
-            e.connect(silencer, to = e.mainMixerNode, format = format)
+            if (!connect(e, out, silencer, format) || !connect(e, silencer, e.mainMixerNode, format)) return@runCatching false
             silencer.setOutputVolume(0f)
 
             // The microphone is only wired in when iOS really has one to
             // give right now. Apple's engine doesn't report a bad wiring as
-            // an error — it stops the whole app — so everything about the
-            // mic is checked first, and it's wired the most forgiving way:
+            // an error — it throws an Objective-C exception, which used to
+            // close the whole app (the Camera page's camera can change the
+            // phone's audio format underneath it). Every connection and the
+            // start now go through StellarTry's @try (IosAudioGuard), and a
+            // refusal means recording without the mic instead of a crash:
             //
             //     microphone → fader → pitch → mix
             //
             // The mic goes straight into a mixer (the fader), in whatever
-            // format the phone's hardware is using at this moment; mixers
-            // take any format and convert it. Only after that, in one fixed
-            // ordinary format (stereo, 44.1 kHz), does it pass through the
-            // pitch effect. (It used to go into the pitch effect first, in
-            // the hardware's own format — mono, and at a rate that changes
-            // with the route — which is the wiring that crashed.)
+            // format the hardware is using this moment; mixers take any
+            // format and convert it. After that, in one fixed ordinary
+            // format (stereo, 44.1 kHz), it passes through the pitch effect.
             if (withMic && session.recordPermission == AVAudioSessionRecordPermissionGranted) {
                 val input = e.inputNode
                 val hardware = input.inputFormatForBus(0u)
                 val inFormat = input.outputFormatForBus(0u)
-                // (No rate or no channels, or the two not agreeing yet: the
-                // mic isn't really there. The recording goes without it.)
-                if (hardware.sampleRate >= 8000.0 && hardware.channelCount > 0u &&
-                    inFormat.sampleRate == hardware.sampleRate && inFormat.channelCount > 0u
-                ) {
-                    val effectFormat = AVAudioFormat(standardFormatWithSampleRate = RATE, channels = 2u)
-                    val pitch = AVAudioUnitTimePitch()
-                    val fader = AVAudioMixerNode()
-                    e.attachNode(pitch)
-                    e.attachNode(fader)
-                    e.connect(input, to = fader, format = inFormat)
-                    e.connect(fader, to = pitch, format = effectFormat)
-                    e.connect(pitch, to = out, format = effectFormat)
-                    pitch.setPitch(pitchSemitones.coerceIn(-12f, 12f) * 100f)
-                    pitch.setBypass(pitchSemitones == 0f)
-                    fader.setOutputVolume(if (muted) 0f else 1f)
-                    pitchUnit = pitch
-                    micFader = fader
+                if (hardware.sampleRate < 8000.0 || hardware.channelCount == 0u ||
+                    inFormat.sampleRate != hardware.sampleRate || inFormat.channelCount == 0u
+                ) return@runCatching false
+                val effectFormat = AVAudioFormat(standardFormatWithSampleRate = RATE, channels = 2u)
+                val pitch = AVAudioUnitTimePitch()
+                val fader = AVAudioMixerNode()
+                e.attachNode(pitch)
+                e.attachNode(fader)
+                if (!connect(e, input, fader, inFormat) || !connect(e, fader, pitch, effectFormat) || !connect(e, pitch, out, effectFormat)) {
+                    return@runCatching false
                 }
+                pitch.setPitch(pitchSemitones.coerceIn(-12f, 12f) * 100f)
+                pitch.setBypass(pitchSemitones == 0f)
+                fader.setOutputVolume(if (muted) 0f else 1f)
+                pitchUnit = pitch
+                micFader = fader
             }
 
             val enc = IosAacEncoder(format, onFrame)
@@ -144,10 +165,11 @@ class IosAudioRig(
             out.installTapOnBus(0u, bufferSize = 2048u, format = format) { buffer, _ ->
                 if (buffer != null && running) runCatching { enc.encode(buffer) }.onFailure { Log.e("IosAudioRig", "Encoding failed", it) }
             }
-            e.prepare()
-            if (!e.startAndReturnError(null)) {
-                out.removeTapOnBus(0u)
+            if (!startEngine(e)) {
                 running = false
+                runCatching { out.removeTapOnBus(0u) }
+                runCatching { e.stop() }
+                encoder = null; pitchUnit = null; micFader = null
                 return@runCatching false
             }
             engine = e
@@ -168,7 +190,7 @@ class IosAudioRig(
             val node = AVAudioPlayerNode()
             e.attachNode(node)
             // (The mixer takes each sound at its own rate and channel count.)
-            e.connect(node, to = out, format = file.processingFormat)
+            if (!connect(e, node, out, file.processingFormat)) { runCatching { e.detachNode(node) }; return }
             playing++
             node.scheduleFile(file, atTime = null) {
                 // A moment later (the last of it is still on its way out),

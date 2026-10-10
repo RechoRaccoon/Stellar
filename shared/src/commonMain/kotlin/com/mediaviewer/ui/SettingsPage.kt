@@ -1366,6 +1366,15 @@ internal fun SettingsPageContent(
                         PillButton("Open", { com.mediaviewer.util.UiToggles.devSupportPreview = true })
                     }
                     BubbleDivider()
+                    val tipContext = com.mediaviewer.ui.compat.LocalContext.current
+                    BubbleRow {
+                        RowLabel("Reset Pinch Tip", Modifier.weight(1f), sub = "Shows \"Pinch in with two fingers to enter Explore mode\" again the next time Timeline mode opens.")
+                        PillButton("Reset", {
+                            com.mediaviewer.util.Onboarding.resetPinchTip()
+                            com.mediaviewer.ui.compat.Toast.makeText(tipContext, "Pinch tip reset", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
+                        })
+                    }
+                    BubbleDivider()
                     val coverContext = com.mediaviewer.ui.compat.LocalContext.current
                     val coverScope = rememberCoroutineScope()
                     BubbleRow {

@@ -130,13 +130,10 @@ object StellarWidgets {
         emptyList()
     }
 
-    /** Widgets are a supporter benefit: everyone else's show a short note. */
-    internal fun isSupporter(context: Context): Boolean {
-        if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) return true
-        val did = context.getSharedPreferences("self_profile_color", Context.MODE_PRIVATE).getString("did", null) ?: return false
-        val dids = context.getSharedPreferences("stellar_supporters", Context.MODE_PRIVATE).getString("dids", null)?.split(',') ?: return false
-        return did in dids
-    }
+    /** Widgets are free for everyone (they used to be a supporter benefit,
+     *  and stay free even if FeatureFlags.ALL_FEATURES_FREE is turned off). */
+    @Suppress("UNUSED_PARAMETER")
+    internal fun isSupporter(context: Context): Boolean = true
 
     /** Your two profile colors (banner's, profile picture's), as the app
      *  last worked them out — or Stellar's own dark blue before it has. */

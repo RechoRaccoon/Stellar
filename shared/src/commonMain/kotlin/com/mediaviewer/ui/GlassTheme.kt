@@ -813,13 +813,15 @@ fun FollowButton(
     isMutual: Boolean = false,
     /** false: greyed out (they've blocked you) — a tap still reaches
      *  [onClick], which explains why nothing happens. */
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    /** false: greyed out and doesn't react at all (your own post). */
+    clickable: Boolean = true
 ) {
     val shape = RoundedCornerShape(14.dp)
     // Fix 9: one shared light tap on every press, via the shared helper.
     val tap = rememberHapticTap()
-    val clickableModifier = modifier.graphicsLayer { alpha = if (enabled) 1f else 0.4f }
-        .clip(shape).clickable(onClick = { tap(); onClick() })
+    val clickableModifier = modifier.graphicsLayer { alpha = if (enabled && clickable) 1f else 0.4f }
+        .clip(shape).then(if (clickable) Modifier.clickable(onClick = { tap(); onClick() }) else Modifier)
 
     @Composable
     fun FollowLabel() {

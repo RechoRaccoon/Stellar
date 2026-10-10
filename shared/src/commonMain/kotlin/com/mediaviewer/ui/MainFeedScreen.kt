@@ -1826,7 +1826,8 @@ private fun PostContent(
                         dominantColor = dominantColor,
                         backdrop = glassBackdrop,
                         onHorizontalSwipe = handleHorizontalSwipe,
-                        followEnabled = !authorBlocksViewer
+                        followEnabled = !authorBlocksViewer,
+                        ownPost = isOwnPost
                     )
                     // Status bubbles, centered right under the author row:
                     // translation (Settings → Show Translation Status),
@@ -2469,7 +2470,9 @@ private fun AuthorRow(
     item: MediaItem, appMode: AppMode, onToggleFollow: () -> Unit, onTapAuthor: () -> Unit,
     modifier: Modifier, liquidGlass: Boolean, dominantColor: Color, backdrop: GlassBackdrop?,
     onHorizontalSwipe: (Float) -> Unit = {},
-    followEnabled: Boolean = true
+    followEnabled: Boolean = true,
+    /** Your own post: the Follow button doesn't react. */
+    ownPost: Boolean = false
 ) {
     val author = item.author
     val pillShape = RoundedCornerShape(14.dp)
@@ -2534,7 +2537,8 @@ private fun AuthorRow(
             backdrop = backdrop,
             onClick = onToggleFollow,
             modifier = Modifier.fillMaxHeight().heightIn(min = 30.dp),
-            enabled = followEnabled
+            enabled = followEnabled,
+            clickable = !ownPost
         )
     }
 }

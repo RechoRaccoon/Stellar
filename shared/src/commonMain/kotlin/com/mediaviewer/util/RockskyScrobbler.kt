@@ -3,6 +3,7 @@ package com.mediaviewer.util
 import com.mediaviewer.network.RockskyApi
 import com.mediaviewer.network.RockskyMatchedSongDto
 import com.mediaviewer.platform.PlatformContext
+import com.mediaviewer.platform.sharedPreferences
 import com.mediaviewer.platform.currentTimeMillis
 import com.mediaviewer.platform.nanoTime
 import com.mediaviewer.platform.nowIsoString
@@ -25,7 +26,11 @@ data class ScrobbleTrack(
     /** Milliseconds; 0 when the player didn't say. */
     val durationMs: Long,
     /** When the listen began, seconds since 1970. */
-    val timestampSeconds: Long
+    val timestampSeconds: Long,
+    /** The player's own cover as a web link, if it gave one. */
+    val artUrl: String? = null,
+    /** The player's own cover as a JPEG, if it only gave a picture. */
+    val artBytes: ByteArray? = null
 )
 
 enum class ScrobbleUploadOutcome {
@@ -334,6 +339,25 @@ object RockskyScrobbler {
                 runCatching { rocksky.matchSong(asked, artist, track.album.trim().ifEmpty { null }) }.getOrNull()
                     ?.takeIf { it.isSuccessful }?.body()
             }?.takeIf { !it.title.isNullOrBlank() }
+            // YouTube / YouTube Music (and their ReVanced builds) often give a
+            // video's title ("… (Official Video)") or a "Artist - Topic"
+            // channel, which Rocksky's matcher doesn't know. Asked again
+            // tidied up — the match is only used for its extras (cover,
+            // ids, genres) and only when it's plainly the same song.
+            if (match == null && !history) {
+                val tidyTitle = cleanVideoTitle(title)
+                val tidyArtist = cleanChannelName(artist)
+                if (tidyTitle != title || tidyArtist != artist || track.album.isNotBlank()) {
+                    match = withTimeoutOrNull(12_000) {
+                        runCatching { rocksky.matchSong(tidyTitle, tidyArtist, null) }.getOrNull()
+                            ?.takeIf { it.isSuccessful }?.body()
+                    }?.takeIf { m ->
+                        val theirs = letters(m.title.orEmpty())
+                        val ours = letters(tidyTitle)
+                        theirs.isNotEmpty() && ours.isNotEmpty() && (theirs.contains(ours) || ours.contains(theirs))
+                    }
+                }
+            }
             var album = canonical(track.album)
             var albumArtist = canonical(track.albumArtist)
             if (history && match != null) {
@@ -359,7 +383,23 @@ object RockskyScrobbler {
             val play = playKey(did, title, artist, album, track.timestampSeconds)
             if (index.has(play)) return ScrobbleUploadOutcome.DONE
 
-            val fields = Fields(title, artist, album, albumArtist, track, match)
+            // The cover, in the order Rocksky itself would pick: the
+            // matcher's (Rocksky's own image links), else the player's own
+            // cover link, else the player's cover picture stored in your
+            // repo as a blob (kept alive by the records' "albumArt" field,
+            // the way Rocksky's lexicon carries an uploaded cover).
+            var artUrl: String? = match?.albumArt?.takeIf { it.startsWith("http") }
+                ?: track.artUrl?.takeIf { it.startsWith("http") }
+            var artBlob: com.mediaviewer.model.BskyBlob? = null
+            val artBytes = track.artBytes
+            if (artUrl == null && artBytes != null && artBytes.isNotEmpty()) {
+                val uploaded = session.call { token -> session.repo.uploadRawBlob(token, artBytes, "image/jpeg") }.getOrNull()
+                if (uploaded != null && uploaded.ref.link.isNotBlank()) {
+                    artBlob = uploaded
+                    artUrl = blobUrl(did, uploaded.ref.link)
+                }
+            }
+            val fields = Fields(title, artist, album, albumArtist, track, match, artUrl, artBlob)
             suspend fun put(collection: String, record: Map<String, Any>): Result<String> {
                 if (history) waitForWriteSlot()
                 return session.call { token -> session.repo.putRepoRecord(token, did, collection, newTid(), record) }
@@ -533,13 +573,117 @@ object RockskyScrobbler {
         }
     }
 
+    /** A blob in [did]'s repo as a link anyone can load (its PDS's getBlob). */
+    private suspend fun blobUrl(did: String, cid: String): String = BlueskyBlobResolver.resolveBlobUrl(did, cid)
+
+    // ── Covers picked by hand (Music History › double-tap a cover) ───────
+
+    private val coverOverrides = androidx.compose.runtime.mutableStateMapOf<String, String>()
+    private var coverPrefs: com.mediaviewer.platform.SharedPreferences? = null
+
+    private fun coverKey(did: String, title: String, artist: String) =
+        did + "|" + canonical(title).lowercase() + "|" + canonical(artist).lowercase()
+
+    /** Loads the covers picked on this phone (once). */
+    fun initCovers(context: PlatformContext) {
+        if (coverPrefs != null) return
+        val p = context.sharedPreferences("rocksky_covers")
+        coverPrefs = p
+        val saved = p.getString("covers", null) ?: return
+        runCatching {
+            val obj = JSONObject(saved)
+            obj.keys().forEach { k -> obj.optString(k).takeIf { it.isNotBlank() }?.let { coverOverrides[k] = it } }
+        }
+    }
+
+    /** The cover picked by hand for [did]'s [title] by [artist], if any
+     *  (Compose state, so a row redraws the moment one is set). */
+    fun coverFor(did: String, title: String, artist: String): String? = coverOverrides[coverKey(did, title, artist)]
+
+    private fun rememberCover(did: String, title: String, artist: String, url: String) {
+        coverOverrides[coverKey(did, title, artist)] = url
+        val obj = JSONObject()
+        coverOverrides.forEach { (k, v) -> obj.put(k, v) }
+        coverPrefs?.edit()?.putString("covers", obj.toString())?.apply()
+    }
+
+    /**
+     * A cover picked by hand for a song: [jpeg] is uploaded to [did]'s repo
+     * and every record of that song there — the `app.rocksky.song` record
+     * and every `app.rocksky.scrobble` of it, plus its album's record when
+     * that has no real cover — is rewritten with it (`albumArtUrl`, and the
+     * blob itself as `albumArt`, as Rocksky's lexicon carries an uploaded
+     * cover). [onProgress] gets how many records have been updated so far.
+     * Null when done, otherwise what went wrong.
+     */
+    suspend fun setSongCover(
+        context: PlatformContext, did: String, title: String, artist: String, jpeg: ByteArray,
+        onProgress: (Int) -> Unit = {}
+    ): String? {
+        return try {
+            initCovers(context)
+            val session = session(context, did) ?: return "Sign in to the account these listens belong to."
+            val blob = session.call { token -> session.repo.uploadRawBlob(token, jpeg, "image/jpeg") }.getOrElse {
+                return "The picture couldn't be uploaded. Check your connection and try again."
+            }
+            val url = blobUrl(did, blob.ref.link)
+            // Shown straight away on this phone, whatever happens next.
+            rememberCover(did, title, artist, url)
+            val wantTitle = canonical(title).lowercase()
+            val wantArtist = canonical(artist).lowercase()
+            fun field(o: com.mediaviewer.json.JsonObject, name: String): String =
+                runCatching { o[name]?.takeIf { it.isJsonPrimitive }?.asString }.getOrNull().orEmpty()
+            var updated = 0
+            var failed = 0
+            val albums = HashSet<String>()
+            for (collection in listOf("app.rocksky.song", "app.rocksky.scrobble", "app.rocksky.album")) {
+                var cursor: String? = null
+                do {
+                    val page = session.call { token -> session.repo.listRepoRecordsPage(token, did, collection, cursor) }.getOrElse {
+                        return "Only some of this song's listens got the new cover (no connection). Try again to finish."
+                    }
+                    for (rec in page.records) {
+                        val obj = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                        val recTitle = canonical(field(obj, "title")).lowercase()
+                        val recArtist = canonical(field(obj, "artist")).lowercase()
+                        val match = if (collection == "app.rocksky.album") {
+                            // An album only when it's this song's and has no real cover.
+                            val art = field(obj, "albumArtUrl")
+                            (recTitle + "|" + recArtist) in albums && (art.isBlank() || art == DEFAULT_ALBUM_ART)
+                        } else recTitle == wantTitle && (recArtist == wantArtist ||
+                            canonical(field(obj, "albumArtist")).lowercase() == wantArtist)
+                        if (!match) continue
+                        if (collection != "app.rocksky.album") {
+                            albums += canonical(field(obj, "album")).lowercase() + "|" + canonical(field(obj, "albumArtist")).lowercase()
+                        }
+                        if (field(obj, "albumArtUrl") == url) continue
+                        val record = LinkedHashMap<String, Any>()
+                        obj.entrySet().forEach { (k, v) -> record[k] = v }
+                        record["albumArtUrl"] = url
+                        record["albumArt"] = blob
+                        val rkey = rec.uri.substringAfterLast('/')
+                        val result = session.call { token -> session.repo.putRepoRecord(token, did, collection, rkey, record) }
+                        if (result.isSuccess) { updated++; onProgress(updated) } else failed++
+                    }
+                    cursor = page.cursor?.takeIf { it.isNotBlank() && page.records.isNotEmpty() }
+                } while (cursor != null)
+            }
+            if (failed > 0) "$failed of this song's records couldn't be updated. Try again to finish." else null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            "The cover couldn't be changed: " + (e.message ?: "no connection").take(140)
+        }
+    }
+
     /** What goes into the four records: your player's title / artist /
      *  album, plus whatever Rocksky's matcher knew. */
     private class Fields(
         val title: String, val artist: String, val album: String, val albumArtist: String,
-        val track: ScrobbleTrack, val match: RockskyMatchedSongDto?
+        val track: ScrobbleTrack, val match: RockskyMatchedSongDto?,
+        artUrl: String? = null, private val artBlob: com.mediaviewer.model.BskyBlob? = null
     ) {
-        private val art: String = match?.albumArt?.takeIf { it.startsWith("http") } ?: DEFAULT_ALBUM_ART
+        private val art: String = artUrl ?: match?.albumArt?.takeIf { it.startsWith("http") } ?: DEFAULT_ALBUM_ART
         private val duration: Long = track.durationMs.takeIf { it > 0 } ?: match?.duration?.takeIf { it > 0 } ?: 1L
         private val tags: List<String> = match?.genres?.filter { it.isNotBlank() }.orEmpty()
         private val artists: List<Map<String, Any>>? = match?.mbArtists
@@ -575,6 +719,7 @@ object RockskyScrobbler {
             opt("releaseDate", releaseDate)
             put("createdAt", nowIsoString())
             put("albumArtUrl", art)
+            opt("albumArt", artBlob)
         }
 
         fun song(): Map<String, Any> = LinkedHashMap<String, Any>().apply {
@@ -588,6 +733,7 @@ object RockskyScrobbler {
             opt("releaseDate", releaseDate)
             opt("year", match?.year)
             put("albumArtUrl", art)
+            opt("albumArt", artBlob)
             opt("composer", match?.composer)
             opt("trackNumber", match?.trackNumber?.takeIf { it > 0 })
             put("discNumber", match?.discNumber?.takeIf { it > 0 } ?: 1)
@@ -604,6 +750,7 @@ object RockskyScrobbler {
             put("title", title)
             put("albumArtist", albumArtist)
             put("albumArtUrl", art)
+            opt("albumArt", artBlob)
             put("artist", artist)
             opt("artists", artists)
             put("album", album)

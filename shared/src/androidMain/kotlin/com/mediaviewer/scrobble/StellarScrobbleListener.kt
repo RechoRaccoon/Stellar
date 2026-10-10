@@ -96,6 +96,9 @@ class StellarScrobbleListener : NotificationListenerService() {
         var submitted = false
         var position = 0L
         var playing = false
+        /** The cover the player is showing for this song, if it gave one
+         *  as a picture (sent with the listen when no matcher has art). */
+        var art: android.graphics.Bitmap? = null
     }
 
     override fun onListenerConnected() {
@@ -223,6 +226,41 @@ class StellarScrobbleListener : NotificationListenerService() {
             .put("album", text(m, MediaMetadata.METADATA_KEY_ALBUM))
             .put("albumArtist", text(m, MediaMetadata.METADATA_KEY_ALBUM_ARTIST).ifBlank { artist })
             .put("duration", m.getLong(MediaMetadata.METADATA_KEY_DURATION).coerceAtLeast(0))
+            .apply {
+                // The player's own cover as a web link, when it gives one
+                // (YouTube Music and its ReVanced builds usually do).
+                val artUri = listOf(
+                    MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI
+                ).map { text(m, it) }.firstOrNull { it.startsWith("https://") || it.startsWith("http://") }
+                if (artUri != null) put("artUri", artUri)
+            }
+    }
+
+    /** The cover the player shows, as a picture (when there's no link). */
+    private fun artwork(c: MediaController): android.graphics.Bitmap? {
+        val m = c.metadata ?: return null
+        return try {
+            m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: m.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        } catch (_: Exception) { null }
+    }
+
+    /** A listen's cover picture saved for the upload job (at most 640 px
+     *  across, JPEG); null if there's none or it couldn't be written. */
+    private fun saveArt(listen: Listen): String? {
+        val bitmap = listen.art ?: return null
+        return try {
+            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
+            val dir = java.io.File(filesDir, "scrobble_art").apply { mkdirs() }
+            val file = java.io.File(dir, listen.id + ".jpg")
+            val scale = minOf(1f, 640f / maxOf(bitmap.width, bitmap.height))
+            val shown = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+                bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true
+            ) else bitmap
+            java.io.FileOutputStream(file).use { out -> shown.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out) }
+            file.absolutePath
+        } catch (_: Exception) { null }
     }
 
     /** One look at every chosen app: what's it playing, how far in, and has
@@ -266,6 +304,7 @@ class StellarScrobbleListener : NotificationListenerService() {
             }
             if (listen == null) return@forEach
             listen.metadata = meta
+            artwork(c)?.let { listen.art = it }
             listen.clock.update(now, playing && (duration == 0L || position < duration))
             listen.position = position
             listen.playing = playing
@@ -369,6 +408,8 @@ class StellarScrobbleListener : NotificationListenerService() {
             )
         ) {
             val payload = payload(listen.metadata, listen.started)
+            // No cover link from the player: its cover picture goes along.
+            if (payload.optString("artUri").isBlank()) saveArt(listen)?.let { payload.put("artPath", it) }
             // Saved and marked as saved in one step, so a crash in between
             // can't send the same listen twice.
             val db = ScrobbleStore.db(this)

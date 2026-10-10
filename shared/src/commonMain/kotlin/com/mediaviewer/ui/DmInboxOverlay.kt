@@ -1020,7 +1020,7 @@ private fun DmBubble(
             }
             if (sharedProfile != null) {
                 if (shownText.isNotBlank()) Spacer(Modifier.height(8.dp))
-                SharedProfileCard(sharedProfile.first)
+                SharedProfileCard(sharedProfile.first, onLongPress = { bubbleBounds[0]?.let(onLongPress) })
             }
             // Item 12 follow-up: the shared-post card is now bigger (larger
             // thumbnail, more breathing room) and tappable — tapping it
@@ -1032,12 +1032,18 @@ private fun DmBubble(
                 Column(
                     Modifier.fillMaxWidth().clip(innerShape)
                         .background(Color.Black.copy(0.22f))
-                        .clickable(onClick = {
-                            tap()
-                            // Opens this very post, from what's already loaded.
-                            val open = LocalOverlays.openDmSharedPost
-                            if (open != null) open(msg.id) else onOpenSharedPostsFeed()
-                        })
+                        // A press and hold anywhere on the post (its picture
+                        // included) opens the reactions, like the rest of
+                        // the bubble; a tap still opens the post.
+                        .combinedClickable(
+                            onClick = {
+                                tap()
+                                // Opens this very post, from what's already loaded.
+                                val open = LocalOverlays.openDmSharedPost
+                                if (open != null) open(msg.id) else onOpenSharedPostsFeed()
+                            },
+                            onLongClick = { bubbleBounds[0]?.let(onLongPress) }
+                        )
                         .padding(10.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1409,7 +1415,7 @@ internal fun sharedProfileActor(text: String): Pair<String, String>? {
  *  the round avatar (ringed in their profile color) with the name and
  *  handle below it. Tap opens the profile. */
 @Composable
-private fun SharedProfileCard(actor: String) {
+private fun SharedProfileCard(actor: String, onLongPress: () -> Unit = {}) {
     val cards = LocalDmProfileCards.current
     val tap = rememberHapticTap()
     var author by remember(actor) { mutableStateOf<com.mediaviewer.model.AuthorInfo?>(null) }
@@ -1421,7 +1427,7 @@ private fun SharedProfileCard(actor: String) {
     Column(
         Modifier.widthIn(min = 150.dp, max = 190.dp).clip(innerShape)
             .background(Color.Black.copy(0.22f))
-            .clickable(enabled = a != null) { tap(); a?.let { cards?.open?.invoke(it) } }
+            .combinedClickable(onLongClick = onLongPress) { if (a != null) { tap(); cards?.open?.invoke(a) } }
             .padding(horizontal = 12.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

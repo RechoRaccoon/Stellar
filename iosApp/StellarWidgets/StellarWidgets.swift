@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 import AppIntents
 
-// Stellar's home-screen widgets (a supporter benefit): your DMs with their
+// Stellar's home-screen widgets (free for everyone): your DMs with their
 // unread counts, your calendar's upcoming events, and one note in full.
 // The app writes what they show into the app group's shared defaults (see
 // IosWidgetBridge in the Kotlin code); this extension only reads it — with
@@ -38,7 +38,9 @@ struct WidgetNote: Decodable {
 }
 
 struct StellarSnapshot {
-    var supporter = false
+    /// Widgets are free for everyone now (they used to be a supporter
+    /// benefit), so this no longer depends on anything the app saved.
+    var supporter = true
     var chats: [WidgetChat] = []
     var events: [WidgetEvent] = []
     var note: WidgetNote?
@@ -52,7 +54,6 @@ struct StellarSnapshot {
     static func load() -> StellarSnapshot {
         var s = StellarSnapshot()
         guard let defaults = UserDefaults(suiteName: groupId) else { return s }
-        s.supporter = defaults.bool(forKey: "supporter")
         let decoder = JSONDecoder()
         if let data = defaults.string(forKey: "chats")?.data(using: .utf8),
            let chats = try? decoder.decode([WidgetChat].self, from: data) {

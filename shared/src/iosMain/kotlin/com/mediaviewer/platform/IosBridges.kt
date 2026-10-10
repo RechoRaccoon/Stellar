@@ -218,3 +218,24 @@ object IosFaceBridge {
 fun registerIosFaceTracker(tracker: IosFaceTracker) {
     IosFaceBridge.tracker = tracker
 }
+
+/**
+ * Wiring and starting Apple's audio engine from inside Objective-C's
+ * @try (iosApp/iosApp/StellarTry.m via StellarAudioGuard.swift): the engine
+ * throws an Objective-C exception on a wiring it doesn't accept, which
+ * Kotlin can't catch and which would close the app. Each returns null when
+ * it worked, or the reason it didn't.
+ */
+interface IosAudioGuard {
+    fun connect(engine: platform.AVFAudio.AVAudioEngine, from: platform.AVFAudio.AVAudioNode, to: platform.AVFAudio.AVAudioNode, format: platform.AVFAudio.AVAudioFormat?): String?
+    fun start(engine: platform.AVFAudio.AVAudioEngine): String?
+}
+
+object IosAudioGuardBridge {
+    @kotlin.concurrent.Volatile var audioGuard: IosAudioGuard? = null
+}
+
+/** Called by the Swift app at launch. */
+fun registerIosAudioGuard(audioGuard: IosAudioGuard) {
+    IosAudioGuardBridge.audioGuard = audioGuard
+}

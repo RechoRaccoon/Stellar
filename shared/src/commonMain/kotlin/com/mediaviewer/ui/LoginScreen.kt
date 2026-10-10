@@ -289,8 +289,12 @@ fun LoginScreen(
                         PasswordField(newPassword, { newPassword = it }, "Password", ImeAction.Next, {})
                         Spacer(Modifier.height(10.dp))
                         LoginField(
-                            value = birthday, onValueChange = { birthday = formatBirthday(it) },
+                            // Only the digits are kept; the slashes are drawn in by
+                            // BirthdaySlashes, so the cursor stays at the end
+                            // as each one appears.
+                            value = birthday, onValueChange = { birthday = it.filter { c -> c.isDigit() }.take(8) },
                             placeholder = "Birthday (MM/DD/YYYY)", icon = Icons.Default.Cake,
+                            visualTransformation = BirthdaySlashes,
                             keyboardType = KeyboardType.Number, imeAction = ImeAction.Done,
                             onImeAction = { continueCreate() }
                         )
@@ -415,14 +419,31 @@ private const val NEW_HANDLE_SUFFIX = ".bsky.social"
 private fun isValidNewName(name: String): Boolean =
     name.length in 3..18 && !name.startsWith("-") && !name.endsWith("-") && name.all { it in 'a'..'z' || it in '0'..'9' || it == '-' }
 
-/** Digits typed into the birthday field, shown as MM/DD/YYYY. */
-private fun formatBirthday(typed: String): String {
-    val d = typed.filter { it.isDigit() }.take(8)
-    return buildString {
-        d.forEachIndexed { i, c ->
-            if (i == 2 || i == 4) append('/')
-            append(c)
+/** Birthday digits (MMDDYYYY) shown as MM/DD/YYYY, with the cursor mapped
+ *  past each slash so typing never jumps it back. */
+private object BirthdaySlashes : VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val d = text.text
+        val out = buildString {
+            d.forEachIndexed { i, c ->
+                if (i == 2 || i == 4) append('/')
+                append(c)
+            }
         }
+        val mapping = object : androidx.compose.ui.text.input.OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int {
+                val slashes = (if (offset > 2) 1 else 0) + (if (offset > 4) 1 else 0)
+                // Right after the 2nd/4th digit, step over the slash too
+                // once the next digit exists, so the cursor sits at the end.
+                val extra = (if (offset == 2 && d.length > 2) 1 else 0) + (if (offset == 4 && d.length > 4) 1 else 0)
+                return (offset + slashes + extra).coerceAtMost(out.length)
+            }
+            override fun transformedToOriginal(offset: Int): Int {
+                val slashes = (if (offset > 2) 1 else 0) + (if (offset > 5) 1 else 0)
+                return (offset - slashes).coerceIn(0, d.length)
+            }
+        }
+        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(out), mapping)
     }
 }
 
@@ -508,6 +529,7 @@ private fun LoginField(
     modifier: Modifier = Modifier,
     password: Boolean = false,
     noAutoCorrect: Boolean = false,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -518,7 +540,7 @@ private fun LoginField(
         interactionSource = interaction,
         textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 14.sp),
         cursorBrush = SolidColor(LoginPink),
-        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        visualTransformation = if (password) PasswordVisualTransformation() else visualTransformation,
         keyboardOptions = if (noAutoCorrect) KeyboardOptions(
             capitalization = KeyboardCapitalization.None,
             autoCorrectEnabled = false,

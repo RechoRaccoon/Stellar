@@ -64,5 +64,7 @@ enum StellarBridges {
         IosBridgesKt.registerIosMediaTools(tools: StellarMediaTools())
         // VRM mode's face tracking (ARKit).
         IosBridgesKt.registerIosFaceTracker(tracker: StellarFaceTracker())
+        // Audio engine wiring that can't crash the app (Camera/VRM recording).
+        IosBridgesKt.registerIosAudioGuard(audioGuard: StellarAudioGuard())
     }
 }

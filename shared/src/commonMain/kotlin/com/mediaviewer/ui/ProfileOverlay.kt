@@ -152,6 +152,9 @@ import com.mediaviewer.util.formatRelativeTime
 import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
+import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
+import com.mediaviewer.ui.compat.PickVisualMediaRequest
+import com.mediaviewer.ui.compat.ActivityResultContracts
 
 private fun MainViewModel.ProfileTab.label(): String = when (this) {
     MainViewModel.ProfileTab.POSTS      -> "Posts"
@@ -522,6 +525,8 @@ fun ProfileOverlay(
     val bannerColor = profileColors.banner
     val avatarColor = profileColors.avatar
     val blended = profileColors.blended
+    // Their icon shape / colors / effect, read fresh on opening the profile.
+    LaunchedEffect(author.did) { com.mediaviewer.util.ProfileStyles.refresh(author.did) }
 
     BackHandler(onClose)
 
@@ -704,6 +709,26 @@ fun ProfileOverlay(
     var pendingListAction by remember(author.did) { mutableStateOf<com.mediaviewer.model.ProfileListEntry?>(null) }
     // Music History (your own): the listen waiting on a "Delete?" confirmation.
     var pendingScrobbleDelete by remember(author.did) { mutableStateOf<RockskyTrack?>(null) }
+    // Music History (your own): the song a new cover is being picked for.
+    var coverTarget by remember(author.did) { mutableStateOf<RockskyTrack?>(null) }
+    val coverContext = com.mediaviewer.ui.compat.LocalContext.current
+    val coverScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { com.mediaviewer.util.RockskyScrobbler.initCovers(coverContext) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val track = coverTarget
+        coverTarget = null
+        if (uri != null && track != null) coverScope.launch {
+            com.mediaviewer.ui.compat.Toast.makeText(coverContext, "Updating the cover…", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
+            val problem = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val jpeg = runCatching { com.mediaviewer.platform.MediaBridge.squareJpeg(coverContext, uri, 600) }.getOrNull()
+                if (jpeg == null) "That picture couldn't be read."
+                else com.mediaviewer.util.RockskyScrobbler.setSongCover(coverContext, author.did, track.title, track.artist, jpeg)
+            }
+            com.mediaviewer.ui.compat.Toast.makeText(
+                coverContext, problem ?: "Cover updated for \"${track.title}\"", com.mediaviewer.ui.compat.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
     val isSupporter = com.mediaviewer.util.StellarSupporters.isSupporter(author.did)
     CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
     Box(Modifier.fillMaxSize()) {
@@ -969,6 +994,11 @@ fun ProfileOverlay(
                 // Pressing and holding a listen offers to delete it — on
                 // your own profile only, since it's your own repo's record.
                 onLongPressTrack = if (selfDid.isNotBlank() && author.did == selfDid) { track -> pendingScrobbleDelete = track } else null,
+                // Double-tapping a cover picks a new one for that song.
+                onDoubleTapCover = if (selfDid.isNotBlank() && author.did == selfDid) { track ->
+                    coverTarget = track
+                    coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                } else null,
                 onLoadMore = onLoadMore,
                 // Bug fix: capture scroll position before this profile gets
                 // hidden behind the post that's about to open — see
@@ -2220,6 +2250,8 @@ private fun LazyListScope.profileResultsContent(
     onOpenTitle: (PopfeedBacklogItem) -> Unit = {},
     /** Music History: a listen was pressed and held (null = not your profile). */
     onLongPressTrack: ((RockskyTrack) -> Unit)? = null,
+    /** Music History: a cover was double-tapped (null = not your profile). */
+    onDoubleTapCover: ((RockskyTrack) -> Unit)? = null,
     // Adjustment #5: the interaction bar's Grid button is now a 3-way cycle
     // remembered per (tab, sub-tab) — ProfileOverlay owns that map as a
     // file-level shared map (sharedGridModes) so the choice applies to
@@ -2372,7 +2404,8 @@ private fun LazyListScope.profileResultsContent(
             profileMusicHistoryRows(
                 tracks = tabState?.musicHistory ?: emptyList(), loading = tabState?.loading ?: false,
                 liquidGlass = liquidGlass, tint = profileTint, onLoadMore = onLoadMore,
-                onLongPress = onLongPressTrack
+                onLongPress = onLongPressTrack,
+                onDoubleTapCover = onDoubleTapCover
             )
             }
         }
@@ -3073,12 +3106,24 @@ private fun VideoCoverBadge(modifier: Modifier = Modifier, @Suppress("UNUSED_PAR
  *  the old composite only for a track with no uri at all. */
 private fun LazyListScope.profileMusicHistoryRows(
     tracks: List<RockskyTrack>, loading: Boolean, liquidGlass: Boolean, tint: Color, onLoadMore: () -> Unit,
-    onLongPress: ((RockskyTrack) -> Unit)? = null
+    onLongPress: ((RockskyTrack) -> Unit)? = null,
+    onDoubleTapCover: ((RockskyTrack) -> Unit)? = null
 ) {
-    items(tracks, key = { it.uri.ifBlank { "track_${it.playedAt}_${it.title}_${it.artist}" } }) { track ->
-        MusicHistoryRow(track = track, liquidGlass = liquidGlass, tint = tint,
+    // The same song played several times in a row is one row with a
+    // counter ("x2", "x26"), dated by its latest play.
+    val grouped = ArrayList<Pair<RockskyTrack, Int>>()
+    for (t in tracks) {
+        val last = grouped.lastOrNull()
+        if (last != null && last.first.title.trim().equals(t.title.trim(), ignoreCase = true) &&
+            last.first.artist.trim().equals(t.artist.trim(), ignoreCase = true)
+        ) grouped[grouped.size - 1] = last.first to last.second + 1
+        else grouped += t to 1
+    }
+    items(grouped, key = { (it) -> it.uri.ifBlank { "track_${it.playedAt}_${it.title}_${it.artist}" } }) { (track, count) ->
+        MusicHistoryRow(track = track, liquidGlass = liquidGlass, tint = tint, count = count,
             // (Only a listen that is a record of its own can be deleted.)
             onLongPress = if (onLongPress != null && track.uri.isNotBlank()) { { onLongPress(track) } } else null,
+            onDoubleTapCover = if (onDoubleTapCover != null) { { onDoubleTapCover(track) } } else null,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp))
     }
     // Item 7: pages in the next chunk once the person's actually scrolled
@@ -3094,16 +3139,27 @@ private fun LazyListScope.profileMusicHistoryRows(
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun MusicHistoryRow(track: RockskyTrack, liquidGlass: Boolean, tint: Color, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
+private fun MusicHistoryRow(
+    track: RockskyTrack, liquidGlass: Boolean, tint: Color, modifier: Modifier = Modifier,
+    count: Int = 1,
+    onLongPress: (() -> Unit)? = null,
+    onDoubleTapCover: (() -> Unit)? = null
+) {
+    // A cover picked by hand on this phone wins over what Rocksky has.
+    val ownerDid = track.uri.removePrefix("at://").substringBefore('/')
+    val cover = (if (ownerDid.isNotBlank()) com.mediaviewer.util.RockskyScrobbler.coverFor(ownerDid, track.title, track.artist) else null)
+        ?: track.albumArtUrl
     // Fix (per feedback): the bubble's outline matches the song's own cover
     // color — the same dominant-color treatment review bubbles get — and
     // the bubble is wrapped tighter around its content (cover closer to the
     // left edge, same overall width).
-    val coverTint = rememberDominantColor(track.albumArtUrl ?: "")
+    val coverTint = rememberDominantColor(cover ?: "")
     val shape = RoundedCornerShape(16.dp)
+    val tap = rememberHapticTap()
     Row(
         modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = coverTint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
@@ -3118,22 +3174,44 @@ private fun MusicHistoryRow(track: RockskyTrack, liquidGlass: Boolean, tint: Col
             .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(0.3f))) {
-            if (track.albumArtUrl != null) {
-                AsyncImage(model = track.albumArtUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(
+            Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(0.3f))
+                .then(
+                    // Your own history: double-tap the cover to pick a new one.
+                    if (onDoubleTapCover != null) Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                        onClick = {}, onDoubleClick = { tap(); onDoubleTapCover() }, onLongClick = onLongPress
+                    ) else Modifier
+                )
+        ) {
+            if (cover != null) {
+                AsyncImage(model = cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {
             Text(track.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(track.artist, color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         }
-        // Fix 4: relative "played X ago" stamp, right-aligned at the row's
-        // end (renders as nothing for live now-playing entries, which
-        // leave playedAt blank).
-        Text(
-            formatRelativeTime(track.playedAt), color = DimGray, fontSize = 12.sp, maxLines = 1,
-            modifier = Modifier.align(Alignment.CenterVertically)
-        )
+        if (count > 1) {
+            // Played several times in a row: "x26" at the top right, and
+            // when (the latest play) at the bottom right.
+            Column(
+                Modifier.fillMaxHeight(),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("x$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(formatRelativeTime(track.playedAt), color = DimGray, fontSize = 12.sp, maxLines = 1)
+            }
+        } else {
+            // Fix 4: relative "played X ago" stamp, right-aligned at the
+            // row's end (renders as nothing for live now-playing entries,
+            // which leave playedAt blank).
+            Text(
+                formatRelativeTime(track.playedAt), color = DimGray, fontSize = 12.sp, maxLines = 1,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+        }
     }
 }
 
@@ -5011,7 +5089,8 @@ fun TitleDetailOverlay(
                         onReview = { onOpenReview(title) },
                         onComment = { showCommentBox = !showCommentBox },
                         onDelete = { onDeleteReview(currentReview.review) },
-                        backlogLabel = backlogLabel,
+                        // (Your own review: you've already seen it, so no Backlog.)
+                        backlogLabel = backlogLabel.takeUnless { selfDid.isNotBlank() && currentReview.author.did == selfDid },
                         onBacklog = { onToggleBacklog(title) }
                     )
                 }

@@ -56,8 +56,15 @@ class ScrobbleUploadJob : JobService() {
                     val track = ScrobbleTrack(
                         title = j.optString("title"), artist = j.optString("artist"),
                         album = j.optString("album"), albumArtist = j.optString("albumArtist"),
-                        durationMs = j.optLong("duration"), timestampSeconds = j.optLong("timestamp")
+                        durationMs = j.optLong("duration"), timestampSeconds = j.optLong("timestamp"),
+                        artUrl = j.optString("artUri").takeIf { it.startsWith("http") },
+                        artBytes = j.optString("artPath").takeIf { it.isNotBlank() }?.let { path ->
+                            try { java.io.File(path).takeIf { it.isFile }?.readBytes() } catch (_: Exception) { null }
+                        }
                     )
+                    fun dropArt() {
+                        j.optString("artPath").takeIf { it.isNotBlank() }?.let { path -> try { java.io.File(path).delete() } catch (_: Exception) {} }
+                    }
                     // (The first time for an account: find out what its repo
                     // already holds, so no artist, album or song is written
                     // a second time. Sending doesn't wait on it succeeding.)
@@ -67,6 +74,7 @@ class ScrobbleUploadJob : JobService() {
                     when (outcome) {
                         ScrobbleUploadOutcome.DONE -> {
                             db.delete("queue", "id=?", arrayOf(row.first))
+                            dropArt()
                             prefs.edit().putLong("lastUpload", System.currentTimeMillis()).remove("uploadError").remove("authError").apply()
                             submitted++
                         }
@@ -76,6 +84,7 @@ class ScrobbleUploadJob : JobService() {
                         }
                         ScrobbleUploadOutcome.REJECTED -> {
                             db.execSQL("UPDATE queue SET failed=1 WHERE id=?", arrayOf(row.first))
+                            dropArt()
                             submitted++
                         }
                         ScrobbleUploadOutcome.RETRY, ScrobbleUploadOutcome.LIMITED -> {

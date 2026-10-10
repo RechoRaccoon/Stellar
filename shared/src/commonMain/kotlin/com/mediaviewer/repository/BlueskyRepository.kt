@@ -1429,6 +1429,26 @@ class BlueskyRepository {
         resp.body()?.uri ?: ""
     }
 
+    /** Uploads [bytes] as a blob to the signed-in account's repo (a cover
+     *  picture for app.rocksky.* records). Failures read like putRepoRecord's. */
+    suspend fun uploadRawBlob(token: String, bytes: ByteArray, mimeType: String): Result<BskyBlob> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = api.uploadBlob("Bearer $token", mimeType, bytes.toRequestBody(mimeType.toMediaType()))
+            resp.body()?.blob?.takeIf { resp.isSuccessful } ?: error("uploadBlob failed: ${resp.code()} ${errorBodyText(resp).take(200)}")
+        }
+    }
+
+    /** One page (100) of [collection] in [did]'s own repo, read through the
+     *  signed-in server. */
+    suspend fun listRepoRecordsPage(token: String, did: String, collection: String, cursor: String?): Result<BskyListRecordsResponse> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val resp = api.listRecords("Bearer $token", did, collection, 100, cursor)
+                if (!resp.isSuccessful) error("listRecords failed: ${resp.code()} ${errorBodyText(resp).take(200)}")
+                resp.body() ?: BskyListRecordsResponse()
+            }
+        }
+
     /** Deletes one record from [did]'s repo, whatever its collection.
      *  (A record that's already gone counts as deleted.) */
     suspend fun deleteRepoRecord(token: String, did: String, collection: String, rkey: String): Result<Unit> = runCatching {
@@ -3721,6 +3741,26 @@ class BlueskyRepository {
      * Throws when the PDS can't be reached, so the caller can try again.
      */
     suspend fun getProfileStyle(did: String): com.mediaviewer.util.ProfileStyle? = withContext(Dispatchers.IO) {
+        // Straight from their PDS first; if that route fails (DID lookup,
+        // a PDS that refuses the call, a network hiccup) read the same
+        // record through Bluesky's entryway — the route reviews and blogs
+        // of other accounts already load through successfully.
+        val direct = runCatching { getProfileStyleFromPds(did) }
+        if (direct.isSuccess) return@withContext direct.getOrNull()
+        val resp = api.listRecords(null, did, com.mediaviewer.util.ProfileStyles.COLLECTION, 10, null)
+        if (!resp.isSuccessful) {
+            val text = errorBodyText(resp)
+            if (resp.code() == 404 || text.contains("RecordNotFound")) return@withContext null
+            throw direct.exceptionOrNull() ?: IllegalStateException("Profile style ${resp.code()}")
+        }
+        val rec = resp.body()?.records.orEmpty().firstOrNull { it.uri.substringAfterLast('/') == com.mediaviewer.util.ProfileStyles.RKEY }
+            ?: return@withContext null
+        val value = rec.value?.takeIf { it.isJsonObject }?.toKx() as? kotlinx.serialization.json.JsonObject
+            ?: return@withContext null
+        parseProfileStyle(value)
+    }
+
+    private suspend fun getProfileStyleFromPds(did: String): com.mediaviewer.util.ProfileStyle? {
         val pds = BlueskyBlobResolver.pdsEndpoint(did)
         val resp = PlainHttp.get(
             "$pds/xrpc/com.atproto.repo.getRecord",
@@ -3730,12 +3770,12 @@ class BlueskyRepository {
         if (!resp.isSuccessful) {
             // Only "there is no such record" means they have none; anything
             // else (a busy server, a bad request) is a failure to retry.
-            if (resp.code == 404 || text.contains("RecordNotFound") || text.contains("not locate record", ignoreCase = true)) return@withContext null
+            if (resp.code == 404 || text.contains("RecordNotFound") || text.contains("not locate record", ignoreCase = true)) return null
             error("Profile style ${resp.code}: ${text.take(120)}")
         }
         val value = (StellarJson.default.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject)
             ?.get("value") as? kotlinx.serialization.json.JsonObject ?: error("Profile style: unexpected answer")
-        parseProfileStyle(value)
+        return parseProfileStyle(value)
     }
 
     /** Your own record, read through your own signed-in server. */
