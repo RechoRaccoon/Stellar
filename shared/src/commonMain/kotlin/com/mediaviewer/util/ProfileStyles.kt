@@ -37,15 +37,17 @@ data class ProfileStyle(
 /**
  * Everyone's profile customizations, as far as they've been needed.
  *
- * Kept deliberately light on the network:
- *  - only accounts on the Stellar Supporters list are ever looked up (the
- *    customizations are a supporter benefit, so nobody else can have any);
- *  - each of those is read at most ONCE per session — one unauthenticated
+ * Kept deliberately light on the network (see [refresh]):
+ *  - a record is only ever read when someone's PROFILE is opened — never
+ *    for authors scrolling past in a feed (hundreds of reads would hit PDS
+ *    rate limits); the square icon is only shown on profile pages anyway;
+ *  - each account is read at most ONCE per session — one unauthenticated
  *    read of one record straight from that account's PDS (it never touches
  *    your own account's rate limits) — and the answer, including "they have
- *    none", is kept in memory until the app is restarted;
- *  - a restart reads it again, which is how changes made on another device
- *    (or by the other person) show up.
+ *    none", is reused for every later open until the app is restarted;
+ *  - a restart reads it again on the next open, which is how changes made
+ *    on another device (or by the other person) show up. Until then the
+ *    copy saved on this phone is shown.
  * Your own style is also kept on this device, so your colors and icon are
  * right from the first frame.
  */
@@ -82,8 +84,6 @@ object ProfileStyles {
     private val styles = mutableStateMapOf<String, ProfileStyle>()
     /** Looked up already this session (whatever the answer was). */
     private val asked = HashSet<String>()
-    /** Failed lookups per account this session (main thread only). */
-    private val failures = HashMap<String, Int>()
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -116,82 +116,36 @@ object ProfileStyles {
         if (did.isNullOrBlank() || !lookupAllowed(did)) null else styles[did]
 
     /**
-     * [did]'s style, for drawing. Reads Compose state, so whatever shows it
-     * redraws when the record arrives. The first call for a supporter this
-     * session starts the one lookup; later calls only read the answer.
+     * [did]'s style, for drawing — only what's already known (Compose state,
+     * so whatever shows it redraws when a lookup lands). Never looks
+     * anything up: scrolling a feed must not fire a request per author
+     * (that hits PDS rate limits). Lookups happen only in [refresh], when
+     * a profile is opened.
      */
     fun of(did: String?): ProfileStyle? {
         if (did.isNullOrBlank() || !lookupAllowed(did)) return null
-        request(did)
         return styles[did]
     }
 
-    /** When each account's lookup last finished (main thread only). */
-    private val checkedAt = HashMap<String, Long>()
-
-    // Lookups waiting their turn, newest LAST (main thread only). Taken
-    // newest-first: what's on screen now goes before the faces a feed
-    // scrolled past a minute ago. (They used to wait in arrival order
-    // behind every author of every feed, three at a time — a profile's own
-    // lookup could sit for minutes, which looked like it never loading.)
-    private val pending = ArrayList<String>()
-    private val inFlight = HashSet<String>()
-    private var running = 0
-    private const val WORKERS = 6
-
     /**
-     * Opening someone's profile reads their style straight away, ahead of
-     * everything queued, and again on every open (at most once every 30 s),
-     * so a change they just made shows without restarting the app. Not for
-     * your own account: the device copy is the truth there.
+     * Opening a profile: [did]'s style record is read ONCE per session (the
+     * first time their profile is opened since the app started) and the
+     * answer is reused for every later open. Restarting the app reads it
+     * again on the next open. A failed read (offline) is tried again on the
+     * next open, never on its own.
      */
     fun refresh(did: String?) {
-        if (did.isNullOrBlank() || !lookupAllowed(did) || did == Supporter.selfDid) return
+        if (did.isNullOrBlank() || !lookupAllowed(did)) return
         val fetch = fetcher ?: return
-        if (did in inFlight) return
-        val last = checkedAt[did] ?: 0L
-        if (com.mediaviewer.platform.currentTimeMillis() - last < 30_000L) return
-        pending.remove(did)
-        synchronizedAdd(did)
-        run(did, fetch)
-    }
-
-    private fun request(did: String) {
-        if (fetcher == null) return
         if (!synchronizedAdd(did)) return
-        pending.remove(did)
-        pending.add(did)
-        if (pending.size > 300) pending.removeAt(0).let { synchronizedRemove(it) }
-        pump()
-    }
-
-    private fun pump() {
-        val fetch = fetcher ?: return
-        while (running < WORKERS && pending.isNotEmpty()) {
-            val did = pending.removeAt(pending.size - 1)
-            if (did in inFlight) continue
-            running++
-            run(did, fetch, pooled = true)
-        }
-    }
-
-    private fun run(did: String, fetch: suspend (String) -> ProfileStyle?, pooled: Boolean = false) {
-        inFlight.add(did)
         scope.launch {
             val result = runCatching { fetch(did) }
-            withContext(Dispatchers.Main) {
-                inFlight.remove(did)
-                if (pooled) running--
-                deliver(did, result)
-                pump()
-            }
+            withContext(Dispatchers.Main) { deliver(did, result) }
         }
     }
 
     private fun deliver(did: String, result: Result<ProfileStyle?>) {
         result.onSuccess { style ->
-            checkedAt[did] = com.mediaviewer.platform.currentTimeMillis()
-            failures.remove(did)
             val own = did == Supporter.selfDid
             val kept = styles[did]
             if (style != null && !style.isDefault) {
@@ -206,15 +160,9 @@ object ProfileStyles {
                 if (!own) cacheOther(did, null)
             }
         }.onFailure {
-            // Offline or the PDS didn't answer: try again on its own a
-            // little later (a few times). What was cached stays meanwhile.
+            // Offline or the PDS didn't answer: asked again the next time
+            // this profile is opened. What was saved stays meanwhile.
             synchronizedRemove(did)
-            val tries = (failures[did] ?: 0) + 1
-            failures[did] = tries
-            if (tries <= 3) scope.launch {
-                kotlinx.coroutines.delay(8_000L * tries)
-                withContext(Dispatchers.Main) { request(did) }
-            }
         }
     }
 

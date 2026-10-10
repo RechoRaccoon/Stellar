@@ -2484,8 +2484,9 @@ private fun AuthorRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // (A supporter's icon can be a rounded square — Edit Profile.)
-            val iconShape = if (appMode == AppMode.BLUESKY) profileIconShape(author.did) else CircleShape
+            // (Always round here: the square icon from Edit Profile is only
+            // shown on profile pages.)
+            val iconShape = CircleShape
             if (author.avatarUrl != null) {
                 AsyncImage(model = author.avatarUrl, contentDescription = null,
                     contentScale = ContentScale.Crop, modifier = Modifier.size(22.dp).clip(iconShape))

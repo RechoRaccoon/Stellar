@@ -527,7 +527,8 @@ fun ProfileOverlay(
     val bannerColor = profileColors.banner
     val avatarColor = profileColors.avatar
     val blended = profileColors.blended
-    // Their icon shape / colors / effect, read fresh on opening the profile.
+    // Their icon shape / colors / effect: the record is read the first time
+    // this profile is opened each session, and reused after that.
     LaunchedEffect(author.did) { com.mediaviewer.util.ProfileStyles.refresh(author.did) }
 
     BackHandler(onClose)
