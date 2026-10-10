@@ -153,6 +153,7 @@ import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
 import com.mediaviewer.ui.compat.PickVisualMediaRequest
