@@ -514,8 +514,10 @@ class IosTaggingRepository(
 
     override fun search(query: String): List<String> {
         val groups = TagAliases.toTagGroups(query)
-        if (groups.isEmpty()) return browseAllTagged()
-        return store.search(groups, 200)
+        // Every match in the dataset (no cap): Search › Tagged sorts them
+        // all, so the most liked etc. really is first.
+        if (groups.isEmpty()) return browseAllTagged(Int.MAX_VALUE)
+        return store.search(groups, Int.MAX_VALUE)
     }
 
     override fun browseAllTagged(limit: Int): List<String> = store.allTagged(limit)

@@ -515,8 +515,10 @@ class TaggingRepository(
      *  "broken" with a permanent empty result. */
     override fun search(query: String): List<String> {
         val groups = TagAliases.toTagGroups(query)
-        if (groups.isEmpty()) return browseAllTagged()
-        return db.searchPostUris(groups)
+        // Every match in the dataset (no cap): Search › Tagged sorts them
+        // all, so the most liked etc. really is first.
+        if (groups.isEmpty()) return browseAllTagged(Int.MAX_VALUE)
+        return db.searchPostUris(groups, Int.MAX_VALUE)
     }
 
     /** Default view for the Liked tab (item 2): every tagged post, most

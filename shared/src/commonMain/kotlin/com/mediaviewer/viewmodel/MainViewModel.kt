@@ -7696,11 +7696,37 @@ class MainViewModel(
         // the search the person actually just ran.
         val generation = likedSearchGeneration.incrementAndGet()
         _searchState.value = _searchState.value.copy(loading = true)
-        val uris = if (query.isBlank()) taggingRepo.browseAllTagged() else taggingRepo.search(query)
+        // The whole dataset (every match, not just the newest few hundred),
+        // so the chosen sort covers every tagged post.
+        val uris = if (query.isBlank()) taggingRepo.browseAllTagged(Int.MAX_VALUE) else taggingRepo.search(query)
         val hydrated = hydrateLikedUris(uris)
         if (generation != likedSearchGeneration.get()) return
-        _likedTagSearchResults.value = hydrated
+        likedTagRaw = hydrated
+        _likedTagSearchResults.value = sortTagged(hydrated)
         _searchState.value = _searchState.value.copy(loading = false, hasSearched = true)
+    }
+
+    /** The Tagged results in the order the tagger found them (most
+     *  recently tagged first); what's shown is this, sorted by
+     *  UiToggles.taggedSort. */
+    private var likedTagRaw: List<MediaItem> = emptyList()
+
+    private fun sortTagged(list: List<MediaItem>): List<MediaItem> = when (com.mediaviewer.util.UiToggles.taggedSort) {
+        // (Stable sorts: ties stay in most-recently-tagged order.)
+        0 -> list.sortedByDescending { it.likeCount }
+        1 -> list.sortedByDescending { it.repostCount }
+        2 -> list.sortedByDescending { it.bookmarkCount }
+        3 -> list.sortedByDescending { it.replyCount }
+        4 -> list.sortedByDescending { item ->
+            item.createdAt?.takeIf { it.isNotBlank() }?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() } ?: 0L
+        }
+        else -> list
+    }
+
+    /** Search › Tagged › Sort: re-orders the results now and remembers it. */
+    fun setTaggedSort(sort: Int) {
+        com.mediaviewer.util.UiToggles.updateTaggedSort(sort)
+        _likedTagSearchResults.value = sortTagged(likedTagRaw)
     }
 
     private suspend fun hydrateLikedUris(uris: List<String>): List<MediaItem> {

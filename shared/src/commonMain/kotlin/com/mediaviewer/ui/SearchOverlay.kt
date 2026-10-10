@@ -26,6 +26,13 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,6 +86,8 @@ fun SearchOverlay(
     hasTaggedDataset: Boolean = false,
     likedTagResults: List<MediaItem> = emptyList(),
     onOpenLikedPost: (Int) -> Unit = {},
+    /** Search › Tagged › Sort (see UiToggles.taggedSort for the numbers). */
+    onSetTaggedSort: (Int) -> Unit = {},
     // Item 4: e621-style tag autocomplete/autocorrect suggestions for the
     // current in-progress word being typed (only really meaningful on the
     // Liked tab, where the vocabulary is the tagger's own fixed tag list —
@@ -181,6 +190,11 @@ fun SearchOverlay(
     // barWidthPx) and the suggestions panel (a later sibling of the whole
     // Column, so it draws on top of it) can see them.
     val isLiked = state.filter == MainViewModel.SearchFilter.LIKED_TAGS
+    // Tagged › Sort's menu, and where its button is.
+    var sortOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(isLiked) { if (!isLiked) sortOpen = false }
+    var sortBounds by remember { mutableStateOf<Pair<Offset, androidx.compose.ui.unit.IntSize>?>(null) }
+    var sortRootOrigin by remember { mutableStateOf<Offset?>(null) }
     // Item 14: e621 reuses the Tagged tab's text-field routing/autocomplete
     // verbatim (see the doc comment on the `e621LoggedIn`/
     // `onE621SearchSubmit` params above) — grouped with isLiked below
@@ -458,6 +472,10 @@ fun SearchOverlay(
                                 androidx.compose.runtime.snapshotFlow { taggedList.firstVisibleItemIndex to taggedList.firstVisibleItemScrollOffset }
                                     .collect { (index, offset) -> TaggedSearchPlace.index = index; TaggedSearchPlace.offset = offset }
                             }
+                            // A new sort starts at the top.
+                            val sortNow = com.mediaviewer.util.UiToggles.taggedSort
+                            val lastSort = remember { intArrayOf(sortNow) }
+                            LaunchedEffect(sortNow) { if (lastSort[0] != sortNow) { lastSort[0] = sortNow; taggedList.scrollToItem(0) } }
                             LazyColumn(Modifier.fillMaxSize(), state = taggedList, contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
                                     items = likedTagResults, loading = false, filter = taggedKind,
@@ -589,6 +607,7 @@ fun SearchOverlay(
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         } else if (!isE621Filter && !(isLiked && !hasTaggedDataset)) {
+            val sortTap = rememberHapticTap()
             ResultsInteractionBar(
                 liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
                 refreshing = state.loading, animateRefresh = true,
@@ -596,8 +615,59 @@ fun SearchOverlay(
                 filter = if (isPosts || isLiked) kindForTab else null,
                 gridMode = resultsGridMode(gridScreen, kindForTab),
                 onGrid = { cycleResultsGridMode(gridScreen, kindForTab) },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter),
+                // Tagged: Sort, at the right end — its choices pop up off it
+                // like the More button's.
+                trailing = if (!isLiked) null else ({
+                    Box(
+                        Modifier.size(44.dp)
+                            .onGloballyPositioned { sortBounds = it.positionInRoot() to it.size }
+                            .clip(CircleShape)
+                            .clickable { sortTap(); sortOpen = !sortOpen },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (sortOpen) Icons.Default.Close else Icons.Filled.SwapVert,
+                            contentDescription = if (sortOpen) "Close" else "Sort", tint = Color.White, modifier = Modifier.size(20.dp)
+                        )
+                    }
+                })
             )
+        }
+
+        // Tagged › Sort: most liked, reposted, saved, commented, recently
+        // uploaded, recently tagged — top to bottom; the chosen one lit in
+        // your color.
+        if (isLiked) Box(Modifier.fillMaxSize().onGloballyPositioned { sortRootOrigin = it.positionInRoot() }) {
+            val bounds = sortBounds
+            val origin = sortRootOrigin
+            if (bounds != null && origin != null) {
+                val selected = com.mediaviewer.util.UiToggles.taggedSort
+                val accent = vividAccent(profileTint)
+                val options = listOf(
+                    "Most liked" to Icons.Filled.Favorite,
+                    "Most reposted" to Icons.Filled.Repeat,
+                    "Most saved" to Icons.Filled.Bookmark,
+                    "Most comments" to Icons.Filled.ChatBubble,
+                    "Most recently uploaded" to Icons.Filled.Schedule,
+                    "Most recently tagged" to Icons.Filled.LocalOffer
+                )
+                BubbleActionStack(
+                    visible = sortOpen,
+                    anchorOriginRoot = bounds.first,
+                    anchorSize = bounds.second,
+                    containerRootOrigin = origin,
+                    actions = options.mapIndexed { i, (label, icon) ->
+                        BubbleAction(label, icon = icon, iconTint = if (i == selected) accent else null) {
+                            onSetTaggedSort(i)
+                            TaggedSearchPlace.top()
+                        }
+                    },
+                    liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
+                    onDismissRequest = { sortOpen = false },
+                    gapAboveAnchor = 6.dp
+                )
+            }
         }
 
         // (The back button is part of the search bar now — see the top.)

@@ -5657,7 +5657,9 @@ fun ResultsInteractionBar(
     modifier: Modifier = Modifier,
     /** Tips: names for the Refresh and layout buttons (see Tips.kt). */
     refreshAnchor: String? = null,
-    gridAnchor: String? = null
+    gridAnchor: String? = null,
+    /** An extra button at the right end (Search › Tagged's Sort). */
+    trailing: (@Composable () -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(26.dp)
     val iconSize = 20.dp
@@ -5706,6 +5708,7 @@ fun ResultsInteractionBar(
                     }
                 }
             }
+            trailing?.invoke()
         }
     }
     Box(modifier.windowInsetsPadding(WindowInsets.navBarSpace).height(if (liquidGlass) 60.dp else 52.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {

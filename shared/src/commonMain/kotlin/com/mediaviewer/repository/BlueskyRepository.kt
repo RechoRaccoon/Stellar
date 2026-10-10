@@ -440,13 +440,22 @@ class BlueskyRepository {
      *  above. */
     suspend fun getPostsByUris(token: String, uris: List<String>): Result<List<MediaItem>> = runCatching {
         if (uris.isEmpty()) return@runCatching emptyList()
-        // Batches fetched in parallel (was one after another — 8 round trips
-        // in a row for a 200-result tag search); order is kept per batch.
+        // Batches of 25 (the API's most), six at a time — a whole tagged
+        // dataset can be thousands of posts — and order is kept per batch.
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
         coroutineScope {
             uris.chunked(25).map { batch ->
                 async {
-                    val body = runCatching { api.getPosts("Bearer $token", batch) }.getOrNull()?.takeIf { it.isSuccessful }?.body()
-                    body?.posts?.flatMap { post -> parseFeedItemSafe(BskyFeedItem(post = post)) } ?: emptyList()
+                    gate.withPermit {
+                        var resp = runCatching { api.getPosts("Bearer $token", batch) }.getOrNull()
+                        // One more try after a moment if the server was busy.
+                        if (resp == null || resp.code() == 429 || resp.code() >= 500) {
+                            delay(1500)
+                            resp = runCatching { api.getPosts("Bearer $token", batch) }.getOrNull()
+                        }
+                        val body = resp?.takeIf { it.isSuccessful }?.body()
+                        body?.posts?.flatMap { post -> parseFeedItemSafe(BskyFeedItem(post = post)) } ?: emptyList()
+                    }
                 }
             }.awaitAll().flatten()
         }

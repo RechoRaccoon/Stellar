@@ -18,6 +18,7 @@ object UiToggles {
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_HIDE_POST_STATS = "hide_post_stats"
     private const val KEY_HIDE_POST_DATE = "hide_post_date"
+    private const val KEY_TAGGED_SORT = "tagged_sort"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
@@ -94,6 +95,17 @@ object UiToggles {
     fun updateHidePostStats(hide: Boolean) {
         hidePostStats = hide
         prefs?.edit()?.putBoolean(KEY_HIDE_POST_STATS, hide)?.apply()
+    }
+
+    /** Search › Tagged's Sort: 0 most liked (default), 1 most reposted,
+     *  2 most saved, 3 most comments, 4 most recently uploaded, 5 most
+     *  recently tagged. Remembered. */
+    var taggedSort by mutableStateOf(0)
+        private set
+
+    fun updateTaggedSort(sort: Int) {
+        taggedSort = sort.coerceIn(0, 5)
+        prefs?.edit()?.putInt(KEY_TAGGED_SORT, taggedSort)?.apply()
     }
 
     fun updateHidePostDate(hide: Boolean) {
@@ -219,6 +231,7 @@ object UiToggles {
         hapticsEnabled = p.getBoolean(KEY_HAPTICS, true)
         hidePostStats = p.getBoolean(KEY_HIDE_POST_STATS, false)
         hidePostDate = p.getBoolean(KEY_HIDE_POST_DATE, false)
+        taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)

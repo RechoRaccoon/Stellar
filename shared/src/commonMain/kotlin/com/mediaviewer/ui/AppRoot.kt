@@ -955,6 +955,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 hasTaggedDataset   = hasTaggedDataset,
                 likedTagResults    = likedTagSearchResults,
                 onOpenLikedPost    = viewModel::openLikedPostFromSearch,
+                onSetTaggedSort    = viewModel::setTaggedSort,
                 tagSuggestions     = tagSuggestions,
                 onQueryChange      = viewModel::runSearch,
                 onLikedQueryTextChange = viewModel::updateLikedQueryText,
