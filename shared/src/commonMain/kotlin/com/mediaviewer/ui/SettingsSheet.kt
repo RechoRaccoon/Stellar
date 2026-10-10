@@ -899,7 +899,7 @@ private fun AtProtocolPageContent(
         @Composable
         fun ButtonsSection() {
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).tipAnchor("hub.launchpad.label"), verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
             Text(
                 selfProfile?.author?.displayName?.ifBlank { null } ?: bskyHandle,

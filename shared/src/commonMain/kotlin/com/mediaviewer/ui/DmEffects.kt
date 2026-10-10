@@ -283,6 +283,53 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
     }
 }
 
+/**
+ * One puffy 3D heart (the same as the Hearts effect's), centred at [center],
+ * [s] across from its middle to a side, turned [angle] radians about its
+ * upright axis — the like burst on posts uses it.
+ */
+internal fun DrawScope.drawHeart3D(center: Offset, s: Float, angle: Float, color: Color, alpha: Float = 1f) {
+    val heart = heartPath()
+    val base = brightHeart(color)
+    val depth = 0.5f
+    val slices = 9
+    val facing = cos(angle)
+    val side = sin(angle)
+    val faceWidth = kotlin.math.abs(facing).coerceAtLeast(0.04f)
+    for (k in 0 until slices) {
+        val f = k / (slices - 1f)
+        val z = (f - 0.5f) * depth
+        val bulge = 1f - 0.16f * (2f * f - 1f) * (2f * f - 1f)
+        val shade = lerp(lerp(base, Color.Black, 0.28f), base, f)
+        withTransform({
+            translate(center.x + z * s * side * (if (facing >= 0f) 1f else -1f), center.y)
+            scale(s * faceWidth * bulge, s * bulge, pivot = Offset.Zero)
+        }) {
+            if (k < slices - 1) {
+                drawPath(heart, shade, alpha = alpha)
+            } else {
+                drawPath(
+                    heart,
+                    Brush.radialGradient(
+                        0f to lerp(base, Color.White, 0.6f), 0.45f to lerp(base, Color.White, 0.12f),
+                        1f to lerp(base, Color.Black, 0.12f),
+                        center = Offset(-0.38f, -0.42f), radius = 1.75f
+                    ),
+                    alpha = alpha
+                )
+                drawOval(
+                    Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0f)),
+                        center = Offset(-0.5f, -0.5f), radius = 0.34f
+                    ),
+                    topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f), alpha = alpha
+                )
+                drawOval(Color.White.copy(alpha = 0.3f * alpha), topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f))
+            }
+        }
+    }
+}
+
 /** A color made vivid enough for a heart: its hue kept, but never dark or
  *  greyed out. */
 private fun brightHeart(c: Color): Color {

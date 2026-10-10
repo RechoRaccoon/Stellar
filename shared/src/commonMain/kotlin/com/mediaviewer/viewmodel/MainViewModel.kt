@@ -6672,7 +6672,7 @@ class MainViewModel(
             }
         } else {
             val wasBookmarked = item.isBookmarked
-            updateCurrentItem { it.copy(isBookmarked = !wasBookmarked) }
+            updateCurrentItem { it.copy(isBookmarked = !wasBookmarked, bookmarkCount = (it.bookmarkCount + if (wasBookmarked) -1 else 1).coerceAtLeast(0)) }
             viewModelScope.launch(Dispatchers.IO) {
                 if (wasBookmarked) {
                     bskyRepo.removeBookmark(bskyToken, item.postUri)

@@ -16,6 +16,8 @@ object UiToggles {
     private const val PREFS = "ui_toggles"
     private const val KEY_DEBUG_OVERLAY = "debug_overlay"
     private const val KEY_HAPTICS = "haptics_enabled"
+    private const val KEY_HIDE_POST_STATS = "hide_post_stats"
+    private const val KEY_HIDE_POST_DATE = "hide_post_date"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
@@ -78,6 +80,25 @@ object UiToggles {
     fun updateHapticsEnabled(enabled: Boolean) {
         hapticsEnabled = enabled
         prefs?.edit()?.putBoolean(KEY_HAPTICS, enabled)?.apply()
+    }
+
+    /** Settings → App Functionality → "Hide Post Stats": the like / repost /
+     *  save / comment counts at the bottom of a post's text bubble. */
+    var hidePostStats by mutableStateOf(false)
+        private set
+    /** "Hide Post Date" (offered once the stats are hidden): with both, the
+     *  whole row is gone. */
+    var hidePostDate by mutableStateOf(false)
+        private set
+
+    fun updateHidePostStats(hide: Boolean) {
+        hidePostStats = hide
+        prefs?.edit()?.putBoolean(KEY_HIDE_POST_STATS, hide)?.apply()
+    }
+
+    fun updateHidePostDate(hide: Boolean) {
+        hidePostDate = hide
+        prefs?.edit()?.putBoolean(KEY_HIDE_POST_DATE, hide)?.apply()
     }
 
     /** Which loading transition plays (default: Space). */
@@ -196,6 +217,8 @@ object UiToggles {
         prefs = p
         debugOverlay = p.getBoolean(KEY_DEBUG_OVERLAY, false)
         hapticsEnabled = p.getBoolean(KEY_HAPTICS, true)
+        hidePostStats = p.getBoolean(KEY_HIDE_POST_STATS, false)
+        hidePostDate = p.getBoolean(KEY_HIDE_POST_DATE, false)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)

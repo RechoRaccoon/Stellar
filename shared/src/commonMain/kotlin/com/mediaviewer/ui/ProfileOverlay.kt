@@ -867,6 +867,7 @@ fun ProfileOverlay(
                         // visible even at zero matches, so picking a filter
                         // can't make its own pill disappear out from under
                         // the selection.
+                        Box(Modifier.fillMaxWidth().tipAnchor("profile.kinds")) {
                         when (state.selectedTab) {
                             MainViewModel.ProfileTab.POSTS -> {
                                 val loadedPosts = subFilterTabState?.items ?: emptyList()
@@ -956,6 +957,7 @@ fun ProfileOverlay(
                                 )
                             }
                             else -> {}
+                        }
                         }
                     } else {
                         // ── New default layout: one row, icons only, two
@@ -1337,9 +1339,9 @@ private fun ProfileInteractionBar(
     // 360dp-wide phone now that QR code + Block sit at its right end.
     val addToBoxSize = 50.dp
     @Composable
-    fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    fun IconButton(onClick: () -> Unit, anchor: String? = null, content: @Composable () -> Unit) {
         Box(
-            Modifier.size(width = 40.dp, height = 44.dp).clip(CircleShape).clickable(onClick = onClick),
+            Modifier.size(width = 40.dp, height = 44.dp).tipAnchor(anchor).clip(CircleShape).clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
             content = { content() }
         )
@@ -1366,7 +1368,7 @@ private fun ProfileInteractionBar(
             // Refresh — always the leftmost button. Spins while a reload is
             // in flight (dimmed instead when animations are reduced); taps
             // are ignored until it finishes. Haptic comes from the ViewModel.
-            IconButton(onClick = { if (!refreshing) onRefresh() }) {
+            IconButton(onClick = { if (!refreshing) onRefresh() }, anchor = "profile.refresh") {
                 val angleState: androidx.compose.runtime.State<Float>? = if (refreshing && animateRefresh) {
                     androidx.compose.animation.core.rememberInfiniteTransition(label = "profileRefresh").animateFloat(
                         initialValue = 0f, targetValue = 360f,
@@ -1383,7 +1385,7 @@ private fun ProfileInteractionBar(
                 )
             }
             if (showGrid) {
-                IconButton(onClick = onGridHaptic) {
+                IconButton(onClick = onGridHaptic, anchor = "profile.layout") {
                     when {
                         gridCyclesListLayout && gridMode == 0 -> ListModeIcon(Modifier.size(iconSize))
                         gridCyclesListLayout && gridMode == 1 -> UnevenColumnsIcon(2, Modifier.size(iconSize))
@@ -1402,7 +1404,7 @@ private fun ProfileInteractionBar(
                 // group chat with them instead.
                 val dmView = com.mediaviewer.ui.compat.rememberPlatformView()
                 Box(
-                    Modifier.size(width = 44.dp, height = 48.dp).clip(CircleShape).combinedClickable(
+                    Modifier.size(width = 44.dp, height = 48.dp).tipAnchor("profile.dm").clip(CircleShape).combinedClickable(
                         onClick = { tap(); onDm() },
                         onLongClick = {
                             dmView.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
@@ -1416,12 +1418,12 @@ private fun ProfileInteractionBar(
             }
             if (showShare) {
                 // Same Share button (and popup) as on posts.
-                IconButton(onClick = { tap(); onShare() }) {
+                IconButton(onClick = { tap(); onShare() }, anchor = "profile.share") {
                     Icon(Icons.Default.Send, contentDescription = "Share profile", tint = Color.White, modifier = Modifier.size(iconSize))
                 }
             }
             // QR code of this profile's link, then More at the very end.
-            IconButton(onClick = { tap(); onQr() }) {
+            IconButton(onClick = { tap(); onQr() }, anchor = "profile.qr") {
                 Icon(Icons.Filled.QrCode2, contentDescription = "Profile QR code", tint = Color.White, modifier = Modifier.size(iconSize))
             }
             if (showBlock) {
@@ -1429,7 +1431,7 @@ private fun ProfileInteractionBar(
                 // post's More menu. Red while you're blocking them, like the
                 // old Block button.
                 Box(Modifier.onGloballyPositioned { onMoreBounds(it.positionInRoot(), it.size) }) {
-                IconButton(onClick = { tap(); onToggleMore() }) {
+                IconButton(onClick = { tap(); onToggleMore() }, anchor = "profile.more") {
                     Icon(
                         if (moreOpen) Icons.Default.Close else Icons.Default.Menu,
                         contentDescription = if (moreOpen) "Close" else "More",
@@ -1449,7 +1451,7 @@ private fun ProfileInteractionBar(
         .height(if (liquidGlass) 60.dp else 52.dp).fillMaxWidth()
     val pillModifier = Modifier.height(pillHeight)
     Box(modifier = barModifier, contentAlignment = Alignment.Center) {
-        Box(Modifier.onGloballyPositioned { onPillBounds(it.positionInRoot(), it.size) }) {
+        Box(Modifier.tipAnchor("profile.bar").onGloballyPositioned { onPillBounds(it.positionInRoot(), it.size) }) {
             if (liquidGlass) {
                 LiquidGlassSurface(modifier = pillModifier, shape = shape, tint = tint, backdrop = backdrop) { BarContent() }
             } else {

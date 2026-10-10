@@ -90,8 +90,23 @@ actual fun CameraModeScreen(
 
     var frontCamera by remember { mutableStateOf(store.bool(KEY_FRONT, true)) }
     LaunchedEffect(frontCamera) { store.put(KEY_FRONT, frontCamera) }
-    var videoMode by remember { mutableStateOf(store.bool(KEY_VIDEO_MODE, false)) }
-    LaunchedEffect(videoMode) { store.put(KEY_VIDEO_MODE, videoMode) }
+    // Photo → video → live, like VRM mode's mode button.
+    var captureMode by remember {
+        mutableStateOf(store.int(KEY_CAPTURE_MODE, if (store.bool(KEY_VIDEO_MODE, false)) 1 else 0).coerceIn(0, 2))
+    }
+    val videoMode = captureMode == 1
+    LaunchedEffect(captureMode) { store.put(KEY_CAPTURE_MODE, captureMode); store.put(KEY_VIDEO_MODE, videoMode) }
+    // Activity (as in VRM mode): the scene card and effect drawn over the
+    // camera, and in photos, recordings and the stream.
+    val supporter = com.mediaviewer.util.Supporter.active
+    var activityOpen by remember { mutableStateOf(false) }
+    var scene by remember { mutableStateOf(VrmScene.VRM) }
+    var stageEffect by remember { mutableStateOf<DmEffect?>(null) }
+    var stageEffectKey by remember { mutableStateOf(0) }
+    var stageBusyUntil by remember { mutableStateOf(0L) }
+    val stageLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val stageFrames = remember { VrmStageFrames() }
+    fun stageShowing() = supporter && (scene != VrmScene.VRM || android.os.SystemClock.elapsedRealtime() < stageBusyUntil)
     var micMuted by remember { mutableStateOf(store.bool(K.MIC_MUTED, false)) }
     LaunchedEffect(micMuted) { store.put(K.MIC_MUTED, micMuted) }
     val voicePitch = remember { store.int(K.VOICE_PITCH, 0).coerceIn(-8, 8) }
@@ -217,10 +232,16 @@ actual fun CameraModeScreen(
         liveStreamer.pitchSemitones = voicePitch.toFloat()
     }
     val captureOverlayIds = if (overlaysEnabled) browserOverlays.filter { it.inCapture }.map { it.id } else emptyList()
+    // Set up for overlays whenever any could appear mid-capture.
+    val overlaysCapturable = captureOverlayIds.isNotEmpty() || supporter
     fun refreshCaptureOverlays() {
-        capture.overlays = if (captureOverlayIds.isEmpty()) emptyList()
+        val browser = if (captureOverlayIds.isEmpty()) emptyList()
             else overlayRegistry.snapshot(captureOverlayIds, hostView.width, hostView.height)
+        // The scene card / effect goes under the browser windows.
+        val stage = stageFrames.current
+        capture.overlays = if (stage == null) browser else listOf(CaptureOverlay(stage, 0f, 0f, 1f, 1f)) + browser
     }
+    val refreshOverlaysNow = rememberUpdatedState({ refreshCaptureOverlays() })
     fun clearLiveBadge() {
         if (liveBadgeUrl == null) return
         liveBadgeUrl = null
@@ -242,7 +263,7 @@ actual fun CameraModeScreen(
             }
             val surface = liveStreamer.inputSurface
             refreshCaptureOverlays()
-            if (surface == null || !capture.startStream(surface, cfg.width, cfg.height, hostView.width to hostView.height, captureOverlayIds.isNotEmpty())) {
+            if (surface == null || !capture.startStream(surface, cfg.width, cfg.height, hostView.width to hostView.height, overlaysCapturable)) {
                 withContext(Dispatchers.IO) { liveStreamer.stop() }
                 liveState = com.mediaviewer.stream.LiveStreamer.State.IDLE
                 captureError = "Couldn't start streaming the camera"
@@ -317,7 +338,7 @@ actual fun CameraModeScreen(
     }
     fun beginRecording(withAudio: Boolean) {
         refreshCaptureOverlays()
-        if (capture.startRecording(context, hostView.width to hostView.height, withAudio, voicePitch.toFloat(), captureOverlayIds.isNotEmpty())) {
+        if (capture.startRecording(context, hostView.width to hostView.height, withAudio, voicePitch.toFloat(), overlaysCapturable)) {
             recording = true
             recordingStartMs = android.os.SystemClock.elapsedRealtime()
             recordingElapsedS = 0
@@ -340,18 +361,41 @@ actual fun CameraModeScreen(
             kotlinx.coroutines.delay(100)
         }
     }
+    // The scene card / effect in recordings and streams: a fresh picture of
+    // that layer ~20 times a second while there's something on it.
+    LaunchedEffect(recording, isLive) {
+        try {
+            while (recording || isLive) {
+                if (stageShowing()) {
+                    stageFrames.grab(stageLayer, software = false)
+                    refreshOverlaysNow.value()
+                } else if (stageFrames.current != null) {
+                    stageFrames.clear()
+                    refreshOverlaysNow.value()
+                }
+                kotlinx.coroutines.delay(50)
+            }
+        } finally {
+            stageFrames.clear()
+        }
+    }
     LaunchedEffect(captureError) {
         if (captureError != null) { kotlinx.coroutines.delay(if ((captureError?.length ?: 0) > 60) 7000L else 3000L); captureError = null }
     }
     fun onCapturePressed() {
         if (captureBusy) return
         if (isLive) { endLiveConfirmOpen = true; return }
+        // Live mode: the button sets up the stream (see the bar below).
+        if (captureMode == 2) return
         if (!videoMode) {
             val tv = textureView ?: return
             captureBusy = true
-            refreshCaptureOverlays()
             scope.launch {
+                if (stageShowing()) stageFrames.grab(stageLayer, software = true) else stageFrames.clear()
+                refreshCaptureOverlays()
                 val uri = capture.takePhoto(context, tv, unmirror = frontCamera)
+                stageFrames.clear()
+                refreshCaptureOverlays()
                 captureBusy = false
                 if (uri != null) onCapture(uri, null) else captureError = "Couldn't capture the photo"
             }
@@ -366,7 +410,7 @@ actual fun CameraModeScreen(
     }
     // Volume keys = shutter, like the system camera (and VRM mode).
     val onCapturePressedRef = rememberUpdatedState { onCapturePressed() }
-    val blockKeysRef = rememberUpdatedState(liveDialogOpen || isLive)
+    val blockKeysRef = rememberUpdatedState(liveDialogOpen || isLive || activityOpen || captureMode == 2)
     DisposableEffect(Unit) {
         val handler: (android.view.KeyEvent) -> Boolean = handler@{ event ->
             if (event.keyCode != android.view.KeyEvent.KEYCODE_VOLUME_UP &&
@@ -404,6 +448,7 @@ actual fun CameraModeScreen(
         when {
             endLiveConfirmOpen -> endLiveConfirmOpen = false
             liveDialogOpen -> liveDialogOpen = false
+            activityOpen -> activityOpen = false
             else -> onClose()
         }
     })
@@ -469,6 +514,9 @@ actual fun CameraModeScreen(
             LaunchedEffect(Unit) { permissionLauncher.launch(Manifest.permission.CAMERA) }
         }
 
+        // Scene cards and effects: over the camera, under the buttons.
+        if (supporter) VrmStageLayer(scene, stageEffect, stageEffectKey, stageLayer, effectColors = listOf(tint))
+
         VrmGlassBubble(
             size = 40.dp, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             modifier = Modifier.align(Alignment.TopStart).padding(top = rememberTopCutoutClearance(), start = 16.dp),
@@ -490,12 +538,24 @@ actual fun CameraModeScreen(
             },
             statusDot = (recording || liveState == com.mediaviewer.stream.LiveStreamer.State.LIVE) && captureError == null,
             micMuted = micMuted, micEnabled = !recording && !captureBusy, onToggleMic = { tap(); micMuted = !micMuted },
-            videoMode = videoMode, swapEnabled = !recording && !captureBusy && !isLive, onToggleVideoMode = { tap(); videoMode = !videoMode },
+            videoMode = videoMode, swapEnabled = !recording && !captureBusy && !isLive, onToggleVideoMode = { tap(); captureMode = (captureMode + 1) % 3 },
             connecting = liveState == com.mediaviewer.stream.LiveStreamer.State.CONNECTING,
             isLive = isLive, captureBusy = captureBusy, recording = recording,
-            onCapture = { tap(); onCapturePressed() },
+            onCapture = {
+                tap()
+                if (captureMode == 2 && !isLive) { if (hasCameraPermission && !captureBusy) liveDialogOpen = true }
+                else onCapturePressed()
+            },
             liveEnabled = hasCameraPermission && !recording && !captureBusy && !isLive,
             onLive = { tap(); liveDialogOpen = true },
+            // [mic] [photo/video/live] [capture] [Activity] [flip], like VRM mode.
+            liveMode = captureMode == 2,
+            activityLocked = !supporter,
+            onActivity = {
+                tap()
+                if (supporter) activityOpen = true
+                else { onClose(); com.mediaviewer.util.Supporter.openPage() }
+            },
             rightIcon = Icons.Default.Cameraswitch, rightDescription = "Flip camera",
             // Flipping mid-recording/stream would restart the camera under
             // the encoder — allowed only when idle.
@@ -526,7 +586,24 @@ actual fun CameraModeScreen(
                 registry = overlayRegistry,
                 onChange = { updated -> browserOverlays = browserOverlays.map { if (it.id == updated.id) updated else it } },
                 onRemove = { id -> browserOverlays = browserOverlays.filterNot { it.id == id } },
-                hidden = liveDialogOpen || endLiveConfirmOpen
+                hidden = liveDialogOpen || endLiveConfirmOpen || activityOpen
+            )
+        }
+
+        if (activityOpen) {
+            VrmActivityDialog(
+                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                scene = scene,
+                onScene = {
+                    scene = it
+                    stageBusyUntil = android.os.SystemClock.elapsedRealtime() + SCENE_FADE_MS + 200L
+                },
+                onEffect = {
+                    stageEffect = it
+                    stageEffectKey++
+                    stageBusyUntil = android.os.SystemClock.elapsedRealtime() + EFFECT_MAX_MS
+                },
+                onDismiss = { activityOpen = false }
             )
         }
 
@@ -558,6 +635,7 @@ actual fun CameraModeScreen(
 private const val TAG = "CameraModeScreen"
 private const val KEY_FRONT = "camera_page_front"
 private const val KEY_VIDEO_MODE = "camera_page_video_mode"
+private const val KEY_CAPTURE_MODE = "camera_page_capture_mode"
 
 /** Photo / recording / stream outputs for the Camera page (main thread). */
 private class CameraCaptureSession(private val renderer: CameraGlRenderer) {

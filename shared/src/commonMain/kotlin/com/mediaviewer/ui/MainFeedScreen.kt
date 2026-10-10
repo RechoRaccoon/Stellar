@@ -1152,6 +1152,15 @@ private fun PostContent(
     // needs to sit outside the recorded box but aligned to something inside
     // it) converts root-space coordinates back into local placement offsets with.
     var postBoxRootOrigin    by remember { mutableStateOf(Offset.Zero) }
+    // Liking: one 3D heart spins up out of the like button, or (bigger)
+    // out of the spot that was double-tapped. Positions are in this post's
+    // own box.
+    val likeBursts = remember { mutableStateListOf<LikeBurst>() }
+    var likeButtonCenterRoot by remember { mutableStateOf<Offset?>(null) }
+    fun burstAt(at: Offset, big: Boolean) {
+        if (appMode != AppMode.BLUESKY || item.isLiked || reducedAnimations) return
+        likeBursts.add(LikeBurst(com.mediaviewer.platform.currentTimeMillis() + likeBursts.size, at, big))
+    }
 
     // Items 5-8: the "More" menu's own state, hoisted up here (out of
     // ActionRow) for the same reason as the indicator pill's Next/Previous
@@ -1358,7 +1367,7 @@ private fun PostContent(
                             // double-tap that's let go without dragging likes
                             // the post, so zooming never likes by accident.
                             val zoomable = !item.isTextOnly && !(isImageGrid && viewerIndex == null)
-                            if (!zoomable) { onDoubleTap(); return@awaitEachGesture }
+                            if (!zoomable) { burstAt(downPos, big = true); onDoubleTap(); return@awaitEachGesture }
                             val slop = 12.dp.toPx()
                             val perDoubling = 160.dp.toPx()
                             val startScale = scale
@@ -1383,7 +1392,7 @@ private fun PostContent(
                                 }
                                 ch.consume()
                             }
-                            if (!zooming) onDoubleTap()
+                            if (!zooming) { burstAt(downPos, big = true); onDoubleTap() }
                             else if (scale <= 1.02f) { scale = 1f; offset = Offset.Zero }
                             return@awaitEachGesture
                         }
@@ -1922,6 +1931,18 @@ private fun PostContent(
                     }
                 }
                 val bubbleText = if (folderPrompt) "Tap to Add Saved Post to Folder" else postBubbleText
+                // The row under the full text: counts (unless hidden in
+                // Settings) and the date (unless that's hidden too).
+                val showCounts = !com.mediaviewer.util.UiToggles.hidePostStats
+                val showDate = !(com.mediaviewer.util.UiToggles.hidePostStats && com.mediaviewer.util.UiToggles.hidePostDate)
+                val postStats = if (appMode != AppMode.BLUESKY || (!showCounts && !showDate)) null else PostBubbleStats(
+                    likes = item.likeCount, reposts = item.repostCount, saves = item.bookmarkCount, comments = item.replyCount,
+                    date = if (showDate) item.createdAt?.takeIf { it.isNotBlank() }?.let { iso ->
+                        runCatching { com.mediaviewer.util.DateText.format(com.mediaviewer.platform.parseIsoInstantMillis(iso), "MMM d, yyyy") }.getOrNull()
+                    } else null,
+                    showCounts = showCounts,
+                    iconTint = vividAccent(dominantColor)
+                )
                 AnimatedContent(
                     targetState = viewerShowing,
                     transitionSpec = {
@@ -1959,13 +1980,17 @@ private fun PostContent(
                             reducedAnimations = reducedAnimations,
                             onHorizontalSwipe = handleHorizontalSwipe,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 4.dp),
-                            centeredText = "Tap to Add Saved Post to Folder"
+                            centeredText = "Tap to Add Saved Post to Folder",
+                            stats = postStats
                         )
                     } else {
                         Spacer(Modifier.fillMaxWidth().height(0.dp))
                     }
                 }
-                ActionRow(item, appMode, onToggleLike, onToggleRepost, onToggleBookmark, onE621Vote,
+                ActionRow(item, appMode, {
+                        likeButtonCenterRoot?.let { burstAt(it - postBoxRootOrigin, big = false) }
+                        onToggleLike()
+                    }, onToggleRepost, onToggleBookmark, onE621Vote,
                     onQuoteRepost, onDownload, onDownloadGif, onBlockAccount, onSendPost,
                     Modifier.fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.navBarSpace)
@@ -1980,6 +2005,7 @@ private fun PostContent(
                     },
                     onVisibleBoundsChanged = { origin, size -> actionBarOrigin = origin; actionBarSize = size },
                     onMoreButtonBounds = { origin, size -> moreButtonOrigin = origin; moreButtonSize = size },
+                    onLikeButtonCenter = { likeButtonCenterRoot = it },
                     interactionsBlocked = authorBlocksViewer
                 )
             }
@@ -2057,6 +2083,43 @@ private fun PostContent(
                 onDelete = onDeletePost
             )
         }
+        // The like hearts, over everything on the post.
+        likeBursts.forEach { b ->
+            androidx.compose.runtime.key(b.id) {
+                LikeHeart(b, dominantColor) { likeBursts.remove(b) }
+            }
+        }
+    }
+}
+
+/** One like heart: where it starts (in the post's box) and how big. */
+private class LikeBurst(val id: Long, val at: Offset, val big: Boolean)
+
+/**
+ * A single 3D heart in the post's colors that pops out at [burst]'s spot,
+ * then spins and floats up — slow to get going, then quick — and fades.
+ */
+@Composable
+private fun LikeHeart(burst: LikeBurst, color: Color, onDone: () -> Unit) {
+    val t = remember { Animatable(0f) }
+    val done by rememberUpdatedState(onDone)
+    LaunchedEffect(Unit) {
+        t.animateTo(1f, tween(1100, easing = androidx.compose.animation.core.CubicBezierEasing(0.55f, 0f, 0.75f, 0.6f)))
+        done()
+    }
+    val density = LocalDensity.current
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val p = t.value
+        val sizeDp = if (burst.big) 46.dp else 24.dp
+        val s = with(density) { sizeDp.toPx() }
+        val rise = with(density) { (if (burst.big) 230.dp else 150.dp).toPx() }
+        // Pops in over the first fifth, fades over the last third.
+        val pop = (p / 0.18f).coerceIn(0f, 1f)
+        val popScale = if (pop < 1f) 0.35f + 0.8f * pop - 0.15f * pop * pop else 1f
+        val fade = ((1f - p) / 0.35f).coerceIn(0f, 1f)
+        val center = Offset(burst.at.x, burst.at.y - rise * p)
+        val angle = p * 2.6f * kotlin.math.PI.toFloat()
+        drawHeart3D(center, s * popScale, angle, color, alpha = fade)
     }
 }
 
@@ -2609,7 +2672,9 @@ private fun PostTextBubble(
     onHorizontalSwipe: (Float) -> Unit,
     modifier: Modifier = Modifier,
     /** Text that should sit centered (the "add to folder" prompt). */
-    centeredText: String? = null
+    centeredText: String? = null,
+    /** The counts and date shown under the full text (null: none). */
+    stats: PostBubbleStats? = null
 ) {
     val shape = RoundedCornerShape(18.dp)
     val progress = remember { Animatable(if (expanded) 1f else 0f) }
@@ -2647,11 +2712,14 @@ private fun PostTextBubble(
                     )
                 }
                 Crossfade(text, animationSpec = tween(260), label = "bubbleTextFull") { t ->
-                    Text(
-                        t, style = style,
-                        textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            t, style = style,
+                            textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (stats != null && t != centeredText) PostStatsRow(stats, style)
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
@@ -2672,6 +2740,48 @@ private fun PostTextBubble(
         LiquidGlassSurface(modifier = bubbleModifier, shape = shape, tint = tint, backdrop = backdrop) { Body() }
     } else {
         Box(bubbleModifier.background(Color.Black.copy(alpha = 0.55f))) { Body() }
+    }
+}
+
+/** What the row at the bottom of an opened text bubble shows. */
+private class PostBubbleStats(
+    val likes: Int, val reposts: Int, val saves: Int, val comments: Int,
+    /** "Oct 10, 2026", or null for none. */
+    val date: String?,
+    val showCounts: Boolean,
+    /** The post's own color for the icons (as the interaction bar's). */
+    val iconTint: Color
+)
+
+private fun compactCount(n: Int): String = when {
+    n >= 1_000_000 -> (n / 100_000).let { "${it / 10}.${it % 10}M" }.replace(".0M", "M")
+    n >= 1_000 -> (n / 100).let { "${it / 10}.${it % 10}K" }.replace(".0K", "K")
+    else -> n.toString()
+}
+
+/** Likes, reposts, saves and comments on the left, the date on the right —
+ *  the same size as the post's text. */
+@Composable
+private fun PostStatsRow(stats: PostBubbleStats, style: androidx.compose.ui.text.TextStyle) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (stats.showCounts) {
+            @Composable
+            fun Stat(icon: ImageVector, count: Int) {
+                Icon(icon, contentDescription = null, tint = stats.iconTint, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(compactCount(count), style = style, maxLines = 1)
+                Spacer(Modifier.width(12.dp))
+            }
+            Stat(Icons.Filled.Favorite, stats.likes)
+            Stat(Icons.Default.Repeat, stats.reposts)
+            Stat(Icons.Filled.Bookmark, stats.saves)
+            Stat(Icons.Default.ChatBubble, stats.comments)
+        }
+        Spacer(Modifier.weight(1f))
+        if (stats.date != null) Text(stats.date, style = style, maxLines = 1)
     }
 }
 
@@ -3163,6 +3273,8 @@ private fun ActionRow(
     onVisibleBoundsChanged: (Offset, IntSize) -> Unit = { _, _ -> },
     /** The More button's own bounds (the More bubbles stand on it). */
     onMoreButtonBounds: (Offset, IntSize) -> Unit = { _, _ -> },
+    /** Where the like button's middle is (root coordinates): the like heart starts there. */
+    onLikeButtonCenter: (Offset) -> Unit = {},
     /** The author has blocked you: like / repost / quote are greyed out. */
     interactionsBlocked: Boolean = false
 ) {
@@ -3204,7 +3316,7 @@ private fun ActionRow(
                 // profile color (brightened to read on the glass) instead
                 // of fixed red/green/yellow — like the rest of the UI.
                 val activeTint = vividAccent(dominantColor)
-                Box(Modifier.tipAnchor("tl.like")) {
+                Box(Modifier.tipAnchor("tl.like").onGloballyPositioned { onLikeButtonCenter(it.boundsInRoot().center) }) {
                 ActionButton(if (item.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     if (interactionsBlocked) blockedTint else if (item.isLiked) activeTint else Color.White, null, onToggleLike)
                 }
@@ -3212,11 +3324,15 @@ private fun ActionRow(
                 ActionButton(if (item.isBookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                     if (item.isBookmarked) activeTint else Color.White, null, onToggleBookmark)
                 }
+                Box(Modifier.tipAnchor("tl.repost")) {
                 ActionButton(Icons.Default.Repeat,
                     if (interactionsBlocked) blockedTint else if (item.isReposted) activeTint else Color.White, null, onToggleRepost)
+                }
+                Box(Modifier.tipAnchor("tl.quote")) {
                 ActionButton(Icons.Default.EditNote, if (interactionsBlocked) blockedTint else if (item.isQuoteReposted) activeTint else Color.White, null, onQuoteRepost)
-                ActionButton(Icons.Default.Download, if (item.isDownloaded) activeTint else Color.White, null, onDownload)
-                GifActionButton(onDownloadGif, if (item.isGifDownloaded) activeTint else Color.White)
+                }
+                Box(Modifier.tipAnchor("tl.download")) { ActionButton(Icons.Default.Download, if (item.isDownloaded) activeTint else Color.White, null, onDownload) }
+                Box(Modifier.tipAnchor("tl.gif")) { GifActionButton(onDownloadGif, if (item.isGifDownloaded) activeTint else Color.White) }
                 Box(Modifier.tipAnchor("tl.send")) { ActionButton(Icons.Default.Send, Color.White, null, onShare) }
                 // Item 6: the hamburger icon flips to an X while the menu is
                 // up, and back again once it closes — same button, same

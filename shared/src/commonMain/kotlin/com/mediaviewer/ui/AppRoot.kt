@@ -1525,7 +1525,6 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             screenState == ScreenState.SETTINGS -> if (com.mediaviewer.ui.Tips.hubMainShowing) com.mediaviewer.ui.TipTours.HUB else null
             screenState == ScreenState.FEED -> com.mediaviewer.ui.TipTours.TIMELINE
             screenState == ScreenState.GRID -> com.mediaviewer.ui.TipTours.EXPLORE
-            screenState == ScreenState.COMMENTS -> com.mediaviewer.ui.TipTours.COMMENTS
             else -> null
         }
         LaunchedEffect(tipScreen) {

@@ -189,7 +189,7 @@ fun CommentsSheet(
             ) {
                 Spacer(Modifier.height(6.dp))
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp).tipAnchor("comments.header"),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -357,7 +357,7 @@ fun CommentsSheet(
                         }
                     }
                     Row(
-                        Modifier.fillMaxWidth().tipAnchor("comments.field"),
+                        Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {

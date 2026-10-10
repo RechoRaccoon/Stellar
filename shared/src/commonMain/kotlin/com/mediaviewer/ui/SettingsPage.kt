@@ -835,6 +835,24 @@ internal fun SettingsPageContent(
             ToggleBubble("Haptics", com.mediaviewer.util.UiToggles.hapticsEnabled, { com.mediaviewer.util.UiToggles.updateHapticsEnabled(it) }, liquidGlass, tint, backdrop)
 
             ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
+
+            // The stats row at the bottom of a post's text bubble; once the
+            // stats are hidden, the date can be hidden too (the whole row).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("Hide Post Stats", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
+                }
+                androidx.compose.animation.AnimatedVisibility(visible = com.mediaviewer.util.UiToggles.hidePostStats) {
+                    Column {
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel("Hide Post Date", Modifier.weight(1f))
+                            CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
+                        }
+                    }
+                }
+            }
             // NSFW Content: managed by the Bluesky account itself ("Enable adult
             // content" on the Bluesky website). On iOS that account setting is
             // the only switch (App Store rule — see AdultContentPolicy); Android

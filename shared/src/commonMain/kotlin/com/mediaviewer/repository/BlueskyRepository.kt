@@ -4389,7 +4389,7 @@ class BlueskyRepository {
             // Edited in Stellar: carry the edit time and earlier versions.
             val rec = item.post.record
             val edited = rec.stellarEditedAt?.takeIf { it.isNotBlank() }
-            list.map { it.copy(editedAt = edited ?: it.editedAt, editHistory = if (edited != null) rec.stellarEditHistory else it.editHistory, createdAt = rec.createdAt) }
+            list.map { it.copy(editedAt = edited ?: it.editedAt, editHistory = if (edited != null) rec.stellarEditHistory else it.editHistory, createdAt = rec.createdAt, bookmarkCount = item.post.bookmarkCount ?: 0) }
         }
 
     private fun parseFeedItem(item: BskyFeedItem): List<MediaItem> {

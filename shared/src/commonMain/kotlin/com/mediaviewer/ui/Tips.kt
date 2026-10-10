@@ -115,7 +115,7 @@ data class TipNote(
 )
 
 /** The little looping gesture pictures. */
-enum class TipAnim { PINCH_EXPLORE, DOUBLE_TAP_LIKE, HOLD_WHEEL, ZOOM, THREE_FINGERS, SWIPE_SIDEWAYS, SWIPE_VERTICAL, TAP, DRAG_HOLD }
+enum class TipAnim { PINCH_EXPLORE, DOUBLE_TAP_LIKE, HOLD_WHEEL, ZOOM, THREE_FINGERS, SWIPE_SIDEWAYS, SWIPE_VERTICAL, TAP, DRAG_HOLD, HOLD_REACT, SWIPE_REPLY }
 
 data class TipAnimSpec(
     val anim: TipAnim,
@@ -127,11 +127,12 @@ data class TipAnimSpec(
 /** One screenful of a walkthrough. */
 data class TipStep(
     val notes: List<TipNote> = emptyList(),
-    /** Lit up without a line (the notes' own anchors are lit anyway). */
+    /** What's lit up. Empty: each note's anchors are. Given: only these
+     *  are (the notes still point at their own anchors) — so a whole bar
+     *  can be lit while lines point at its buttons one by one. "a+b" lights
+     *  one area covering both. */
     val highlights: List<String> = emptyList(),
-    val anims: List<TipAnimSpec> = emptyList(),
-    /** Where "Tap to continue." goes, as a fraction of the screen's height. */
-    val continueY: Float = 0.93f
+    val anims: List<TipAnimSpec> = emptyList()
 )
 
 class TipTour(val id: String, val steps: List<TipStep>)
@@ -174,6 +175,12 @@ object TipAnchors {
      * anchoring one by one).
      */
     fun rect(id: String): Rect? {
+        // "a+b": one area covering both (one highlight over neighbours).
+        if ('+' in id) {
+            val parts = id.split('+').mapNotNull { rect(it.trim()) }
+            if (parts.isEmpty()) return null
+            return parts.reduce { acc, r -> Rect(min(acc.left, r.left), min(acc.top, r.top), max(acc.right, r.right), max(acc.bottom, r.bottom)) }
+        }
         val at = id.indexOf('@')
         if (at < 0) return live[id]
         val base = live[id.substring(0, at)] ?: return null
@@ -283,6 +290,17 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
     val accent = lerp(tint, Color.White, 0.35f)
     val lineColor = lerp(tint, Color.White, 0.2f)
 
+    // The keyboard goes away while a tip is up (it would cover the tip and
+    // nothing can be typed anyway).
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(tour, Tips.step) {
+        if (tour != null) {
+            runCatching { focus.clearFocus(force = true) }
+            keyboard?.hide()
+        }
+    }
+
     // Taps right after a step appears are ignored, so a quick double tap
     // can't skip text unread.
     var shownAt by remember { mutableStateOf(0L) }
@@ -292,7 +310,10 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
     // The step's lit-up parts fade between steps.
     val holeFade = remember { Animatable(1f) }
     val lastHoles = remember { mutableStateOf<List<String>>(emptyList()) }
-    val holes = remember(t, stepIndex) { (step.highlights + step.notes.flatMap { it.anchors }).distinct() }
+    val holes = remember(t, stepIndex) { (step.highlights.ifEmpty { step.notes.flatMap { it.anchors } }).distinct() }
+    // Every note's measured place, by (step, note), for the lines and for
+    // keeping "Tap to continue." clear of them.
+    val noteRects = remember(t) { mutableStateMapOf<Pair<Int, Int>, Rect>() }
     var previousHoles by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(holes) {
         previousHoles = lastHoles.value
@@ -331,30 +352,43 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
         val padPx = with(density) { 6.dp.toPx() }
         val maxCorner = with(density) { 22.dp.toPx() }
         val ringPx = with(density) { 1.5.dp.toPx() }
-        fun holeRect(id: String): Rect? = TipAnchors.rect(id)?.let {
-            Rect(it.left - origin.x - padPx, it.top - origin.y - padPx, it.right - origin.x + padPx, it.bottom - origin.y + padPx)
+        val edgePx = with(density) { 10.dp.toPx() }
+        /** A lit area and its corner radius. Something running edge to edge
+         *  (a row of chips, the Launchpad) is lit as a plain full-width band,
+         *  so nothing is cut off by rounded corners off the screen's sides. */
+        fun hole(id: String): Pair<Rect, Float>? {
+            val a = TipAnchors.rect(id) ?: return null
+            val r = Rect(a.left - origin.x - padPx, a.top - origin.y - padPx, a.right - origin.x + padPx, a.bottom - origin.y + padPx)
+            if (size.width > 0f && (r.left <= edgePx || r.right >= size.width - edgePx)) {
+                return Rect(0f, r.top, size.width, r.bottom) to 0f
+            }
+            return r to min(maxCorner, min(r.width, r.height) / 2f)
         }
+        fun holeRect(id: String): Rect? = hole(id)?.first
         Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
             drawRect(Color.Black.copy(alpha = 0.78f))
-            fun hole(id: String, amount: Float) {
-                val r = holeRect(id) ?: return
-                val corner = min(maxCorner, min(r.width, r.height) / 2f)
+            fun cut(id: String, amount: Float) {
+                val (r, corner) = hole(id) ?: return
                 drawRoundRect(
                     Color.Black.copy(alpha = amount.coerceIn(0f, 1f)), topLeft = r.topLeft, size = r.size,
                     cornerRadius = CornerRadius(corner), blendMode = BlendMode.DstOut
                 )
             }
             val f = holeFade.value
-            previousHoles.filter { it !in holes }.forEach { hole(it, 1f - f) }
-            holes.forEach { id -> hole(id, if (id in previousHoles) 1f else f) }
+            previousHoles.filter { it !in holes }.forEach { cut(it, 1f - f) }
+            holes.forEach { id -> cut(id, if (id in previousHoles) 1f else f) }
         }
         Canvas(Modifier.fillMaxSize()) {
             val f = holeFade.value
             holes.forEach { id ->
-                val r = holeRect(id) ?: return@forEach
-                val corner = min(maxCorner, min(r.width, r.height) / 2f)
-                drawRoundRect(
-                    lineColor.copy(alpha = 0.75f * (if (id in previousHoles) 1f else f)), topLeft = r.topLeft, size = r.size,
+                val (r, corner) = hole(id) ?: return@forEach
+                val alpha = 0.75f * (if (id in previousHoles) 1f else f)
+                if (corner == 0f) {
+                    // A full-width band: lines along its top and bottom only.
+                    drawLine(lineColor.copy(alpha = alpha), Offset(0f, r.top), Offset(r.right, r.top), ringPx)
+                    drawLine(lineColor.copy(alpha = alpha), Offset(0f, r.bottom), Offset(r.right, r.bottom), ringPx)
+                } else drawRoundRect(
+                    lineColor.copy(alpha = alpha), topLeft = r.topLeft, size = r.size,
                     cornerRadius = CornerRadius(corner), style = Stroke(ringPx)
                 )
             }
@@ -370,10 +404,34 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
             label = "tipStep"
         ) { index ->
             val s = t.steps.getOrNull(index) ?: return@AnimatedContent
-            StepContent(s, origin, size, accent, lineColor, isCurrent = { Tips.tour === t && Tips.step == index })
+            StepContent(
+                s, origin, size, accent, lineColor,
+                isCurrent = { Tips.tour === t && Tips.step == index },
+                placed = { i, r -> noteRects[index to i] = r }, rectOf = { i -> noteRects[index to i] }
+            )
         }
 
         // ── Tap to continue ──
+        // At the bottom, unless something of this step is there: then at the
+        // top, or in the middle — wherever it's clear.
+        val continueW = with(density) { 170.dp.toPx() }
+        val continueH = with(density) { 28.dp.toPx() }
+        val busy = buildList {
+            holes.forEach { id -> holeRect(id)?.let { add(it) } }
+            step.notes.indices.forEach { i -> noteRects[stepIndex to i]?.let { add(it) } }
+            step.anims.forEach { a ->
+                val sz = with(density) { a.size.toPx() }
+                val cap = if (a.caption != null) with(density) { 64.dp.toPx() } else 0f
+                add(Rect(size.width * a.x - sz, size.height * a.y - sz / 2, size.width * a.x + sz, size.height * a.y + sz / 2 + cap))
+            }
+        }
+        fun clash(fy: Float): Float {
+            val y = size.height * fy
+            val r = Rect(size.width / 2 - continueW / 2, y - continueH / 2, size.width / 2 + continueW / 2, y + continueH / 2)
+            return busy.sumOf { b -> if (b.overlaps(r)) (b.intersect(r).width * b.intersect(r).height).toDouble() else 0.0 }.toFloat()
+        }
+        val continueY = listOf(0.93f, 0.085f, 0.5f, 0.72f, 0.28f).minByOrNull { fy -> clash(fy) + (if (fy == 0.93f) 0f else 0.5f) } ?: 0.93f
+        val continueYAnim by androidx.compose.animation.core.animateFloatAsState(continueY, tween(300), label = "continueY")
         val pulse = rememberInfiniteTransition(label = "tipContinue")
         val glow by pulse.animateFloat(0.45f, 0.8f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glow")
         Text(
@@ -382,7 +440,7 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
             modifier = Modifier.layout { m, c ->
                 val p = m.measure(Constraints())
                 layout(c.maxWidth, c.maxHeight) {
-                    p.place((c.maxWidth - p.width) / 2, (c.maxHeight * step.continueY - p.height / 2f).toInt())
+                    p.place((c.maxWidth - p.width) / 2, (c.maxHeight * continueYAnim - p.height / 2f).toInt())
                 }
             }
         )
@@ -390,9 +448,11 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StepContent(step: TipStep, origin: Offset, screen: Size, accent: Color, lineColor: Color, isCurrent: () -> Boolean) {
+private fun StepContent(
+    step: TipStep, origin: Offset, screen: Size, accent: Color, lineColor: Color, isCurrent: () -> Boolean,
+    placed: (Int, Rect) -> Unit, rectOf: (Int) -> Rect?
+) {
     val density = LocalDensity.current
-    val noteRects = remember(step) { mutableStateMapOf<Int, Rect>() }
     val draw = remember(step) { Animatable(0f) }
     LaunchedEffect(step) {
         kotlinx.coroutines.delay(260)
@@ -418,7 +478,7 @@ private fun StepContent(step: TipStep, origin: Offset, screen: Size, accent: Col
             val gap = 6.dp.toPx() + 6.dp.toPx() // the lit area's padding + a little air
             step.notes.forEachIndexed { i, note ->
                 if (!shown(note)) return@forEachIndexed
-                val box = noteRects[i] ?: return@forEachIndexed
+                val box = rectOf(i) ?: return@forEachIndexed
                 note.anchors.forEach { id ->
                     val target = anchorRect(id) ?: return@forEach
                     val path = elbowPath(box, target, gap, 12.dp.toPx()) ?: return@forEach
@@ -427,7 +487,7 @@ private fun StepContent(step: TipStep, origin: Offset, screen: Size, accent: Col
             }
         }
         step.notes.forEachIndexed { i, note ->
-            if (shown(note)) NoteText(note, i, origin, screen, margin, accent) { r -> noteRects[i] = r }
+            if (shown(note)) NoteText(note, i, origin, screen, margin, accent) { r -> placed(i, r) }
         }
         step.anims.forEach { a ->
             TipAnimation(a, accent)
@@ -567,9 +627,9 @@ private fun NoteText(
                         note.title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, textAlign = align,
                         style = TextStyle(shadow = shadow), lineHeight = 28.sp
                     )
-                    Spacer(Modifier.height(6.dp))
+                    if (note.text.isNotBlank()) Spacer(Modifier.height(6.dp))
                 }
-                Text(
+                if (note.text.isNotBlank()) Text(
                     emphasize(note.text, accent), color = Color.White.copy(alpha = 0.94f), fontSize = 15.sp,
                     lineHeight = 21.sp, textAlign = align, style = TextStyle(shadow = shadow)
                 )
@@ -586,6 +646,8 @@ private fun TipAnimation(spec: TipAnimSpec, accent: Color) {
     val period = when (spec.anim) {
         TipAnim.PINCH_EXPLORE -> 2600
         TipAnim.HOLD_WHEEL -> 2800
+        TipAnim.HOLD_REACT -> 2800
+        TipAnim.SWIPE_REPLY -> 2400
         TipAnim.THREE_FINGERS -> 2600
         else -> 2200
     }
@@ -775,6 +837,68 @@ private fun DrawScope.drawGesture(anim: TipAnim, t: Float, accent: Color) {
             val press = phase(t, 0.15f, 0.22f) * (1f - phase(t, 0.28f, 0.34f))
             ripple(c, (t - 0.25f) / 0.45f, accent)
             finger(c, press, accent)
+        }
+        TipAnim.HOLD_REACT -> {
+            // A message held down: the row of reactions pops up above it, one
+            // is picked, and it lands on the message.
+            val bw = w * 0.7f; val bh = h * 0.24f
+            val bubble = Offset(c.x, c.y + h * 0.18f)
+            val press = phase(t, 0.06f, 0.12f) * (1f - phase(t, 0.62f, 0.68f))
+            val lift = phase(t, 0.12f, 0.32f) * (1f - phase(t, 0.8f, 0.9f))
+            val bs = 1f + 0.05f * lift
+            drawRoundRect(
+                accent.copy(alpha = 0.3f), topLeft = Offset(bubble.x - bw * bs / 2, bubble.y - bh * bs / 2), size = Size(bw * bs, bh * bs),
+                cornerRadius = CornerRadius(bh * 0.45f)
+            )
+            drawRoundRect(
+                Color.White.copy(alpha = 0.75f), topLeft = Offset(bubble.x - bw * bs / 2, bubble.y - bh * bs / 2), size = Size(bw * bs, bh * bs),
+                cornerRadius = CornerRadius(bh * 0.45f), style = Stroke(1.5.dp.toPx())
+            )
+            val open = phase(t, 0.3f, 0.42f) * (1f - phase(t, 0.66f, 0.74f))
+            val pickY = bubble.y - bh * 0.5f - h * 0.2f
+            if (open > 0f) {
+                val pw = w * 0.86f * open; val ph = h * 0.17f
+                drawRoundRect(Color.White.copy(alpha = 0.16f * open), topLeft = Offset(c.x - pw / 2, pickY - ph / 2), size = Size(pw, ph), cornerRadius = CornerRadius(ph / 2))
+                for (k in 0 until 5) {
+                    val x = c.x - pw / 2 + pw * (k + 0.5f) / 5f
+                    val chosen = k == 1 && t > 0.56f
+                    val r = ph * 0.3f * (if (chosen) 1.25f else 1f)
+                    if (k == 1) heart(Offset(x, pickY), r * 1.4f, accent.copy(alpha = open))
+                    else drawCircle(Color.White.copy(alpha = 0.8f * open), radius = r, center = Offset(x, pickY))
+                }
+            }
+            // The chosen reaction under the message.
+            val landed = phase(t, 0.68f, 0.78f) * (1f - phase(t, 0.92f, 1f))
+            if (landed > 0f) {
+                val at = Offset(bubble.x - bw * 0.3f, bubble.y + bh * 0.62f)
+                drawCircle(Color.White.copy(alpha = 0.18f * landed), radius = h * 0.07f, center = at)
+                heart(at, h * 0.07f * landed, accent.copy(alpha = landed))
+            }
+            if (t < 0.7f) finger(Offset(bubble.x + bw * 0.18f, bubble.y + bh * 0.1f), press, accent)
+        }
+        TipAnim.SWIPE_REPLY -> {
+            // A message pulled sideways: the reply arrow appears behind it,
+            // and it springs back when let go.
+            val bw = w * 0.66f; val bh = h * 0.26f
+            val pull = phase(t, 0.15f, 0.55f) * (1f - phase(t, 0.62f, 0.72f))
+            val press = phase(t, 0.06f, 0.14f) * (1f - phase(t, 0.58f, 0.64f))
+            val dx = w * 0.26f * pull
+            val left = c.x - bw / 2 - w * 0.08f
+            // The arrow, growing in as the bubble leaves.
+            if (pull > 0.05f) {
+                val ac = Offset(left + w * 0.02f, c.y)
+                val r = h * 0.1f * pull
+                drawCircle(accent.copy(alpha = 0.35f + 0.4f * pull), radius = r * 1.5f, center = ac)
+                val head = Path().apply {
+                    moveTo(ac.x - r * 0.7f, ac.y); lineTo(ac.x, ac.y - r * 0.6f); lineTo(ac.x, ac.y + r * 0.6f); close()
+                }
+                drawPath(head, Color.White.copy(alpha = pull))
+                drawLine(Color.White.copy(alpha = pull), Offset(ac.x, ac.y), Offset(ac.x + r * 0.8f, ac.y), strokeWidth = r * 0.35f)
+            }
+            val bc = Offset(c.x - w * 0.04f + dx, c.y)
+            drawRoundRect(accent.copy(alpha = 0.3f), topLeft = Offset(bc.x - bw / 2, bc.y - bh / 2), size = Size(bw, bh), cornerRadius = CornerRadius(bh * 0.45f))
+            drawRoundRect(Color.White.copy(alpha = 0.75f), topLeft = Offset(bc.x - bw / 2, bc.y - bh / 2), size = Size(bw, bh), cornerRadius = CornerRadius(bh * 0.45f), style = Stroke(1.5.dp.toPx()))
+            if (t < 0.68f) finger(Offset(bc.x - bw * 0.15f, bc.y + bh * 0.1f), press, accent)
         }
         TipAnim.DRAG_HOLD -> {
             // Hold, then drag somewhere else.

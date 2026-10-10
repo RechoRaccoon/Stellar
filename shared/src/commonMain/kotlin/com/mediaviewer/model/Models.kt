@@ -69,6 +69,8 @@ data class MediaItem(
     val likeCount: Int = 0,
     val replyCount: Int = 0,
     val repostCount: Int = 0,
+    /** How many people have saved it (Bluesky's bookmark count). */
+    val bookmarkCount: Int = 0,
     val altText: String = "",
     val e621PostId: Int? = null,
     val e621Score: Int = 0,
@@ -283,6 +285,8 @@ data class BskyPost(
     val likeCount: Int? = 0,
     val repostCount: Int? = 0,
     val replyCount: Int? = 0,
+    /** How many people have saved (bookmarked) it. */
+    val bookmarkCount: Int? = 0,
     val viewer: BskyPostViewer? = null,
     // Feature request #8: com.atproto.label.defs#label entries attached to
     // this post — both labeler-applied and self-applied labels arrive here
