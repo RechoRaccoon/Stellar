@@ -812,7 +812,15 @@ private fun LandscapeMediaView(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (item.isVideo && item.videoPlaylistUrl != null) {
+                    // NSFW blurred: just the still picture, blurred (no
+                    // player — a native video view can't be blurred).
+                    if (item.nsfwBlurred(LocalHateFunBlurNsfw.current) && !item.isBlocked) {
+                        AsyncImage(
+                            model = item.thumbUrl.ifBlank { item.mediaUrl }, contentDescription = null,
+                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().blur(90.dp)
+                        )
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
+                    } else if (item.isVideo && item.videoPlaylistUrl != null) {
                         var lcPlayerRef by remember(item.id) { mutableStateOf<VideoController?>(null) }
                         var lcControlsVisible by remember(item.id) { mutableStateOf(false) }
                         var lcIsPlaying by remember(item.id) { mutableStateOf(true) }
@@ -1135,8 +1143,8 @@ private fun PostContent(
     var nsfwRevealed by remember(item.id) { mutableStateOf(false) }
     // Locked: the account's Bluesky settings don't allow this post (adult
     // content off, or its label set to Hide) — it can't be revealed here.
-    val nsfwLock = com.mediaviewer.util.AdultContentPolicy.lock(item)
-    val nsfwBlurred = item.nsfwBlurred(hateFunBlurNsfw) && !item.isBlocked && (!nsfwRevealed || nsfwLock != null)
+    val nsfwLocked = com.mediaviewer.util.AdultContentPolicy.locked(item)
+    val nsfwBlurred = item.nsfwBlurred(hateFunBlurNsfw) && !item.isBlocked && (!nsfwRevealed || nsfwLocked)
 
     var menuCenter    by remember { mutableStateOf<Offset?>(null) }
     var hoveredAction by remember { mutableStateOf<QuickAction?>(null) }
@@ -1708,10 +1716,12 @@ private fun PostContent(
                     }
                 }
             }
+            // The NSFW notices are the app's, so they're in your own colors.
+            val selfTint = rememberSelfTint(null, dominantColor)
             if (item.isBlocked) {
                 Text("Blocked", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.Center))
-            } else if (nsfwBlurred && nsfwLock != null) {
+            } else if (nsfwBlurred && nsfwLocked) {
                 // Not allowed by the account's Bluesky settings: says so,
                 // with the way to change it (Bluesky's website, opened in
                 // the phone's own browser — adult content is turned on
@@ -1724,15 +1734,13 @@ private fun PostContent(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        if (nsfwLock == com.mediaviewer.util.AdultContentPolicy.Lock.ADULT_OFF)
-                            "This post has adult content. To see posts like this, turn on adult content in your Bluesky settings."
-                        else "Your Bluesky settings hide posts like this. You can change that in your Bluesky settings.",
+                        "This post has NSFW content. To see posts like this, enable NSFW content in your Bluesky settings.",
                         color = Color.White, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(12.dp))
                     Box(
                         Modifier.clip(RoundedCornerShape(16.dp))
-                            .background(vividAccent(dominantColor).copy(alpha = 0.9f))
+                            .background(vividAccent(selfTint).copy(alpha = 0.9f))
                             .clickable { com.mediaviewer.ui.compat.openUrl(context, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL) }
                             .padding(horizontal = 16.dp, vertical = 9.dp)
                     ) {
@@ -1740,51 +1748,16 @@ private fun PostContent(
                     }
                 }
             } else if (nsfwBlurred) {
-                // Feature request #8: tap-to-reveal — only shows in the
-                // feed/pager (this composable), not in profile tab grids,
-                // per spec ("The unblur button should only appear when a
-                // post is selected/while in the feed/timeline page").
-                // Why it's blurred — the account's Bluesky setting for this
-                // label is Warn, or I Hate Fun is on — with Show (this once)
-                // and the way to change that.
-                val byBluesky = com.mediaviewer.util.AdultContentPolicy.warns(item)
-                Column(
-                    Modifier.align(Alignment.Center).padding(horizontal = 32.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                // Blurred (Android's NSFW Posts = Blur, or iOS's Bluesky
+                // label setting = Warn): Show Post reveals this one.
+                Box(
+                    Modifier.align(Alignment.Center)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(vividAccent(selfTint).copy(alpha = 0.9f))
+                        .clickable { nsfwRevealed = true }
+                        .padding(horizontal = 20.dp, vertical = 11.dp)
                 ) {
-                    Text(
-                        if (byBluesky) "Your Bluesky settings blur posts like this."
-                        else "This post is blurred because I Hate Fun is on.",
-                        color = Color.White, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(
-                            Modifier.clip(RoundedCornerShape(16.dp))
-                                .background(vividAccent(dominantColor).copy(alpha = 0.9f))
-                                .clickable { nsfwRevealed = true }
-                                .padding(horizontal = 16.dp, vertical = 9.dp)
-                        ) {
-                            Text("Show Post", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Box(
-                            Modifier.clip(RoundedCornerShape(16.dp))
-                                .background(Color.White.copy(alpha = 0.14f))
-                                .clickable {
-                                    if (byBluesky) com.mediaviewer.ui.compat.openUrl(context, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL)
-                                    else LocalOverlays.setHateFunBlur?.invoke(false)
-                                }
-                                .padding(horizontal = 16.dp, vertical = 9.dp)
-                        ) {
-                            Text(
-                                if (byBluesky) "Bluesky Settings" else "Turn Off I Hate Fun",
-                                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
+                    Text("Show Post", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -2042,7 +2015,8 @@ private fun PostContent(
                             },
                             onPrevPost = { haptic(context); onSwipeRight() },
                             onNextPost = { haptic(context); onSwipeLeft() },
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                            blurred = nsfwBlurred
                         )
                     } else if (bubbleText.isNotBlank()) {
                         PostTextBubble(
@@ -3349,7 +3323,9 @@ private fun ImageSelectorRow(
     onSelect: (Int, Boolean) -> Unit,
     onPrevPost: () -> Unit,
     onNextPost: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** The post is NSFW-blurred: its thumbnails are too. */
+    blurred: Boolean = false
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -3421,7 +3397,7 @@ private fun ImageSelectorRow(
                         AsyncImage(
                             model = ImageRequest.Builder(context.coilContext).data(img.thumbUrl.ifBlank { img.mediaUrl }).build(),
                             contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize().then(if (blurred) Modifier.blur(14.dp) else Modifier)
                         )
                     }
                 }

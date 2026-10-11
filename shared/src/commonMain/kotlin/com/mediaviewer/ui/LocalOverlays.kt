@@ -109,6 +109,8 @@ object LocalOverlays {
     /** The Tags page's hand edits on the post on screen (see
      *  MainViewModel.editCurrentPostTag): old null = add, new null = delete. */
     var editPostTag: ((oldTag: String?, newTag: String?) -> Unit)? = null
+    /** Loads the current feed again from the top. */
+    var reloadFeed: (() -> Unit)? = null
     /** Turns "I Hate Fun" (the NSFW blur) on or off. */
     var setHateFunBlur: ((Boolean) -> Unit)? = null
     /** Opens a web address in Search › Web Browser. */

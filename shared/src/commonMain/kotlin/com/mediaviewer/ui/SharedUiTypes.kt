@@ -155,9 +155,8 @@ fun ReviewKindFilter.matchesBacklog(item: PopfeedBacklogItem) = this == ReviewKi
 fun ReviewKindFilter.matchesTitle(result: com.mediaviewer.model.TitleSearchResult) =
     this == ReviewKindFilter.ALL || categoryBucket(result.mediaCategory) == this
 
-/** Shown blurred: an adult-labeled post the account's Bluesky settings
- *  warn about or hide (see AdultContentPolicy), or any adult-labeled post
- *  with "I Hate Fun" on. */
-fun MediaItem.nsfwBlurred(hateFun: Boolean): Boolean =
-    (hateFun && isNsfwLabeled) || com.mediaviewer.util.AdultContentPolicy.warns(this) ||
-        com.mediaviewer.util.AdultContentPolicy.lock(this) != null
+/** Shown blurred: an NSFW post set to Blur / Warn, or locked on iOS (see
+ *  AdultContentPolicy). [hateFun] is no longer used. */
+@Suppress("UNUSED_PARAMETER")
+fun MediaItem.nsfwBlurred(hateFun: Boolean = false): Boolean =
+    com.mediaviewer.util.AdultContentPolicy.warns(this) || com.mediaviewer.util.AdultContentPolicy.locked(this)

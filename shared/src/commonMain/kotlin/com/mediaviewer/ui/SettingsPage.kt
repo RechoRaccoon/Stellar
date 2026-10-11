@@ -602,6 +602,158 @@ internal fun SettingsPageContent(
             }
         }
 
+        // ── App Functionality ───────────────────────────────────────────
+        CollapsibleSection("App Functionality", tint) {
+
+            // NSFW Posts (posts labeled porn / sexual / nudity — see
+            // AdultContentPolicy). Android: Stellar's own Show / Blur / Hide.
+            // iOS: the Bluesky account's settings, managed on Bluesky's
+            // website in the phone's own browser (NSFW content is only
+            // enabled outside the app).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("NSFW Posts", Modifier.weight(1f))
+                    if (com.mediaviewer.util.AdultContentPolicy.followsBluesky) {
+                        val nsfwContext = com.mediaviewer.ui.compat.LocalContext.current
+                        PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL) })
+                    } else {
+                        var nsfwMenuOpen by remember { mutableStateOf(false) }
+                        val mode = com.mediaviewer.util.AdultContentPolicy.androidMode
+                        fun label(v: com.mediaviewer.util.AdultContentPolicy.Visibility) = when (v) {
+                            com.mediaviewer.util.AdultContentPolicy.Visibility.SHOW -> "Show"
+                            com.mediaviewer.util.AdultContentPolicy.Visibility.WARN -> "Blur"
+                            com.mediaviewer.util.AdultContentPolicy.Visibility.HIDE -> "Hide"
+                        }
+                        Box {
+                            Text(
+                                label(mode), color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { nsfwMenuOpen = true }
+                            )
+                            DropdownMenu(expanded = nsfwMenuOpen, onDismissRequest = { nsfwMenuOpen = false }) {
+                                com.mediaviewer.util.AdultContentPolicy.Visibility.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(label(option), fontWeight = if (option == mode) FontWeight.SemiBold else FontWeight.Normal) },
+                                        onClick = {
+                                            nsfwMenuOpen = false
+                                            if (option != mode) {
+                                                val hideChanged = option == com.mediaviewer.util.AdultContentPolicy.Visibility.HIDE ||
+                                                    mode == com.mediaviewer.util.AdultContentPolicy.Visibility.HIDE
+                                                com.mediaviewer.util.AdultContentPolicy.updateAndroidMode(option)
+                                                // Hiding works as posts are read: the feed loads again.
+                                                if (hideChanged) LocalOverlays.reloadFeed?.invoke()
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Every vibration the app makes (on by default).
+            ToggleBubble("Haptics", com.mediaviewer.util.UiToggles.hapticsEnabled, { com.mediaviewer.util.UiToggles.updateHapticsEnabled(it) }, liquidGlass, tint, backdrop)
+
+            ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
+
+            // The stats row at the bottom of a post's text bubble; once the
+            // stats are hidden, the date can be hidden too (the whole row).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("Hide Post Stats", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
+                }
+                androidx.compose.animation.AnimatedVisibility(visible = com.mediaviewer.util.UiToggles.hidePostStats) {
+                    Column {
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel("Hide Post Date", Modifier.weight(1f))
+                            CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
+                        }
+                    }
+                }
+            }
+            if (bskyLoggedIn) {
+                // Runs the follower scan from scratch — for picking up accounts
+                // that started posting reviews/blogs after the last scan, or
+                // that were skipped. Opening a profile already auto-subscribes
+                // it if it has any, so this is only for accounts never visited.
+                val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
+                ActionBubble(
+                    label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Reviews/Blogs",
+                    buttonLabel = if (scanning) "…" else "Scan",
+                    onClick = onRescanFollowersFromScratch,
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
+                )
+            }
+
+            // Translate Post Text + Translate To share one bubble.
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.TRANSLATION) {
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Translate Post Text", Modifier.weight(1f))
+                        CompactSwitch(translationEnabled, onToggleTranslation)
+                    }
+                    if (translationEnabled) {
+                        BubbleDivider()
+                        var langMenuExpanded by remember { mutableStateOf(false) }
+                        BubbleRow {
+                            RowLabel("Translate To", Modifier.weight(1f))
+                            Box {
+                                Text(
+                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES
+                                        .firstOrNull { it.first == translationTargetLang }?.second
+                                        ?: com.mediaviewer.util.TranslationManager.displayNameFor(translationTargetLang),
+                                    color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { langMenuExpanded = true }
+                                )
+                                DropdownMenu(expanded = langMenuExpanded, onDismissRequest = { langMenuExpanded = false }) {
+                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES.forEach { (langTag, name) ->
+                                        DropdownMenuItem(
+                                            text = { Text(name) },
+                                            onClick = { onSelectTranslationLanguage(langTag); langMenuExpanded = false }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        BubbleDivider()
+                        BubbleRow {
+                            RowLabel("Show Translation Status", Modifier.weight(1f))
+                            CompactSwitch(com.mediaviewer.util.UiToggles.showTranslationStatus) {
+                                com.mediaviewer.util.UiToggles.updateShowTranslationStatus(it)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (bskyLoggedIn) {
+                ToggleBubble("Show \"Add To\" After Following", autoAddToOnFollow, onToggleAutoAddToOnFollow, liquidGlass, tint, backdrop)
+            }
+
+            // Bluesky profile/post links (a scanned QR code, a link in the
+            // browser) can open in Stellar — "Set Up" explains how, with
+            // shortcuts to both apps' Android settings. (iOS: a share-sheet
+            // shortcut instead; the same popup explains that one.)
+            var linkSetupOpen by remember { mutableStateOf(false) }
+            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.OPEN_BY_DEFAULT_LINKS) {
+                ActionBubble(
+                    label = "Open Bluesky Links in Stellar",
+                    buttonLabel = "Set Up",
+                    onClick = { linkSetupOpen = true },
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+                )
+            }
+            if (linkSetupOpen) {
+                OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
+            }
+
+            // Notifications, holidays, browser search engine (formerly
+            // "Supporter Settings").
+            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) SupporterSettingsBubbles(liquidGlass, tint, backdrop)
+        }
+
         // ── UI Customization ────────────────────────────────────────────
         CollapsibleSection("UI Customization", tint) {
 
@@ -838,139 +990,6 @@ internal fun SettingsPageContent(
                     }
                 }
             }
-        }
-
-        // ── App Functionality ───────────────────────────────────────────
-        CollapsibleSection("App Functionality", tint) {
-
-            // Every vibration the app makes (on by default).
-            ToggleBubble("Haptics", com.mediaviewer.util.UiToggles.hapticsEnabled, { com.mediaviewer.util.UiToggles.updateHapticsEnabled(it) }, liquidGlass, tint, backdrop)
-
-            ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
-
-            // The stats row at the bottom of a post's text bubble; once the
-            // stats are hidden, the date can be hidden too (the whole row).
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Hide Post Stats", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
-                }
-                androidx.compose.animation.AnimatedVisibility(visible = com.mediaviewer.util.UiToggles.hidePostStats) {
-                    Column {
-                        BubbleDivider()
-                        BubbleRow {
-                            RowLabel("Hide Post Date", Modifier.weight(1f))
-                            CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
-                        }
-                    }
-                }
-            }
-            // NSFW Content: follows the Bluesky account's own adult content
-            // settings on every platform (see AdultContentPolicy), plus the
-            // "I Hate Fun" blur, in the same bubble.
-            val nsfwContext = com.mediaviewer.ui.compat.LocalContext.current
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("NSFW Content", Modifier.weight(1f))
-                    // Opens in the phone's own browser (on purpose, not
-                    // Stellar's: adult content is turned on outside the app).
-                    PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL) })
-                }
-                // Blur: always shown; while the Bluesky account doesn't
-                // allow adult content, it's on and can't be changed here
-                // (those posts are blurred regardless).
-                val adultAllowed = com.mediaviewer.util.AdultContentPolicy.accountAllowsAdult
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("I Hate Fun (Blur NSFW Content)", Modifier.weight(1f))
-                    CompactSwitch(hateFunBlurNsfw || !adultAllowed, enabled = adultAllowed, onCheckedChange = onToggleHateFunBlurNsfw)
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("I REALLY Hate Fun (Filter Out NSFW Content)", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.AdultContentPolicy.filterAll) { com.mediaviewer.util.AdultContentPolicy.updateFilterAll(it) }
-                }
-            }
-
-            if (bskyLoggedIn) {
-                // Runs the follower scan from scratch — for picking up accounts
-                // that started posting reviews/blogs after the last scan, or
-                // that were skipped. Opening a profile already auto-subscribes
-                // it if it has any, so this is only for accounts never visited.
-                val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
-                ActionBubble(
-                    label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Reviews/Blogs",
-                    buttonLabel = if (scanning) "…" else "Scan",
-                    onClick = onRescanFollowersFromScratch,
-                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
-                )
-            }
-
-            // Translate Post Text + Translate To share one bubble.
-            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.TRANSLATION) {
-                SettingsBubble(liquidGlass, tint, backdrop) {
-                    BubbleRow {
-                        RowLabel("Translate Post Text", Modifier.weight(1f))
-                        CompactSwitch(translationEnabled, onToggleTranslation)
-                    }
-                    if (translationEnabled) {
-                        BubbleDivider()
-                        var langMenuExpanded by remember { mutableStateOf(false) }
-                        BubbleRow {
-                            RowLabel("Translate To", Modifier.weight(1f))
-                            Box {
-                                Text(
-                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES
-                                        .firstOrNull { it.first == translationTargetLang }?.second
-                                        ?: com.mediaviewer.util.TranslationManager.displayNameFor(translationTargetLang),
-                                    color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.clickable { langMenuExpanded = true }
-                                )
-                                DropdownMenu(expanded = langMenuExpanded, onDismissRequest = { langMenuExpanded = false }) {
-                                    com.mediaviewer.util.TranslationManager.SUPPORTED_LANGUAGES.forEach { (langTag, name) ->
-                                        DropdownMenuItem(
-                                            text = { Text(name) },
-                                            onClick = { onSelectTranslationLanguage(langTag); langMenuExpanded = false }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        BubbleDivider()
-                        BubbleRow {
-                            RowLabel("Show Translation Status", Modifier.weight(1f))
-                            CompactSwitch(com.mediaviewer.util.UiToggles.showTranslationStatus) {
-                                com.mediaviewer.util.UiToggles.updateShowTranslationStatus(it)
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (bskyLoggedIn) {
-                ToggleBubble("Show \"Add To\" After Following", autoAddToOnFollow, onToggleAutoAddToOnFollow, liquidGlass, tint, backdrop)
-            }
-
-            // Bluesky profile/post links (a scanned QR code, a link in the
-            // browser) can open in Stellar — "Set Up" explains how, with
-            // shortcuts to both apps' Android settings. (iOS: a share-sheet
-            // shortcut instead; the same popup explains that one.)
-            var linkSetupOpen by remember { mutableStateOf(false) }
-            PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.OPEN_BY_DEFAULT_LINKS) {
-                ActionBubble(
-                    label = "Open Bluesky Links in Stellar",
-                    buttonLabel = "Set Up",
-                    onClick = { linkSetupOpen = true },
-                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
-                )
-            }
-            if (linkSetupOpen) {
-                OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
-            }
-
-            // Notifications, holidays, browser search engine (formerly
-            // "Supporter Settings").
-            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) SupporterSettingsBubbles(liquidGlass, tint, backdrop)
         }
 
         // ── Integrations ────────────────────────────────────────────────

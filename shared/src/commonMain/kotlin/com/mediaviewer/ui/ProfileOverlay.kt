@@ -2752,7 +2752,7 @@ private fun SwipeableThumbBox(
         // Bug fix: see ThumbBox's own comment above — blur the actual page
         // content, not a solid box laid on top of it, or the effect reads
         // as a flat grey dim instead of a real blur.
-        val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
+        val blurNsfw = item.nsfwBlurred(LocalHateFunBlurNsfw.current)
         HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().let { if (blurNsfw) it.blur(80.dp) else it }) { page ->
             val img = item.mediaGroup.getOrNull(page)
             val thumb = img?.thumbUrl?.ifBlank { img.mediaUrl }?.takeIf { it.isNotBlank() } ?: item.thumbUrl.ifBlank { item.mediaUrl }

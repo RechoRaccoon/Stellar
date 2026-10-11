@@ -3916,7 +3916,26 @@ class MainViewModel(
      */
     private fun isRateLimitError(message: String?): Boolean = message?.contains("429") == true
 
+    /** Re-reads the account's NSFW settings from Bluesky (they're changed
+     *  on the website). The blur follows them straight away — it's worked
+     *  out as posts are drawn — so a refresh is all it takes. */
+    private var contentPrefsReadAt = 0L
+    fun refreshContentPrefs(force: Boolean = false) {
+        if (!_bskyLoggedIn.value || !com.mediaviewer.util.AdultContentPolicy.followsBluesky) return
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        if (!force && now - contentPrefsReadAt < 5_000L) return
+        contentPrefsReadAt = now
+        viewModelScope.launch(Dispatchers.IO) {
+            bskyRepo.getAdultContentPrefs(bskyToken).onSuccess { (allowed, labels) ->
+                // What's hidden changed: the feed is loaded again so it
+                // follows (posts are filtered as they're read).
+                if (com.mediaviewer.util.AdultContentPolicy.update(allowed, labels)) withContext(Dispatchers.Main) { loadFeed(reset = true) }
+            }
+        }
+    }
+
     fun loadFeed(reset: Boolean = true) {
+        if (reset) refreshContentPrefs()
         // Bug fix (Outstanding Issue #1 — diagnostic, temporary): see
         // setMode()'s matching Log.d for why this is here. Logs a stack
         // trace too since loadFeed() has many call sites and knowing which
@@ -4051,8 +4070,11 @@ class MainViewModel(
             // Adult content follows the account's own Bluesky moderation
             // settings (adult content on/off, and porn / sexual / nudity's
             // Show / Warn / Hide) — see AdultContentPolicy.
-            bskyRepo.getAdultContentPrefs(bskyToken).onSuccess { (allowed, labels) ->
-                com.mediaviewer.util.AdultContentPolicy.update(allowed, labels)
+            contentPrefsReadAt = com.mediaviewer.platform.currentTimeMillis()
+            if (com.mediaviewer.util.AdultContentPolicy.followsBluesky) bskyRepo.getAdultContentPrefs(bskyToken).onSuccess { (allowed, labels) ->
+                // Changed since last time (on the website): load the feed
+                // again, filtered the new way.
+                if (com.mediaviewer.util.AdultContentPolicy.update(allowed, labels) && _mediaItems.value.isNotEmpty()) withContext(Dispatchers.Main) { loadFeed(reset = true) }
             }
             var result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -4428,6 +4450,7 @@ class MainViewModel(
     fun refreshProfile() {
         val cur = _profileOverlay.value ?: return
         if (cur.refreshing || cur.hidden) return
+        refreshContentPrefs(force = true)
         tapHaptic()
         val did = cur.author.did
         _profileOverlay.value = cur.copy(refreshing = true)

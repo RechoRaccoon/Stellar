@@ -873,3 +873,16 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Settings › NSFW Content bubble, in order: Manage on Bluesky · **I Hate Fun (Blur NSFW Content)** (always shown; on and grayed out while the account doesn't allow adult content — `CompactSwitch(checked, enabled, …)` overload) · **I REALLY Hate Fun (Filter Out NSFW Content)** (`AdultContentPolicy.filterAll`).
 - Blurred post (adult allowed): explains why — "Your Bluesky settings blur posts like this." (label = Warn) or "…because I Hate Fun is on." — with **Show Post** (this once) and **Bluesky Settings** (system browser) or **Turn Off I Hate Fun** (`LocalOverlays.setHateFunBlur`). Locked posts unchanged.
 - Like heart color: exactly the like button's (`vividAccent(dominantColor)`), no brightening; highlights toned down on both hearts (also the DM Hearts effect's shine).
+
+### Update 46 — NSFW polish
+- Thumbnails: multi-image grid tiles (`SwipeableThumbBox`), the post's image strip (`ImageSelectorRow(blurred)`) and landscape view (blurred still, no player) now blur NSFW posts too (single tiles, search tiles and the grid view already did).
+- Wording: "NSFW content", "enable" (not adult / allow / turn on). Locked: "This post has NSFW content. To see posts like this, enable NSFW content in your Bluesky settings." NSFW notices' buttons use your own color (`rememberSelfTint`), not the post's.
+- Refresh now re-reads the account's NSFW settings (`refreshContentPrefs`: feed refresh (`loadFeed(reset)`, throttled 5s) and profile Refresh). Blur is worked out as posts draw, so it updates at once — no restart.
+- I Hate Fun is always a normal switch; while NSFW content isn't enabled on Bluesky it shows on, and tapping it opens `EnableNsfwDialog` (short explanation + Open Bluesky Settings, system browser).
+
+### Update 47 — NSFW Posts: Android setting, iOS follows Bluesky (replaces 42–46's NSFW design)
+- `AdultContentPolicy` (porn / sexual / nudity labels only):
+  - **Android** (`followsBluesky` false): Settings › App Functionality › **NSFW Posts** dropdown — Show (default) / Blur / Hide (`androidMode`, key `nsfw_posts_mode`). Bluesky's label settings aren't fetched or used. Changing to/from Hide reloads the feed (`LocalOverlays.reloadFeed`).
+  - **iOS**: NSFW Posts row has **Manage on Bluesky** (system browser). NSFW content not enabled → blurred + locked (`locked()`), post view explains and links to Bluesky settings. Enabled → per label: Show / Warn (blurred, Show Post) / Hide (filtered in `parseFeedItemSafe`). Prefs re-read on feed/profile refresh; if they changed, the feed reloads.
+- `filters()` / `warns()` / `locked()`; `nsfwBlurred()` = warns || locked. Blur overlay is just **Show Post** (your color). "I Hate Fun" / "I REALLY Hate Fun" removed from Settings (the old pref is left unused).
+- Settings order: App Functionality (NSFW Posts first) now comes before UI Customization.

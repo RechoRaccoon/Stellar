@@ -68,6 +68,7 @@ fun LocalOverlayHost(
         LocalOverlays.editPostTag = viewModel::editCurrentPostTag
         LocalOverlays.openInBrowser = viewModel::openInAppBrowser
         LocalOverlays.setHateFunBlur = viewModel::setHateFunBlurNsfw
+        LocalOverlays.reloadFeed = { viewModel.loadFeed(reset = true) }
         LocalOverlays.pollTally = { uri -> viewModel.pollTally(uri) }
         LocalOverlays.pollVote = viewModel::votePoll
         LocalOverlays.scanDmStreak = viewModel::scanDmStreak
