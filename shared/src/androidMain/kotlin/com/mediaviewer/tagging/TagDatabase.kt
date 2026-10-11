@@ -242,27 +242,29 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
      *  "34" now finds "rule_34" the way a person typing it would expect,
      *  without changing behavior for a term that *is* an exact/aliased tag
      *  (that still matches first, via the same query). */
-    fun searchPostUris(termGroups: List<List<String>>, limit: Int = 200): List<String> {
-        if (termGroups.isEmpty() || termGroups.any { it.isEmpty() }) return emptyList()
-        var resultSet: LinkedHashSet<String>? = null
+    fun searchPostUris(query: TagAliases.TagQuery, limit: Int = 200): List<String> {
+        if (query.isEmpty) return emptyList()
         val db = readableDatabase
-        for (group in termGroups) {
-            val exactPlaceholders = group.joinToString(",") { "?" }
-            // (In a LIKE pattern "_" and "%" mean "any character(s)". Tags
-            // are full of underscores, so they're escaped to mean themselves.)
-            val likeClauses = group.joinToString(" OR ") { "tag_name LIKE ? ESCAPE '\\'" }
-            val likeArgs = group.map { "%" + it.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" }
+        // Whole tags only (exact names, never part of one): each include
+        // group must match; posts with any excluded tag are left out.
+        var resultSet: LinkedHashSet<String>? = null
+        for (group in query.include) {
+            val placeholders = group.joinToString(",") { "?" }
             val matches = LinkedHashSet<String>()
-            db.rawQuery(
-                "SELECT DISTINCT post_uri FROM media_tags WHERE tag_name IN ($exactPlaceholders) OR $likeClauses",
-                (group + likeArgs).toTypedArray()
-            ).use { cursor ->
+            db.rawQuery("SELECT DISTINCT post_uri FROM media_tags WHERE LOWER(tag_name) IN ($placeholders)", group.toTypedArray()).use { cursor ->
                 while (cursor.moveToNext()) matches.add(cursor.getString(0))
             }
             resultSet = resultSet?.apply { retainAll(matches) } ?: matches
             if (resultSet.isEmpty()) break
         }
-        val matched = resultSet ?: return emptyList()
+        // Only exclusions: start from every tagged post.
+        val matched: LinkedHashSet<String> = resultSet ?: LinkedHashSet(allTaggedPostUris(Int.MAX_VALUE))
+        if (query.exclude.isNotEmpty() && matched.isNotEmpty()) {
+            val placeholders = query.exclude.joinToString(",") { "?" }
+            db.rawQuery("SELECT DISTINCT post_uri FROM media_tags WHERE LOWER(tag_name) IN ($placeholders)", query.exclude.toTypedArray()).use { cursor ->
+                while (cursor.moveToNext()) matched.remove(cursor.getString(0))
+            }
+        }
         if (matched.isEmpty()) return emptyList()
         // Bug fix ("search shows the newest posts for a tag, then refreshes
         // to older ones and the newer ones disappear"): matches came back in

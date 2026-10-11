@@ -1189,7 +1189,7 @@ private fun PostContent(
     // A double tap (big) always plays it, liked already or not; the like
     // button only when it's actually liking.
     fun burstAt(at: Offset, big: Boolean) {
-        if (reducedAnimations) return
+        if (reducedAnimations || com.mediaviewer.util.UiToggles.likeAnimation == com.mediaviewer.util.UiToggles.LikeAnimation.NONE) return
         if (!big && (appMode != AppMode.BLUESKY || item.isLiked)) return
         if (likeBursts.size > 12) likeBursts.removeAt(0)
         likeBursts.add(LikeBurst(com.mediaviewer.platform.currentTimeMillis() * 16 + likeBursts.size, at, big))
@@ -2182,8 +2182,8 @@ private class LikeBurst(val id: Long, val at: Offset, val big: Boolean)
  */
 @Composable
 private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: () -> Unit) {
-    // 2D by default; Settings › UI Customization › 3D Like Heart.
-    val threeD = remember { com.mediaviewer.util.UiToggles.threeDLikeHeart }
+    // Settings › UI Customization › Like Animation (3D by default).
+    val threeD = remember { com.mediaviewer.util.UiToggles.likeAnimation != com.mediaviewer.util.UiToggles.LikeAnimation.HEART_2D }
     if (!threeD) { FlatLikeHeart(burst, color, topInRoot, onDone); return }
     val done by rememberUpdatedState(onDone)
     var elapsed by remember { mutableStateOf(0f) }

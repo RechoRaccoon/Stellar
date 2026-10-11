@@ -196,12 +196,17 @@ private class IosTagStore(private val path: String) {
     fun taggedCount(): Int = locked { posts.values.count { it.tags.isNotEmpty() } }
     fun sizeBytes(): Long = synchronizedCompat(lock) { bytesOnDisk }
 
-    /** AND across [groups], OR within one; a term matches a tag that is
-     *  it or contains it (so "34" finds "rule_34"). Newest first. */
-    fun search(groups: List<List<String>>, limit: Int): List<String> = locked {
-        if (groups.isEmpty() || groups.any { it.isEmpty() }) return@locked emptyList()
+    /** Whole tags only: every include group must match one of the post's
+     *  tags exactly (any alias in the group), and none of the excluded tags
+     *  may be on it. Only include → every tagged post. Newest first. */
+    fun search(query: com.mediaviewer.tagging.TagAliases.TagQuery, limit: Int): List<String> = locked {
+        if (query.isEmpty) return@locked emptyList()
         posts.values.asSequence()
-            .filter { post -> groups.all { group -> post.tags.any { tag -> group.any { term -> tag.n.contains(term, ignoreCase = true) } } } }
+            .filter { it.tags.isNotEmpty() }
+            .filter { post ->
+                val names = post.tags.mapTo(HashSet()) { it.n.lowercase() }
+                query.include.all { group -> group.any { it in names } } && query.exclude.none { it in names }
+            }
             .sortedByDescending { it.at }
             .take(limit).map { it.uri }.toList()
     }
@@ -532,11 +537,11 @@ class IosTaggingRepository(
     }
 
     override fun search(query: String): List<String> {
-        val groups = TagAliases.toTagGroups(query)
+        val parsed = TagAliases.parse(query)
         // Every match in the dataset (no cap): Search › Tagged sorts them
         // all, so the most liked etc. really is first.
-        if (groups.isEmpty()) return browseAllTagged(Int.MAX_VALUE)
-        return store.search(groups, Int.MAX_VALUE)
+        if (parsed.isEmpty) return browseAllTagged(Int.MAX_VALUE)
+        return store.search(parsed, Int.MAX_VALUE)
     }
 
     override fun browseAllTagged(limit: Int): List<String> = store.allTagged(limit)

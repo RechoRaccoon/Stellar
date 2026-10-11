@@ -2149,6 +2149,7 @@ class MainViewModel(
         _searchOpen.value = false
         _searchHiddenBehindPost.value = true
         _screenState.value = ScreenState.FEED
+        followPagerSource(PagerSource.SEARCH_POSTS, _searchState.map { it.posts }.distinctUntilChanged())
     }
 
     fun openDmThread(convo: DmConversation) {
@@ -4042,7 +4043,51 @@ class MainViewModel(
         return if (_hideTextOnlyPosts.value) unblocked.filterNot { it.isTextOnly } else unblocked
     }
 
+    // ── Posts opened from another list (Tagged, Search, a profile) ──────
+    // Swiping through them in Timeline mode used to just end at the last
+    // loaded post: "load more" only knew about feeds. Now the pager
+    // remembers where its posts came from, asks that list for its next
+    // page near the end, and adds the new posts on as they arrive.
+    private enum class PagerSource { FEED, TAGGED, SEARCH_POSTS, PROFILE_TAB }
+    private var pagerSource = PagerSource.FEED
+    /** The pager's first post when the source was set: a different first
+     *  post means the pager has since been given something else. */
+    private var pagerSourceFirstId: String? = null
+    private var pagerAppendJob: Job? = null
+
+    private fun currentPagerSource(): PagerSource =
+        if (pagerSource != PagerSource.FEED && _mediaItems.value.firstOrNull()?.id == pagerSourceFirstId) pagerSource else PagerSource.FEED
+
+    /** Starts following [source]: whatever new posts [newPosts] lists later
+     *  are added to the end of the pager (in its order, once each). */
+    private fun followPagerSource(source: PagerSource, newPosts: Flow<List<MediaItem>>, prepare: suspend (List<MediaItem>) -> List<MediaItem> = { it }) {
+        pagerSource = source
+        pagerSourceFirstId = _mediaItems.value.firstOrNull()?.id
+        pagerAppendJob?.cancel()
+        pagerAppendJob = viewModelScope.launch(Dispatchers.IO) {
+            newPosts.takeWhile { currentPagerSource() == source }.collect { list ->
+                val have = _mediaItems.value.mapTo(HashSet()) { it.id }
+                val fresh = list.filter { it.id !in have }
+                if (fresh.isEmpty()) return@collect
+                val ready = prepare(fresh)
+                withContext(Dispatchers.Main) {
+                    if (currentPagerSource() == source) {
+                        val now = _mediaItems.value
+                        val ids = now.mapTo(HashSet()) { it.id }
+                        _mediaItems.value = now + ready.filter { it.id !in ids }
+                    }
+                }
+            }
+        }
+    }
+
     fun loadMore() {
+        when (currentPagerSource()) {
+            PagerSource.TAGGED -> { loadMoreTagged(); return }
+            PagerSource.SEARCH_POSTS -> { loadMoreSearchPosts(); return }
+            PagerSource.PROFILE_TAB -> { loadMoreProfileTab(); return }
+            PagerSource.FEED -> Unit
+        }
         if (feedCursor == null || isLoadingMore) return
         when (activeFeedMode) {
             ActiveFeedMode.NORMAL  -> loadFeed(reset = false)
@@ -5125,6 +5170,13 @@ class MainViewModel(
         // scroll position/tab/loaded content survive. Pinching in from this
         // post (see pinchInFromPost()) brings it right back exactly as it was.
         _profileOverlay.value = cur.copy(hidden = true)
+        // More of that tab (just the sub-tab's kind of post) as it loads.
+        val tab = cur.selectedTab
+        val kind = cur.postKindFilter
+        val did = cur.author.did
+        followPagerSource(PagerSource.PROFILE_TAB,
+            _profileOverlay.map { o -> if (o?.author?.did == did) o.tabStates[tab]?.items.orEmpty() else emptyList() }.distinctUntilChanged()
+        ) { fresh -> filterHidden(fresh.filter { kind.matches(it) }) }
     }
 
     /** Pinch-in on a post: if it was reached by tapping a grid item inside a
@@ -6916,6 +6968,9 @@ class MainViewModel(
             _currentIndex.value = next
             // Fetch the next page well before the end is reached.
             if (next >= _mediaItems.value.size - 15) loadMore()
+        } else {
+            // At the very end (a page that failed, or arrived late): ask again.
+            loadMore()
         }
     }
 
@@ -8016,7 +8071,9 @@ class MainViewModel(
         }
         viewModelScope.launch(Dispatchers.IO) {
             val vocabulary = taggingRepo.tagVocabulary()
-            _tagSuggestions.value = TagSuggestionProvider.suggest(lastWord, vocabulary)
+            // "-tag" (leave out): suggest for the tag after the minus.
+            val word = lastWord.removePrefix("-")
+            _tagSuggestions.value = if (word.isBlank()) emptyList() else TagSuggestionProvider.suggest(word, vocabulary)
         }
     }
 
@@ -8028,7 +8085,8 @@ class MainViewModel(
     fun applyTagSuggestion(suggestion: String) {
         val current = _searchState.value.query
         val lastSpace = current.lastIndexOf(' ')
-        val newQuery = (if (lastSpace >= 0) current.substring(0, lastSpace + 1) else "") + suggestion + " "
+        val minus = if (current.substring(lastSpace + 1).startsWith("-")) "-" else ""
+        val newQuery = (if (lastSpace >= 0) current.substring(0, lastSpace + 1) else "") + minus + suggestion + " "
         _searchState.value = _searchState.value.copy(query = newQuery)
         _tagSuggestions.value = emptyList()
     }
@@ -8227,6 +8285,12 @@ class MainViewModel(
                 _searchOpen.value = false
                 _searchHiddenBehindPost.value = true
                 _screenState.value = ScreenState.FEED
+                followPagerSource(PagerSource.TAGGED, _likedTagSearchResults) { fresh ->
+                    fresh.map { item ->
+                        if (item.tags.isNotBlank()) item
+                        else taggingRepo.tagsForPost(item.postUri).takeIf { it.isNotEmpty() }?.let { item.copy(tags = it.joinToString(" ")) } ?: item
+                    }
+                }
             }
         }
     }

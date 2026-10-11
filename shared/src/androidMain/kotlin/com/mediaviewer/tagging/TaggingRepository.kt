@@ -514,11 +514,11 @@ class TaggingRepository(
      *  characters in it should behave the same way rather than looking
      *  "broken" with a permanent empty result. */
     override fun search(query: String): List<String> {
-        val groups = TagAliases.toTagGroups(query)
+        val parsed = TagAliases.parse(query)
         // Every match in the dataset (no cap): Search › Tagged sorts them
         // all, so the most liked etc. really is first.
-        if (groups.isEmpty()) return browseAllTagged(Int.MAX_VALUE)
-        return db.searchPostUris(groups, Int.MAX_VALUE)
+        if (parsed.isEmpty) return browseAllTagged(Int.MAX_VALUE)
+        return db.searchPostUris(parsed, Int.MAX_VALUE)
     }
 
     /** Default view for the Liked tab (item 2): every tagged post, most

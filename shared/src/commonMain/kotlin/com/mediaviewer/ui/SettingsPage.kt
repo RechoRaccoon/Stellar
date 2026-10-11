@@ -226,74 +226,77 @@ private fun SupporterSettingsSection(liquidGlass: Boolean, tint: Color, backdrop
  *  of App Functionality instead of a category of their own. */
 @Composable
 private fun SupporterSettingsBubbles(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    NotificationsBubble(liquidGlass, tint, backdrop)
+    SearchEngineBubble(liquidGlass, tint, backdrop)
+    HolidaysBubble(liquidGlass, tint, backdrop)
+}
+
+/** DM / Inbox notifications: a banner inside Stellar while it's open, and
+ *  device notifications from a background check while it's closed. */
+@Composable
+private fun NotificationsBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
     val local = com.mediaviewer.util.LocalData
     val context = com.mediaviewer.ui.compat.LocalContext.current
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("DM Notifications", Modifier.weight(1f))
+            SupporterSwitch(local.notifyDms) {
+                local.updateNotifyDms(it)
+                com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
+            }
+        }
+        BubbleDivider()
+        BubbleRow {
+            RowLabel("Inbox Notifications", Modifier.weight(1f))
+            SupporterSwitch(local.notifyInbox) {
+                local.updateNotifyInbox(it)
+                com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
+            }
+        }
+    }
+}
+
+/** The Calendar's built-in days. */
+@Composable
+private fun HolidaysBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val local = com.mediaviewer.util.LocalData
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("Major Holidays", Modifier.weight(1f))
+            SupporterSwitch(local.majorHolidays) { local.updateMajorHolidays(it) }
+        }
+        BubbleDivider()
+        BubbleRow {
+            RowLabel("Minor Holidays", Modifier.weight(1f))
+            SupporterSwitch(local.minorHolidays) { local.updateMinorHolidays(it) }
+        }
+    }
+}
+
+/** Search's Web Browser tab: what the address bar searches with. */
+@Composable
+private fun SearchEngineBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val local = com.mediaviewer.util.LocalData
     val supporter = com.mediaviewer.util.Supporter.active
-    run {
-        // Notifications: a banner inside Stellar while it's open (anywhere
-        // but the DMs / Inbox themselves), and ordinary device notifications
-        // while it's closed, from a background check. Android runs that check
-        // every few minutes; on iOS it runs when the system grants a
-        // "background app refresh", so they arrive later there.
-        val android = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            BubbleRow {
-                RowLabel(
-                    "DM Notifications", Modifier.weight(1f),
-                    sub = if (android) "New messages, in Stellar and while it's closed."
-                    else "New messages, in Stellar and while it's closed. iOS decides how often it checks, so these can take a while."
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        var engineMenu by remember { mutableStateOf(false) }
+        BubbleRow {
+            RowLabel("Browser Search Engine", Modifier.weight(1f))
+            Box {
+                Text(
+                    local.searchEngine.label,
+                    color = if (supporter) LocalSettingsAccent.current else Color.White,
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.supporterShine(!supporter).clickable {
+                        if (supporter) engineMenu = true else com.mediaviewer.util.Supporter.openPage()
+                    }
                 )
-                SupporterSwitch(local.notifyDms) {
-                    local.updateNotifyDms(it)
-                    com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
-                }
-            }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel(
-                    "Inbox Notifications", Modifier.weight(1f),
-                    sub = if (android) "Likes, replies, follows and mentions, in Stellar and while it's closed."
-                    else "Likes, replies, follows and mentions, in Stellar and while it's closed. iOS decides how often it checks."
-                )
-                SupporterSwitch(local.notifyInbox) {
-                    local.updateNotifyInbox(it)
-                    com.mediaviewer.platform.LocalPlatform.syncNotifications(context, requestPermission = it)
-                }
-            }
-        }
-        // The Calendar's built-in days.
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            BubbleRow {
-                RowLabel("Major Holidays", Modifier.weight(1f), sub = "Shown in the Calendar and Upcoming Events.")
-                SupporterSwitch(local.majorHolidays) { local.updateMajorHolidays(it) }
-            }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel("Minor Holidays", Modifier.weight(1f), sub = "Shown in the Calendar.")
-                SupporterSwitch(local.minorHolidays) { local.updateMinorHolidays(it) }
-            }
-        }
-        // Search's Web Browser tab: what the address bar searches with.
-        SettingsBubble(liquidGlass, tint, backdrop) {
-            var engineMenu by remember { mutableStateOf(false) }
-            BubbleRow {
-                RowLabel("Browser Search Engine", Modifier.weight(1f), sub = "Used by the Web Browser tab in Search.")
-                Box {
-                    Text(
-                        local.searchEngine.label,
-                        color = if (supporter) LocalSettingsAccent.current else Color.White,
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.supporterShine(!supporter).clickable {
-                            if (supporter) engineMenu = true else com.mediaviewer.util.Supporter.openPage()
-                        }
-                    )
-                    DropdownMenu(expanded = engineMenu, onDismissRequest = { engineMenu = false }) {
-                        com.mediaviewer.util.LocalData.SearchEngine.values().forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.label, fontWeight = if (option == local.searchEngine) FontWeight.SemiBold else FontWeight.Normal) },
-                                onClick = { local.updateSearchEngine(option); engineMenu = false }
-                            )
-                        }
+                DropdownMenu(expanded = engineMenu, onDismissRequest = { engineMenu = false }) {
+                    com.mediaviewer.util.LocalData.SearchEngine.values().forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label, fontWeight = if (option == local.searchEngine) FontWeight.SemiBold else FontWeight.Normal) },
+                            onClick = { local.updateSearchEngine(option); engineMenu = false }
+                        )
                     }
                 }
             }
@@ -654,35 +657,7 @@ internal fun SettingsPageContent(
             // Every vibration the app makes (on by default).
             ToggleBubble("Haptics", com.mediaviewer.util.UiToggles.hapticsEnabled, { com.mediaviewer.util.UiToggles.updateHapticsEnabled(it) }, liquidGlass, tint, backdrop)
 
-            ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
-
-            // The row at the bottom of a post's text bubble: the counts and
-            // the date, each hidden on its own (both = no row).
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Hide Post Stats", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
-                }
-                BubbleDivider()
-                BubbleRow {
-                    RowLabel("Hide Post Date", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
-                }
-            }
-            if (bskyLoggedIn) {
-                // Runs the follower scan from scratch — for picking up accounts
-                // that started posting reviews/blogs after the last scan, or
-                // that were skipped. Opening a profile already auto-subscribes
-                // it if it has any, so this is only for accounts never visited.
-                val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
-                ActionBubble(
-                    label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Reviews/Blogs",
-                    buttonLabel = if (scanning) "…" else "Scan",
-                    onClick = onRescanFollowersFromScratch,
-                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
-                )
-            }
-
+            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) NotificationsBubble(liquidGlass, tint, backdrop)
             // Translate Post Text + Translate To share one bubble.
             PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.TRANSLATION) {
                 SettingsBubble(liquidGlass, tint, backdrop) {
@@ -724,10 +699,14 @@ internal fun SettingsPageContent(
                 }
             }
 
+            ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
+
             if (bskyLoggedIn) {
                 ToggleBubble("Show \"Add To\" After Following", autoAddToOnFollow, onToggleAutoAddToOnFollow, liquidGlass, tint, backdrop)
             }
 
+            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) SearchEngineBubble(liquidGlass, tint, backdrop)
+            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) HolidaysBubble(liquidGlass, tint, backdrop)
             // Bluesky profile/post links (a scanned QR code, a link in the
             // browser) can open in Stellar — "Set Up" explains how, with
             // shortcuts to both apps' Android settings. (iOS: a share-sheet
@@ -745,71 +724,11 @@ internal fun SettingsPageContent(
                 OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
             }
 
-            // Notifications, holidays, browser search engine (formerly
-            // "Supporter Settings").
-            if (com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE) SupporterSettingsBubbles(liquidGlass, tint, backdrop)
         }
 
         // ── UI Customization ────────────────────────────────────────────
         CollapsibleSection("UI Customization", tint) {
 
-            if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.IOS) {
-                // iOS: every animation in the app already follows the iPhone's
-                // own Reduce Motion switch, and an app can't set that itself —
-                // so this row says where the switch is instead of offering one
-                // that wouldn't do anything.
-                SettingsBubble(liquidGlass, tint, backdrop) {
-                    BubbleRow {
-                        RowLabel(
-                            "Reduced Animations", Modifier.weight(1f),
-                            sub = "Follows your iPhone: Settings › Accessibility › Motion › Reduce Motion."
-                        )
-                    }
-                }
-            } else {
-                ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
-            }
-            ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
-            // The heart that flies up when you like a post: flat (default) or 3D.
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("3D Like Heart", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.UiToggles.threeDLikeHeart) { com.mediaviewer.util.UiToggles.updateThreeDLikeHeart(it) }
-                }
-            }
-            // Twinkling stars + the odd shooting star behind every page (the
-            // dim profile-color background stays either way).
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                BubbleRow {
-                    RowLabel("Starry Background", Modifier.weight(1f))
-                    CompactSwitch(com.mediaviewer.util.UiToggles.starryBackground) { com.mediaviewer.util.UiToggles.updateStarryBackground(it) }
-                }
-                if (com.mediaviewer.util.UiToggles.starryBackground) {
-                    BubbleDivider()
-                    var fpsMenuExpanded by remember { mutableStateOf(false) }
-                    BubbleRow {
-                        RowLabel(
-                            "Frame Rate Cap", Modifier.weight(1f),
-                            sub = "How smoothly the stars move. Lower lets your screen rest at its idle refresh rate."
-                        )
-                        Box {
-                            Text(
-                                "${com.mediaviewer.util.UiToggles.starFrameRate} FPS",
-                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable { fpsMenuExpanded = true }
-                            )
-                            DropdownMenu(expanded = fpsMenuExpanded, onDismissRequest = { fpsMenuExpanded = false }) {
-                                com.mediaviewer.util.UiToggles.starFrameRateOptions.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text("$option FPS", fontWeight = if (option == com.mediaviewer.util.UiToggles.starFrameRate) FontWeight.SemiBold else FontWeight.Normal) },
-                                        onClick = { com.mediaviewer.util.UiToggles.updateStarFrameRate(option); fpsMenuExpanded = false }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             // Override App Colors: everywhere the app would wear your profile
             // color, it wears the color picked here instead. Your own profile
             // page keeps its real colors.
@@ -818,7 +737,7 @@ internal fun SettingsPageContent(
                 val overrideOn = com.mediaviewer.util.UiToggles.overrideAppColors
                 val overrideColor = Color(com.mediaviewer.util.UiToggles.overrideColor)
                 BubbleRow {
-                    RowLabel("Override App Colors", Modifier.weight(1f), sub = "Your profile page keeps its own colors.")
+                    RowLabel("Override App Colors", Modifier.weight(1f))
                     CompactSwitch(overrideOn) { com.mediaviewer.util.UiToggles.updateOverrideAppColors(it) }
                 }
                 if (overrideOn) {
@@ -849,32 +768,29 @@ internal fun SettingsPageContent(
                     )
                 }
             }
-            // Which transition plays while a page loads: None (pages open
-            // instantly and fill in as their data arrives), Pixels, Shatter or
-            // Space (the default).
+            // The heart that flies up when you like a post.
             SettingsBubble(liquidGlass, tint, backdrop) {
-                var animMenuExpanded by remember { mutableStateOf(false) }
-                val currentAnim = com.mediaviewer.util.UiToggles.loadingAnimation
+                var likeMenuExpanded by remember { mutableStateOf(false) }
+                val likeAnim = com.mediaviewer.util.UiToggles.likeAnimation
                 BubbleRow {
-                    RowLabel("Loading Animation", Modifier.weight(1f))
+                    RowLabel("Like Animation", Modifier.weight(1f))
                     Box {
                         Text(
-                            currentAnim.label,
+                            likeAnim.label,
                             color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable { animMenuExpanded = true }
+                            modifier = Modifier.clickable { likeMenuExpanded = true }
                         )
-                        DropdownMenu(expanded = animMenuExpanded, onDismissRequest = { animMenuExpanded = false }) {
-                            com.mediaviewer.util.UiToggles.LoadingAnimation.entries.forEach { option ->
+                        DropdownMenu(expanded = likeMenuExpanded, onDismissRequest = { likeMenuExpanded = false }) {
+                            com.mediaviewer.util.UiToggles.LikeAnimation.entries.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text(option.label, fontWeight = if (option == currentAnim) FontWeight.SemiBold else FontWeight.Normal) },
-                                    onClick = { com.mediaviewer.util.UiToggles.updateLoadingAnimation(option); animMenuExpanded = false }
+                                    text = { Text(option.label, fontWeight = if (option == likeAnim) FontWeight.SemiBold else FontWeight.Normal) },
+                                    onClick = { com.mediaviewer.util.UiToggles.updateLikeAnimation(option); likeMenuExpanded = false }
                                 )
                             }
                         }
                     }
                 }
             }
-
             // Item 8: audio visualizer above the feed's interaction bar. It needs
             // the microphone permission to read the phone's audio output
             // (nothing is recorded), so turning it on asks for that first.
@@ -885,12 +801,8 @@ internal fun SettingsPageContent(
             PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AUDIO_VISUALIZER) {
                 SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        val visualizerStatus = com.mediaviewer.util.AudioVisualizerEngine.status
                         RowLabel(
                             "Audio Visualizer", Modifier.weight(1f),
-                            sub = if (com.mediaviewer.util.UiToggles.audioVisualizer && visualizerStatus.isNotBlank())
-                                "Bars on the timeline that move to your music.\nLast check: $visualizerStatus"
-                            else "Bars on the timeline that move to your music."
                         )
                         CompactSwitch(com.mediaviewer.util.UiToggles.audioVisualizer) { on ->
                             if (!on) com.mediaviewer.util.UiToggles.updateAudioVisualizer(false)
@@ -905,11 +817,6 @@ internal fun SettingsPageContent(
                         BubbleRow {
                             RowLabel(
                                 "During Calls", Modifier.weight(1f),
-                                sub = when (callMode) {
-                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.PAUSE -> "The bars rest while you're on a call (phone, Discord…)."
-                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.MUSIC_ONLY -> "Only your music app, so voices on the call don't move the bars. Works with apps that share their audio, like Spotify or YouTube Music."
-                                    com.mediaviewer.util.UiToggles.VisualizerCallMode.ALL_AUDIO -> "Everything your phone plays, the call's voices included."
-                                }
                             )
                             Box {
                                 Text(
@@ -931,6 +838,19 @@ internal fun SettingsPageContent(
                 }
             }
 
+            // The row at the bottom of a post's text bubble: the counts and
+            // the date, each hidden on its own (both = no row).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("Hide Post Stats", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
+                }
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel("Hide Post Date", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
+                }
+            }
             // App Font: "Import" adds a .ttf/.otf to the list; the list (styled
             // like Loading Animation) shows the selected font — Audiowide by
             // default, the Original system font second, then every import, each
@@ -986,6 +906,66 @@ internal fun SettingsPageContent(
                     }
                 }
             }
+            // Twinkling stars + the odd shooting star behind every page (the
+            // dim profile-color background stays either way).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("Starry Background", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.starryBackground) { com.mediaviewer.util.UiToggles.updateStarryBackground(it) }
+                }
+                if (com.mediaviewer.util.UiToggles.starryBackground) {
+                    BubbleDivider()
+                    var fpsMenuExpanded by remember { mutableStateOf(false) }
+                    BubbleRow {
+                        RowLabel(
+                            "Frame Rate Cap", Modifier.weight(1f),
+                        )
+                        Box {
+                            Text(
+                                "${com.mediaviewer.util.UiToggles.starFrameRate} FPS",
+                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { fpsMenuExpanded = true }
+                            )
+                            DropdownMenu(expanded = fpsMenuExpanded, onDismissRequest = { fpsMenuExpanded = false }) {
+                                com.mediaviewer.util.UiToggles.starFrameRateOptions.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text("$option FPS", fontWeight = if (option == com.mediaviewer.util.UiToggles.starFrameRate) FontWeight.SemiBold else FontWeight.Normal) },
+                                        onClick = { com.mediaviewer.util.UiToggles.updateStarFrameRate(option); fpsMenuExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Which transition plays while a page loads: None (pages open
+            // instantly and fill in as their data arrives), Pixels, Shatter or
+            // Space (the default).
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                var animMenuExpanded by remember { mutableStateOf(false) }
+                val currentAnim = com.mediaviewer.util.UiToggles.loadingAnimation
+                BubbleRow {
+                    RowLabel("Loading Animation", Modifier.weight(1f))
+                    Box {
+                        Text(
+                            currentAnim.label,
+                            color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { animMenuExpanded = true }
+                        )
+                        DropdownMenu(expanded = animMenuExpanded, onDismissRequest = { animMenuExpanded = false }) {
+                            com.mediaviewer.util.UiToggles.LoadingAnimation.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.label, fontWeight = if (option == currentAnim) FontWeight.SemiBold else FontWeight.Normal) },
+                                    onClick = { com.mediaviewer.util.UiToggles.updateLoadingAnimation(option); animMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
+            ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         }
 
         // ── Integrations ────────────────────────────────────────────────
@@ -1039,7 +1019,7 @@ internal fun SettingsPageContent(
                     !liveTwitchUrl.isNullOrBlank() || !liveYoutubeUrl.isNullOrBlank()
                 SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        RowLabel("Live Link", Modifier.weight(1f), sub = "The widget can only be created once at least one link is saved.")
+                        RowLabel("Live Link", Modifier.weight(1f))
                         PillButton("Save", { onSaveLiveTwitchUrl(twitchField); onSaveLiveYoutubeUrl(youtubeField) })
                         Spacer(Modifier.width(6.dp))
                         PillButton("Widget", onCreateLiveLinkWidget, enabled = widgetEnabled)
@@ -1135,7 +1115,7 @@ internal fun SettingsPageContent(
                             if (tagPostWhenLiked) {
                                 BubbleDivider()
                                 BubbleRow {
-                                    RowLabel("Show Tagging Status", Modifier.weight(1f), sub = "A bubble on the timeline while liked posts are being tagged.")
+                                    RowLabel("Show Tagging Status", Modifier.weight(1f))
                                     CompactSwitch(com.mediaviewer.util.UiToggles.showTaggingStatus) {
                                         com.mediaviewer.util.UiToggles.updateShowTaggingStatus(it)
                                     }
@@ -1206,7 +1186,6 @@ internal fun SettingsPageContent(
             if (bskyLoggedIn) {
                 ActionBubble(
                     label = "Blocked Accounts",
-                    sub = "Hidden everywhere in Stellar, along with anyone who's blocked you.",
                     buttonLabel = "View",
                     onClick = extras.onOpenBlockedAccounts,
                     liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
@@ -1250,6 +1229,19 @@ internal fun SettingsPageContent(
                 // single shared preference) — new likes/saves get downloaded as
                 // they happen, on top of the one-time buttons above.
                 ToggleBubble("Auto-Download New Likes and Saves", downloadOnLike, onToggleDownloadOnLike, liquidGlass, tint, backdrop)
+                if (bskyLoggedIn) {
+                    // Runs the follower scan from scratch — for picking up accounts
+                    // that started posting reviews/blogs after the last scan, or
+                    // that were skipped. Opening a profile already auto-subscribes
+                    // it if it has any, so this is only for accounts never visited.
+                    val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
+                    ActionBubble(
+                        label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Blogs/Reviews",
+                        buttonLabel = if (scanning) "…" else "Scan",
+                        onClick = onRescanFollowersFromScratch,
+                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
+                    )
+                }
             }
 
             // Item 7: everything local in one file — settings, VRM + Live
@@ -1303,7 +1295,7 @@ internal fun SettingsPageContent(
             }
             SettingsBubble(liquidGlass, tint, backdrop) {
                 BubbleRow {
-                    RowLabel("Export App Data", Modifier.weight(1f), sub = "Settings, VRM & Live settings, tagged posts and subscriptions, in one file.")
+                    RowLabel("Export App Data", Modifier.weight(1f))
                     PillButton(if (backupBusy) "Working…" else "Export", {
                         val date = com.mediaviewer.util.DateText.format(com.mediaviewer.platform.currentTimeMillis(), "yyyy-MM-dd")
                         backupExportLauncher.launch("Stellar-backup-$date.json")
@@ -1316,7 +1308,7 @@ internal fun SettingsPageContent(
                 }
                 BubbleDivider()
                 BubbleRow {
-                    RowLabel("Import App Data", Modifier.weight(1f), sub = "Replaces your settings and main tagged dataset, then restarts.")
+                    RowLabel("Import App Data", Modifier.weight(1f))
                     PillButton(
                         if (backupBusy) "…" else if (confirmingImport) "Replace?" else "Import",
                         {
@@ -1339,7 +1331,6 @@ internal fun SettingsPageContent(
                     BubbleRow {
                         RowLabel(
                             "Battery Saver", Modifier.weight(1f),
-                            sub = "Experimental. Solid buttons instead of blur, a lower frame rate, no starfield or visualizer, and less background activity."
                         )
                         CompactSwitch(com.mediaviewer.util.LocalData.batterySaver) { com.mediaviewer.util.LocalData.updateBatterySaver(it) }
                     }
@@ -1385,38 +1376,38 @@ internal fun SettingsPageContent(
                 }
                 SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        RowLabel("Show Scan Bubble in Hub", Modifier.weight(1f), sub = "Replaces the Reviews/Blogs rows with the scan-your-follows bubble.")
+                        RowLabel("Show Scan Bubble in Hub", Modifier.weight(1f))
                         CompactSwitch(com.mediaviewer.util.UiToggles.devForceScanBubble) { com.mediaviewer.util.UiToggles.updateDevForceScanBubble(it) }
                     }
                     BubbleDivider()
                     BubbleRow {
-                        RowLabel("Preview Loading Animation", Modifier.weight(1f), sub = "Tap the screen to move it along; Back closes it.")
+                        RowLabel("Preview Loading Animation", Modifier.weight(1f))
                         PillButton("Play", { com.mediaviewer.util.UiToggles.devLoadingPreview = true })
                     }
                     BubbleDivider()
                     BubbleRow {
-                        RowLabel("Preview Login Page", Modifier.weight(1f), sub = "Opens it without logging out; Back closes it.")
+                        RowLabel("Preview Login Page", Modifier.weight(1f))
                         PillButton("Open", { com.mediaviewer.util.UiToggles.devLoginPreview = true })
                     }
                     BubbleDivider()
                     BubbleRow {
-                        RowLabel("Force Refresh Hub", Modifier.weight(1f), sub = "Reloads every Hub row from scratch.")
+                        RowLabel("Force Refresh Hub", Modifier.weight(1f))
                         PillButton("Refresh", extras.onForceRefreshHub, enabled = bskyLoggedIn)
                     }
                     BubbleDivider()
                     BubbleRow {
-                        RowLabel("Preview Welcome Popup", Modifier.weight(1f), sub = "Opens in the Hub; nothing is added until Continue.")
+                        RowLabel("Preview Welcome Popup", Modifier.weight(1f))
                         PillButton("Open", extras.onPreviewWelcome, enabled = bskyLoggedIn)
                     }
                     BubbleDivider()
                     BubbleRow {
-                        RowLabel("Preview Support Popup", Modifier.weight(1f), sub = "The one shown on the 10th, 25th, 50th… open.")
+                        RowLabel("Preview Support Popup", Modifier.weight(1f))
                         PillButton("Open", { com.mediaviewer.util.UiToggles.devSupportPreview = true })
                     }
                     BubbleDivider()
                     val tipContext = com.mediaviewer.ui.compat.LocalContext.current
                     BubbleRow {
-                        RowLabel("Reset Tips", Modifier.weight(1f), sub = "Every first-time walkthrough shows again the next time its screen opens.")
+                        RowLabel("Reset Tips", Modifier.weight(1f))
                         PillButton("Reset", {
                             com.mediaviewer.ui.Tips.reset()
                             com.mediaviewer.ui.compat.Toast.makeText(tipContext, "Tips reset", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
@@ -1426,7 +1417,7 @@ internal fun SettingsPageContent(
                     val coverContext = com.mediaviewer.ui.compat.LocalContext.current
                     val coverScope = rememberCoroutineScope()
                     BubbleRow {
-                        RowLabel("Clear Cached Title Covers", Modifier.weight(1f), sub = "Removes saved review/backlog covers (incl. Wikipedia lookups) from this phone.")
+                        RowLabel("Clear Cached Title Covers", Modifier.weight(1f))
                         PillButton("Clear", {
                             coverScope.launch {
                                 val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1663,12 +1654,11 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
     val on = status.enabled && bskyLoggedIn
     val sub = when {
         !bskyLoggedIn -> "Log in to Bluesky to scrobble."
-        !on -> "Saves the music you listen to on this phone to Rocksky."
+        !on -> null
         !status.access -> "Needs notification access. Tap here to open it. If the switch there is grayed out, open Stellar's App info, tap the three dots, and choose \"Allow restricted settings\" first."
         status.error != null -> status.error
-        status.apps.none { it.on } -> "On. Tap Settings to choose which apps to scrobble."
-        status.queued > 0 -> "On. ${status.queued} waiting to upload."
-        else -> "On. Listening for music in your chosen apps."
+        status.queued > 0 -> "${status.queued} waiting to upload"
+        else -> null
     }
 
     // Tap-to-arm confirmation for cancelling an import, as elsewhere in
@@ -1707,7 +1697,7 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                 RowLabel(
                     "Import YouTube/Spotify music history to Rocksky", Modifier.weight(1f),
                     sub = if (status.importReading) "Reading the file…"
-                    else status.importMessage ?: "Pick the .zip or .json file Spotify or Google sent you."
+                    else status.importMessage
                 )
                 Spacer(Modifier.width(8.dp))
                 PillButton("Import", {
@@ -1759,9 +1749,9 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                             else Modifier
                         ),
                         sub = when {
-                            !status.importBackground -> "Keeps importing while Stellar is closed."
+                            !status.importBackground -> null
                             status.importBatteryRestricted -> "On, but the phone may still pause it to save battery. Tap here to allow Stellar to keep running."
-                            else -> "On. Importing carries on while Stellar is closed."
+                            else -> null
                         }
                     )
                     CompactSwitch(status.importBackground) { want ->

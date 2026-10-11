@@ -37,12 +37,32 @@ object TagAliases {
      *  (This used to build a single FTS5 MATCH expression string instead —
      *  renamed/reshaped when the FTS5 dependency was removed, see
      *  TagDatabase's doc comment for why.) */
-    fun toTagGroups(rawQuery: String): List<List<String>> {
+    fun toTagGroups(rawQuery: String): List<List<String>> = parse(rawQuery).include
+
+    /**
+     * A Tagged search: each word is a whole tag (never part of one — "rape"
+     * doesn't find "skyscraper"). Every word must match ([include]: one
+     * group per word, any of its aliases); a word starting with "-" leaves
+     * out posts with that tag ([exclude], e.g. "-solo").
+     */
+    class TagQuery(val include: List<List<String>>, val exclude: Set<String>) {
+        val isEmpty: Boolean get() = include.isEmpty() && exclude.isEmpty()
+    }
+
+    fun parse(rawQuery: String): TagQuery {
         val terms = rawQuery.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
-        // A word is kept exactly as typed: tags have symbols in them
-        // ("male/male", "name_(artist)", "<3"), and stripping those out
-        // used to leave a word that no tag contains.
-        return terms.map { term -> aliases[term] ?: listOf(term) }
+        val include = ArrayList<List<String>>()
+        val exclude = LinkedHashSet<String>()
+        for (term in terms) {
+            if (term.startsWith("-") && term.length > 1) {
+                val t = term.drop(1)
+                exclude += aliases[t] ?: listOf(t)
+            } else if (term != "-") {
+                // A word is kept exactly as typed: tags have symbols in
+                // them ("male/male", "name_(artist)", "<3").
+                include += aliases[term] ?: listOf(term)
+            }
+        }
+        return TagQuery(include, exclude)
     }
 }
-

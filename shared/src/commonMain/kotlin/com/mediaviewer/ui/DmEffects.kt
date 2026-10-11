@@ -287,26 +287,17 @@ private fun DrawScope.drawHeartSlices(center: Offset, s: Float, angle: Float, ba
                 // The rim: darker toward the back, with a soft lit band
                 // around its middle where it bulges out most.
                 val band = 1f - (2f * f - 1f) * (2f * f - 1f)
-                drawPath(heart, lerp(lerp(dark, base, f), Color.White, 0.10f * band))
+                drawPath(heart, lerp(dark, base, f))
             } else {
-                // The near face: lit from the upper left, deeper toward
-                // the lower right, with a soft inner glow and two shines.
+                // The near face: the color itself, a little deeper toward
+                // the lower right — no shine or highlight.
                 drawPath(
                     heart,
                     Brush.radialGradient(
-                        0f to lerp(base, Color.White, 0.3f), 0.45f to lerp(base, Color.White, 0.06f),
-                        1f to lerp(base, Color.Black, 0.12f),
+                        0f to base, 0.55f to base, 1f to lerp(base, Color.Black, 0.14f),
                         center = Offset(-0.38f, -0.42f), radius = 1.75f
                     )
                 )
-                drawOval(
-                    Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.5f), Color.White.copy(alpha = 0f)),
-                        center = Offset(-0.5f, -0.5f), radius = 0.34f
-                    ),
-                    topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f)
-                )
-                drawOval(Color.White.copy(alpha = 0.3f), topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f))
             }
         }
     }
@@ -314,9 +305,9 @@ private fun DrawScope.drawHeartSlices(center: Offset, s: Float, angle: Float, ba
 }
 
 /**
- * A flat heart in [color] (made vivid), centred at [center], [s] from its
- * middle to a side, tilted [tilt] degrees: a soft glow behind, a gradient
- * lit from the upper left, a thin light rim and a shine.
+ * A flat heart in [color], centred at [center], [s] from its middle to a
+ * side, tilted [tilt] degrees: a soft glow behind, a little deeper toward
+ * the lower right. No highlights.
  */
 internal fun DrawScope.drawHeart2D(center: Offset, s: Float, tilt: Float, color: Color, alpha: Float = 1f) {
     if (alpha <= 0.002f || s <= 0.5f) return
@@ -336,13 +327,11 @@ internal fun DrawScope.drawHeart2D(center: Offset, s: Float, tilt: Float, color:
         drawPath(
             heart,
             Brush.radialGradient(
-                0f to lerp(base, Color.White, 0.22f), 0.5f to base, 1f to lerp(base, Color.Black, 0.2f),
+                0f to base, 0.55f to base, 1f to lerp(base, Color.Black, 0.18f),
                 center = Offset(-0.4f, -0.45f), radius = 1.9f
             ),
             alpha = alpha
         )
-        drawPath(heart, lerp(base, Color.White, 0.3f).copy(alpha = 0.5f * alpha), style = Stroke(0.06f))
-        drawOval(Color.White.copy(alpha = 0.35f * alpha), topLeft = Offset(-0.78f, -0.72f), size = Size(0.42f, 0.24f))
     }
 }
 

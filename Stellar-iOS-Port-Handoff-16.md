@@ -909,3 +909,13 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - FeedView's neighbor preload now also works out each post's own color (`fetchDominantColor` for posts −1…+4; `knownDominantColor(url)` added in GlassTheme), so a post's color — glass, accents, Show Post — is right from its first frame instead of a placeholder that then changes.
 - Show Post: no color animation; it's only drawn once the post's color is known (`colorKnown`), so it never appears in a placeholder color.
 - (51b) Show Post appears with the rest of the post again; plain grey (0xFF6E6E6E) for the odd moment the post's color isn't known yet.
+
+### Update 52 — settings order, Like Animation, exact tag search, pager paging
+- Settings: descriptive subtitles removed (status lines like download/import progress, counts and errors stay). iOS's description-only "Reduced Animations" row is gone (iOS follows Reduce Motion).
+  - App Functionality: NSFW Posts · Haptics · DM/Inbox Notifications · Translate (To / Status) · Hide Text Only Posts · Show "Add To" After Following · Browser Search Engine · Major/Minor Holidays · Open Bluesky Links in Stellar (the old supporter bubbles split into `NotificationsBubble` / `SearchEngineBubble` / `HolidaysBubble`).
+  - UI Customization: Override App Colors · Like Animation · Audio Visualizer · Hide Post Stats/Date · App Font · Starry Background · Loading Animation · Reduced Animations (Android) · Rounded Grid Tiles.
+  - "Scan Following for Blogs/Reviews" moved to Data and Privacy, under Auto-Download.
+- **Like Animation** (`UiToggles.likeAnimation`, key `like_animation`): None / 3D Heart (default) / 2D Heart. Both hearts lost their shine ovals and white highlights (flat color, slightly deeper toward the lower right).
+- Tagged search: whole tags only (`TagAliases.parse` → `TagQuery(include, exclude)`), "-tag" excludes; iOS `IosTagStore.search(TagQuery)`, Android `TagDatabase.searchPostUris(TagQuery)` (`LOWER(tag_name) IN …`). Suggestions keep a leading "-".
+- Pager paging: posts opened from Tagged, Search › Posts or a profile tab now load more in Timeline mode — `followPagerSource` remembers the source (until the pager's first post changes) and appends that source's new posts; `loadMore()` asks the source for its next page; `navigateNext` at the very end retries.
+- (52b) iOS: Reduced Animations is a normal toggle again, same as Android. The old iOS note ("follows Reduce Motion") was never true — nothing read the system setting, so iOS had no way to turn it on.
