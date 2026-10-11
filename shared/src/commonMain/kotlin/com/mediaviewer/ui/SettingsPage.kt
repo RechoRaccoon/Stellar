@@ -1192,12 +1192,28 @@ internal fun SettingsPageContent(
                 )
             }
             if (anyLoggedIn) {
-
+                if (bskyLoggedIn) {
+                    // Runs the follower scan from scratch — for picking up accounts
+                    // that started posting reviews/blogs after the last scan, or
+                    // that were skipped. Opening a profile already auto-subscribes
+                    // it if it has any, so this is only for accounts never visited.
+                    val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
+                    ActionBubble(
+                        label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Blogs/Reviews",
+                        buttonLabel = if (scanning) "…" else "Scan",
+                        onClick = onRescanFollowersFromScratch,
+                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
+                    )
+                }
+                // The one auto-download switch covers both services (it's a
+                // single shared preference) — new likes/saves get downloaded as
+                // they happen, on top of the one-time buttons above.
+                ToggleBubble("Auto-Download New Likes and Saves", downloadOnLike, onToggleDownloadOnLike, liquidGlass, tint, backdrop)
                 if (bskyLoggedIn) {
                     val prog = downloadProgress.takeIf { !extras.downloadIsE621 }
                     val running = prog?.isRunning == true
                     ActionBubble(
-                        label = "Download all liked AT Protocol media",
+                        label = "Download All Liked AT Protocol Media",
                         sub = when {
                             running -> "${prog?.count ?: 0} queued"
                             prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
@@ -1213,7 +1229,7 @@ internal fun SettingsPageContent(
                     val prog = downloadProgress.takeIf { extras.downloadIsE621 }
                     val running = prog?.isRunning == true
                     ActionBubble(
-                        label = "Download all saved e621 media",
+                        label = "Download All Saved e621 Media",
                         sub = when {
                             running -> "${prog?.count ?: 0} queued"
                             prog != null && prog.count > 0 -> "Done — ${prog.count} queued"
@@ -1223,23 +1239,6 @@ internal fun SettingsPageContent(
                         onClick = { if (running) onCancelDownload() else extras.onDownloadAllE621Saved() },
                         liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                         enabled = running || downloadProgress?.isRunning != true
-                    )
-                }
-                // The one auto-download switch covers both services (it's a
-                // single shared preference) — new likes/saves get downloaded as
-                // they happen, on top of the one-time buttons above.
-                ToggleBubble("Auto-Download New Likes and Saves", downloadOnLike, onToggleDownloadOnLike, liquidGlass, tint, backdrop)
-                if (bskyLoggedIn) {
-                    // Runs the follower scan from scratch — for picking up accounts
-                    // that started posting reviews/blogs after the last scan, or
-                    // that were skipped. Opening a profile already auto-subscribes
-                    // it if it has any, so this is only for accounts never visited.
-                    val scanning = followerScanState is MainViewModel.FollowerScanState.Scanning
-                    ActionBubble(
-                        label = if (scanning) "Scanning Who You Follow…" else "Scan Following for Blogs/Reviews",
-                        buttonLabel = if (scanning) "…" else "Scan",
-                        onClick = onRescanFollowersFromScratch,
-                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, enabled = !scanning
                     )
                 }
             }

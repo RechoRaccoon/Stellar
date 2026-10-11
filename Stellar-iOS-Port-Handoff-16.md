@@ -919,3 +919,8 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Tagged search: whole tags only (`TagAliases.parse` → `TagQuery(include, exclude)`), "-tag" excludes; iOS `IosTagStore.search(TagQuery)`, Android `TagDatabase.searchPostUris(TagQuery)` (`LOWER(tag_name) IN …`). Suggestions keep a leading "-".
 - Pager paging: posts opened from Tagged, Search › Posts or a profile tab now load more in Timeline mode — `followPagerSource` remembers the source (until the pager's first post changes) and appends that source's new posts; `loadMore()` asks the source for its next page; `navigateNext` at the very end retries.
 - (52b) iOS: Reduced Animations is a normal toggle again, same as Android. The old iOS note ("follows Reduce Motion") was never true — nothing read the system setting, so iOS had no way to turn it on.
+
+### Update 53 — small fixes
+- Data and Privacy order: Blocked Accounts · Scan Following for Blogs/Reviews · Auto-Download New Likes and Saves · Download All Liked AT Protocol Media · Download All Saved e621 Media · Export/Import App Data (labels title-cased).
+- Multi-image fullscreen viewer: a double tap (like) no longer closes it — the second tap of a double tap no longer schedules its own close (`MultiImageViewer`, `lastTapUp` / `secondTap`).
+- Text-only stats bubble: "Stats" is centered.

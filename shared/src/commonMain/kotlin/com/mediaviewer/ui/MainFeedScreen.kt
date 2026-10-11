@@ -2933,7 +2933,7 @@ private fun PostStatsBubble(
                 Box(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)) { PostStatsRow(stats, style) }
             } else {
                 Text(
-                    "Stats", style = style, maxLines = 1,
+                    "Stats", style = style, maxLines = 1, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
                 )
             }
@@ -3253,8 +3253,13 @@ private fun MultiImageViewer(
             // double-tap (like) doesn't also close it.
             .pointerInput(interactive) {
                 if (!interactive) return@pointerInput
+                var lastTapUp = -1L
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    // A second tap soon after the first is a double tap (a
+                    // like): the first tap's pending close is cancelled, and
+                    // this tap mustn't schedule one of its own either.
+                    val secondTap = pendingClose != null || (lastTapUp >= 0 && down.uptimeMillis - lastTapUp < 320L)
                     pendingClose?.cancel(); pendingClose = null
                     var moved = false
                     var upAt = -1L
@@ -3266,8 +3271,12 @@ private fun MultiImageViewer(
                         if (!change.pressed) { upAt = change.uptimeMillis; break }
                     }
                     if (!moved && upAt >= 0 && upAt - down.uptimeMillis < 400L && zoomScale <= 1.02f) {
-                        pendingClose = scope.launch { delay(280); onTap() }
-                    }
+                        if (secondTap) lastTapUp = -1L
+                        else {
+                            lastTapUp = upAt
+                            pendingClose = scope.launch { delay(280); pendingClose = null; onTap() }
+                        }
+                    } else lastTapUp = -1L
                 }
             }
     ) {
