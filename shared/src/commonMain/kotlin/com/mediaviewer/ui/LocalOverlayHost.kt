@@ -66,6 +66,8 @@ fun LocalOverlayHost(
     SideEffect {
         LocalOverlays.onEditCurrentPost = viewModel::editCurrentPost
         LocalOverlays.editPostTag = viewModel::editCurrentPostTag
+        LocalOverlays.openInBrowser = viewModel::openInAppBrowser
+        LocalOverlays.setHateFunBlur = viewModel::setHateFunBlurNsfw
         LocalOverlays.pollTally = { uri -> viewModel.pollTally(uri) }
         LocalOverlays.pollVote = viewModel::votePoll
         LocalOverlays.scanDmStreak = viewModel::scanDmStreak

@@ -163,7 +163,7 @@ fun SearchOverlay(
     com.mediaviewer.ui.compat.BackHandler(onBack = closeWithMerge)
     val focusRequester = remember { FocusRequester() }
     // (Coming back to results from a feed doesn't pop the keyboard up again.)
-    LaunchedEffect(Unit) { if (state.query.isBlank()) focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { if (state.query.isBlank() && state.filter != MainViewModel.SearchFilter.WEB) focusRequester.requestFocus() }
     // If the Tagged tab disappears while it's selected (its dataset was just
     // deleted), fall back to the first tab instead of showing an empty page
     // under a tab that no longer exists.
@@ -226,6 +226,10 @@ fun SearchOverlay(
     val isWeb = state.filter == MainViewModel.SearchFilter.WEB
     val supporter = com.mediaviewer.util.Supporter.active
     var webQuery by remember { mutableStateOf("") }
+    // The address bar shows the page's current address (every page it
+    // reaches), and again whenever the Web Browser tab comes back.
+    val webUrl = BrowserHome.state.url
+    LaunchedEffect(isWeb, webUrl) { if (isWeb) webQuery = webUrl }
     val webFocus = androidx.compose.ui.platform.LocalFocusManager.current
     // Trending Searches (supporters): loaded when the Posts tab is showing.
     LaunchedEffect(isPosts, supporter) { if (isPosts && supporter) onLoadTrending() }

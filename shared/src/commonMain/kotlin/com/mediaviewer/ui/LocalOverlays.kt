@@ -109,6 +109,10 @@ object LocalOverlays {
     /** The Tags page's hand edits on the post on screen (see
      *  MainViewModel.editCurrentPostTag): old null = add, new null = delete. */
     var editPostTag: ((oldTag: String?, newTag: String?) -> Unit)? = null
+    /** Turns "I Hate Fun" (the NSFW blur) on or off. */
+    var setHateFunBlur: ((Boolean) -> Unit)? = null
+    /** Opens a web address in Search › Web Browser. */
+    var openInBrowser: ((String) -> Unit)? = null
     /** Whether the post on screen's tags can be edited (Bluesky posts,
      *  where the tagger's dataset exists). */
     var canEditTags by mutableStateOf(false)

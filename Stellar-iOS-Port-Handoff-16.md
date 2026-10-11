@@ -857,3 +857,19 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Hand tags no longer stop the AI: iOS `StoredPost.ai` + `StoredTag.m`, Android DB v4 (`liked_media.ai_tagged`, `media_tags.manual`; migration marks posts whose every tag is exactly 1.0 as hand-only). Backlog pass skips only AI-tagged posts (`isAiTagged`); AI tagging keeps hand tags (Android `storeTags` updates in place instead of INSERT OR REPLACE, which cascaded away the tags). Shown tags for Bluesky posts are always re-read from the dataset (`refreshPostTagsFromDataset`, also after tag-on-like) — before, any tag on the post stopped the AI's from being attached.
 - Adult content (`AdultContentPolicy`, both platforms now): follows the account's adultContentPref + Bluesky's global contentLabelPrefs for porn / sexual / nudity only (legacy nsfw/suggestive mapped; defaults hide / warn / show). Adult off → hidden. Hide → filtered in `parseFeedItemSafe` (every feed/page) and Saved; Warn → blurred with tap to reveal (`MediaItem.nsfwBlurred`, used by the post view, profile grids and search tiles). Other labels (graphic media etc.) are ignored. "I Hate Fun" blur now on iOS too. Prefs read in `loadAvailableFeeds` (`getAdultContentPrefs`); Android now inits the policy in MainActivity.
 - Text-only posts: a stats-only bubble (`PostStatsBubble`) where the text bubble would be; none when stats and date are both hidden.
+
+### Update 43 — NSFW: blur instead of filter, in-app Bluesky settings
+- `AdultContentPolicy`: nothing is filtered by the Bluesky settings any more. Warn → blurred, tap to reveal. Adult content off, or a label set to Hide → blurred and locked (`lock(item)`: ADULT_OFF / LABEL_HIDDEN); the post view shows a short explanation and **Open Bluesky Settings** (opens `MANAGE_URL` = bsky.app/moderation in Search › Web Browser).
+- New Settings toggle **Filter Out NSFW Content** (`AdultContentPolicy.filterAll`, off by default): adult-labeled posts are left out everywhere (`parseFeedItemSafe`, Saved).
+- Settings › NSFW Content: no description; "Manage on Bluesky" opens the in-app browser; "I Hate Fun" only shows while adult content is enabled on the account.
+- `MainViewModel.openInAppBrowser(url)` (also `LocalOverlays.openInBrowser`): loads the url into `BrowserHome`, opens Search on the Web Browser tab (no keyboard).
+- Web Browser address bar always shows the page's current address; other tabs show their own text, and coming back shows the address again.
+- No auto-login into bsky.app: Stellar's session can't be shared with the web without breaking it (refresh tokens rotate) and the password isn't stored. The web view keeps its own sign-in after the first time.
+
+### Update 44 — Bluesky settings open in the system browser
+- "Manage on Bluesky" (Settings) and "Open Bluesky Settings" (locked NSFW post) now use `compat.openUrl` — the phone's own browser, on both platforms — so adult content is only ever turned on outside the app (the same as Bluesky's own iOS app). `openInAppBrowser` stays for other uses.
+
+### Update 45 — NSFW toggles + blur reasons, heart color
+- Settings › NSFW Content bubble, in order: Manage on Bluesky · **I Hate Fun (Blur NSFW Content)** (always shown; on and grayed out while the account doesn't allow adult content — `CompactSwitch(checked, enabled, …)` overload) · **I REALLY Hate Fun (Filter Out NSFW Content)** (`AdultContentPolicy.filterAll`).
+- Blurred post (adult allowed): explains why — "Your Bluesky settings blur posts like this." (label = Warn) or "…because I Hate Fun is on." — with **Show Post** (this once) and **Bluesky Settings** (system browser) or **Turn Off I Hate Fun** (`LocalOverlays.setHateFunBlur`). Locked posts unchanged.
+- Like heart color: exactly the like button's (`vividAccent(dominantColor)`), no brightening; highlights toned down on both hearts (also the DM Hearts effect's shine).

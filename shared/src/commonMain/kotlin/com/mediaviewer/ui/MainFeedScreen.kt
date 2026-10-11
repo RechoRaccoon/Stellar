@@ -1133,7 +1133,10 @@ private fun PostContent(
     // scrolls off and on it again") without needing to hand-roll any
     // "did we scroll away" detection of our own.
     var nsfwRevealed by remember(item.id) { mutableStateOf(false) }
-    val nsfwBlurred = item.nsfwBlurred(hateFunBlurNsfw) && !item.isBlocked && !nsfwRevealed
+    // Locked: the account's Bluesky settings don't allow this post (adult
+    // content off, or its label set to Hide) — it can't be revealed here.
+    val nsfwLock = com.mediaviewer.util.AdultContentPolicy.lock(item)
+    val nsfwBlurred = item.nsfwBlurred(hateFunBlurNsfw) && !item.isBlocked && (!nsfwRevealed || nsfwLock != null)
 
     var menuCenter    by remember { mutableStateOf<Offset?>(null) }
     var hoveredAction by remember { mutableStateOf<QuickAction?>(null) }
@@ -1708,19 +1711,80 @@ private fun PostContent(
             if (item.isBlocked) {
                 Text("Blocked", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.Center))
+            } else if (nsfwBlurred && nsfwLock != null) {
+                // Not allowed by the account's Bluesky settings: says so,
+                // with the way to change it (Bluesky's website, opened in
+                // the phone's own browser — adult content is turned on
+                // outside the app).
+                Column(
+                    Modifier.align(Alignment.Center).padding(horizontal = 32.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        if (nsfwLock == com.mediaviewer.util.AdultContentPolicy.Lock.ADULT_OFF)
+                            "This post has adult content. To see posts like this, turn on adult content in your Bluesky settings."
+                        else "Your Bluesky settings hide posts like this. You can change that in your Bluesky settings.",
+                        color = Color.White, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        Modifier.clip(RoundedCornerShape(16.dp))
+                            .background(vividAccent(dominantColor).copy(alpha = 0.9f))
+                            .clickable { com.mediaviewer.ui.compat.openUrl(context, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL) }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                    ) {
+                        Text("Open Bluesky Settings", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             } else if (nsfwBlurred) {
                 // Feature request #8: tap-to-reveal — only shows in the
                 // feed/pager (this composable), not in profile tab grids,
                 // per spec ("The unblur button should only appear when a
                 // post is selected/while in the feed/timeline page").
-                Box(
-                    Modifier.align(Alignment.Center)
+                // Why it's blurred — the account's Bluesky setting for this
+                // label is Warn, or I Hate Fun is on — with Show (this once)
+                // and the way to change that.
+                val byBluesky = com.mediaviewer.util.AdultContentPolicy.warns(item)
+                Column(
+                    Modifier.align(Alignment.Center).padding(horizontal = 32.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .clickable { nsfwRevealed = true }
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("Show NSFW Content", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (byBluesky) "Your Bluesky settings blur posts like this."
+                        else "This post is blurred because I Hate Fun is on.",
+                        color = Color.White, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            Modifier.clip(RoundedCornerShape(16.dp))
+                                .background(vividAccent(dominantColor).copy(alpha = 0.9f))
+                                .clickable { nsfwRevealed = true }
+                                .padding(horizontal = 16.dp, vertical = 9.dp)
+                        ) {
+                            Text("Show Post", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Box(
+                            Modifier.clip(RoundedCornerShape(16.dp))
+                                .background(Color.White.copy(alpha = 0.14f))
+                                .clickable {
+                                    if (byBluesky) com.mediaviewer.ui.compat.openUrl(context, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL)
+                                    else LocalOverlays.setHateFunBlur?.invoke(false)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                if (byBluesky) "Bluesky Settings" else "Turn Off I Hate Fun",
+                                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2112,7 +2176,7 @@ private fun PostContent(
         if (likeBursts.isNotEmpty()) Box(Modifier.fillMaxSize().zIndex(8f)) {
             likeBursts.forEach { b ->
                 androidx.compose.runtime.key(b.id) {
-                    LikeHeart(b, dominantColor, postBoxRootOrigin.y) { likeBursts.remove(b) }
+                    LikeHeart(b, vividAccent(dominantColor), postBoxRootOrigin.y) { likeBursts.remove(b) }
                 }
             }
         }
@@ -2157,7 +2221,7 @@ private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: 
         }
         done()
     }
-    val light = androidx.compose.ui.graphics.lerp(color, Color.White, 0.45f)
+    val light = color
     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
         val t = elapsed
         val p = (t / duration).coerceIn(0f, 1f)
@@ -2213,7 +2277,7 @@ private fun FlatLikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDo
         }
         done()
     }
-    val light = androidx.compose.ui.graphics.lerp(color, Color.White, 0.45f)
+    val light = color
     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
         val t = elapsed
         // Ring at the spot as it bursts in.

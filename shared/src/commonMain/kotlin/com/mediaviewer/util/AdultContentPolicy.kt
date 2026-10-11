@@ -13,9 +13,14 @@ import com.mediaviewer.platform.sharedPreferences
  * (bsky.app → Settings → Moderation), on every platform:
  *
  *  - "Enable adult content" off → every post labeled porn / sexual /
- *    nudity is left out.
+ *    nudity is shown blurred, and can't be revealed: opened, it says how
+ *    to turn adult content on (on the Bluesky website).
  *  - On → each of those three labels does what the account set it to:
- *    Show (shown), Warn (blurred, tap to reveal) or Hide (left out).
+ *    Show (shown), Warn (blurred, tap to reveal) or Hide (blurred and
+ *    locked, like adult content being off).
+ *
+ * Nothing is filtered out — feeds keep their posts, just blurred — unless
+ * "Filter Out NSFW Content" is on in Settings.
  *
  * Only these adult labels are followed. Every other label (graphic media,
  * self-harm, extremism, …) is ignored here, and those posts show normally.
@@ -26,6 +31,7 @@ object AdultContentPolicy {
     private const val PREFS = "content_policy"
     private const val KEY_ALLOWED = "bsky_adult_content_enabled"
     private const val KEY_LABEL_PREFIX = "bsky_label_"
+    private const val KEY_FILTER_ALL = "filter_all_nsfw"
 
     enum class Visibility { SHOW, WARN, HIDE }
 
@@ -45,6 +51,19 @@ object AdultContentPolicy {
     var labelVisibility by mutableStateOf<Map<String, Visibility>>(DEFAULTS)
         private set
 
+    /** Settings › "I REALLY Hate Fun (Filter Out NSFW Content)": every adult-labeled post is
+     *  left out of every feed and page. Off by default. */
+    var filterAll by mutableStateOf(false)
+        private set
+
+    fun updateFilterAll(on: Boolean) {
+        filterAll = on
+        prefs?.edit()?.putBoolean(KEY_FILTER_ALL, on)?.apply()
+    }
+
+    /** True when [item] is left out entirely. */
+    fun filters(item: MediaItem): Boolean = filterAll && item.isNsfwLabeled
+
     private var prefs: SharedPreferences? = null
 
     fun init(context: PlatformContext) {
@@ -52,6 +71,7 @@ object AdultContentPolicy {
         val p = context.sharedPreferences(PREFS)
         prefs = p
         accountAllowsAdult = p.getBoolean(KEY_ALLOWED, false)
+        filterAll = p.getBoolean(KEY_FILTER_ALL, false)
         labelVisibility = DEFAULTS.mapValues { (label, def) ->
             p.getString(KEY_LABEL_PREFIX + label, null)?.let { runCatching { Visibility.valueOf(it) }.getOrNull() } ?: def
         }
@@ -98,9 +118,17 @@ object AdultContentPolicy {
         else -> null
     }
 
-    /** True when [item] is left out everywhere. */
-    fun hides(item: MediaItem): Boolean = strictest(item) == Visibility.HIDE
+    /** Why [item] is blurred and can't be revealed here, or null. */
+    enum class Lock { ADULT_OFF, LABEL_HIDDEN }
+    fun lock(item: MediaItem): Lock? = when {
+        strictest(item) != Visibility.HIDE -> null
+        !accountAllowsAdult -> Lock.ADULT_OFF
+        else -> Lock.LABEL_HIDDEN
+    }
 
-    /** True when [item] is shown blurred (tap to reveal). */
+    /** True when [item] is shown blurred, tap to reveal. */
     fun warns(item: MediaItem): Boolean = strictest(item) == Visibility.WARN
+
+    /** Where adult content is managed on Bluesky. */
+    const val MANAGE_URL = "https://bsky.app/moderation"
 }

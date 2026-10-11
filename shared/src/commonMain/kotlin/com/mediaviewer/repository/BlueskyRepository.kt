@@ -3526,7 +3526,7 @@ class BlueskyRepository {
         // author.getDid(); skip just the malformed entry instead.
         val items = posts.flatMap { post ->
             runCatching {
-                parseFeedItem(BskyFeedItem(post = post)).filterNot { com.mediaviewer.util.AdultContentPolicy.hides(it) }.map { media -> media.copy(isBookmarked = true) }
+                parseFeedItem(BskyFeedItem(post = post)).filterNot { com.mediaviewer.util.AdultContentPolicy.filters(it) }.map { media -> media.copy(isBookmarked = true) }
             }.getOrElse { emptyList() }
         }
         Pair(items, body.cursor)
@@ -4502,7 +4502,7 @@ class BlueskyRepository {
         runCatching { parseFeedItem(item) }.getOrDefault(emptyList()).let { list ->
             // Their posts still show; they're just flagged (see MediaItem.authorBlocksViewer).
             if (item.post.author.viewer?.blockedBy == true) list.map { it.copy(authorBlocksViewer = true) } else list
-        }.filterNot { com.mediaviewer.util.AdultContentPolicy.hides(it) }.let { list ->
+        }.filterNot { com.mediaviewer.util.AdultContentPolicy.filters(it) }.let { list ->
             // Edited in Stellar: carry the edit time and earlier versions.
             val rec = item.post.record
             val edited = rec.stellarEditedAt?.takeIf { it.isNotBlank() }

@@ -345,12 +345,17 @@ private fun RowLabel(text: String, modifier: Modifier = Modifier, sub: String? =
  *  to roughly two-thirds of the default via an outer Box, then scale the real
  *  Switch to fit (Modifier.scale alone wouldn't shrink the space reserved). */
 @Composable
-private fun CompactSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun CompactSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) = CompactSwitch(checked, true, onCheckedChange)
+
+/** A switch that can be grayed out ([enabled] false: shown, can't be changed). */
+@Composable
+private fun CompactSwitch(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val tap = rememberHapticTap()
     Box(modifier = Modifier.size(width = 36.dp, height = 22.dp), contentAlignment = Alignment.Center) {
         Switch(
             checked = checked, onCheckedChange = { tap(); onCheckedChange(it) },
-            modifier = Modifier.scale(0.7f),
+            enabled = enabled,
+            modifier = Modifier.scale(0.7f).graphicsLayer { alpha = if (enabled) 1f else 0.45f },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White, checkedTrackColor = LocalSettingsAccent.current,
                 uncheckedThumbColor = DimGray, uncheckedTrackColor = Color.White.copy(0.1f)
@@ -866,16 +871,24 @@ internal fun SettingsPageContent(
             val nsfwContext = com.mediaviewer.ui.compat.LocalContext.current
             SettingsBubble(liquidGlass, tint, backdrop) {
                 BubbleRow {
-                    RowLabel(
-                        "NSFW Content", Modifier.weight(1f),
-                        sub = "Follows your Bluesky adult content settings. Refresh your feed after changing them."
-                    )
-                    PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, "https://bsky.app/moderation") })
+                    RowLabel("NSFW Content", Modifier.weight(1f))
+                    // Opens in the phone's own browser (on purpose, not
+                    // Stellar's: adult content is turned on outside the app).
+                    PillButton("Manage on Bluesky", { com.mediaviewer.ui.compat.openUrl(nsfwContext, com.mediaviewer.util.AdultContentPolicy.MANAGE_URL) })
                 }
+                // Blur: always shown; while the Bluesky account doesn't
+                // allow adult content, it's on and can't be changed here
+                // (those posts are blurred regardless).
+                val adultAllowed = com.mediaviewer.util.AdultContentPolicy.accountAllowsAdult
                 BubbleDivider()
                 BubbleRow {
                     RowLabel("I Hate Fun (Blur NSFW Content)", Modifier.weight(1f))
-                    CompactSwitch(hateFunBlurNsfw, onToggleHateFunBlurNsfw)
+                    CompactSwitch(hateFunBlurNsfw || !adultAllowed, enabled = adultAllowed, onCheckedChange = onToggleHateFunBlurNsfw)
+                }
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel("I REALLY Hate Fun (Filter Out NSFW Content)", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.AdultContentPolicy.filterAll) { com.mediaviewer.util.AdultContentPolicy.updateFilterAll(it) }
                 }
             }
 

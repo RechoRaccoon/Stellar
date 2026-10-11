@@ -1952,6 +1952,15 @@ class MainViewModel(
     private var searchJob: kotlinx.coroutines.Job? = null
 
     fun openSearch() { tapHaptic(); _searchOpen.value = true }
+
+    /** Opens [url] in Search › Web Browser (over whatever's showing). */
+    fun openInAppBrowser(url: String) {
+        tapHaptic()
+        com.mediaviewer.ui.BrowserHome.state.load(url)
+        _searchHiddenBehindPost.value = false
+        _searchOpen.value = true
+        setSearchFilter(SearchFilter.WEB)
+    }
     fun closeSearch() {
         _searchOpen.value = false
         _searchHiddenBehindPost.value = false

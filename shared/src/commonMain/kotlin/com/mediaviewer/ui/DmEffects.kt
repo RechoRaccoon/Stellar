@@ -242,7 +242,8 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
  * upright axis — the like burst on posts uses it.
  */
 internal fun DrawScope.drawHeart3D(center: Offset, s: Float, angle: Float, color: Color, alpha: Float = 1f) {
-    drawHeartSlices(center, s, angle, brightHeart(color), alpha, heartPath())
+    // [color] as given (the like heart passes the post's own accent).
+    drawHeartSlices(center, s, angle, color, alpha, heartPath())
 }
 
 /**
@@ -293,14 +294,14 @@ private fun DrawScope.drawHeartSlices(center: Offset, s: Float, angle: Float, ba
                 drawPath(
                     heart,
                     Brush.radialGradient(
-                        0f to lerp(base, Color.White, 0.6f), 0.45f to lerp(base, Color.White, 0.12f),
+                        0f to lerp(base, Color.White, 0.3f), 0.45f to lerp(base, Color.White, 0.06f),
                         1f to lerp(base, Color.Black, 0.12f),
                         center = Offset(-0.38f, -0.42f), radius = 1.75f
                     )
                 )
                 drawOval(
                     Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0f)),
+                        listOf(Color.White.copy(alpha = 0.5f), Color.White.copy(alpha = 0f)),
                         center = Offset(-0.5f, -0.5f), radius = 0.34f
                     ),
                     topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f)
@@ -319,7 +320,8 @@ private fun DrawScope.drawHeartSlices(center: Offset, s: Float, angle: Float, ba
  */
 internal fun DrawScope.drawHeart2D(center: Offset, s: Float, tilt: Float, color: Color, alpha: Float = 1f) {
     if (alpha <= 0.002f || s <= 0.5f) return
-    val base = brightHeart(color)
+    // [color] as given (the post's own accent), only shaded.
+    val base = color
     val heart = heartPath()
     withTransform({
         translate(center.x, center.y)
@@ -334,13 +336,13 @@ internal fun DrawScope.drawHeart2D(center: Offset, s: Float, tilt: Float, color:
         drawPath(
             heart,
             Brush.radialGradient(
-                0f to lerp(base, Color.White, 0.5f), 0.5f to base, 1f to lerp(base, Color.Black, 0.22f),
+                0f to lerp(base, Color.White, 0.22f), 0.5f to base, 1f to lerp(base, Color.Black, 0.2f),
                 center = Offset(-0.4f, -0.45f), radius = 1.9f
             ),
             alpha = alpha
         )
-        drawPath(heart, lerp(base, Color.White, 0.55f).copy(alpha = 0.55f * alpha), style = Stroke(0.06f))
-        drawOval(Color.White.copy(alpha = 0.55f * alpha), topLeft = Offset(-0.78f, -0.72f), size = Size(0.42f, 0.24f))
+        drawPath(heart, lerp(base, Color.White, 0.3f).copy(alpha = 0.5f * alpha), style = Stroke(0.06f))
+        drawOval(Color.White.copy(alpha = 0.35f * alpha), topLeft = Offset(-0.78f, -0.72f), size = Size(0.42f, 0.24f))
     }
 }
 
