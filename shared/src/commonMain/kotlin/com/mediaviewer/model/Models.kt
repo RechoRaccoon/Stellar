@@ -182,7 +182,7 @@ data class MediaItem(
      *  by any labeler service, not just the default moderation.bsky.app
      *  one, and by self-labels), so matching on value alone already covers
      *  every labeler using Bluesky's standard sexual-content vocabulary. */
-    val isNsfwLabeled: Boolean get() = labels?.any { it == "porn" || it == "sexual" || it == "nudity" } == true
+    val isNsfwLabeled: Boolean get() = labels?.any { it == "porn" || it == "sexual" || it == "nudity" || it == "nsfw" || it == "suggestive" } == true
 }
 
 /** The app's own pseudo-feeds that ride on AuthorFeedSavedState like a

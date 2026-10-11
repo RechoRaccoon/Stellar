@@ -35,7 +35,8 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 cid TEXT NOT NULL,
                 media_url TEXT NOT NULL,
                 indexed_timestamp INTEGER NOT NULL,
-                dataset_id TEXT NOT NULL DEFAULT ''
+                dataset_id TEXT NOT NULL DEFAULT '',
+                ai_tagged INTEGER NOT NULL DEFAULT 1
             )
             """.trimIndent()
         )
@@ -45,6 +46,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 post_uri TEXT NOT NULL,
                 tag_name TEXT NOT NULL,
                 confidence REAL NOT NULL,
+                manual INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY(post_uri) REFERENCES liked_media(post_uri) ON DELETE CASCADE
             )
             """.trimIndent()
@@ -103,6 +105,20 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_liked_media_dataset_id ON liked_media(dataset_id)")
         }
+        if (oldVersion < 4) {
+            // Hand tags vs the AI's: whether the AI has tagged a post yet
+            // (hand tags alone don't count, so it still gets tagged), and
+            // which tags were added by hand (kept when the AI tags it).
+            // Before this, a hand-added tag scored exactly 1.0 — a post
+            // whose every tag is 1.0 was only ever tagged by hand.
+            db.execSQL("ALTER TABLE liked_media ADD COLUMN ai_tagged INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE media_tags ADD COLUMN manual INTEGER NOT NULL DEFAULT 0")
+            db.execSQL(
+                "UPDATE liked_media SET ai_tagged = 0 WHERE dataset_id = '' AND post_uri IN " +
+                    "(SELECT post_uri FROM media_tags GROUP BY post_uri HAVING MIN(confidence) = 1.0 AND MAX(confidence) = 1.0)"
+            )
+            db.execSQL("UPDATE media_tags SET manual = 1 WHERE post_uri IN (SELECT post_uri FROM liked_media WHERE ai_tagged = 0)")
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -122,6 +138,15 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
      *  tagged by this device's own model). The on-device tagger treats these
      *  as already tagged and leaves them alone — see
      *  [TaggingRepository.tagOnLike]. */
+    /** True if the AI has already tagged this post (or it came with an
+     *  imported dataset) — a post with only hand-added tags isn't. */
+    fun isAiTagged(postUri: String): Boolean {
+        readableDatabase.rawQuery(
+            "SELECT 1 FROM liked_media WHERE post_uri = ? AND (ai_tagged = 1 OR dataset_id != ?) LIMIT 1",
+            arrayOf(postUri, LOCAL_DATASET_ID)
+        ).use { return it.moveToFirst() }
+    }
+
     fun isInImportedDataset(postUri: String): Boolean {
         readableDatabase.rawQuery(
             "SELECT 1 FROM liked_media WHERE post_uri = ? AND dataset_id != ? LIMIT 1",
@@ -142,13 +167,24 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.execSQL(
-                "INSERT OR REPLACE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)",
-                arrayOf(postUri, cid, mediaUrl, System.currentTimeMillis(), datasetId)
-            )
-            // Clear out anything from a previous pass (realtime re-tag, retry, etc.)
-            db.execSQL("DELETE FROM media_tags WHERE post_uri = ?", arrayOf(postUri))
+            // Update in place (an INSERT OR REPLACE would delete the row
+            // first, and with it — ON DELETE CASCADE — any hand-added tags).
+            val values = android.content.ContentValues().apply {
+                put("cid", cid); put("media_url", mediaUrl)
+                put("indexed_timestamp", System.currentTimeMillis()); put("dataset_id", datasetId); put("ai_tagged", 1)
+            }
+            if (db.update("liked_media", values, "post_uri = ?", arrayOf(postUri)) == 0) {
+                values.put("post_uri", postUri)
+                db.insertOrThrow("liked_media", null, values)
+            }
+            // Replace the AI's tags from any earlier pass; hand-added ones stay.
+            db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND manual = 0", arrayOf(postUri))
+            val hand = HashSet<String>()
+            db.rawQuery("SELECT tag_name FROM media_tags WHERE post_uri = ?", arrayOf(postUri)).use { c ->
+                while (c.moveToNext()) hand.add(c.getString(0))
+            }
             tags.forEach { (tag, confidence) ->
+                if (tag in hand) return@forEach
                 db.execSQL(
                     "INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)",
                     arrayOf(postUri, tag, confidence)
@@ -281,8 +317,10 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val db = writableDatabase
         db.beginTransaction()
         try {
+            // A post first tagged by hand isn't marked AI-tagged, so the AI
+            // still tags it later.
             db.execSQL(
-                "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id, ai_tagged) VALUES (?, ?, ?, ?, ?, 0)",
                 arrayOf(postUri, cid, mediaUrl, System.currentTimeMillis(), LOCAL_DATASET_ID)
             )
             when {
@@ -290,12 +328,12 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, oldTag))
                 oldTag == null && newTag != null -> {
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
-                    db.execSQL("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, 1.0)", arrayOf(postUri, newTag))
+                    db.execSQL("INSERT INTO media_tags (post_uri, tag_name, confidence, manual) VALUES (?, ?, 1.0, 1)", arrayOf(postUri, newTag))
                 }
                 oldTag != null && newTag != null && oldTag != newTag -> {
                     // (Renaming onto a tag it already has merges the two.)
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
-                    db.execSQL("UPDATE media_tags SET tag_name = ? WHERE post_uri = ? AND tag_name = ?", arrayOf(newTag, postUri, oldTag))
+                    db.execSQL("UPDATE media_tags SET tag_name = ?, manual = 1 WHERE post_uri = ? AND tag_name = ?", arrayOf(newTag, postUri, oldTag))
                 }
             }
             db.setTransactionSuccessful()
@@ -518,7 +556,10 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         //
         // Bumped 2 -> 3 for the Import/Export feature's dataset_id column +
         // datasets table (see onUpgrade/onCreate).
-        private const val DB_VERSION = 3
+        //
+        // Bumped 3 -> 4: liked_media.ai_tagged + media_tags.manual (hand
+        // tags no longer stop the AI tagging a post, and survive it).
+        private const val DB_VERSION = 4
 
         /** Sentinel dataset_id for every row created by the normal on-device
          *  tagging pipeline (as opposed to an imported dataset — see the

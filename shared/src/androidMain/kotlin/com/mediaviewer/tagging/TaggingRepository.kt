@@ -220,7 +220,7 @@ class TaggingRepository(
              *  rather than how many are inferred at the same instant (see
              *  the Settings copy for this slider). */
             suspend fun tagBatch(items: List<MediaItem>) {
-                val toTag = items.filter { it.postUri.isNotBlank() && !db.isIndexed(it.postUri) }
+                val toTag = items.filter { it.postUri.isNotBlank() && !db.isAiTagged(it.postUri) }
                 if (toTag.isEmpty() || cancelRequested) return
 
                 coroutineScope {

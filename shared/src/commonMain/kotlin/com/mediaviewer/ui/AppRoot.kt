@@ -97,7 +97,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val pinterestThreeColumns by viewModel.pinterestThreeColumns.collectAsState()
     val hateFunBlurNsfwPref by viewModel.hateFunBlurNsfw.collectAsState()
     // iOS has no "I Hate Fun" blur (adult content follows the Bluesky account there).
-    val hateFunBlurNsfw = hateFunBlurNsfwPref && !com.mediaviewer.util.AdultContentPolicy.appliesHere
+    val hateFunBlurNsfw = hateFunBlurNsfwPref
     val liquidGlassPref    by viewModel.liquidGlass.collectAsState()
     // Supporter Settings → Battery Saver: flat (un-blurred) buttons everywhere.
     val liquidGlass = liquidGlassPref && !com.mediaviewer.util.LocalData.batterySaverActive
@@ -702,6 +702,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             onNavigateTo              = viewModel::navigateTo,
             onSetScreen               = viewModel::setScreen,
             onToggleLike              = viewModel::toggleLike,
+            onDoubleTapLike           = viewModel::likeFromDoubleTap,
             onToggleRepost            = viewModel::toggleRepost,
             onToggleBookmark          = viewModel::toggleBookmark,
             onToggleFollow            = viewModel::toggleFollow,

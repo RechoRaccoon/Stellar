@@ -4039,10 +4039,11 @@ class MainViewModel(
     fun loadAvailableFeeds() {
         if (!_bskyLoggedIn.value) return
         viewModelScope.launch(Dispatchers.IO) {
-            // iOS: adult content follows the account's own Bluesky setting
-            // (turned on at bsky.app) — see AdultContentPolicy.
-            if (com.mediaviewer.util.AdultContentPolicy.appliesHere) {
-                bskyRepo.getAdultContentEnabled(bskyToken).onSuccess { com.mediaviewer.util.AdultContentPolicy.update(it) }
+            // Adult content follows the account's own Bluesky moderation
+            // settings (adult content on/off, and porn / sexual / nudity's
+            // Show / Warn / Hide) — see AdultContentPolicy.
+            bskyRepo.getAdultContentPrefs(bskyToken).onSuccess { (allowed, labels) ->
+                com.mediaviewer.util.AdultContentPolicy.update(allowed, labels)
             }
             var result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -6792,19 +6793,23 @@ class MainViewModel(
      *  person navigates away before the (local, near-instant, but still
      *  async) DB query resolves. */
     private fun attachAiTagsToCurrentItem() {
-        val idx = _currentIndex.value
-        val item = _mediaItems.value.getOrNull(idx) ?: return
-        if (item.tags.isNotBlank() || item.postUri.isBlank()) return
+        val item = _mediaItems.value.getOrNull(_currentIndex.value) ?: return
+        refreshPostTagsFromDataset(item.postUri)
+    }
+
+    /** A Bluesky post's tags come from the tagged dataset (the AI's plus
+     *  any added by hand), so they're always re-read from it rather than
+     *  only when the post has none yet — that used to leave a post that got
+     *  a hand tag first showing only that tag, never the AI's added later.
+     *  e621 posts keep e621's own tags. */
+    private fun refreshPostTagsFromDataset(postUri: String) {
+        if (postUri.isBlank() || _appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
         viewModelScope.launch(Dispatchers.IO) {
-            val aiTags = taggingRepo.tagsForPost(item.postUri)
-            if (aiTags.isEmpty()) return@launch
+            val tags = taggingRepo.tagsForPost(postUri).joinToString(" ")
             withContext(Dispatchers.Main) {
-                val list = _mediaItems.value.toMutableList()
-                val current = list.getOrNull(idx) ?: return@withContext
-                if (current.postUri == item.postUri && current.tags.isBlank()) {
-                    list[idx] = current.copy(tags = aiTags.joinToString(" "))
-                    _mediaItems.value = list
-                }
+                val list = _mediaItems.value
+                if (list.none { it.postUri == postUri && it.e621PostId == null && it.tags != tags }) return@withContext
+                _mediaItems.value = list.map { if (it.postUri == postUri && it.e621PostId == null && tags.isNotBlank()) it.copy(tags = tags) else it }
             }
         }
     }
@@ -6875,6 +6880,13 @@ class MainViewModel(
      *  blocked you (its own app refuses too), so those are switched off. */
     private fun blocksViewer(item: MediaItem): Boolean =
         item.authorBlocksViewer || com.mediaviewer.util.BlockedAccounts.isBlockedBy(item.author.did)
+
+    /** Double tap on a post: like it (e621: favorite it) — never unlike. */
+    fun likeFromDoubleTap() {
+        val item = currentItem.value ?: return
+        if (_appMode.value == AppMode.BLUESKY) { if (!item.isLiked) toggleLike() }
+        else if (!item.isBookmarked) toggleBookmark()
+    }
 
     fun toggleLike() {
         val item = currentItem.value ?: return
@@ -7713,6 +7725,9 @@ class MainViewModel(
             _likeTagPhase.value = LikeTagPhase.TAGGING
             runCatching { taggingRepo.tagOnLike(item) }
                 .onFailure { Log.e("MainViewModel", "Tag-on-like failed", it) }
+            // Its new tags show straight away wherever the post is loaded
+            // (alongside any added by hand).
+            refreshPostTagsFromDataset(item.postUri)
             likeTagQueued.remove(item.postUri)
             _likeTagPending.value = (_likeTagPending.value - 1).coerceAtLeast(0)
             _likeTagPhase.value = if (_likeTagPending.value > 0) LikeTagPhase.TAGGING else LikeTagPhase.IDLE

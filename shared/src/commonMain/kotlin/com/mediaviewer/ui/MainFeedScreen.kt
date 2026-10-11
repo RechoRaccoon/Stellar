@@ -234,6 +234,10 @@ fun MainFeedScreen(
     onNavigateTo: (Int) -> Unit,
     onSetScreen: (ScreenState) -> Unit,
     onToggleLike: () -> Unit,
+    /** Double tap: likes (e621: favorites) only if it isn't already. Reads
+     *  the post's current state itself — a lambda here can be held onto by
+     *  the gesture handler, so it mustn't decide from a captured item. */
+    onDoubleTapLike: () -> Unit = {},
     onToggleRepost: () -> Unit,
     onToggleBookmark: () -> Unit,
     onToggleFollow: () -> Unit,
@@ -477,8 +481,7 @@ fun MainFeedScreen(
                         // never unlikes; the heart button does that. The
                         // buzz and the heart play every time regardless.
                         haptic(context)
-                        if (appMode == AppMode.BLUESKY) { if (currentItem?.isLiked == false) onToggleLike() }
-                        else if (currentItem?.isBookmarked == false) onToggleBookmark()
+                        onDoubleTapLike()
                     },
                     onToggleLike      = onToggleLike,
                     onToggleRepost    = onToggleRepost,
@@ -1130,7 +1133,7 @@ private fun PostContent(
     // scrolls off and on it again") without needing to hand-roll any
     // "did we scroll away" detection of our own.
     var nsfwRevealed by remember(item.id) { mutableStateOf(false) }
-    val nsfwBlurred = hateFunBlurNsfw && item.isNsfwLabeled && !item.isBlocked && !nsfwRevealed
+    val nsfwBlurred = item.nsfwBlurred(hateFunBlurNsfw) && !item.isBlocked && !nsfwRevealed
 
     var menuCenter    by remember { mutableStateOf<Offset?>(null) }
     var hoveredAction by remember { mutableStateOf<QuickAction?>(null) }
@@ -1994,6 +1997,16 @@ private fun PostContent(
                             centeredText = "Tap to Add Saved Post to Folder",
                             stats = postStats
                         )
+                    } else if (item.isTextOnly && postStats != null) {
+                        // Text posts show their text in the middle, so the
+                        // bubble here holds just the counts and date (gone
+                        // when both are turned off in Settings).
+                        PostStatsBubble(
+                            stats = postStats,
+                            liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
+                            onHorizontalSwipe = handleHorizontalSwipe,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 4.dp)
+                        )
                     } else {
                         Spacer(Modifier.fillMaxWidth().height(0.dp))
                     }
@@ -2094,10 +2107,13 @@ private fun PostContent(
                 onDelete = onDeletePost
             )
         }
-        // The like hearts, over everything on the post.
-        likeBursts.forEach { b ->
-            androidx.compose.runtime.key(b.id) {
-                LikeHeart(b, dominantColor, postBoxRootOrigin.y) { likeBursts.remove(b) }
+        // The like hearts, over everything on the post — including the
+        // author and interaction bars (zIndex 2) and the More menu (7).
+        if (likeBursts.isNotEmpty()) Box(Modifier.fillMaxSize().zIndex(8f)) {
+            likeBursts.forEach { b ->
+                androidx.compose.runtime.key(b.id) {
+                    LikeHeart(b, dominantColor, postBoxRootOrigin.y) { likeBursts.remove(b) }
+                }
             }
         }
     }
@@ -2108,7 +2124,7 @@ private class LikeBurst(val id: Long, val at: Offset, val big: Boolean)
 
 /**
  * A single 3D heart in the post's colors. It pops out of [burst]'s spot
- * with a little overshoot, a ring and a spray of sparkles, and is already
+ * with a little overshoot and a ring, and is already
  * rising from the first frame — then keeps speeding up, swaying and
  * spinning, until it has floated off the top of the screen. It doesn't
  * fade; it's removed once it's out of view. [topInRoot] is where the
@@ -2116,9 +2132,9 @@ private class LikeBurst(val id: Long, val at: Offset, val big: Boolean)
  */
 @Composable
 private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: () -> Unit) {
-    // Settings › UI Customization › 2D Like Heart.
-    val flat = remember { com.mediaviewer.util.UiToggles.flatLikeHeart }
-    if (flat) { FlatLikeHeart(burst, color, topInRoot, onDone); return }
+    // 2D by default; Settings › UI Customization › 3D Like Heart.
+    val threeD = remember { com.mediaviewer.util.UiToggles.threeDLikeHeart }
+    if (!threeD) { FlatLikeHeart(burst, color, topInRoot, onDone); return }
     val done by rememberUpdatedState(onDone)
     var elapsed by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
@@ -2132,16 +2148,6 @@ private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: 
     val rnd = remember { kotlin.random.Random(burst.id) }
     val swayDir = remember { if (rnd.nextBoolean()) 1f else -1f }
     val spinDir = remember { if (rnd.nextBoolean()) 1f else -1f }
-    val sparks = remember {
-        List(if (burst.big) 10 else 7) { i ->
-            val n = if (burst.big) 10 else 7
-            floatArrayOf(
-                (i / n.toFloat()) * 2f * kotlin.math.PI.toFloat() + rnd.nextFloat() * 0.5f,  // direction
-                0.75f + rnd.nextFloat() * 0.6f,                                            // reach
-                0.6f + rnd.nextFloat() * 0.7f                                              // size
-            )
-        }
-    }
     LaunchedEffect(Unit) {
         val start = withFrameNanos { it }
         while (true) {
@@ -2155,26 +2161,14 @@ private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: 
     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
         val t = elapsed
         val p = (t / duration).coerceIn(0f, 1f)
-        // Ring + sparkles at the spot it came from (first ~half second).
-        val ringP = (t / 0.38f).coerceIn(0f, 1f)
+        // The same ring as the 2D heart's, at the spot it came from.
+        val ringP = (t / 0.4f).coerceIn(0f, 1f)
         if (ringP < 1f) {
             val e = 1f - (1f - ringP) * (1f - ringP) * (1f - ringP)
             drawCircle(
-                light.copy(alpha = 0.75f * (1f - ringP)),
-                radius = s * (0.55f + 1.75f * e), center = burst.at,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = s * 0.14f * (1f - ringP) + dpPx)
+                light.copy(alpha = 0.6f * (1f - ringP)), radius = s * (0.6f + 1.5f * e), center = burst.at,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = s * 0.12f * (1f - ringP) + dpPx)
             )
-        }
-        val sparkP = (t / 0.55f).coerceIn(0f, 1f)
-        if (sparkP < 1f) {
-            val e = 1f - (1f - sparkP) * (1f - sparkP)
-            sparks.forEach { sp ->
-                val r = s * (0.7f + 1.6f * sp[1] * e)
-                val c = Offset(burst.at.x + kotlin.math.cos(sp[0]) * r, burst.at.y + kotlin.math.sin(sp[0]) * r)
-                val rad = s * 0.075f * sp[2] * (1f - sparkP)
-                drawCircle(Color.White.copy(alpha = 0.9f * (1f - sparkP)), rad * 1.0f, c)
-                drawCircle(light.copy(alpha = 0.5f * (1f - sparkP)), rad * 2.2f, c)
-            }
         }
         // The heart: moving up from the very first frame, then faster.
         val y = burst.at.y - travel * (0.42f * p + 0.58f * p * p)
@@ -2861,6 +2855,28 @@ private fun PostTextBubble(
         }
     }
 
+    if (liquidGlass) {
+        LiquidGlassSurface(modifier = bubbleModifier, shape = shape, tint = tint, backdrop = backdrop) { Body() }
+    } else {
+        Box(bubbleModifier.background(Color.Black.copy(alpha = 0.55f))) { Body() }
+    }
+}
+
+/** A text post's bubble: only the counts and date, always shown. */
+@Composable
+private fun PostStatsBubble(
+    stats: PostBubbleStats, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    onHorizontalSwipe: (Float) -> Unit, modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val style = androidx.compose.ui.text.TextStyle(color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp)
+    val bubbleModifier = modifier.tipAnchor("tl.text").clip(shape).horizontalSwipeWatcher(onHorizontalSwipe)
+    @Composable
+    fun Body() {
+        // (The row's own top gap is for sitting under text; here it's the
+        // whole bubble, so it's evened out.)
+        Box(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)) { PostStatsRow(stats, style) }
+    }
     if (liquidGlass) {
         LiquidGlassSurface(modifier = bubbleModifier, shape = shape, tint = tint, backdrop = backdrop) { Body() }
     } else {

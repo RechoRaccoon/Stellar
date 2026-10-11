@@ -508,14 +508,34 @@ class BlueskyRepository {
 
     /** The account's "Enable adult content" setting (app.bsky.actor.defs#
      *  adultContentPref) — off unless it was turned on at bsky.app. */
-    suspend fun getAdultContentEnabled(token: String): Result<Boolean> = runCatching {
+    suspend fun getAdultContentEnabled(token: String): Result<Boolean> = getAdultContentPrefs(token).map { it.first }
+
+    /** The account's adult-content moderation settings: "Enable adult
+     *  content", and Bluesky's own content labels' settings (label →
+     *  "ignore" / "warn" / "hide"; only the global ones, not a labeler's). */
+    suspend fun getAdultContentPrefs(token: String): Result<Pair<Boolean, Map<String, String>>> = runCatching {
         val resp = api.getPreferences("Bearer $token")
         if (!resp.isSuccessful) error("Prefs HTTP ${resp.code()}")
         val body = resp.body() ?: error("Prefs: empty body")
-        val pref = body.preferences.firstOrNull {
-            it.isJsonObject && it.asJsonObject.get("\$type")?.asString?.endsWith("adultContentPref") == true
+        var enabled = false
+        val labels = HashMap<String, String>()
+        for (p in body.preferences) {
+            if (!p.isJsonObject) continue
+            val o = p.asJsonObject
+            val type = o.get("\$type")?.takeIf { it.isJsonPrimitive }?.asString ?: continue
+            when {
+                type.endsWith("adultContentPref") ->
+                    enabled = o.get("enabled")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+                type.endsWith("contentLabelPref") -> {
+                    val labeler = o.get("labelerDid")?.takeIf { it.isJsonPrimitive }?.asString
+                    if (!labeler.isNullOrBlank()) continue
+                    val label = o.get("label")?.takeIf { it.isJsonPrimitive }?.asString ?: continue
+                    val vis = o.get("visibility")?.takeIf { it.isJsonPrimitive }?.asString ?: continue
+                    labels[label] = vis
+                }
+            }
         }
-        pref?.asJsonObject?.get("enabled")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+        enabled to labels
     }
 
     suspend fun getSavedFeeds(token: String, did: String): Result<List<BskyFeedInfo>> = runCatching {

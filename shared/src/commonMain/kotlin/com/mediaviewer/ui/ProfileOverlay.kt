@@ -2678,7 +2678,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
         // blocked blur), with a light scrim on top just to guarantee it
         // reads as fully obscured even for a low-detail thumbnail a blur
         // alone might not fully hide.
-        val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
+        val blurNsfw = item.nsfwBlurred(LocalHateFunBlurNsfw.current)
         val contentModifier = Modifier.fillMaxSize().let { if (blurNsfw) it.blur(80.dp) else it }
         if (item.isEmojiTextshot) {
             // Textshot with custom emoji: show the posted picture (its text

@@ -207,6 +207,9 @@ class MainActivity : ComponentActivity() {
         com.mediaviewer.repository.WikipediaRepository.init(applicationContext)
         com.mediaviewer.ui.ProfileColorStore.init(applicationContext)
         com.mediaviewer.ui.SelfProfileColors.init(applicationContext)
+        // Adult content follows the Bluesky account's moderation settings
+        // (remembered from the last read, so the first feed already does).
+        com.mediaviewer.util.AdultContentPolicy.init(applicationContext)
         // Audio visualizer: start noting music apps' audio sessions right
         // away, so the bars can attach to one even if the music started
         // before the feed was opened.

@@ -18,7 +18,7 @@ object UiToggles {
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_HIDE_POST_STATS = "hide_post_stats"
     private const val KEY_HIDE_POST_DATE = "hide_post_date"
-    private const val KEY_FLAT_LIKE_HEART = "flat_like_heart"
+    private const val KEY_3D_LIKE_HEART = "three_d_like_heart"
     private const val KEY_TAGGED_SORT = "tagged_sort"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
@@ -109,14 +109,14 @@ object UiToggles {
         prefs?.edit()?.putInt(KEY_TAGGED_SORT, taggedSort)?.apply()
     }
 
-    /** Settings › UI Customization › "2D Like Heart": the heart that flies
-     *  up when liking is a flat one instead of the 3D one. */
-    var flatLikeHeart by mutableStateOf(false)
+    /** Settings › UI Customization › "3D Like Heart": the heart that flies
+     *  up when liking is the 3D one instead of the flat one (the default). */
+    var threeDLikeHeart by mutableStateOf(false)
         private set
 
-    fun updateFlatLikeHeart(flat: Boolean) {
-        flatLikeHeart = flat
-        prefs?.edit()?.putBoolean(KEY_FLAT_LIKE_HEART, flat)?.apply()
+    fun updateThreeDLikeHeart(on: Boolean) {
+        threeDLikeHeart = on
+        prefs?.edit()?.putBoolean(KEY_3D_LIKE_HEART, on)?.apply()
     }
 
     fun updateHidePostDate(hide: Boolean) {
@@ -242,7 +242,7 @@ object UiToggles {
         hapticsEnabled = p.getBoolean(KEY_HAPTICS, true)
         hidePostStats = p.getBoolean(KEY_HIDE_POST_STATS, false)
         hidePostDate = p.getBoolean(KEY_HIDE_POST_DATE, false)
-        flatLikeHeart = p.getBoolean(KEY_FLAT_LIKE_HEART, false)
+        threeDLikeHeart = p.getBoolean(KEY_3D_LIKE_HEART, false)
         taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)

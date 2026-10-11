@@ -154,3 +154,9 @@ fun ReviewKindFilter.matchesBacklog(item: PopfeedBacklogItem) = this == ReviewKi
 // Popfeed backlog/review record.
 fun ReviewKindFilter.matchesTitle(result: com.mediaviewer.model.TitleSearchResult) =
     this == ReviewKindFilter.ALL || categoryBucket(result.mediaCategory) == this
+
+/** Shown blurred (tap to reveal): an adult-labeled post the account's
+ *  Bluesky settings say to warn about, or any adult-labeled post with
+ *  "I Hate Fun" on. */
+fun MediaItem.nsfwBlurred(hateFun: Boolean): Boolean =
+    (hateFun && isNsfwLabeled) || com.mediaviewer.util.AdultContentPolicy.warns(this)

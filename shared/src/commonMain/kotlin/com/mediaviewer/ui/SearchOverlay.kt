@@ -818,7 +818,7 @@ private fun TrendingSearchesList(
 private fun SearchPostCell(item: MediaItem, onClick: () -> Unit) {
     val tap = rememberHapticTap()
     // "I Hate Fun": NSFW-labeled results are blurred here too.
-    val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
+    val blurNsfw = item.nsfwBlurred(LocalHateFunBlurNsfw.current)
     Box(
         Modifier.aspectRatio(1f).clip(androidx.compose.ui.graphics.RectangleShape)
             .then(if (blurNsfw) Modifier.blur(60.dp) else Modifier)

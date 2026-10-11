@@ -83,7 +83,11 @@ private fun ensureDir(path: String): String {
 // ── The dataset ─────────────────────────────────────────────────────────
 
 @Serializable
-private data class StoredTag(val n: String = "", val c: Float = 0f)
+private data class StoredTag(
+    val n: String = "", val c: Float = 0f,
+    /** Added by hand on the Tags page (kept when the AI tags the post). */
+    val m: Boolean = false
+)
 
 @Serializable
 private data class StoredPost(
@@ -93,8 +97,15 @@ private data class StoredPost(
     val at: Long = 0L,
     /** "" = tagged on this device; else the imported dataset it came with. */
     val set: String = "",
-    val tags: List<StoredTag> = emptyList()
-)
+    val tags: List<StoredTag> = emptyList(),
+    /** The AI has tagged it. Null in files from before hand tags were told
+     *  apart: then a post whose every tag scores exactly 1 was only ever
+     *  tagged by hand. */
+    val ai: Boolean? = null
+) {
+    val aiDone: Boolean get() = set.isNotEmpty() || (ai ?: !(tags.isNotEmpty() && tags.all { it.c == 1f }))
+    val handTags: List<StoredTag> get() = tags.filter { it.m || (ai != true && it.c == 1f) }
+}
 
 @Serializable
 private data class StoredDataset(val id: String = "", val name: String = "", val at: Long = 0L)
@@ -145,12 +156,17 @@ private class IosTagStore(private val path: String) {
     }
 
     fun isIndexed(uri: String): Boolean = locked { posts.containsKey(uri) }
+    /** The AI has already tagged it (hand tags alone don't count). */
+    fun isAiTagged(uri: String): Boolean = locked { posts[uri]?.aiDone == true }
     fun isInImportedDataset(uri: String): Boolean = locked { posts[uri]?.set?.isNotEmpty() == true }
 
     fun storeTags(uri: String, cid: String, url: String, tags: List<Pair<String, Float>>) {
         locked {
-            posts.remove(uri)
-            posts[uri] = StoredPost(uri, cid, url, currentTimeMillis(), "", tags.map { StoredTag(it.first, it.second) })
+            // Hand-added tags stay; the AI's own are replaced.
+            val hand = posts.remove(uri)?.handTags.orEmpty().map { it.copy(m = true) }
+            val handNames = hand.mapTo(HashSet()) { it.n }
+            val ai = tags.filter { it.first !in handNames }.map { StoredTag(it.first, it.second) }
+            posts[uri] = StoredPost(uri, cid, url, currentTimeMillis(), "", ai + hand, ai = true)
         }
         changed()
     }
@@ -158,14 +174,17 @@ private class IosTagStore(private val path: String) {
     /** The Tags page's hand edits (see TaggingService.editPostTag). */
     fun editTag(uri: String, cid: String, url: String, oldTag: String?, newTag: String?) {
         locked {
-            val post = posts[uri] ?: StoredPost(uri, cid, url, currentTimeMillis(), "", emptyList())
+            // A post first tagged by hand is still tagged by the AI later.
+            val existing = posts[uri]
+            val post = existing?.let { it.copy(ai = it.aiDone, tags = it.tags.map { t -> if (t in it.handTags) t.copy(m = true) else t }) }
+                ?: StoredPost(uri, cid, url, currentTimeMillis(), "", emptyList(), ai = false)
             var tags = post.tags
             when {
                 oldTag != null && newTag == null -> tags = tags.filterNot { it.n == oldTag }
-                oldTag == null && newTag != null -> tags = tags.filterNot { it.n == newTag } + StoredTag(newTag, 1f)
+                oldTag == null && newTag != null -> tags = tags.filterNot { it.n == newTag } + StoredTag(newTag, 1f, m = true)
                 oldTag != null && newTag != null && oldTag != newTag -> {
                     val kept = tags.firstOrNull { it.n == oldTag }?.c ?: 1f
-                    tags = tags.filterNot { it.n == oldTag || it.n == newTag } + StoredTag(newTag, kept)
+                    tags = tags.filterNot { it.n == oldTag || it.n == newTag } + StoredTag(newTag, kept, m = true)
                 }
             }
             posts[uri] = post.copy(tags = tags)
@@ -433,7 +452,7 @@ class IosTaggingRepository(
             // "posts at once" setting is) while the model works through
             // them one at a time — it already uses every core for one.
             suspend fun tagBatch(items: List<MediaItem>) {
-                val toTag = items.filter { it.postUri.isNotBlank() && !store.isIndexed(it.postUri) }
+                val toTag = items.filter { it.postUri.isNotBlank() && !store.isAiTagged(it.postUri) }
                 if (toTag.isEmpty() || cancelRequested) return
                 coroutineScope {
                     val queue = Channel<MediaItem>(Channel.UNLIMITED)
