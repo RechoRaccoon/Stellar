@@ -886,3 +886,17 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
   - **iOS**: NSFW Posts row has **Manage on Bluesky** (system browser). NSFW content not enabled → blurred + locked (`locked()`), post view explains and links to Bluesky settings. Enabled → per label: Show / Warn (blurred, Show Post) / Hide (filtered in `parseFeedItemSafe`). Prefs re-read on feed/profile refresh; if they changed, the feed reloads.
 - `filters()` / `warns()` / `locked()`; `nsfwBlurred()` = warns || locked. Blur overlay is just **Show Post** (your color). "I Hate Fun" / "I REALLY Hate Fun" removed from Settings (the old pref is left unused).
 - Settings order: App Functionality (NSFW Posts first) now comes before UI Customization.
+
+### Update 48 — small polish
+- Show Post (blurred NSFW post) uses the post's color (`vividAccent(dominantColor)`); the locked-post notice keeps your own color.
+- Text-only posts: the stats bubble (`PostStatsBubble`) reads "Stats"; tap crossfades to the counts/date, tap again back. Not shown when both are hidden.
+- Hide Post Stats and Hide Post Date are both always shown (same bubble) and independent: `showDate = !hidePostDate`.
+
+### Update 49 — slow loading: Force Skip + causes fixed
+- Loading screen up 5s+ (not the Dev Tools preview): "This page is taking longer to load than usual." with **Force Skip** (AppRoot, zIndex 15) — finishes the transition, drops the cold-launch scrim and reveals the open profile. `LoadingTransition.finish()` is now a no-op when already HIDDEN, so a late finish after a skip doesn't replay the exit.
+- Causes found and fixed:
+  - **Token refresh race**: at launch the saved access token is usually expired; every failing load refreshed at once with the same single-use refresh token, so most refreshes failed (and a failed refresh could sign out) — loads kept failing until restart. `refreshBskyTokenIfPossible` is now single-flight (Mutex; skips if another caller already renewed).
+  - `loadSelfProfileSuspend` never renewed an expired token itself; it does now.
+  - Cold launch waited forever for your profile/color: now goes on after 6s, color fetch capped at 4s; profile transition's color fetch capped at 4s.
+  - Dead pooled connections (after backgrounding / network change) hung up to 60s: Android OkHttp `pingInterval(15s)`, read 30s, connect 20s; iOS Darwin socket 30s, connect 20s.
+- Feeds tip: "made by someone across the Atmosphere".

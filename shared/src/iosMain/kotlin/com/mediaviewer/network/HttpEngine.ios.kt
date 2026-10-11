@@ -24,8 +24,10 @@ private class DarwinHttpEngine(private val profile: HttpProfile) : HttpEngine {
         expectSuccess = false
         followRedirects = true
         install(HttpTimeout) {
-            connectTimeoutMillis = 30_000
-            socketTimeoutMillis = if (profile == HttpProfile.VIDEO) 5 * 60_000L else 60_000L
+            connectTimeoutMillis = 20_000
+            // A silent connection gives up after 30s (not a minute), so a
+            // stalled request is retried on a fresh one sooner.
+            socketTimeoutMillis = if (profile == HttpProfile.VIDEO) 5 * 60_000L else 30_000L
             requestTimeoutMillis = if (profile == HttpProfile.VIDEO) 30 * 60_000L else 3 * 60_000L
         }
     }

@@ -353,6 +353,9 @@ class LoadingTransition(
     }
 
     suspend fun finish() {
+        // Already gone (e.g. Force Skip): nothing to wipe away — a late
+        // finish() must not replay the exit over the page.
+        if (phase == PixelPhase.HIDDEN) return
         when (active) {
             UiToggles.LoadingAnimation.SHATTER -> shatter.finish()
             UiToggles.LoadingAnimation.SPACE -> space.finish()

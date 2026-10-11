@@ -1753,7 +1753,7 @@ private fun PostContent(
                 Box(
                     Modifier.align(Alignment.Center)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(vividAccent(selfTint).copy(alpha = 0.9f))
+                        .background(vividAccent(dominantColor).copy(alpha = 0.9f))
                         .clickable { nsfwRevealed = true }
                         .padding(horizontal = 20.dp, vertical = 11.dp)
                 ) {
@@ -1985,7 +1985,7 @@ private fun PostContent(
                 // The row under the full text: counts (unless hidden in
                 // Settings) and the date (unless that's hidden too).
                 val showCounts = !com.mediaviewer.util.UiToggles.hidePostStats
-                val showDate = !(com.mediaviewer.util.UiToggles.hidePostStats && com.mediaviewer.util.UiToggles.hidePostDate)
+                val showDate = !com.mediaviewer.util.UiToggles.hidePostDate
                 val postStats = if (appMode != AppMode.BLUESKY || (!showCounts && !showDate)) null else PostBubbleStats(
                     likes = item.likeCount, reposts = item.repostCount, saves = item.bookmarkCount, comments = item.replyCount,
                     date = if (showDate) item.createdAt?.takeIf { it.isNotBlank() }?.let { iso ->
@@ -2037,8 +2037,8 @@ private fun PostContent(
                         )
                     } else if (item.isTextOnly && postStats != null) {
                         // Text posts show their text in the middle, so the
-                        // bubble here holds just the counts and date (gone
-                        // when both are turned off in Settings).
+                        // bubble here reads "Stats" and opens to the counts
+                        // and date (gone when both are turned off).
                         PostStatsBubble(
                             stats = postStats,
                             liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
@@ -2900,7 +2900,8 @@ private fun PostTextBubble(
     }
 }
 
-/** A text post's bubble: only the counts and date, always shown. */
+/** A text post's bubble: reads "Stats"; tap to fade to the counts and
+ *  date, tap again to fade back. */
 @Composable
 private fun PostStatsBubble(
     stats: PostBubbleStats, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
@@ -2908,12 +2909,23 @@ private fun PostStatsBubble(
 ) {
     val shape = RoundedCornerShape(18.dp)
     val style = androidx.compose.ui.text.TextStyle(color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp)
+    var open by remember { mutableStateOf(false) }
     val bubbleModifier = modifier.tipAnchor("tl.text").clip(shape).horizontalSwipeWatcher(onHorizontalSwipe)
+        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { open = !open }
     @Composable
     fun Body() {
-        // (The row's own top gap is for sitting under text; here it's the
-        // whole bubble, so it's evened out.)
-        Box(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)) { PostStatsRow(stats, style) }
+        Crossfade(open, animationSpec = tween(240), label = "statsBubble") { showing ->
+            if (showing) {
+                // (The row's own top gap is for sitting under text; here
+                // it's the whole bubble, so it's evened out.)
+                Box(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)) { PostStatsRow(stats, style) }
+            } else {
+                Text(
+                    "Stats", style = style, maxLines = 1,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
+                )
+            }
+        }
     }
     if (liquidGlass) {
         LiquidGlassSurface(modifier = bubbleModifier, shape = shape, tint = tint, backdrop = backdrop) { Body() }

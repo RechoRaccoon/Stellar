@@ -685,7 +685,12 @@ class MainViewModel(
 
     private suspend fun loadSelfProfileSuspend() {
         if (!_bskyLoggedIn.value) return
-        bskyRepo.getFullProfile(bskyToken, _bskyDid.value).onSuccess {
+        var result = bskyRepo.getFullProfile(bskyToken, _bskyDid.value)
+        // An expired sign-in (normal right after launch): renew it and try again.
+        if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+            result = bskyRepo.getFullProfile(bskyToken, _bskyDid.value)
+        }
+        result.onSuccess {
             _selfProfile.value = it
             // Live Link widget feature: keeps a cached copy of the avatar
             // URL in prefs so the widget (a separate RemoteViews surface
@@ -3866,7 +3871,24 @@ class MainViewModel(
     // ── Feed Loading ──────────────────────────────────────────────────────────
 
     /** Attempts to refresh the Bluesky access token. Returns true if successful. */
+    // Bug fix (loading sometimes stuck until a restart): at launch the
+    // saved access token has usually expired, and every load that fails
+    // with it used to refresh it at the same time. Bluesky's refresh tokens
+    // are single-use, so all but the first of those refreshes failed — and
+    // a failed refresh could even sign the account out — leaving loads
+    // (your profile, the feed) failing until the app was restarted. Now
+    // refreshes happen one at a time, and one that finds the token already
+    // renewed while it waited just uses that.
+    private val tokenRefreshLock = kotlinx.coroutines.sync.Mutex()
     private suspend fun refreshBskyTokenIfPossible(): Boolean {
+        val tokenBefore = bskyToken
+        return tokenRefreshLock.withLock {
+            if (bskyToken.isNotBlank() && bskyToken != tokenBefore) true
+            else refreshBskyTokenLocked()
+        }
+    }
+
+    private suspend fun refreshBskyTokenLocked(): Boolean {
         if (bskyRefreshToken.isBlank()) return false
         val result = bskyRepo.refreshToken(bskyRefreshToken)
         return result.fold(

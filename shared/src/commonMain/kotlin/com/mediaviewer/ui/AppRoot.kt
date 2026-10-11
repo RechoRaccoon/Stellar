@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import com.mediaviewer.ui.compat.navBarSpace
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.Font
@@ -372,6 +374,13 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         // into the user's profile color once that's fetched.
         if (com.mediaviewer.util.UiToggles.loadingScreens) pixelController.start(Color.White, fromBlack = true)
     }
+    // Your profile not arriving (a stalled request) mustn't hold the launch
+    // screen up forever: after 6s it goes on without your color.
+    LaunchedEffect(appInitialized) {
+        if (!appInitialized) return@LaunchedEffect
+        kotlinx.coroutines.delay(6_000)
+        selfColorReady = true
+    }
     LaunchedEffect(appInitialized, bskyLoggedIn, selfProfile) {
         if (!appInitialized) return@LaunchedEffect
         if (!bskyLoggedIn) { selfColorReady = true; return@LaunchedEffect }
@@ -379,10 +388,13 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         val url = profile.author.avatarUrl
         if (!url.isNullOrBlank()) {
             // The real profile color (banner + avatar blend), not the
-            // avatar alone — see ProfileColorStore.
-            val c = com.mediaviewer.ui.fetchProfileColors(
-                context, profile.author.did, url, profile.bannerUrl, bannerKnown = true
-            ).blended
+            // avatar alone — see ProfileColorStore. (Capped: a stalled
+            // image request goes on without it.)
+            val c = kotlinx.coroutines.withTimeoutOrNull(4_000) {
+                com.mediaviewer.ui.fetchProfileColors(
+                    context, profile.author.did, url, profile.bannerUrl, bannerKnown = true
+                ).blended
+            } ?: selfThemeColor
             selfThemeColor = c
             if (pixelController.phase == PixelPhase.WIPE_IN || pixelController.phase == PixelPhase.LOADING) {
                 pixelController.updateColor(c)
@@ -505,13 +517,17 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             // color remembered from last time — never the avatar-only guess
             // that the page would then visibly shift away from.
             val loadedProfile = overlay.profile
-            val targetColor = if (loadedProfile != null) {
-                com.mediaviewer.ui.fetchProfileColors(
-                    context, overlay.author.did, avatarUrl ?: loadedProfile.author.avatarUrl,
-                    loadedProfile.bannerUrl, bannerKnown = true
-                ).blended
-            } else com.mediaviewer.ui.ProfileColorStore.get(overlay.author.did)?.blended
-                ?: if (!stillLoading && !avatarUrl.isNullOrBlank()) fetchDominantColor(context, avatarUrl) else null
+            // (Capped at 4s: a stalled image request mustn't keep the
+            // loading screen up after the profile itself has loaded.)
+            val targetColor = kotlinx.coroutines.withTimeoutOrNull(4_000) {
+                if (loadedProfile != null) {
+                    com.mediaviewer.ui.fetchProfileColors(
+                        context, overlay.author.did, avatarUrl ?: loadedProfile.author.avatarUrl,
+                        loadedProfile.bannerUrl, bannerKnown = true
+                    ).blended
+                } else com.mediaviewer.ui.ProfileColorStore.get(overlay.author.did)?.blended
+                    ?: if (!stillLoading && !avatarUrl.isNullOrBlank()) fetchDominantColor(context, avatarUrl) else null
+            }
             if (targetColor != null) pixelController.updateColor(targetColor)
             if (!stillLoading && pixelController.phase != PixelPhase.HIDDEN) pixelController.finish()
         }
@@ -1421,6 +1437,54 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                     } else endPreview()
                 }
             )
+        }
+
+        // Taking too long (usually a stalled Bluesky request): after 5s a
+        // note with Force Skip, which takes the loading animation away and
+        // shows whatever's behind it (it fills in as its data arrives).
+        val loadingPhase = pixelController.phase
+        var slowLoading by remember { mutableStateOf(false) }
+        LaunchedEffect(loadingPhase == PixelPhase.HIDDEN, com.mediaviewer.util.UiToggles.devLoadingPreview) {
+            slowLoading = false
+            if (loadingPhase != PixelPhase.HIDDEN && !com.mediaviewer.util.UiToggles.devLoadingPreview) {
+                kotlinx.coroutines.delay(5_000)
+                if (pixelController.phase != PixelPhase.HIDDEN) slowLoading = true
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = slowLoading && loadingPhase != PixelPhase.HIDDEN,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(300)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            modifier = Modifier.fillMaxSize().zIndex(15f)
+        ) {
+            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navBarSpace).padding(bottom = 48.dp), contentAlignment = Alignment.BottomCenter) {
+                Column(
+                    Modifier.padding(horizontal = 32.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "This page is taking longer to load than usual.",
+                        color = Color.White, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Box(
+                        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = 0.16f))
+                            .clickable {
+                                slowLoading = false
+                                coldLaunchCovered = false
+                                profileOverlay?.author?.did?.let { revealedProfileDids = revealedProfileDids + it }
+                                rootScope.launch { if (pixelController.phase != PixelPhase.HIDDEN) pixelController.finish() }
+                            }
+                            .padding(horizontal = 18.dp, vertical = 9.dp)
+                    ) {
+                        Text("Force Skip", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
 
         // Retro pixel-matrix transition overlay — last child so it draws

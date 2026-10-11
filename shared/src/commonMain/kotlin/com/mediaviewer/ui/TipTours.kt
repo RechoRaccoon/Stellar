@@ -115,7 +115,7 @@ object TipTours {
         )),
         TipStep(notes = listOf(
             TipNote(
-                text = "These are your **feeds**. Each one is a custom feed or algorithm made by someone on Bluesky. Tap one to select it, or press and hold one to move it.",
+                text = "These are your **feeds**. Each one is a custom feed or algorithm made by someone across the Atmosphere. Tap one to select it, or press and hold one to move it.",
                 place = TipPlace.Below("hub.feeds", gap = 60.dp, pin = 0.5f),
                 anchors = listOf("hub.feeds"), width = 310.dp
             )

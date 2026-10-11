@@ -61,8 +61,15 @@ object AndroidHttpClients {
             }
             // After the generic one: Wikimedia requests identify as Stellar.
             .addInterceptor(com.mediaviewer.util.BlockedHostsInterceptors.wikimediaUserAgent)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            // A connection that's gone dead (the app was in the background,
+            // or the network changed) used to sit for up to a minute before
+            // failing — the "stuck loading until restart" case. Pings find a
+            // dead HTTP/2 connection within seconds, and a shorter read
+            // timeout gives up on a silent one sooner, so the retry gets a
+            // fresh connection.
+            .pingInterval(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }

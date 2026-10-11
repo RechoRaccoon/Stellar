@@ -656,21 +656,17 @@ internal fun SettingsPageContent(
 
             ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
 
-            // The stats row at the bottom of a post's text bubble; once the
-            // stats are hidden, the date can be hidden too (the whole row).
+            // The row at the bottom of a post's text bubble: the counts and
+            // the date, each hidden on its own (both = no row).
             SettingsBubble(liquidGlass, tint, backdrop) {
                 BubbleRow {
                     RowLabel("Hide Post Stats", Modifier.weight(1f))
                     CompactSwitch(com.mediaviewer.util.UiToggles.hidePostStats) { com.mediaviewer.util.UiToggles.updateHidePostStats(it) }
                 }
-                androidx.compose.animation.AnimatedVisibility(visible = com.mediaviewer.util.UiToggles.hidePostStats) {
-                    Column {
-                        BubbleDivider()
-                        BubbleRow {
-                            RowLabel("Hide Post Date", Modifier.weight(1f))
-                            CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
-                        }
-                    }
+                BubbleDivider()
+                BubbleRow {
+                    RowLabel("Hide Post Date", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.hidePostDate) { com.mediaviewer.util.UiToggles.updateHidePostDate(it) }
                 }
             }
             if (bskyLoggedIn) {
