@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
  *   hub.feeds  hub.launchpad  hub.launchpad.label  hub.timeline  hub.explore  hub.post  hub.settings
  *   tl.author  tl.follow  tl.text  tl.actions  tl.like  tl.save  tl.repost  tl.quote  tl.download  tl.gif  tl.send  tl.more
  *   ex.feeds  ex.kinds  ex.refresh  ex.layout
- *   profile.tabs  profile.kinds  profile.bar  profile.refresh  profile.layout  profile.addto  profile.dm  profile.share  profile.qr  profile.more
+ *   profile.tabs  profile.kinds  profile.bar  profile.refresh  profile.layout  profile.addto  profile.dm  profile.share  profile.sort  profile.more
  *   search.bar  search.tabs
  *   compose.tools  compose.thread  compose.post
  *   title.tabs  title.bar
@@ -315,8 +315,8 @@ object TipTours {
         TipStep(
             highlights = listOf("profile.bar"),
             notes = listOf(
-                stairLeft("profile.more", 215, 280, "This is the **more** button, where you can report or block them."),
-                stairLeft("profile.qr", 140, 250, "This shows a **QR code** for their profile."),
+                stairLeft("profile.more", 215, 280, "This is the **more** button. It has their QR code, and you can report or block them here."),
+                stairLeft("profile.sort", 140, 250, "This is the **sort** button. You can see their most liked, reposted, saved, or commented posts first."),
                 stairLeft("profile.share", 65, 220, "This is the **share** button. You can send their profile to someone in your DMs.")
             )
         )

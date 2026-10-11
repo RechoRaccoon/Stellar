@@ -88,6 +88,13 @@ fun SearchOverlay(
     onOpenLikedPost: (Int) -> Unit = {},
     /** Search › Tagged › Sort (see UiToggles.taggedSort for the numbers). */
     onSetTaggedSort: (Int) -> Unit = {},
+    /** Tagged results come a page at a time: the next page, whether one
+     *  is loading, whether there are no more, and (done, total) while the
+     *  sort index is being filled for the first time. */
+    onLoadMoreTagged: () -> Unit = {},
+    taggedLoadingMore: Boolean = false,
+    taggedExhausted: Boolean = true,
+    taggedStatsProgress: Pair<Int, Int>? = null,
     // Item 4: e621-style tag autocomplete/autocorrect suggestions for the
     // current in-progress word being typed (only really meaningful on the
     // Liked tab, where the vocabulary is the tagger's own fixed tag list —
@@ -464,7 +471,13 @@ fun SearchOverlay(
                             EmptyResultsText()
                         } else if (state.loading) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
+                                    taggedStatsProgress?.let { (done, total) ->
+                                        Spacer(Modifier.height(10.dp))
+                                        Text("Sorting your tagged posts… $done/$total", color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                                    }
+                                }
                             }
                         } else if (likedTagResults.isEmpty()) EmptyResultsText() else {
                             val taggedList = androidx.compose.foundation.lazy.rememberLazyListState(TaggedSearchPlace.index, TaggedSearchPlace.offset)
@@ -478,9 +491,10 @@ fun SearchOverlay(
                             LaunchedEffect(sortNow) { if (lastSort[0] != sortNow) { lastSort[0] = sortNow; taggedList.scrollToItem(0) } }
                             LazyColumn(Modifier.fillMaxSize(), state = taggedList, contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
-                                    items = likedTagResults, loading = false, filter = taggedKind,
+                                    items = likedTagResults, loading = taggedLoadingMore, filter = taggedKind,
                                     gridMode = resultsGridMode(gridScreen, taggedKind), tint = profileTint, liquidGlass = liquidGlass,
-                                    onTapItem = { item -> likedTagResults.indexOf(item).takeIf { it >= 0 }?.let(onOpenLikedPost) }
+                                    onTapItem = { item -> likedTagResults.indexOf(item).takeIf { it >= 0 }?.let(onOpenLikedPost) },
+                                    onLoadMore = onLoadMoreTagged, exhausted = taggedExhausted
                                 )
                             }
                         }

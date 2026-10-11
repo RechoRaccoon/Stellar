@@ -58,6 +58,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.StickyNote2
@@ -485,6 +488,8 @@ fun ProfileOverlay(
     onShareProfile: (AuthorInfo) -> Unit = {},
     /** The bar's QR code button: (author, banner URL). */
     onOpenQr: (AuthorInfo, String?) -> Unit = { _, _ -> },
+    /** Profile › Sort (see ProfileOverlayState.postSort). */
+    onSetProfileSort: (Int) -> Unit = {},
     /** Title pages' Backlog/Remove button. */
     titleBacklog: MainViewModel.TitleBacklogState? = null,
     onCheckTitleBacklog: (TitleSearchResult) -> Unit = {},
@@ -1059,6 +1064,8 @@ fun ProfileOverlay(
         var profilePillBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         var profileMoreBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         var profileRootOrigin by remember { mutableStateOf<Offset?>(null) }
+        var profileSortOpen by remember(author.did) { mutableStateOf(false) }
+        var profileSortBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         if (profile != null || !state.loadingProfile) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace)) {
                 ProfileInteractionBar(
@@ -1089,9 +1096,12 @@ fun ProfileOverlay(
                     // QR code, then More (Bluesky link / Report / Block).
                     showBlock = true,
                     isBlocking = isBlocking,
-                    onQr = { onOpenQr(author, profile?.bannerUrl) },
+                    sortOpen = profileSortOpen,
+                    sortActive = state.postSort != 4,
+                    onToggleSort = { profileSortOpen = !profileSortOpen; profileMoreOpen = false },
+                    onSortBounds = { origin, size -> profileSortBounds = origin to size },
                     moreOpen = profileMoreOpen,
-                    onToggleMore = { profileMoreOpen = !profileMoreOpen },
+                    onToggleMore = { profileMoreOpen = !profileMoreOpen; profileSortOpen = false },
                     onPillBounds = { origin, size -> profilePillBounds = origin to size },
                     onMoreBounds = { origin, size -> profileMoreBounds = origin to size }
                 )
@@ -1123,6 +1133,7 @@ fun ProfileOverlay(
                             ) {
                                 if (supporter) LocalOverlays.profileNoteFor = author else com.mediaviewer.util.Supporter.openPage()
                             })
+                            add(BubbleAction("QR Code", icon = Icons.Filled.QrCode2) { onOpenQr(author, profile?.bannerUrl) })
                             add(BubbleAction("View on Bluesky", iconContent = { m, c -> BlueskyLogoIcon(m, tint = c) }) {
                                 uriHandler.openUri("https://bsky.app/profile/${author.handle}")
                             })
@@ -1136,6 +1147,37 @@ fun ProfileOverlay(
                         },
                         liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
                         onDismissRequest = { profileMoreOpen = false },
+                        gapAboveAnchor = 10.dp
+                    )
+                }
+                // Sort: the Posts tab's order — most liked, reposted,
+                // saved, commented, or newest (Bluesky's own order, the
+                // default) — top to bottom, the chosen one lit.
+                val sortAt = profileSortBounds
+                if (pill != null && sortAt != null && rootOrigin != null) {
+                    val accent = vividAccent(blended)
+                    val options = listOf(
+                        "Most liked" to Icons.Filled.Favorite,
+                        "Most reposted" to Icons.Filled.Repeat,
+                        "Most saved" to Icons.Filled.Bookmark,
+                        "Most comments" to Icons.Filled.ChatBubble,
+                        "Newest" to Icons.Filled.Schedule
+                    )
+                    BubbleActionStack(
+                        visible = profileSortOpen,
+                        anchorOriginRoot = Offset(sortAt.first.x, pill.first.y),
+                        anchorSize = sortAt.second,
+                        containerRootOrigin = rootOrigin,
+                        actions = options.mapIndexed { i, (label, icon) ->
+                            BubbleAction(label, icon = icon, iconTint = if (i == state.postSort) accent else null) {
+                                if (i != state.postSort) {
+                                    onSetProfileSort(i)
+                                    coroutineScope.launch { listState.scrollToItem(0) }
+                                }
+                            }
+                        },
+                        liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
+                        onDismissRequest = { profileSortOpen = false },
                         gapAboveAnchor = 10.dp
                     )
                 }
@@ -1311,7 +1353,12 @@ private fun ProfileInteractionBar(
     onShare: () -> Unit = {},
     showBlock: Boolean = false,
     isBlocking: Boolean = false,
-    onQr: () -> Unit = {},
+    /** Sort (Posts tab order): open state, whether a sort other than
+     *  newest is on (lit), and where the button is for its stack. */
+    sortOpen: Boolean = false,
+    sortActive: Boolean = false,
+    onToggleSort: () -> Unit = {},
+    onSortBounds: (Offset, IntSize) -> Unit = { _, _ -> },
     /** "More" (where Block used to be): opens the Report / Block stack. */
     moreOpen: Boolean = false,
     onToggleMore: () -> Unit = {},
@@ -1422,9 +1469,17 @@ private fun ProfileInteractionBar(
                     Icon(Icons.Default.Send, contentDescription = "Share profile", tint = Color.White, modifier = Modifier.size(iconSize))
                 }
             }
-            // QR code of this profile's link, then More at the very end.
-            IconButton(onClick = { tap(); onQr() }, anchor = "profile.qr") {
-                Icon(Icons.Filled.QrCode2, contentDescription = "Profile QR code", tint = Color.White, modifier = Modifier.size(iconSize))
+            // Sort (the Posts tab's order), then More at the very end. The
+            // QR code lives in More.
+            Box(Modifier.onGloballyPositioned { onSortBounds(it.positionInRoot(), it.size) }) {
+                IconButton(onClick = { tap(); onToggleSort() }, anchor = "profile.sort") {
+                    Icon(
+                        if (sortOpen) Icons.Default.Close else Icons.Filled.SwapVert,
+                        contentDescription = if (sortOpen) "Close" else "Sort",
+                        tint = if (sortActive && !sortOpen) vividAccent(tint) else Color.White,
+                        modifier = Modifier.size(iconSize)
+                    )
+                }
             }
             if (showBlock) {
                 // "More" — Report / Block, in the same stacked bubbles as a
@@ -2424,7 +2479,14 @@ private fun LazyListScope.profileResultsContent(
     if (tabState == null || (tabState.loading && isEmpty)) {
         item(key = "results_loading") {
             Box(Modifier.fillMaxWidth().padding(vertical = 60.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
+                    // A sorted Posts tab reading the account's posts.
+                    if (state.selectedTab == MainViewModel.ProfileTab.POSTS) state.sortProgress?.let { n ->
+                        Spacer(Modifier.height(10.dp))
+                        Text(if (n == 0) "Sorting posts…" else "Sorting posts… $n", color = DimGray, fontSize = 13.sp)
+                    }
+                }
             }
         }
     } else if (tabState.loaded && isEmpty) {

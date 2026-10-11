@@ -308,19 +308,18 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
     com.mediaviewer.ui.compat.BackHandler(enabled = tour != null) { Tips.next() }
 
     // The step's lit-up parts fade between steps.
-    val holeFade = remember { Animatable(1f) }
-    val lastHoles = remember { mutableStateOf<List<String>>(emptyList()) }
+    val lastHoles = remember { arrayOf<List<String>>(emptyList()) }
     val holes = remember(t, stepIndex) { (step.highlights.ifEmpty { step.notes.flatMap { it.anchors } }).distinct() }
+    // Worked out in the same frame the step changes (not a frame later in
+    // an effect), so the old and new lit parts never blink: the outgoing
+    // ones fade out as the new ones fade in, and ones both steps share
+    // just stay lit.
+    val previousHoles = remember(holes) { val p = lastHoles[0]; lastHoles[0] = holes; p }
+    val holeFade = remember(holes) { Animatable(0f) }
     // Every note's measured place, by (step, note), for the lines and for
     // keeping "Tap to continue." clear of them.
     val noteRects = remember(t) { mutableStateMapOf<Pair<Int, Int>, Rect>() }
-    var previousHoles by remember { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(holes) {
-        previousHoles = lastHoles.value
-        lastHoles.value = holes
-        holeFade.snapTo(0f)
-        holeFade.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
-    }
+    LaunchedEffect(holeFade) { holeFade.animateTo(1f, tween(360, easing = FastOutSlowInEasing)) }
 
     Box(
         modifier.fillMaxSize()
@@ -398,8 +397,9 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
         androidx.compose.animation.AnimatedContent(
             targetState = stepIndex,
             transitionSpec = {
-                androidx.compose.animation.fadeIn(tween(320, delayMillis = 90))
-                    .togetherWith(androidx.compose.animation.fadeOut(tween(180)))
+                androidx.compose.animation.fadeIn(tween(300, delayMillis = 60))
+                    .togetherWith(androidx.compose.animation.fadeOut(tween(220)))
+                    .using(null)
             },
             label = "tipStep"
         ) { index ->
@@ -841,7 +841,9 @@ private fun DrawScope.drawGesture(anim: TipAnim, t: Float, accent: Color) {
         TipAnim.HOLD_REACT -> {
             // A message held down: the row of reactions pops up above it, one
             // is picked, and it lands on the message.
-            val bw = w * 0.7f; val bh = h * 0.24f
+            // (The same message bubble, at the same height, as SWIPE_REPLY's,
+            // so the two side by side line up.)
+            val bw = w * 0.66f; val bh = h * 0.26f
             val bubble = Offset(c.x, c.y + h * 0.18f)
             val press = phase(t, 0.06f, 0.12f) * (1f - phase(t, 0.62f, 0.68f))
             val lift = phase(t, 0.12f, 0.32f) * (1f - phase(t, 0.8f, 0.9f))
@@ -880,13 +882,14 @@ private fun DrawScope.drawGesture(anim: TipAnim, t: Float, accent: Color) {
             // A message pulled sideways: the reply arrow appears behind it,
             // and it springs back when let go.
             val bw = w * 0.66f; val bh = h * 0.26f
+            val by = c.y + h * 0.18f
             val pull = phase(t, 0.15f, 0.55f) * (1f - phase(t, 0.62f, 0.72f))
             val press = phase(t, 0.06f, 0.14f) * (1f - phase(t, 0.58f, 0.64f))
             val dx = w * 0.26f * pull
             val left = c.x - bw / 2 - w * 0.08f
             // The arrow, growing in as the bubble leaves.
             if (pull > 0.05f) {
-                val ac = Offset(left + w * 0.02f, c.y)
+                val ac = Offset(left + w * 0.02f, by)
                 val r = h * 0.1f * pull
                 drawCircle(accent.copy(alpha = 0.35f + 0.4f * pull), radius = r * 1.5f, center = ac)
                 val head = Path().apply {
@@ -895,7 +898,7 @@ private fun DrawScope.drawGesture(anim: TipAnim, t: Float, accent: Color) {
                 drawPath(head, Color.White.copy(alpha = pull))
                 drawLine(Color.White.copy(alpha = pull), Offset(ac.x, ac.y), Offset(ac.x + r * 0.8f, ac.y), strokeWidth = r * 0.35f)
             }
-            val bc = Offset(c.x - w * 0.04f + dx, c.y)
+            val bc = Offset(c.x - w * 0.04f + dx, by)
             drawRoundRect(accent.copy(alpha = 0.3f), topLeft = Offset(bc.x - bw / 2, bc.y - bh / 2), size = Size(bw, bh), cornerRadius = CornerRadius(bh * 0.45f))
             drawRoundRect(Color.White.copy(alpha = 0.75f), topLeft = Offset(bc.x - bw / 2, bc.y - bh / 2), size = Size(bw, bh), cornerRadius = CornerRadius(bh * 0.45f), style = Stroke(1.5.dp.toPx()))
             if (t < 0.68f) finger(Offset(bc.x - bw * 0.15f, bc.y + bh * 0.1f), press, accent)

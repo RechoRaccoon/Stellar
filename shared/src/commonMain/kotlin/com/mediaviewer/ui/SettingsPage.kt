@@ -617,6 +617,13 @@ internal fun SettingsPageContent(
                 ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
             }
             ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
+            // The heart that flies up when you like a post: 3D (default) or flat.
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                BubbleRow {
+                    RowLabel("2D Like Heart", Modifier.weight(1f))
+                    CompactSwitch(com.mediaviewer.util.UiToggles.flatLikeHeart) { com.mediaviewer.util.UiToggles.updateFlatLikeHeart(it) }
+                }
+            }
             // Twinkling stars + the odd shooting star behind every page (the
             // dim profile-color background stays either way).
             SettingsBubble(liquidGlass, tint, backdrop) {

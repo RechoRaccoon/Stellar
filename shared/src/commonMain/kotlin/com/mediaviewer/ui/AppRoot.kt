@@ -189,6 +189,9 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val taggingUiState         by viewModel.taggingUiState.collectAsState()
     val hasTaggedDataset       by viewModel.hasTaggedDataset.collectAsState()
     val likedTagSearchResults  by viewModel.likedTagSearchResults.collectAsState()
+    val taggedLoadingMore by viewModel.likedTagLoadingMore.collectAsState()
+    val taggedExhausted by viewModel.likedTagExhausted.collectAsState()
+    val taggedStatsProgress by viewModel.likedTagStatsProgress.collectAsState()
     val tagSuggestions         by viewModel.tagSuggestions.collectAsState()
     val tagPostWhenLiked       by viewModel.tagPostWhenLiked.collectAsState()
     val importedDatasets       by viewModel.importedDatasets.collectAsState()
@@ -956,6 +959,10 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 likedTagResults    = likedTagSearchResults,
                 onOpenLikedPost    = viewModel::openLikedPostFromSearch,
                 onSetTaggedSort    = viewModel::setTaggedSort,
+                onLoadMoreTagged   = viewModel::loadMoreTagged,
+                taggedLoadingMore  = taggedLoadingMore,
+                taggedExhausted    = taggedExhausted,
+                taggedStatsProgress = taggedStatsProgress,
                 tagSuggestions     = tagSuggestions,
                 onQueryChange      = viewModel::runSearch,
                 onLikedQueryTextChange = viewModel::updateLikedQueryText,
@@ -1098,6 +1105,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                     onReportAccount = viewModel::openReportForProfile,
                     onShareProfile = viewModel::openShareProfile,
                     onOpenQr = { author, banner -> qrTarget = author to banner },
+                    onSetProfileSort = viewModel::setProfileSort,
                     titleBacklog = titleBacklog,
                     onCheckTitleBacklog = viewModel::checkTitleBacklog,
                     onToggleTitleBacklog = viewModel::toggleTitleBacklog

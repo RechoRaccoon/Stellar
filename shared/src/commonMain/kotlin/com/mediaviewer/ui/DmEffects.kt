@@ -216,10 +216,6 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
     val unit = size.width / 400f
     val palette = colors.filter { it.alpha > 0f }.ifEmpty { listOf(Color(0xFFFF4FA1), Color(0xFFFF7EB9)) }.map { brightHeart(it) }
     val heart = heartPath()
-    // How thick a heart is, as a share of its size, and how many slices
-    // draw that thickness.
-    val depth = 0.5f
-    val slices = 9
     repeat(18) { i ->
         val x0 = (0.07f + rnd.nextFloat() * 0.86f) * size.width
         val delay = rnd.nextFloat() * (duration - 5.6f).coerceAtLeast(0.5f)
@@ -235,51 +231,8 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
         val x = x0 + sin(t * freq + phase) * sway
         val y = size.height + s * 1.2f - p * (size.height + s * 2.4f)
         val angle = t * spinSpeed + phase
-        val facing = cos(angle)
-        val side = sin(angle)
-        // The face narrows as it turns, but never below a sliver.
-        val faceWidth = kotlin.math.abs(facing).coerceAtLeast(0.04f)
         val fade = (p * 8f).coerceAtMost(1f) * ((1f - p) * 5f).coerceAtMost(1f)
-        // Slices run from the far face to the near one; each is shifted
-        // sideways by where it sits in the heart's thickness, and the ones
-        // in the middle are a touch larger, so the edge is rounded.
-        for (k in 0 until slices) {
-            val f = k / (slices - 1f)              // 0 = far face, 1 = near face
-            val z = (f - 0.5f) * depth
-            val bulge = 1f - 0.16f * (2f * f - 1f) * (2f * f - 1f)
-            val shade = lerp(lerp(base, Color.Black, 0.28f), base, f)
-            withTransform({
-                translate(x + z * s * side * (if (facing >= 0f) 1f else -1f), y)
-                scale(s * faceWidth * bulge, s * bulge, pivot = Offset.Zero)
-            }) {
-                if (k < slices - 1) {
-                    drawPath(heart, shade, alpha = fade)
-                } else {
-                    // The near face: lit from the upper left, deeper toward
-                    // the lower right, with a soft inner glow and two shines.
-                    drawPath(
-                        heart,
-                        Brush.radialGradient(
-                            0f to lerp(base, Color.White, 0.6f), 0.45f to lerp(base, Color.White, 0.12f),
-                            1f to lerp(base, Color.Black, 0.12f),
-                            center = Offset(-0.38f, -0.42f), radius = 1.75f
-                        ),
-                        alpha = fade
-                    )
-                    drawOval(
-                        Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0f)),
-                            center = Offset(-0.5f, -0.5f), radius = 0.34f
-                        ),
-                        topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f), alpha = fade
-                    )
-                    drawOval(
-                        Color.White.copy(alpha = 0.3f * fade),
-                        topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f)
-                    )
-                }
-            }
-        }
+        drawHeartSlices(Offset(x, y), s, angle, base, fade, heart)
     }
 }
 
@@ -289,44 +242,105 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
  * upright axis — the like burst on posts uses it.
  */
 internal fun DrawScope.drawHeart3D(center: Offset, s: Float, angle: Float, color: Color, alpha: Float = 1f) {
-    val heart = heartPath()
-    val base = brightHeart(color)
+    drawHeartSlices(center, s, angle, brightHeart(color), alpha, heartPath())
+}
+
+/**
+ * The heart drawn as a stack of solid slices from its back face to its
+ * front, so turned sideways it shows a smooth, rounded edge.
+ *
+ * The slices sit at most about a pixel apart (as many as the edge is
+ * pixels wide), so the side reads as one solid surface rather than a row
+ * of separate outlines; and every slice is drawn fully opaque, with any
+ * fading applied once to the whole heart, so the slices never show
+ * through each other.
+ */
+private fun DrawScope.drawHeartSlices(center: Offset, s: Float, angle: Float, base: Color, alpha: Float, heart: Path) {
+    if (alpha <= 0.002f || s <= 0.5f) return
     val depth = 0.5f
-    val slices = 9
     val facing = cos(angle)
     val side = sin(angle)
+    // The face narrows as it turns, but never below a sliver.
     val faceWidth = kotlin.math.abs(facing).coerceAtLeast(0.04f)
+    val edgePx = depth * s * kotlin.math.abs(side)
+    val slices = (edgePx / 1.1f).toInt().coerceIn(6, 56) + 1
+    val dir = if (facing >= 0f) 1f else -1f
+    val layered = alpha < 0.999f
+    if (layered) {
+        val r = s * 1.6f
+        drawContext.canvas.saveLayer(
+            androidx.compose.ui.geometry.Rect(center.x - r, center.y - r, center.x + r, center.y + r),
+            androidx.compose.ui.graphics.Paint().apply { this.alpha = alpha }
+        )
+    }
+    val dark = lerp(base, Color.Black, 0.32f)
     for (k in 0 until slices) {
-        val f = k / (slices - 1f)
+        val f = k / (slices - 1f)              // 0 = far face, 1 = near face
         val z = (f - 0.5f) * depth
         val bulge = 1f - 0.16f * (2f * f - 1f) * (2f * f - 1f)
-        val shade = lerp(lerp(base, Color.Black, 0.28f), base, f)
         withTransform({
-            translate(center.x + z * s * side * (if (facing >= 0f) 1f else -1f), center.y)
+            translate(center.x + z * s * side * dir, center.y)
             scale(s * faceWidth * bulge, s * bulge, pivot = Offset.Zero)
         }) {
             if (k < slices - 1) {
-                drawPath(heart, shade, alpha = alpha)
+                // The rim: darker toward the back, with a soft lit band
+                // around its middle where it bulges out most.
+                val band = 1f - (2f * f - 1f) * (2f * f - 1f)
+                drawPath(heart, lerp(lerp(dark, base, f), Color.White, 0.10f * band))
             } else {
+                // The near face: lit from the upper left, deeper toward
+                // the lower right, with a soft inner glow and two shines.
                 drawPath(
                     heart,
                     Brush.radialGradient(
                         0f to lerp(base, Color.White, 0.6f), 0.45f to lerp(base, Color.White, 0.12f),
                         1f to lerp(base, Color.Black, 0.12f),
                         center = Offset(-0.38f, -0.42f), radius = 1.75f
-                    ),
-                    alpha = alpha
+                    )
                 )
                 drawOval(
                     Brush.radialGradient(
                         listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0f)),
                         center = Offset(-0.5f, -0.5f), radius = 0.34f
                     ),
-                    topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f), alpha = alpha
+                    topLeft = Offset(-0.84f, -0.84f), size = Size(0.68f, 0.68f)
                 )
-                drawOval(Color.White.copy(alpha = 0.3f * alpha), topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f))
+                drawOval(Color.White.copy(alpha = 0.3f), topLeft = Offset(0.3f, -0.66f), size = Size(0.3f, 0.2f))
             }
         }
+    }
+    if (layered) drawContext.canvas.restore()
+}
+
+/**
+ * A flat heart in [color] (made vivid), centred at [center], [s] from its
+ * middle to a side, tilted [tilt] degrees: a soft glow behind, a gradient
+ * lit from the upper left, a thin light rim and a shine.
+ */
+internal fun DrawScope.drawHeart2D(center: Offset, s: Float, tilt: Float, color: Color, alpha: Float = 1f) {
+    if (alpha <= 0.002f || s <= 0.5f) return
+    val base = brightHeart(color)
+    val heart = heartPath()
+    withTransform({
+        translate(center.x, center.y)
+        rotate(tilt, pivot = Offset.Zero)
+        scale(s, s, pivot = Offset.Zero)
+    }) {
+        // Glow.
+        drawCircle(
+            Brush.radialGradient(listOf(base.copy(alpha = 0.45f * alpha), base.copy(alpha = 0f)), center = Offset(0f, 0.05f), radius = 1.7f),
+            radius = 1.7f, center = Offset(0f, 0.05f)
+        )
+        drawPath(
+            heart,
+            Brush.radialGradient(
+                0f to lerp(base, Color.White, 0.5f), 0.5f to base, 1f to lerp(base, Color.Black, 0.22f),
+                center = Offset(-0.4f, -0.45f), radius = 1.9f
+            ),
+            alpha = alpha
+        )
+        drawPath(heart, lerp(base, Color.White, 0.55f).copy(alpha = 0.55f * alpha), style = Stroke(0.06f))
+        drawOval(Color.White.copy(alpha = 0.55f * alpha), topLeft = Offset(-0.78f, -0.72f), size = Size(0.42f, 0.24f))
     }
 }
 

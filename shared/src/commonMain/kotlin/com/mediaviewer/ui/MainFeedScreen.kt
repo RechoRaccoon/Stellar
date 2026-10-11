@@ -472,7 +472,14 @@ fun MainFeedScreen(
                     onSwipeDown       = { onSetScreen(ScreenState.SETTINGS) },
                     onPinchToGrid     = onPinchIn,
                     externallyPaused  = externallyPaused,
-                    onDoubleTap       = { haptic(context); if (appMode == AppMode.BLUESKY) onToggleLike() else onToggleBookmark() },
+                    onDoubleTap       = {
+                        // Double tap only ever likes (favorites on e621) —
+                        // never unlikes; the heart button does that. The
+                        // buzz and the heart play every time regardless.
+                        haptic(context)
+                        if (appMode == AppMode.BLUESKY) { if (currentItem?.isLiked == false) onToggleLike() }
+                        else if (currentItem?.isBookmarked == false) onToggleBookmark()
+                    },
                     onToggleLike      = onToggleLike,
                     onToggleRepost    = onToggleRepost,
                     onToggleBookmark  = onToggleBookmark,
@@ -1157,9 +1164,13 @@ private fun PostContent(
     // own box.
     val likeBursts = remember { mutableStateListOf<LikeBurst>() }
     var likeButtonCenterRoot by remember { mutableStateOf<Offset?>(null) }
+    // A double tap (big) always plays it, liked already or not; the like
+    // button only when it's actually liking.
     fun burstAt(at: Offset, big: Boolean) {
-        if (appMode != AppMode.BLUESKY || item.isLiked || reducedAnimations) return
-        likeBursts.add(LikeBurst(com.mediaviewer.platform.currentTimeMillis() + likeBursts.size, at, big))
+        if (reducedAnimations) return
+        if (!big && (appMode != AppMode.BLUESKY || item.isLiked)) return
+        if (likeBursts.size > 12) likeBursts.removeAt(0)
+        likeBursts.add(LikeBurst(com.mediaviewer.platform.currentTimeMillis() * 16 + likeBursts.size, at, big))
     }
 
     // Items 5-8: the "More" menu's own state, hoisted up here (out of
@@ -2086,7 +2097,7 @@ private fun PostContent(
         // The like hearts, over everything on the post.
         likeBursts.forEach { b ->
             androidx.compose.runtime.key(b.id) {
-                LikeHeart(b, dominantColor) { likeBursts.remove(b) }
+                LikeHeart(b, dominantColor, postBoxRootOrigin.y) { likeBursts.remove(b) }
             }
         }
     }
@@ -2096,30 +2107,144 @@ private fun PostContent(
 private class LikeBurst(val id: Long, val at: Offset, val big: Boolean)
 
 /**
- * A single 3D heart in the post's colors that pops out at [burst]'s spot,
- * then spins and floats up — slow to get going, then quick — and fades.
+ * A single 3D heart in the post's colors. It pops out of [burst]'s spot
+ * with a little overshoot, a ring and a spray of sparkles, and is already
+ * rising from the first frame — then keeps speeding up, swaying and
+ * spinning, until it has floated off the top of the screen. It doesn't
+ * fade; it's removed once it's out of view. [topInRoot] is where the
+ * post's box starts on screen, so it knows how far up "off screen" is.
  */
 @Composable
-private fun LikeHeart(burst: LikeBurst, color: Color, onDone: () -> Unit) {
-    val t = remember { Animatable(0f) }
+private fun LikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: () -> Unit) {
+    // Settings › UI Customization › 2D Like Heart.
+    val flat = remember { com.mediaviewer.util.UiToggles.flatLikeHeart }
+    if (flat) { FlatLikeHeart(burst, color, topInRoot, onDone); return }
     val done by rememberUpdatedState(onDone)
+    var elapsed by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val sizeDp = if (burst.big) 48.dp else 26.dp
+    val s = with(density) { sizeDp.toPx() }
+    val dpPx = with(density) { 1.dp.toPx() }
+    // Far enough that the whole heart (at its largest) clears the top.
+    val travel = burst.at.y + topInRoot + s * 2.2f
+    // Longer trips take a little longer, but it always feels quick.
+    val duration = (0.7f + travel / (2400f * dpPx)).coerceIn(0.75f, 1.35f)
+    val rnd = remember { kotlin.random.Random(burst.id) }
+    val swayDir = remember { if (rnd.nextBoolean()) 1f else -1f }
+    val spinDir = remember { if (rnd.nextBoolean()) 1f else -1f }
+    val sparks = remember {
+        List(if (burst.big) 10 else 7) { i ->
+            val n = if (burst.big) 10 else 7
+            floatArrayOf(
+                (i / n.toFloat()) * 2f * kotlin.math.PI.toFloat() + rnd.nextFloat() * 0.5f,  // direction
+                0.75f + rnd.nextFloat() * 0.6f,                                            // reach
+                0.6f + rnd.nextFloat() * 0.7f                                              // size
+            )
+        }
+    }
     LaunchedEffect(Unit) {
-        t.animateTo(1f, tween(1100, easing = androidx.compose.animation.core.CubicBezierEasing(0.55f, 0f, 0.75f, 0.6f)))
+        val start = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            elapsed = (now - start) / 1_000_000_000f
+            if (elapsed >= duration) break
+        }
         done()
     }
-    val density = LocalDensity.current
+    val light = androidx.compose.ui.graphics.lerp(color, Color.White, 0.45f)
     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-        val p = t.value
-        val sizeDp = if (burst.big) 46.dp else 24.dp
-        val s = with(density) { sizeDp.toPx() }
-        val rise = with(density) { (if (burst.big) 230.dp else 150.dp).toPx() }
-        // Pops in over the first fifth, fades over the last third.
-        val pop = (p / 0.18f).coerceIn(0f, 1f)
-        val popScale = if (pop < 1f) 0.35f + 0.8f * pop - 0.15f * pop * pop else 1f
-        val fade = ((1f - p) / 0.35f).coerceIn(0f, 1f)
-        val center = Offset(burst.at.x, burst.at.y - rise * p)
-        val angle = p * 2.6f * kotlin.math.PI.toFloat()
-        drawHeart3D(center, s * popScale, angle, color, alpha = fade)
+        val t = elapsed
+        val p = (t / duration).coerceIn(0f, 1f)
+        // Ring + sparkles at the spot it came from (first ~half second).
+        val ringP = (t / 0.38f).coerceIn(0f, 1f)
+        if (ringP < 1f) {
+            val e = 1f - (1f - ringP) * (1f - ringP) * (1f - ringP)
+            drawCircle(
+                light.copy(alpha = 0.75f * (1f - ringP)),
+                radius = s * (0.55f + 1.75f * e), center = burst.at,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = s * 0.14f * (1f - ringP) + dpPx)
+            )
+        }
+        val sparkP = (t / 0.55f).coerceIn(0f, 1f)
+        if (sparkP < 1f) {
+            val e = 1f - (1f - sparkP) * (1f - sparkP)
+            sparks.forEach { sp ->
+                val r = s * (0.7f + 1.6f * sp[1] * e)
+                val c = Offset(burst.at.x + kotlin.math.cos(sp[0]) * r, burst.at.y + kotlin.math.sin(sp[0]) * r)
+                val rad = s * 0.075f * sp[2] * (1f - sparkP)
+                drawCircle(Color.White.copy(alpha = 0.9f * (1f - sparkP)), rad * 1.0f, c)
+                drawCircle(light.copy(alpha = 0.5f * (1f - sparkP)), rad * 2.2f, c)
+            }
+        }
+        // The heart: moving up from the very first frame, then faster.
+        val y = burst.at.y - travel * (0.42f * p + 0.58f * p * p)
+        val x = burst.at.x + swayDir * kotlin.math.sin(p * kotlin.math.PI.toFloat() * 1.5f) * s * 0.55f * (p * 3f).coerceAtMost(1f)
+        // Pops to a bit over full size, settles, then swells as it goes.
+        val pp = (t / 0.32f).coerceIn(0f, 1f)
+        val c1 = 2.4f
+        val pop = 1f + (c1 + 1f) * (pp - 1f) * (pp - 1f) * (pp - 1f) + c1 * (pp - 1f) * (pp - 1f)
+        val scale = pop.coerceAtLeast(0f) * (1f + 0.18f * p)
+        // A quick half turn as it pops, then a steady spin.
+        val angle = spinDir * (kotlin.math.PI.toFloat() * (1f - (1f - pp) * (1f - pp)) + p * 2.2f * kotlin.math.PI.toFloat())
+        drawHeart3D(Offset(x, y), s * scale, angle, color)
+    }
+}
+
+/**
+ * The 2D like heart: it bursts in a little too big and settles with a
+ * wobble, holds a beat where it landed (a flat heart reads best standing
+ * still for a moment), then lifts off — slowly at first, then quicker and
+ * quicker — tilting into a gentle sway until it's off the top of the
+ * screen. No fade; removed once out of view.
+ */
+@Composable
+private fun FlatLikeHeart(burst: LikeBurst, color: Color, topInRoot: Float, onDone: () -> Unit) {
+    val done by rememberUpdatedState(onDone)
+    var elapsed by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val s = with(density) { (if (burst.big) 52.dp else 26.dp).toPx() }
+    val dpPx = with(density) { 1.dp.toPx() }
+    val travel = burst.at.y + topInRoot + s * 2.4f
+    val popEnd = 0.36f          // burst in and settle
+    val hold = 0.16f            // the beat where it sits
+    val fly = (0.55f + travel / (2600f * dpPx)).coerceIn(0.6f, 1.0f)
+    val total = popEnd + hold + fly
+    val tiltDir = remember { if (kotlin.random.Random(burst.id).nextBoolean()) 1f else -1f }
+    LaunchedEffect(Unit) {
+        val start = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            elapsed = (now - start) / 1_000_000_000f
+            if (elapsed >= total) break
+        }
+        done()
+    }
+    val light = androidx.compose.ui.graphics.lerp(color, Color.White, 0.45f)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        val t = elapsed
+        // Ring at the spot as it bursts in.
+        val ringP = (t / 0.4f).coerceIn(0f, 1f)
+        if (ringP < 1f) {
+            val e = 1f - (1f - ringP) * (1f - ringP) * (1f - ringP)
+            drawCircle(
+                light.copy(alpha = 0.6f * (1f - ringP)), radius = s * (0.6f + 1.5f * e), center = burst.at,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = s * 0.12f * (1f - ringP) + dpPx)
+            )
+        }
+        // Pop: a damped spring from nothing to full size.
+        val pp = (t / popEnd).coerceIn(0f, 1f)
+        val spring = 1f - kotlin.math.exp(-6.5f * pp) * kotlin.math.cos(pp * 11f)
+        val scale = if (pp >= 1f) 1f else spring.coerceAtLeast(0f)
+        // A small wobble while it settles and holds.
+        val wobble = tiltDir * 12f * kotlin.math.exp(-5f * t) * kotlin.math.sin(t * 22f)
+        // Flight: eased in (still → fast), with a sway and lean.
+        val f = ((t - popEnd - hold) / fly).coerceIn(0f, 1f)
+        val rise = travel * f * f * (0.35f + 0.65f * f)
+        val sway = tiltDir * kotlin.math.sin(f * kotlin.math.PI.toFloat() * 1.3f) * s * 0.45f
+        val lean = tiltDir * 14f * kotlin.math.sin(f * kotlin.math.PI.toFloat() * 1.3f + 0.6f) * f
+        drawHeart2D(
+            Offset(burst.at.x + sway, burst.at.y - rise), s * scale * (1f + 0.12f * f), wobble + lean, color
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 package com.mediaviewer.repository
 
+import com.mediaviewer.ui.matches
 import com.mediaviewer.platform.Log
 import com.mediaviewer.model.*
 import com.mediaviewer.network.BlueskyApi
@@ -461,6 +462,42 @@ class BlueskyRepository {
         }
     }
 
+    /**
+     * Just the numbers of [uris] (likes, reposts, saves, comments, posted
+     * date) — the Tagged search's index (util/TaggedStats). 25 a request,
+     * six requests at a time. A post missing from a request that did
+     * succeed no longer exists and comes back marked gone; a request that
+     * failed leaves its posts out, to be tried again another time.
+     */
+    suspend fun getPostStats(token: String, uris: List<String>): Map<String, com.mediaviewer.util.PostStat> {
+        if (uris.isEmpty()) return emptyMap()
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        return coroutineScope {
+            uris.chunked(25).map { batch ->
+                async {
+                    gate.withPermit {
+                        var resp = runCatching { api.getPosts("Bearer $token", batch) }.getOrNull()
+                        if (resp == null || resp.code() == 429 || resp.code() >= 500) {
+                            delay(1500)
+                            resp = runCatching { api.getPosts("Bearer $token", batch) }.getOrNull()
+                        }
+                        val body = resp?.takeIf { it.isSuccessful }?.body() ?: return@withPermit emptyMap()
+                        val found = body.posts.associate { post ->
+                            post.uri to com.mediaviewer.util.PostStat(
+                                likes = post.likeCount ?: 0, reposts = post.repostCount ?: 0,
+                                saves = post.bookmarkCount ?: 0, replies = post.replyCount ?: 0,
+                                createdMs = post.record.createdAt?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() } ?: 0L,
+                                fetchedMs = now
+                            )
+                        }
+                        batch.associateWith { uri -> found[uri] ?: com.mediaviewer.util.PostStat(0, 0, 0, 0, 0L, now, gone = true) }
+                    }
+                }
+            }.awaitAll().fold(HashMap<String, com.mediaviewer.util.PostStat>()) { acc, m -> acc.putAll(m); acc }
+        }
+    }
+
     // ── Saved Feeds — robust JSON parsing ────────────────────────────────────
 
     // Slot kinds preserved from the raw preferences, in pin order, so the final
@@ -669,6 +706,57 @@ class BlueskyRepository {
             item.reason == null && item.post.embed?.type?.contains("record") != true
         }
         Pair(ownPosts.flatMap { parseFeedItemSafe(it) }, body.cursor)
+    }
+
+    /** One of an account's own posts, as just its numbers and kind — what a
+     *  sorted profile needs to know about every post without keeping them. */
+    class ProfilePostEntry(
+        val uri: String, val likes: Int, val reposts: Int, val saves: Int, val replies: Int,
+        /** Bit per PostKindFilter ordinal the post shows under. */
+        val kinds: Int,
+        /** When it was posted, and when these numbers were read (ms). */
+        val createdMs: Long = 0L,
+        val fetchedMs: Long = 0L
+    ) {
+        fun withCounts(likes: Int, reposts: Int, saves: Int, replies: Int, fetchedMs: Long, createdMs: Long = this.createdMs) =
+            ProfilePostEntry(uri, likes, reposts, saves, replies, kinds, createdMs, fetchedMs)
+    }
+
+    /**
+     * One page (up to 100) of an account's own posts (the Posts tab's set:
+     * no replies, reposts or quotes), newest first, as [ProfilePostEntry]s,
+     * plus the cursor for the next, older page (null at the end). Bluesky
+     * has no "sort by likes" for an account's posts, so Stellar builds that
+     * list itself from these pages. Retries a couple of times (waiting
+     * longer if told to slow down); null if the page couldn't be read.
+     */
+    suspend fun getOwnPostEntriesPage(token: String, did: String, cursor: String?): Pair<List<ProfilePostEntry>, String?>? {
+        var body: BskyTimelineResponse? = null
+        for (attempt in 0..2) {
+            val resp = runCatching { api.getAuthorFeed("Bearer $token", did, 100, cursor, "posts_no_replies") }.getOrNull()
+            body = resp?.body()
+            if (body != null) break
+            kotlinx.coroutines.delay(if (resp?.code() == 429) 4000L else 800L)
+        }
+        val b = body ?: return null
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        val out = ArrayList<ProfilePostEntry>()
+        for (item in b.feed) {
+            if (item.reason != null || item.post.embed?.type?.contains("record") == true) continue
+            val parsed = parseFeedItemSafe(item)
+            if (parsed.isEmpty()) continue
+            var kinds = 0
+            for (k in com.mediaviewer.ui.PostKindFilter.entries) {
+                if (parsed.any { m -> k.matches(m) }) kinds = kinds or (1 shl k.ordinal)
+            }
+            val createdMs = item.post.record.createdAt?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() } ?: 0L
+            out += ProfilePostEntry(
+                item.post.uri, item.post.likeCount ?: 0, item.post.repostCount ?: 0,
+                item.post.bookmarkCount ?: 0, item.post.replyCount ?: 0, kinds, createdMs, now
+            )
+        }
+        val next = b.cursor?.takeIf { it.isNotBlank() && b.feed.isNotEmpty() }
+        return out to next
     }
 
     /** Profile "Reposts" tab: posts this account reposted — both plain

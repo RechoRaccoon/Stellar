@@ -478,7 +478,9 @@ class MainViewModel(
                 val prevSubtabs = profileTabCache[state.author.did]?.subtabs ?: emptyMap()
                 val entry = CachedProfileTabs(
                     availableTabs = state.availableTabs.map { it.name }.toSet(),
-                    posts = state.tabStates[ProfileTab.POSTS]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
+                    // (A sorted Posts tab keeps the cached newest-first batch.)
+                    posts = if (state.postSort in 0..3) (profileTabCache[state.author.did]?.posts ?: emptyList())
+                        else state.tabStates[ProfileTab.POSTS]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
                     reposts = state.tabStates[ProfileTab.REPOSTS]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
                     likes = state.tabStates[ProfileTab.LIKES]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
                     blogs = state.tabStates[ProfileTab.BLOGS]?.blogs ?: emptyList(),
@@ -604,6 +606,12 @@ class MainViewModel(
         // back to false, instead of trusting Compose to have kept it.
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
+        /** Posts tab order: 0 most liked, 1 most reposted, 2 most saved,
+         *  3 most comments, 4 newest (Bluesky's own order, the default). */
+        val postSort: Int = 4,
+        /** While a sorted Posts tab is reading the account's posts: how
+         *  many so far. */
+        val sortProgress: Int? = null,
         // Adjustment #7: the "tab remembering thing" below (see `parent`'s
         // own doc comment) only ever restored which main ProfileTab was
         // selected, not which PostKindFilter/ReviewKindFilter sub-tab was
@@ -4414,6 +4422,8 @@ class MainViewModel(
         val did = cur.author.did
         _profileOverlay.value = cur.copy(refreshing = true)
         if (cur.selectedTab == ProfileTab.LISTS_FEEDS) loadProfileLists(force = true)
+        // A sorted Posts tab re-reads the account's numbers too.
+        if (cur.postSort in 0..3) resetProfileIndex(did)
         val profileDone = kotlinx.coroutines.CompletableDeferred<Unit>()
         launchProfileLoads(cur.author, cur.selectedTab, isRefresh = true) { profileDone.complete(Unit) }
         viewModelScope.launch {
@@ -4503,6 +4513,7 @@ class MainViewModel(
         val state = cur.tabStates[tab]
         if (state == null || (!state.loaded && !state.loading)) loadProfileTab(tab, reset = true)
         if (tab == ProfileTab.MUSIC_HISTORY) loadMusicYears(cur.author.did)
+        if (tab == ProfileTab.POSTS && state != null) setProfileSortKind(PostKindFilter.ALL)
     }
 
     /** Lists/Feeds → a sub-tab (null = All). */
@@ -4592,6 +4603,7 @@ class MainViewModel(
     fun selectPostKindFilter(filter: PostKindFilter) {
         val cur = _profileOverlay.value ?: return
         _profileOverlay.value = cur.copy(postKindFilter = filter)
+        if (cur.selectedTab == ProfileTab.POSTS) setProfileSortKind(filter)
     }
 
     fun selectReviewKindFilter(filter: ReviewKindFilter) {
@@ -4642,6 +4654,270 @@ class MainViewModel(
         }
     }
 
+    // ── Profile post index (for Sort) ──────────────────────────────────
+    // Bluesky can only list an account's posts newest-first, so to sort by
+    // likes etc. Stellar keeps its own list of every post's numbers — the
+    // index — built by reading the account 100 posts at a time:
+    //  • It's started the first time a profile is sorted, and saved to app
+    //    storage (ProfileSortStore) as it goes.
+    //  • Closing the profile stops the read; what's read is kept, and the
+    //    next open carries on from where it stopped until the whole account
+    //    has been read once.
+    //  • Each later open (once a session) quietly reads just the posts made
+    //    since — usually one request — so sorting is instant.
+    //  • Posts that load anywhere on that profile bring live numbers, which
+    //    replace the saved ones. Nothing is ever re-read on a timer.
+    //  • Refresh on a sorted profile rebuilds its index from scratch.
+    private class ProfileIndex(
+        val entries: ArrayList<ProfileEntry>,
+        var complete: Boolean,
+        var cursor: String?,
+        /** The posts made since the last time have been read this session. */
+        var caughtUp: Boolean = false
+    )
+    private val profileIndexes = LinkedHashMap<String, ProfileIndex>()  // the 6 most recent, in memory
+    // (Saving uses a coroutine Mutex, not a lock: on iOS every
+    // synchronizedCompat shares one app-wide lock, which must never be held
+    // across file reads or writes.)
+    private val profileIndexSaveMutex = kotlinx.coroutines.sync.Mutex()
+    private var profileIndexJob: Job? = null
+    private var profileIndexJobDid: String? = null
+
+    /** [did]'s index from memory, or from storage; null if never started. */
+    private fun profileIndexFor(did: String): ProfileIndex? {
+        com.mediaviewer.platform.synchronizedCompat(profileIndexes) { profileIndexes[did] }?.let { return it }
+        val stored = com.mediaviewer.util.ProfileSortStore.load(platform.context, did) ?: return null
+        val idx = ProfileIndex(ArrayList(stored.entries), stored.complete, stored.cursor)
+        rememberProfileIndex(did, idx)
+        return idx
+    }
+
+    private fun rememberProfileIndex(did: String, idx: ProfileIndex) {
+        com.mediaviewer.platform.synchronizedCompat(profileIndexes) {
+            profileIndexes.remove(did)
+            profileIndexes[did] = idx
+            while (profileIndexes.size > 6) profileIndexes.remove(profileIndexes.keys.first())
+        }
+    }
+
+    private suspend fun saveProfileIndex(did: String, idx: ProfileIndex) {
+        val (list, complete, cursor) = com.mediaviewer.platform.synchronizedCompat(idx) { Triple(idx.entries.toList(), idx.complete, idx.cursor) }
+        profileIndexSaveMutex.withLock {
+            com.mediaviewer.util.ProfileSortStore.save(platform.context, did, list, complete, cursor)
+        }
+    }
+
+    /**
+     * Brings [did]'s index up to date in the background: the posts made
+     * since last time (once a session), then the rest of the first full
+     * read if it isn't finished. Does nothing for an account that's never
+     * been sorted, unless [start]. Only one account is indexed at a time;
+     * a different one stops the last (keeping what it read).
+     */
+    private fun runProfileIndex(did: String, start: Boolean): Job? {
+        // (Read from storage before taking the lock.)
+        val loaded = profileIndexFor(did)
+        return com.mediaviewer.platform.synchronizedCompat(profileIndexes) { startProfileIndexLocked(did, start, loaded) }
+    }
+
+    private fun startProfileIndexLocked(did: String, start: Boolean, loaded: ProfileIndex?): Job? {
+        if (profileIndexJobDid == did && profileIndexJob?.isActive == true) return profileIndexJob
+        profileIndexJob?.cancel()
+        profileIndexJob = null
+        profileIndexJobDid = null
+        val idx = profileIndexes[did] ?: loaded ?: if (start) ProfileIndex(ArrayList(), false, null).also { rememberProfileIndex(did, it) } else null
+        if (idx == null) return null
+        if (idx.entries.isEmpty()) idx.caughtUp = true // a read from the top gets the newest anyway
+        if (idx.complete && idx.caughtUp) return null
+        profileIndexJobDid = did
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            fun showProgress() {
+                val o = _profileOverlay.value ?: return
+                if (o.author.did == did && o.postSort in 0..3 && o.sortProgress != null) {
+                    _profileOverlay.value = o.copy(sortProgress = com.mediaviewer.platform.synchronizedCompat(idx) { idx.entries.size })
+                }
+            }
+            try {
+                // 1. Posts made since last time.
+                if (!idx.caughtUp) {
+                    val known = com.mediaviewer.platform.synchronizedCompat(idx) { idx.entries.mapTo(HashSet()) { it.uri } }
+                    val fresh = ArrayList<ProfileEntry>()
+                    var cursor: String? = null
+                    var reached = false
+                    for (pageNo in 0 until 50) {
+                        if (pageNo > 0) delay(250)
+                        val (posts, next) = bskyRepo.getOwnPostEntriesPage(bskyToken, did, cursor) ?: break
+                        val newOnes = posts.takeWhile { it.uri !in known }
+                        fresh += newOnes
+                        if (newOnes.size < posts.size || next == null) { reached = true; break }
+                        cursor = next
+                    }
+                    if (reached) {
+                        com.mediaviewer.platform.synchronizedCompat(idx) {
+                            idx.entries.addAll(0, fresh)
+                            idx.caughtUp = true
+                        }
+                        if (fresh.isNotEmpty()) saveProfileIndex(did, idx)
+                    }
+                }
+                // 2. The rest of the full read, from where it stopped.
+                if (!idx.complete) {
+                    val seen = com.mediaviewer.platform.synchronizedCompat(idx) { idx.entries.mapTo(HashSet()) { it.uri } }
+                    var sinceSave = 0
+                    while (!idx.complete) {
+                        val (posts, next) = bskyRepo.getOwnPostEntriesPage(bskyToken, did, idx.cursor) ?: break
+                        com.mediaviewer.platform.synchronizedCompat(idx) {
+                            posts.forEach { if (seen.add(it.uri)) idx.entries.add(it) }
+                            idx.cursor = next
+                            if (next == null) idx.complete = true
+                        }
+                        showProgress()
+                        if (++sinceSave >= 5) { saveProfileIndex(did, idx); sinceSave = 0 }
+                        if (!idx.complete) delay(250)
+                    }
+                }
+            } finally {
+                // Closed part way, or done: keep what was read.
+                withContext(kotlinx.coroutines.NonCancellable) { saveProfileIndex(did, idx) }
+            }
+        }
+        profileIndexJob = job
+        return job
+    }
+
+    /** Refresh on a sorted profile: its index is rebuilt from scratch. */
+    private fun resetProfileIndex(did: String) {
+        com.mediaviewer.platform.synchronizedCompat(profileIndexes) {
+            if (profileIndexJobDid == did) { profileIndexJob?.cancel(); profileIndexJob = null; profileIndexJobDid = null }
+            val fresh = ProfileIndex(ArrayList(), false, null, caughtUp = true)
+            rememberProfileIndex(did, fresh)
+        }
+    }
+
+    /** Posts of [did]'s that were just loaded (any way) carry live numbers:
+     *  they replace the indexed ones. Does nothing if that account has no
+     *  index. */
+    private suspend fun writeBackProfileNumbers(did: String, loaded: List<MediaItem>) {
+        val idx = profileIndexFor(did) ?: return
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        val live = loaded.distinctBy { it.postUri }.associateBy { it.postUri }
+        var changed = false
+        com.mediaviewer.platform.synchronizedCompat(idx) {
+            for (i in idx.entries.indices) {
+                val e = idx.entries[i]
+                val m = live[e.uri] ?: continue
+                idx.entries[i] = e.withCounts(m.likeCount, m.repostCount, m.bookmarkCount, m.replyCount, now)
+                changed = true
+            }
+        }
+        if (changed) saveProfileIndex(did, idx)
+    }
+
+    init {
+        // The index follows the profile that's open: opening one carries on
+        // its index (if it has one); closing it — or opening another —
+        // stops it, keeping what was read.
+        viewModelScope.launch(Dispatchers.IO) {
+            _profileOverlay.map { it?.author?.did }.distinctUntilChanged().collect { did ->
+                if (did == null) {
+                    com.mediaviewer.platform.synchronizedCompat(profileIndexes) {
+                        profileIndexJob?.cancel(); profileIndexJob = null; profileIndexJobDid = null
+                    }
+                } else runProfileIndex(did, start = false)
+            }
+        }
+    }
+
+    private var profileSortKind = com.mediaviewer.ui.PostKindFilter.ALL
+    private var profileSortedOrder: List<String> = emptyList()
+    private var profileSortedShown = 0
+    private val profileSortGen = com.mediaviewer.platform.AtomicInteger(0)
+    private val PROFILE_SORT_PAGE = 30
+
+    /** Profile › Sort. 4 (newest) is the normal, unsorted Posts tab. */
+    fun setProfileSort(sort: Int) {
+        val cur = _profileOverlay.value ?: return
+        val tabs = if (cur.selectedTab == ProfileTab.POSTS) cur.tabStates else cur.tabStates - ProfileTab.POSTS
+        _profileOverlay.value = cur.copy(
+            postSort = sort, selectedTab = ProfileTab.POSTS, sortProgress = null,
+            tabStates = tabs + (ProfileTab.POSTS to (tabs[ProfileTab.POSTS] ?: ProfileTabState()).copy(loading = false)),
+            scrollIndex = 0, scrollOffset = 0
+        )
+        profileSortGen.incrementAndGet()
+        loadProfileTab(ProfileTab.POSTS, reset = true)
+    }
+
+    /** The Posts tab's sub-tab (All / Images / videos / Text) changed: a
+     *  sorted tab re-pages from that kind's own top posts. */
+    private fun setProfileSortKind(kind: com.mediaviewer.ui.PostKindFilter) {
+        if (kind == profileSortKind) return
+        profileSortKind = kind
+        val cur = _profileOverlay.value ?: return
+        if (cur.postSort in 0..3) loadSortedProfilePosts(reset = true)
+    }
+
+    private fun loadSortedProfilePosts(reset: Boolean) {
+        val cur = _profileOverlay.value ?: return
+        val did = cur.author.did
+        val existing = cur.tabStates[ProfileTab.POSTS] ?: ProfileTabState()
+        if (!reset && (existing.loading || existing.cursor == null)) return
+        val gen = if (reset) profileSortGen.incrementAndGet() else profileSortGen.get()
+        val sort = cur.postSort
+        _profileOverlay.value = cur.copy(tabStates = cur.tabStates + (ProfileTab.POSTS to
+            (if (reset) existing.copy(items = emptyList(), cursor = null) else existing).copy(loading = true)))
+        viewModelScope.launch(Dispatchers.IO) {
+            fun still() = gen == profileSortGen.get() && _profileOverlay.value?.author?.did == did
+            if (reset) {
+                // Index first (instant if it's already complete and caught
+                // up; otherwise wait for it, showing how far it's got).
+                val job = runProfileIndex(did, start = true)
+                if (job != null) {
+                    val have = profileIndexFor(did)?.let { com.mediaviewer.platform.synchronizedCompat(it) { it.entries.size } } ?: 0
+                    _profileOverlay.value?.takeIf { it.author.did == did }?.let { _profileOverlay.value = it.copy(sortProgress = have) }
+                    job.join()
+                }
+                if (!still()) return@launch
+                val idx = profileIndexFor(did)
+                val entries = idx?.let { com.mediaviewer.platform.synchronizedCompat(it) { it.entries.toList() } }
+                if (entries.isNullOrEmpty()) {
+                    _profileOverlay.value?.let { o ->
+                        _profileOverlay.value = o.copy(sortProgress = null, tabStates = o.tabStates + (ProfileTab.POSTS to ProfileTabState(loaded = true)))
+                    }
+                    return@launch
+                }
+                profileSortKind = _profileOverlay.value?.postKindFilter ?: com.mediaviewer.ui.PostKindFilter.ALL
+                val bit = 1 shl profileSortKind.ordinal
+                val matching = entries.filter { it.kinds and bit != 0 }
+                profileSortedOrder = when (sort) {
+                    0 -> matching.sortedByDescending { it.likes }
+                    1 -> matching.sortedByDescending { it.reposts }
+                    2 -> matching.sortedByDescending { it.saves }
+                    else -> matching.sortedByDescending { it.replies }
+                }.map { it.uri }
+                profileSortedShown = 0
+            }
+            val from = profileSortedShown
+            val to = minOf(profileSortedOrder.size, from + PROFILE_SORT_PAGE)
+            val page = profileSortedOrder.subList(from, to).toList()
+            profileSortedShown = to
+            val fetched = if (page.isEmpty()) emptyList() else bskyRepo.getPostsByUris(bskyToken, page).getOrDefault(emptyList())
+            val rank = page.withIndex().associate { it.value to it.index }
+            val items = filterHidden(fetched.filter { it.postUri in rank }.sortedBy { rank[it.postUri] ?: 0 })
+            // The posts just loaded came with live numbers: keep them.
+            if (fetched.isNotEmpty()) writeBackProfileNumbers(did, fetched)
+            if (!still()) return@launch
+            val o = _profileOverlay.value ?: return@launch
+            val prev = if (reset) emptyList() else (o.tabStates[ProfileTab.POSTS]?.items ?: emptyList())
+            // "more" while there's more of the order left; any non-null
+            // cursor makes the list ask for the next page.
+            val more = if (to < profileSortedOrder.size) "sorted:$to" else null
+            _profileOverlay.value = o.copy(
+                sortProgress = null,
+                tabStates = o.tabStates + (ProfileTab.POSTS to ProfileTabState(items = prev + items, cursor = more, loading = false, loaded = true))
+            )
+        }
+    }
+
     private fun loadProfileTab(tab: ProfileTab, reset: Boolean) {
         // Blogs/Reviews/Backlog/Vods are fully loaded up-front by the probes
         // in openProfile() — there's no separate paged fetch for them at
@@ -4652,6 +4928,7 @@ class MainViewModel(
         if (tab == ProfileTab.BLOGS || tab == ProfileTab.REVIEWS || tab == ProfileTab.BACKLOG || tab == ProfileTab.VODS || tab == ProfileTab.MUSIC_HISTORY) return
         // Lists/Feeds has its own loader (not MediaItem pages either).
         if (tab == ProfileTab.LISTS_FEEDS) { loadProfileLists(force = false); return }
+        if (tab == ProfileTab.POSTS && (_profileOverlay.value?.postSort ?: 4) in 0..3) { loadSortedProfilePosts(reset); return }
         val cur = _profileOverlay.value ?: return
         val did = cur.author.did
         val existing = cur.tabStates[tab] ?: ProfileTabState()
@@ -4720,6 +4997,9 @@ class MainViewModel(
                 val updated = cur2.copy(
                     tabStates = cur2.tabStates + (tab to ProfileTabState(items = prevItems + accumulated, cursor = cursorNow, loading = false, loaded = true))
                 )
+                // Browsing their posts normally keeps a saved sort list's
+                // numbers current too — no extra requests.
+                if (tab == ProfileTab.POSTS && accumulated.isNotEmpty()) writeBackProfileNumbers(did, accumulated)
                 _profileOverlay.value = updated
                 // Feature request #4: keep the on-disk cache in step with
                 // Posts/Reposts/Likes too, not just Blogs/Reviews/Backlog/
@@ -7080,14 +7360,30 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             if (_appMode.value == AppMode.BLUESKY) {
                 val parentUri = replyTo?.uri?.takeIf { it.isNotBlank() } ?: item.postUri
-                val parentCid = replyTo?.cid?.takeIf { it.isNotBlank() } ?: item.postCid
+                // Fix: the first comment of a session could silently fail —
+                // the sign-in had usually lapsed while the app sat idle (and
+                // nothing renewed it here), or the post's cid wasn't known
+                // yet. Both are covered now, and a reply that the server
+                // hasn't listed yet is looked for again a moment later.
+                var postCid = item.postCid
+                if (postCid.isBlank()) {
+                    postCid = bskyRepo.getPostsByUris(bskyToken, listOf(item.postUri)).getOrNull()?.firstOrNull()?.postCid.orEmpty()
+                }
+                val parentCid = replyTo?.cid?.takeIf { it.isNotBlank() } ?: postCid
                 // The post on screen may itself be a reply: then the root is
                 // its thread's root, not the post.
                 val root = bskyRepo.threadRootOf(item.postUri)
-                bskyRepo.replyToPost(bskyToken, _bskyDid.value,
-                    root?.uri ?: item.postUri, root?.cid ?: item.postCid, parentUri, parentCid, text)
-                    .onSuccess { loadComments(force = true) }
-                    .onFailure { _errorMessage.value = it.message }
+                suspend fun send() = bskyRepo.replyToPost(bskyToken, _bskyDid.value,
+                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text)
+                var result = send()
+                if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) result = send()
+                result
+                    .onSuccess {
+                        loadComments(force = true)
+                        delay(1800)
+                        loadComments(force = true)
+                    }
+                    .onFailure { _errorMessage.value = "Couldn't post your comment: ${it.message}" }
             } else {
                 e621Repo.createComment(e621Username, e621ApiKey, item.e621PostId ?: return@launch, text)
                     .onSuccess { loadComments(force = true) }
@@ -7688,6 +7984,23 @@ class MainViewModel(
      *  first, instead of an empty "type to search" state — a search query
      *  narrows that same list by tag. */
     private val likedSearchGeneration = com.mediaviewer.platform.AtomicInteger(0)
+    private val TAGGED_PAGE = 30
+
+    /** The current Tagged results' full order (every match, as uris) —
+     *  only [TAGGED_PAGE] at a time are fetched and shown, more as the list
+     *  is scrolled. */
+    private var likedTagOrder: List<String> = emptyList()
+    private var likedTagShown = 0
+    private var likedTagQuery = ""
+    private val likedTagPageLock = kotlinx.coroutines.sync.Mutex()
+    private val _likedTagLoadingMore = MutableStateFlow(false)
+    val likedTagLoadingMore: StateFlow<Boolean> = _likedTagLoadingMore
+    private val _likedTagExhausted = MutableStateFlow(false)
+    val likedTagExhausted: StateFlow<Boolean> = _likedTagExhausted
+    /** While counts are being gathered for posts never sorted before:
+     *  (done, total). */
+    private val _likedTagStatsProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val likedTagStatsProgress: StateFlow<Pair<Int, Int>?> = _likedTagStatsProgress
 
     private suspend fun performLikedTagSearch(query: String) {
         // Only the most recently started search may publish results — an
@@ -7695,38 +8008,93 @@ class MainViewModel(
         // after tagging) finishing later used to replace the results of
         // the search the person actually just ran.
         val generation = likedSearchGeneration.incrementAndGet()
+        likedTagQuery = query
         _searchState.value = _searchState.value.copy(loading = true)
-        // The whole dataset (every match, not just the newest few hundred),
-        // so the chosen sort covers every tagged post.
+        // Every match in the dataset, as uris (cheap — no posts fetched).
         val uris = if (query.isBlank()) taggingRepo.browseAllTagged(Int.MAX_VALUE) else taggingRepo.search(query)
-        val hydrated = hydrateLikedUris(uris)
+        val sort = com.mediaviewer.util.UiToggles.taggedSort
+        val bluesky = _appMode.value == AppMode.BLUESKY
+        com.mediaviewer.util.TaggedStats.init(platform.context)
+        // A sort by counts or date needs every match's numbers: the ones
+        // never fetched are fetched once now (just the numbers, 25 a
+        // request), and kept, so after the first time this is instant.
+        if (bluesky && sort in 0..4) {
+            val missing = com.mediaviewer.util.TaggedStats.missing(uris)
+            if (missing.isNotEmpty()) {
+                var done = 0
+                _likedTagStatsProgress.value = 0 to missing.size
+                for (chunk in missing.chunked(300)) {
+                    if (generation != likedSearchGeneration.get()) break
+                    val stats = bskyRepo.getPostStats(bskyToken, chunk)
+                    com.mediaviewer.util.TaggedStats.putAll(stats)
+                    done += chunk.size
+                    _likedTagStatsProgress.value = done to missing.size
+                }
+                com.mediaviewer.util.TaggedStats.save()
+                _likedTagStatsProgress.value = null
+            }
+        }
         if (generation != likedSearchGeneration.get()) return
-        likedTagRaw = hydrated
-        _likedTagSearchResults.value = sortTagged(hydrated)
+        val order = if (bluesky) com.mediaviewer.util.TaggedStats.order(uris, sort) else uris
+        likedTagPageLock.withLock {
+            likedTagOrder = order
+            likedTagShown = 0
+            _likedTagExhausted.value = order.isEmpty()
+            _likedTagSearchResults.value = emptyList()
+        }
+        loadTaggedPage(generation)
+        if (generation != likedSearchGeneration.get()) return
         _searchState.value = _searchState.value.copy(loading = false, hasSearched = true)
+        // No separate refreshing: every page loaded brings live numbers,
+        // which are saved as it goes (see loadTaggedPage).
+        com.mediaviewer.util.TaggedStats.save()
     }
 
-    /** The Tagged results in the order the tagger found them (most
-     *  recently tagged first); what's shown is this, sorted by
-     *  UiToggles.taggedSort. */
-    private var likedTagRaw: List<MediaItem> = emptyList()
-
-    private fun sortTagged(list: List<MediaItem>): List<MediaItem> = when (com.mediaviewer.util.UiToggles.taggedSort) {
-        // (Stable sorts: ties stay in most-recently-tagged order.)
-        0 -> list.sortedByDescending { it.likeCount }
-        1 -> list.sortedByDescending { it.repostCount }
-        2 -> list.sortedByDescending { it.bookmarkCount }
-        3 -> list.sortedByDescending { it.replyCount }
-        4 -> list.sortedByDescending { item ->
-            item.createdAt?.takeIf { it.isNotBlank() }?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() } ?: 0L
+    /** The next [TAGGED_PAGE] of the Tagged results, fetched in full. */
+    private suspend fun loadTaggedPage(generation: Int = likedSearchGeneration.get()) {
+        val next = likedTagPageLock.withLock {
+            if (likedTagShown >= likedTagOrder.size) { _likedTagExhausted.value = true; return }
+            val from = likedTagShown
+            val to = minOf(likedTagOrder.size, from + TAGGED_PAGE)
+            likedTagShown = to
+            likedTagOrder.subList(from, to).toList()
         }
-        else -> list
+        _likedTagLoadingMore.value = true
+        val hydrated = runCatching { hydrateLikedUris(next) }.getOrDefault(emptyList())
+        _likedTagLoadingMore.value = false
+        if (generation != likedSearchGeneration.get()) return
+        // Fresh numbers for the index while we have them.
+        if (_appMode.value == AppMode.BLUESKY) {
+            val now = com.mediaviewer.platform.currentTimeMillis()
+            com.mediaviewer.util.TaggedStats.putAll(hydrated.distinctBy { it.postUri }.associate { item ->
+                item.postUri to com.mediaviewer.util.PostStat(
+                    likes = item.likeCount, reposts = item.repostCount, saves = item.bookmarkCount, replies = item.replyCount,
+                    createdMs = item.createdAt?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() }?.takeIf { it > 0L }
+                        ?: com.mediaviewer.util.TaggedStats.get(item.postUri)?.createdMs ?: 0L,
+                    fetchedMs = now
+                )
+            })
+        }
+        likedTagPageLock.withLock {
+            _likedTagSearchResults.value = _likedTagSearchResults.value + hydrated
+            _likedTagExhausted.value = likedTagShown >= likedTagOrder.size
+        }
+    }
+
+    /** The Tagged list was scrolled near its end: the next page. */
+    fun loadMoreTagged() {
+        if (_likedTagLoadingMore.value || _likedTagExhausted.value || _searchState.value.loading) return
+        _likedTagLoadingMore.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try { loadTaggedPage() } finally { _likedTagLoadingMore.value = false }
+            com.mediaviewer.util.TaggedStats.save()
+        }
     }
 
     /** Search › Tagged › Sort: re-orders the results now and remembers it. */
     fun setTaggedSort(sort: Int) {
         com.mediaviewer.util.UiToggles.updateTaggedSort(sort)
-        _likedTagSearchResults.value = sortTagged(likedTagRaw)
+        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(likedTagQuery) }
     }
 
     private suspend fun hydrateLikedUris(uris: List<String>): List<MediaItem> {
@@ -8936,3 +9304,5 @@ private const val HUB_LIST_BATCH = 12
 /** How many of a list's (most recently active) members the Hub row reads
  *  one by one once Bluesky's list feed runs out. */
 private const val HUB_LIST_MEMBER_CAP = 40
+
+private typealias ProfileEntry = com.mediaviewer.repository.BlueskyRepository.ProfilePostEntry
