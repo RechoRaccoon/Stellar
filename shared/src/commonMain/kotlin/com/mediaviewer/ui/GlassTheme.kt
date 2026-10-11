@@ -95,7 +95,7 @@ fun rememberTopCutoutClearance(minimum: Dp = 32.dp): Dp {
  *  the same real fetch+sample work directly instead of only being able to
  *  observe it asynchronously through composition. */
 suspend fun fetchDominantColor(context: com.mediaviewer.platform.PlatformContext, url: String): Color {
-    if (url.isBlank()) return Color(0xFF2A2A2E)
+    if (url.isBlank()) return Color(0xFF2C2C2C)
     val cached = cachedDominantColor(url)
     if (cached != null) return cached
     try {
@@ -105,7 +105,7 @@ suspend fun fetchDominantColor(context: com.mediaviewer.platform.PlatformContext
             return c
         }
     } catch (_: Exception) { /* fall through to default below */ }
-    return Color(0xFF2A2A2E)
+    return Color(0xFF2C2C2C)
 }
 
 /** Colors already sampled this session, by URL. Every glass surface, tint
@@ -122,6 +122,9 @@ private val dominantColorCache = com.mediaviewer.util.LruMap<String, Color>(300)
 private fun putDominantColor(url: String, color: Color) = com.mediaviewer.platform.synchronizedCompat(dominantColorCache) {
     dominantColorCache[url] = color
 }
+
+/** [url]'s color if it's already been worked out this session. */
+fun knownDominantColor(url: String): Color? = cachedDominantColor(url)
 
 private fun cachedDominantColor(url: String): Color? = com.mediaviewer.platform.synchronizedCompat(dominantColorCache) { dominantColorCache[url] }
 
@@ -166,7 +169,9 @@ object SelfProfileColors {
     }
 }
 
-private val PlaceholderGrey = Color(0xFF2A2A2E)
+// Neutral (no hue): the old slightly-blue grey came out bright blue through
+// vividAccent for the moment before a post's real color arrived.
+private val PlaceholderGrey = Color(0xFF2C2C2C)
 
 /** A profile's two source colors: its banner's (the avatar's again when it
  *  has no banner) and its avatar's. [blended] is the profile's UI color. */
@@ -396,7 +401,7 @@ fun rememberSelfProfileTint(selfAvatarUrl: String): Color {
 fun rememberDominantColor(url: String): Color {
     val context = LocalContext.current
     // Already known: use it from the very first frame, no fetch.
-    var color by remember(url) { mutableStateOf(cachedDominantColor(url) ?: Color(0xFF2A2A2E)) }
+    var color by remember(url) { mutableStateOf(cachedDominantColor(url) ?: Color(0xFF2C2C2C)) }
     LaunchedEffect(url) {
         if (url.isBlank()) return@LaunchedEffect
         color = cachedDominantColor(url) ?: fetchDominantColor(context, url)

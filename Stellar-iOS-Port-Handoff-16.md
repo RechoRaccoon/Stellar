@@ -900,3 +900,12 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
   - Cold launch waited forever for your profile/color: now goes on after 6s, color fetch capped at 4s; profile transition's color fetch capped at 4s.
   - Dead pooled connections (after backgrounding / network change) hung up to 60s: Android OkHttp `pingInterval(15s)`, read 30s, connect 20s; iOS Darwin socket 30s, connect 20s.
 - Feeds tip: "made by someone across the Atmosphere".
+
+### Update 50 — Show Post color flash, Mutuals row vanishing
+- The "unknown yet" post color placeholder was 0xFF2A2A2E — just blue enough that `vividAccent` turned it bright blue. Now neutral 0xFF2C2C2C (GlassTheme), and Show Post eases to the post's color (`animateColorAsState`).
+- Mutuals row disappearing until restart: `getMutuals` treated a failed follows page as "the end" — with an expired sign-in at launch that returned zero mutuals as a *success*, which replaced the list, overwrote the saved copy, marked it loaded (no more retries) and hid the row. Now a failed page is a failure; `loadDmRecipients` fails if mutuals fail (the saved list stays on screen); `loadDmConversationsBlocking` renews an expired sign-in and retries; the launch retry loop waits for a real load (`dmFreshLoaded`) instead of "anything shown".
+
+### Update 51 — post colors ready before a post is shown
+- FeedView's neighbor preload now also works out each post's own color (`fetchDominantColor` for posts −1…+4; `knownDominantColor(url)` added in GlassTheme), so a post's color — glass, accents, Show Post — is right from its first frame instead of a placeholder that then changes.
+- Show Post: no color animation; it's only drawn once the post's color is known (`colorKnown`), so it never appears in a placeholder color.
+- (51b) Show Post appears with the rest of the post again; plain grey (0xFF6E6E6E) for the odd moment the post's color isn't known yet.

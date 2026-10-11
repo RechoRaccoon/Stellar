@@ -992,6 +992,14 @@ private fun FeedView(
                     }
                 }
             }
+        // Each post's own color (its glass, accents and buttons) worked out
+        // ahead for the next few posts, so it's there from the first frame
+        // a post is swiped to — never a placeholder that then changes.
+        (-1..4).mapNotNull { mediaItems.getOrNull(currentIndex + it) }
+            .map { it.thumbUrl.ifBlank { it.mediaUrl } }
+            .filter { it.isNotBlank() && knownDominantColor(it) == null }
+            .distinct()
+            .forEach { url -> launch(kotlinx.coroutines.Dispatchers.Default) { runCatching { fetchDominantColor(context, url) } } }
     }
     DisposableEffect(Unit) { onDispose { FeedVideos.releaseIdle() } }
 
@@ -1749,11 +1757,15 @@ private fun PostContent(
                 }
             } else if (nsfwBlurred) {
                 // Blurred (Android's NSFW Posts = Blur, or iOS's Bluesky
-                // label setting = Warn): Show Post reveals this one.
+                // label setting = Warn): Show Post reveals this one, in the
+                // post's color (worked out ahead — see FeedView's preload);
+                // plain grey for the odd moment it isn't known yet.
+                val colorKnown = authorTint != null || !liquidGlass || dominantColor != Color(0xFF2C2C2C)
+                val showPostColor = if (colorKnown) vividAccent(dominantColor) else Color(0xFF6E6E6E)
                 Box(
                     Modifier.align(Alignment.Center)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(vividAccent(dominantColor).copy(alpha = 0.9f))
+                        .background(showPostColor.copy(alpha = 0.9f))
                         .clickable { nsfwRevealed = true }
                         .padding(horizontal = 20.dp, vertical = 11.dp)
                 ) {

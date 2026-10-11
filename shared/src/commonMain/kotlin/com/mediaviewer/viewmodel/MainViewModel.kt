@@ -6468,7 +6468,9 @@ class MainViewModel(
         // The Inbox's first page, a little after launch, so it opens instantly.
         viewModelScope.launch(Dispatchers.IO) { delay(2500); prefetchInbox() }
         viewModelScope.launch(Dispatchers.IO) {
-            retryWithBackoff(isDone = { _dmConversations.value.isNotEmpty() || !_bskyLoggedIn.value }) {
+            // Until a real load succeeds (the saved copy shown meanwhile
+            // doesn't count, or a failed launch load was never retried).
+            retryWithBackoff(isDone = { dmFreshLoaded || !_bskyLoggedIn.value }) {
                 ensureDmConversationsLoadedSuspend(silent = true)
             }
         }
@@ -6647,7 +6649,12 @@ class MainViewModel(
                 if (cached.isNotEmpty()) _dmConversations.value = cached
             }
         }
-        bskyRepo.loadDmRecipients(bskyToken, _bskyDid.value)
+        var result = bskyRepo.loadDmRecipients(bskyToken, _bskyDid.value)
+        // An expired sign-in (normal right after launch): renew and retry.
+        if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+            result = bskyRepo.loadDmRecipients(bskyToken, _bskyDid.value)
+        }
+        result
             .onSuccess {
                 _dmConversations.value = it
                 dmFreshLoaded = true

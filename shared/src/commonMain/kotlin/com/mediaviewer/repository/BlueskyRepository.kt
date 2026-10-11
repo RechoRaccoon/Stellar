@@ -2577,7 +2577,10 @@ class BlueskyRepository {
             var cursor: String? = null
             do {
                 val resp = runCatching { retryOnce { api.getFollows("Bearer $token", myDid, 100, cursor) } }.getOrNull()
-                if (resp == null || !resp.isSuccessful) break
+                // A failed page is a failure (it used to just stop, so an
+                // expired sign-in at launch gave "no mutuals" as a success
+                // and the Hub's Mutuals row vanished until a restart).
+                if (resp == null || !resp.isSuccessful) error("Follows ${resp?.code() ?: "failed"}")
                 val body = resp.body() ?: break
                 body.follows.forEach { out[it.did] = it }
                 cursor = body.cursor
@@ -2589,7 +2592,7 @@ class BlueskyRepository {
             var cursor: String? = null
             do {
                 val resp = runCatching { retryOnce { api.getFollowers("Bearer $token", myDid, 100, cursor) } }.getOrNull()
-                if (resp == null || !resp.isSuccessful) break
+                if (resp == null || !resp.isSuccessful) error("Followers ${resp?.code() ?: "failed"}")
                 val body = resp.body() ?: break
                 body.followers.forEach { out.add(it.did) }
                 cursor = body.cursor
@@ -2675,8 +2678,10 @@ class BlueskyRepository {
             Triple(c.await(), m.await(), b.await())
         }
 
-        if (convosResult.isFailure && mutualsResult.isFailure) {
-            throw mutualsResult.exceptionOrNull() ?: convosResult.exceptionOrNull() ?: Exception("Failed to load conversations")
+        // Mutuals failing is a failure too: the list would otherwise be
+        // saved and shown without any mutuals.
+        if (mutualsResult.isFailure) {
+            throw mutualsResult.exceptionOrNull() ?: Exception("Failed to load mutuals")
         }
 
         val mutuals = mutualsResult.getOrDefault(emptyList())
