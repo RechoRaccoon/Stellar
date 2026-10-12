@@ -70,7 +70,10 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
             // TextureView (not the default SurfaceView) for the video to actually
             // show up in the live backdrop-blur capture.
             (android.view.LayoutInflater.from(ctx).inflate(com.mediaviewer.R.layout.player_view_texture, null) as PlayerView).apply {
-                this.player = exo; useController = false
+                // Controller off BEFORE the player is attached: attaching
+                // with it on pops the system controls up for a moment.
+                useController = false
+                this.player = exo
                 // The pooled player outlives this view; keep the
                 // last frame instead of flashing black on reattach.
                 setKeepContentOnPlayerReset(true)

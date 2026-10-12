@@ -977,3 +977,6 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - PostStatusRow: order Edited, Blocked, Trackers, Tagging, Download, Translation (last); a centered group in a Box with a horizontally scrollable Row when it overflows.
 - CommentVideo opens with its controls hidden (tap shows them).
 - (Update 62 is folded in: controls inside the video bounds; upload status inside the comment box.)
+
+### Update 64 — no flash of the system video controls
+- Android FeedVideoView (and CapturePreviewScreen): `useController = false` is set before the player is attached; attaching first briefly showed Media3's own controls (seen when opening a comment video).

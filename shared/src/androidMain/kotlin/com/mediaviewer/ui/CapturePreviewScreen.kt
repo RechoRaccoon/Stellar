@@ -403,8 +403,8 @@ private fun CaptureVideo(uri: Uri, zoom: Boolean, onVideoSize: (Int, Int) -> Uni
                 // offset/oversized inside the frame. A TextureView draws
                 // like a normal view, and the glass buttons can blur it.
                 (android.view.LayoutInflater.from(ctx).inflate(com.mediaviewer.R.layout.player_view_texture, null) as PlayerView).apply {
-                    this.player = player
                     useController = false
+                    this.player = player
                     setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                 }
             },
