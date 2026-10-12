@@ -2971,21 +2971,25 @@ private fun PostStatsRow(stats: PostBubbleStats, style: androidx.compose.ui.text
         Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (stats.showCounts) {
-            @Composable
-            fun Stat(icon: ImageVector, count: Int) {
-                Icon(icon, contentDescription = null, tint = stats.iconTint, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(compactCount(count), style = style, maxLines = 1)
-                Spacer(Modifier.width(12.dp))
+        // The counts take what room the date leaves (the date is laid out
+        // first, so it always shows — on a narrow bubble it used to be the
+        // one squeezed out).
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            if (stats.showCounts) {
+                @Composable
+                fun Stat(icon: ImageVector, count: Int) {
+                    Icon(icon, contentDescription = null, tint = stats.iconTint, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(compactCount(count), style = style, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.width(12.dp))
+                }
+                Stat(Icons.Filled.Favorite, stats.likes)
+                Stat(Icons.Default.Repeat, stats.reposts)
+                Stat(Icons.Filled.Bookmark, stats.saves)
+                Stat(Icons.Default.ChatBubble, stats.comments)
             }
-            Stat(Icons.Filled.Favorite, stats.likes)
-            Stat(Icons.Default.Repeat, stats.reposts)
-            Stat(Icons.Filled.Bookmark, stats.saves)
-            Stat(Icons.Default.ChatBubble, stats.comments)
         }
-        Spacer(Modifier.weight(1f))
-        if (stats.date != null) Text(stats.date, style = style, maxLines = 1)
+        if (stats.date != null) Text(stats.date, style = style, maxLines = 1, softWrap = false)
     }
 }
 

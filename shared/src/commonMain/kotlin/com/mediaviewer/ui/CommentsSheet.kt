@@ -700,7 +700,7 @@ private fun ThreadParentHeader(
                         Text("@${parent.authorHandle}", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(3.dp))
-                    if (parent.body.isNotBlank()) Text(parent.body, color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (parent.body.isNotBlank()) Text(parent.body, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp)
                     if (parent.media.isNotEmpty()) CommentMediaBlock(parent.media, dominantColor, onOpen = onOpenMedia)
                 }
             }

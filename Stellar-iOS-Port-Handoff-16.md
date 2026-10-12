@@ -931,3 +931,9 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - `AnimatedGifImage` (new expect): Android = Coil `AnimatedImageDecoder` (API 28+) / `GifDecoder` — **new dependency `io.coil-kt.coil3:coil-gif:3.2.0`** (androidMain); iOS = Skia `Codec` frames (≤90, cached for the last 6 GIFs), still image until decoded.
 - Comments: tapping an avatar or name/handle opens that profile (`CommentsSheet(onOpenProfile)`, from MainFeedScreen's `onOpenProfile`); handles are dimmer; the thread header supports both too.
 - VRM: avatar part toggles are saved per avatar (key `hidden_parts:<hash of source>`; `hidden_parts` stays as the current set) — switching avatars restores each one's own choices (Android `vrmPartsKey`, iOS `partsKey`).
+- (54b) `PostStatsRow`: the date is laid out before the counts (counts in a weighted Row), so it can't be squeezed out on a narrow bubble — the text-post Stats bubble was losing it.
+
+### Update 55 — comment media sizing
+- The media spilled over the comment's text and buttons: a `fillMaxWidth().heightIn(max).aspectRatio()` tile measured taller than its space and was centered over it. Now sized exactly: one item = its full shape, at most 200dp tall (`BoxWithConstraints`); several = a `LazyRow` at 130dp tall, each at its own shape. Nothing is cropped.
+- Thread header shows the opened comment's whole text (no 3-line cut).
+- Opening is faster: full pictures are fetched when the comment appears; the viewer shows the thumbnail at once under the full picture. (Videos aren't preloaded — `FeedVideos.preload` replaces the feed's own window.)

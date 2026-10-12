@@ -53,23 +53,35 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.mediaviewer.model.CommentMedia
 import com.mediaviewer.ui.compat.LocalContext
+import com.mediaviewer.ui.compat.coilContext
 import com.mediaviewer.ui.compat.navBarSpace
 import com.mediaviewer.util.rememberHapticTap
 
 /**
- * A comment's pictures / video / GIF, under its text: one fills the
- * comment's width at its own shape; several sit in a tidy grid (up to four,
- * "+N" on the last). Rounded, with the same soft rim as Stellar's grid
- * tiles. GIFs play right there; tap anything to open it full screen.
+ * A comment's pictures / video / GIF, under its text — each at its full
+ * shape (nothing cropped), kept small: one is at most [MAX_SINGLE] tall;
+ * several sit side by side in a row at [ROW_HEIGHT] (scrolls if they don't
+ * fit). Rounded, with the same soft rim as Stellar's grid tiles. GIFs play
+ * right there; tap anything to open it full screen — full pictures are
+ * fetched ahead so that's quick.
  */
 @Composable
 fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> Unit, modifier: Modifier = Modifier) {
     if (media.isEmpty()) return
     val tap = rememberHapticTap()
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
     val rim = lerp(tint, Color.White, 0.35f).copy(alpha = 0.45f)
+    val context = LocalContext.current
+    // Full pictures fetched before they're tapped, so they open at once.
+    // (Videos aren't: the player pool's preload belongs to the feed.)
+    LaunchedEffect(media) {
+        val loader = coil3.SingletonImageLoader.get(context.coilContext)
+        media.filter { it.kind == CommentMedia.Kind.IMAGE && it.fullUrl.isNotBlank() }.forEach { m ->
+            loader.enqueue(coil3.request.ImageRequest.Builder(context.coilContext).data(m.fullUrl).build())
+        }
+    }
     @Composable
-    fun Tile(i: Int, m: Modifier, extra: Int = 0) {
+    fun Tile(i: Int, m: Modifier) {
         val item = media[i]
         Box(
             m.clip(shape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, rim, shape)
@@ -85,34 +97,33 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
             }
             if (item.kind == CommentMedia.Kind.VIDEO) PlayBadge(tint, Modifier.align(Alignment.Center))
             if (item.kind == CommentMedia.Kind.GIF) CornerLabel("GIF")
-            if (extra > 0) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
-                    Text("+$extra", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
         }
     }
-    Column(modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (media.size == 1) {
-            // Its own shape, kept within sensible bounds.
-            val a = media[0].aspect.takeIf { it > 0f }?.coerceIn(0.7f, 1.9f) ?: 1.5f
-            Tile(0, Modifier.fillMaxWidth(if (a < 1f) 0.72f else 1f).heightIn(max = 300.dp).aspectRatio(a))
-        } else {
-            val shown = media.take(4)
-            shown.chunked(2).forEachIndexed { row, pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    pair.forEachIndexed { col, _ ->
-                        val i = row * 2 + col
-                        val extra = if (i == 3 && media.size > 4) media.size - 4 else 0
-                        // A lone last tile (3 pictures) spans the row.
-                        val wide = pair.size == 1
-                        Tile(i, Modifier.weight(1f).aspectRatio(if (wide) 2f else 1f), extra)
-                    }
-                }
+    // Its own shape; an unknown shape counts as 4:3.
+    fun aspectOf(i: Int) = media[i].aspect.takeIf { it > 0f }?.coerceIn(0.4f, 2.5f) ?: (4f / 3f)
+    if (media.size == 1) {
+        androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth().padding(top = 6.dp)) {
+            // Exactly the picture's shape: as wide as fits, but never taller
+            // than MAX_SINGLE (worked out here, so it can never spill past
+            // its space onto the text around it).
+            val a = aspectOf(0)
+            val w = minOf(maxWidth, MAX_SINGLE * a)
+            Tile(0, Modifier.size(w, w / a))
+        }
+    } else {
+        androidx.compose.foundation.lazy.LazyRow(
+            modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(media.size) { i ->
+                Tile(i, Modifier.size(ROW_HEIGHT * aspectOf(i), ROW_HEIGHT))
             }
         }
     }
 }
+
+private val MAX_SINGLE = 200.dp
+private val ROW_HEIGHT = 130.dp
 
 @Composable
 private fun PlayBadge(tint: Color, modifier: Modifier = Modifier) {
@@ -152,11 +163,16 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
             val item = media[page]
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 when (item.kind) {
-                    CommentMedia.Kind.IMAGE -> AsyncImage(
-                        model = item.fullUrl, contentDescription = item.alt.ifBlank { null },
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
-                    )
+                    CommentMedia.Kind.IMAGE -> Box(
+                        Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
+                    ) {
+                        // The thumbnail (already loaded) at once, the full
+                        // picture over it as soon as it's in.
+                        AsyncImage(model = item.thumbUrl.ifBlank { item.fullUrl }, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                        if (item.fullUrl != item.thumbUrl) {
+                            AsyncImage(model = item.fullUrl, contentDescription = item.alt.ifBlank { null }, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                        }
+                    }
                     CommentMedia.Kind.GIF -> AnimatedGifImage(
                         item.fullUrl, item.alt.ifBlank { null },
                         Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() },
