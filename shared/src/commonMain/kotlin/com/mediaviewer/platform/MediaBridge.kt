@@ -56,4 +56,9 @@ expect object MediaBridge {
     /** Splices [thumbnail] in as the video's first frame (so Bluesky shows
      *  it as the thumbnail); returns the new file. Throws if unsupported. */
     suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri
+
+    /** An animated GIF ([gif] = its bytes) as an H.264 mp4 with the same
+     *  frames and timing — how Bluesky takes GIFs (as a looping video).
+     *  Returns the new file; throws if it can't be made. */
+    suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri
 }

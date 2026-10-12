@@ -699,9 +699,14 @@ fun ComposePostScreen(
     // "only one video, or up to 10 images, but not both". ────────────────
     val mediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)
-    ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        val videoPick = uris.firstOrNull { isVideoUri(context, it) }
+    ) { pickedUris ->
+        if (pickedUris.isEmpty()) return@rememberLauncherForActivityResult
+        // (An animated GIF is turned into a video first: Bluesky takes GIFs
+        // as looping videos, never as still pictures — see GifPick.)
+        draftScope.launch {
+        val prepared = pickedUris.map { com.mediaviewer.util.GifPick.prepare(context, it) }
+        val uris = prepared.map { it.uri }
+        val videoPick = prepared.firstOrNull { it.isVideo }?.uri
         if (mode == ComposeMode.THREAD) {
             // Item 2: attaches to whichever post is currently selected/being
             // typed in — each post in a thread carries its own up-to-10-
@@ -724,6 +729,7 @@ fun ComposePostScreen(
         } else if (mode != ComposeMode.TEXTSHOT) {
             val room = (MAX_IMAGES - images.size).coerceAtLeast(0)
             images = (images + uris.filterNot { it in images }.take(room)).take(MAX_IMAGES)
+        }
         }
     }
     // Item 12: blog images (no videos) land right after the selected row,

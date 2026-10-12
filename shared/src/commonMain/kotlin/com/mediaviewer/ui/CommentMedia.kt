@@ -89,7 +89,9 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
             contentAlignment = Alignment.Center
         ) {
             when (item.kind) {
-                CommentMedia.Kind.GIF -> AnimatedGifImage(item.fullUrl, item.alt.ifBlank { null }, Modifier.fillMaxSize(), ContentScale.Crop)
+                CommentMedia.Kind.GIF ->
+                    if (item.videoUrl != null) GifVideo(item, Modifier.fillMaxSize(), ContentScale.Crop)
+                    else AnimatedGifImage(item.fullUrl, item.alt.ifBlank { null }, Modifier.fillMaxSize(), ContentScale.Crop)
                 else -> AsyncImage(
                     model = item.thumbUrl.ifBlank { item.fullUrl }, contentDescription = item.alt.ifBlank { null },
                     contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
@@ -140,7 +142,7 @@ private fun PlayBadge(tint: Color, modifier: Modifier = Modifier) {
 @Composable
 private fun BoxScope.CornerLabel(text: String) {
     Box(
-        Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
+        Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(6.dp))
             .background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 5.dp, vertical = 1.dp)
     ) { Text(text, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
 }
@@ -173,11 +175,12 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
                             AsyncImage(model = item.fullUrl, contentDescription = item.alt.ifBlank { null }, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                         }
                     }
-                    CommentMedia.Kind.GIF -> AnimatedGifImage(
-                        item.fullUrl, item.alt.ifBlank { null },
-                        Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() },
-                        ContentScale.Fit
-                    )
+                    CommentMedia.Kind.GIF -> {
+                        val closeTap = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
+                        // An uploaded GIF opens like any video: full controls.
+                        if (item.videoUrl != null) CommentVideo(item, active = pager.currentPage == page, tint = tint, liquidGlass = liquidGlass, backdrop = backdrop)
+                        else AnimatedGifImage(item.fullUrl, item.alt.ifBlank { null }, closeTap, ContentScale.Fit)
+                    }
                     CommentMedia.Kind.VIDEO -> CommentVideo(item, active = pager.currentPage == page, tint = tint, liquidGlass = liquidGlass, backdrop = backdrop)
                 }
             }
@@ -211,8 +214,30 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
     }
 }
 
-/** A comment's video, full screen: plays while it's the page shown; tap to
- *  pause / play. */
+/** An uploaded GIF (Bluesky keeps these as video, marked "gif"): plays
+ *  straight away, loops and has no controls — the same as a GIF. */
+@Composable
+private fun GifVideo(item: CommentMedia, modifier: Modifier, scale: ContentScale) {
+    val url = item.videoUrl ?: return
+    val context = LocalContext.current
+    val player = remember(url) { FeedVideos.acquire(context, url) }
+    DisposableEffect(player) { onDispose { player.pause(); FeedVideos.recycle(url, player) } }
+    var firstFrame by remember(url) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val l = object : FeedVideoListener { override fun onFirstFrame() { firstFrame = true } }
+        player.addListener(l)
+        onDispose { player.removeListener(l) }
+    }
+    LaunchedEffect(player) { player.play() }
+    Box(modifier) {
+        if (!firstFrame && item.thumbUrl.isNotBlank()) {
+            AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = scale, modifier = Modifier.fillMaxSize())
+        }
+        FeedVideoView(player, Modifier.fillMaxSize())
+    }
+}
+
+/** A comment's video, full screen, with the post video controls. */
 @Composable
 private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liquidGlass: Boolean, backdrop: GlassBackdrop?) {
     val url = item.videoUrl ?: return

@@ -236,4 +236,9 @@ actual object MediaBridge {
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         com.mediaviewer.util.VideoThumbnailStitcher.stitch(context, video, thumbnail)
+
+    actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            android.net.Uri.fromFile(GifVideoEncoder.encode(context, gif))
+        }
 }

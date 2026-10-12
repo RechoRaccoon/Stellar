@@ -945,3 +945,19 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Comment media viewer: videos use the post controls (`VideoTransportButtons` + `VideoSeekBar`, tap toggles); the sheet behind is blurred (26dp, animated) with a light 0.3 scrim instead of 0.94 black.
 - Tags tab: no "no tags" gap when tags are editable — Add Tag sits at the top.
 - History: opens in Explore (GRID); after showing stored entries, re-reads the posts (`getPostsByUris`) and swaps them in so follow / like / repost state is right.
+
+### Update 57 — animated GIFs always go up as video
+- `util/GifInfo` (magic-byte detection, frame count, size) + `util/GifVideo` (own GIF decoder: LZW, interlace, transparency over black, disposal 2/3, browser delay rule <20ms→100ms; bilinear scale; short GIFs repeated to ≥1s; final hold frame). Decoder verified pixel-exact against Pillow on optimized + interlaced test GIFs.
+- `MediaBridge.videoFromGif(context, bytes)`: Android `GifVideoEncoder` (MediaCodec AVC, YUV420Flexible via `getInputImage`, MediaMuxer, size aligned to codec caps); iOS `IosGifVideo` (AVAssetWriter + 32BGRA pixel buffers).
+- `BlueskyRepository.uploadVideo` detects an animated GIF by content → `uploadGif`: convert to mp4 and upload like any video (service, then PDS fallback); if conversion fails, the raw GIF goes to the video service. Never an image embed. aspectRatio = the GIF's own size. Static (1-frame) GIFs are pictures.
+- Comments use `isMotionMedia`; composer picker runs `util/GifPick.prepare` (animated GIF → mp4 at pick time, so it previews and posts as video).
+- iOS picker asks for `com.compuserve.gif` first so the GIF isn't flattened to a still.
+
+### Update 58 — uploaded GIFs marked as GIFs
+- Bluesky marks an uploaded GIF with `presentation: "gif"` on `app.bsky.embed.video` (lexicon knownValues default/gif); apps play those looping, silent, without controls. Stellar now writes it on every GIF upload (`UploadedVideo.isGif`; comments + video posts; `GifPick.wasGif` remembers composer-converted files).
+- Reading: `BskyEmbed.presentation`; a comment video with "gif" is `CommentMedia.Kind.GIF` with `videoUrl` → `GifVideo` composable (autoplay loop, poster until first frame, "GIF" label) in the tile and the viewer (tap closes, no controls).
+
+### Update 59 — comment GIFs: only autoplay differs
+- Feed (Timeline/Explore) never reads `presentation`: uploaded GIFs there are ordinary videos (controls, "Video" label) — unchanged.
+- Comments: a "gif" video autoplays + loops in its tile (GifVideo); opened, it uses CommentVideo with the full post controls like any video. "GIF" label moved to the bottom-right corner.
+- Tenor GIFs (external .gif links) are image files: they still loop in the viewer without a timeline.

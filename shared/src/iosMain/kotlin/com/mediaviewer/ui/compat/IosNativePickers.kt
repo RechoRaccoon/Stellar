@@ -115,6 +115,8 @@ object IosNativePickers {
         val provider = result.itemProvider
         val typeId = when {
             provider.hasItemConformingToTypeIdentifier(UTTypeMovie.identifier) -> UTTypeMovie.identifier
+            // A GIF as the GIF itself (not a still picture of it).
+            provider.hasItemConformingToTypeIdentifier("com.compuserve.gif") -> "com.compuserve.gif"
             provider.hasItemConformingToTypeIdentifier(UTTypeImage.identifier) -> UTTypeImage.identifier
             else -> null
         }

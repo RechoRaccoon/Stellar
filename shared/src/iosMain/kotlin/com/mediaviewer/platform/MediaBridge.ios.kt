@@ -195,4 +195,7 @@ actual object MediaBridge {
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         IosUri("file://" + IosVideoStitcher.stitch(pathOf(video), pathOf(thumbnail)))
+
+    actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
+        IosUri("file://" + IosGifVideo.encode(gif))
 }

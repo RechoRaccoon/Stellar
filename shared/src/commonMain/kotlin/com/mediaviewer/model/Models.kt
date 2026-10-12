@@ -507,6 +507,9 @@ data class BskyEmbed(
     val playlist: String? = null,
     val thumbnail: String? = null,
     val aspectRatio: BskyAspectRatio? = null,
+    /** app.bsky.embed.video: "gif" = an uploaded GIF (plays looping and
+     *  silent, like a GIF); "default"/absent = a normal video. */
+    val presentation: String? = null,
     val cid: String? = null,
     val external: BskyExternalView? = null,
     val media: BskyEmbed? = null,

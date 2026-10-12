@@ -2082,7 +2082,11 @@ class BlueskyRepository {
                 else CommentMedia(CommentMedia.Kind.IMAGE, thumb ?: full, full, null, ratio(img.aspectRatio), img.alt.orEmpty())
             }
             type.contains("video") && !embed.playlist.isNullOrBlank() -> listOf(
-                CommentMedia(CommentMedia.Kind.VIDEO, embed.thumbnail.orEmpty(), embed.thumbnail.orEmpty(), embed.playlist, ratio(embed.aspectRatio))
+                CommentMedia(
+                    // An uploaded GIF (presentation "gif") shows as a GIF.
+                    if (embed.presentation == "gif") CommentMedia.Kind.GIF else CommentMedia.Kind.VIDEO,
+                    embed.thumbnail.orEmpty(), embed.thumbnail.orEmpty(), embed.playlist, ratio(embed.aspectRatio)
+                )
             )
             type.contains("external") -> {
                 val ext = embed.external ?: return emptyList()
@@ -3034,9 +3038,8 @@ class BlueskyRepository {
      * through exactly what posting uses: pictures are sized/compressed by
      * [uploadImageBlobs] (≤4, an images embed with aspect ratios); a video
      * through [uploadVideo] (re-encoded if too big, metadata scrubbed,
-     * Bluesky's video service). A GIF is sent to the video service too —
-     * Bluesky turns it into a looping video the way its own app does — and
-     * if that's refused it goes up as a picture instead.
+     * Bluesky's video service). An animated GIF goes up as a looping video
+     * (see [uploadVideo]); a GIF with a single frame is just a picture.
      */
     suspend fun replyToPostWithMedia(
         token: String, did: String, context: PlatformContext,
@@ -3045,29 +3048,20 @@ class BlueskyRepository {
         text: String, media: List<PlatformUri>
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val types = media.map { MediaBridge.mimeTypeOf(context, it).orEmpty().lowercase() }
-            val videoIndex = types.indexOfFirst { it.startsWith("video/") || it == "image/gif" }
-            var embed: Map<String, Any>? = null
-            if (videoIndex >= 0) {
-                val uri = media[videoIndex]
-                val isGif = types[videoIndex] == "image/gif"
-                val video = runCatching { uploadVideo(token, did, context, uri, null) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE)
-                val uploaded = video.getOrNull()
-                if (uploaded != null) {
-                    var (w, h) = uploaded.width to uploaded.height
-                    if (isGif && (w <= 0 || h <= 0)) {
-                        runCatching { MediaBridge.readBytes(context, uri)?.let { MediaBridge.imageSize(it) } }.getOrNull()?.let { w = it.first; h = it.second }
-                    }
+            // A video, or an animated GIF (which goes up as a looping video,
+            // never as a still picture), is posted on its own.
+            val motion = media.firstOrNull { isMotionMedia(context, it) }
+            val embed: Map<String, Any>? = when {
+                motion != null -> {
+                    val uploaded = try { uploadVideo(token, did, context, motion, null) }
+                        finally { com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE) }
                     val v = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to uploaded.blob)
-                    if (w > 0 && h > 0) v["aspectRatio"] = mapOf("width" to w, "height" to h)
-                    embed = v
-                } else if (isGif) {
-                    embed = buildImagesEmbed(uploadImageBlobs(token, context, listOf(uri)))
-                } else throw video.exceptionOrNull() ?: error("Video upload failed")
-            } else if (media.isNotEmpty()) {
-                embed = buildImagesEmbed(uploadImageBlobs(token, context, media.take(4)))
+                    if (uploaded.width > 0 && uploaded.height > 0) v["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
+                    if (uploaded.isGif) v["presentation"] = "gif"
+                    v
+                }
+                media.isNotEmpty() -> buildImagesEmbed(uploadImageBlobs(token, context, media.take(4)))
+                else -> null
             }
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
@@ -4289,7 +4283,10 @@ class BlueskyRepository {
         lateinit var job: kotlinx.coroutines.Deferred<UploadedVideo>
         @kotlin.concurrent.Volatile var failed = false
     }
-    private class UploadedVideo(val blob: BskyBlob, val width: Int, val height: Int)
+    /** [isGif]: it was a GIF — posted with presentation "gif", which is how
+     *  Bluesky marks an uploaded GIF so every app plays it like one
+     *  (looping, silent, no controls). */
+    private class UploadedVideo(val blob: BskyBlob, val width: Int, val height: Int, val isGif: Boolean = false)
 
     private val videoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     @kotlin.concurrent.Volatile private var pendingVideo: PendingVideo? = null
@@ -4341,6 +4338,8 @@ class BlueskyRepository {
     private suspend fun uploadVideo(
         token: String, did: String, context: PlatformContext, videoUri: PlatformUri, thumbnailUri: PlatformUri?
     ): UploadedVideo {
+        animatedGif(context, videoUri)?.let { gif -> return uploadGif(token, did, context, gif, thumbnailUri) }
+        val fromGif = com.mediaviewer.util.GifPick.wasGif(videoUri)
         // See VideoThumbnailStitcher's header comment — this is the only
         // way a custom thumbnail actually shows up on Bluesky, since the
         // platform always shows frame 0 as the thumbnail. Falls back to the
@@ -4379,7 +4378,58 @@ class BlueskyRepository {
                 "Video upload failed (${viaService.exceptionOrNull()?.message ?: "video service"}; PDS ${resp.code()}: ${errorBodyText(resp).take(140)})"
             )
         }
-        return UploadedVideo(blob, videoW, videoH)
+        return UploadedVideo(blob, videoW, videoH, isGif = fromGif)
+    }
+
+    /** True for a video, or a GIF that moves (more than one frame). */
+    suspend fun isMotionMedia(context: PlatformContext, uri: PlatformUri): Boolean {
+        val type = MediaBridge.mimeTypeOf(context, uri)?.lowercase().orEmpty()
+        if (type.startsWith("video/")) return true
+        return animatedGif(context, uri) != null
+    }
+
+    /** The file's bytes when it's an animated GIF (going by its contents,
+     *  not its name or reported type); null otherwise. */
+    private suspend fun animatedGif(context: PlatformContext, uri: PlatformUri): ByteArray? = withContext(Dispatchers.IO) {
+        val type = MediaBridge.mimeTypeOf(context, uri)?.lowercase().orEmpty()
+        if (type.startsWith("video/")) return@withContext null
+        val bytes = runCatching { MediaBridge.readBytes(context, uri) }.getOrNull() ?: return@withContext null
+        bytes.takeIf { com.mediaviewer.util.GifInfo.isAnimated(it) }
+    }
+
+    /**
+     * An animated GIF, the way Bluesky takes GIFs: as a looping video. It's
+     * turned into an mp4 here first (same frames and timing — see
+     * util/GifVideo) and uploaded like any video, so it never depends on
+     * the video service accepting GIF files. Only if that conversion can't
+     * be done on this phone is the GIF itself sent to the video service
+     * (which converts GIFs too). It's never posted as a still picture.
+     * The post keeps the GIF's exact shape.
+     */
+    private suspend fun uploadGif(
+        token: String, did: String, context: PlatformContext, gif: ByteArray, thumbnailUri: PlatformUri?
+    ): UploadedVideo {
+        val (gw, gh) = com.mediaviewer.util.GifInfo.size(gif)
+        com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.PREPARING)
+        val converted = runCatching { MediaBridge.videoFromGif(context, gif) }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                com.mediaviewer.platform.Log.e("BlueskyRepository", "GIF → video failed; sending the GIF to the video service", it)
+            }
+            .getOrNull()
+        val uploaded = if (converted != null) {
+            uploadVideo(token, did, context, converted, thumbnailUri)
+        } else {
+            com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.UPLOADING)
+            val blob = runCatching {
+                val file = com.mediaviewer.platform.PrivateFiles.write(context, "gif_upload", "upload.gif", gif) ?: error("Couldn't read the GIF")
+                uploadVideoThroughService(token, did, context, com.mediaviewer.platform.LocalPlatform.parseUri(file), "image/gif")
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                .getOrElse { error("This GIF couldn't be uploaded (${it.message})") }
+            UploadedVideo(blob, gw, gh, isGif = true)
+        }
+        return if (gw > 0 && gh > 0) UploadedVideo(uploaded.blob, gw, gh, isGif = true)
+        else UploadedVideo(uploaded.blob, uploaded.width, uploaded.height, isGif = true)
     }
 
     private suspend fun uploadVideoThroughService(
@@ -4468,6 +4518,7 @@ class BlueskyRepository {
             if (uploaded.width > 0 && uploaded.height > 0) {
                 videoEmbed["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
             }
+            if (uploaded.isGif) videoEmbed["presentation"] = "gif"
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
                 "text" to text,
