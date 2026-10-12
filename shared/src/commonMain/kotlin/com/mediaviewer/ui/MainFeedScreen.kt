@@ -3041,10 +3041,17 @@ private fun PostStatusRow(
     // Centered as a group; if they don't all fit, the row scrolls sideways.
     // Left to right: Edited, blocked, trackers, Tagging, Download, and
     // Translation always last (far right).
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+    // (The scrolling area is always the full width — it clips to its own
+    // edges, so if it were only as wide as the bubbles, a bubble appearing
+    // would be cut off at the sides while the row grew around it.)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val rowMinWidth = maxWidth
     Row(
-        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+    ) {
+    Row(
+        Modifier.widthIn(min = rowMinWidth).padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.Top
     ) {
         AnimatedStatus(if (edited) "edited" else null, reducedAnimations) {
@@ -3090,6 +3097,7 @@ private fun PostStatusRow(
                 onClick = onToggleTranslationView, modifier = Modifier.padding(bottom = 4.dp)
             )
         }
+    }
     }
     }
 }

@@ -991,3 +991,6 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 
 ### Update 67 — status bubbles appear whole
 - AnimatedStatus: expandIn / shrinkOut use `clip = false`, so a bubble fades + scales in whole while its space opens, instead of being revealed from the sides (which cut off its rounded ends).
+
+### Update 68 — status bubbles: the real cause of the side cut-off
+- The cut-off came from the horizontalScroll container (added in 63): a scroll area clips to its own bounds, and it was only as wide as the bubbles, so while a bubble's space opened the row grew from the middle and clipped it. Now the scroll area is always full width (BoxWithConstraints → outer Row fillMaxWidth().horizontalScroll → inner Row widthIn(min = maxWidth), centered arrangement), so it only clips at the screen edges.
