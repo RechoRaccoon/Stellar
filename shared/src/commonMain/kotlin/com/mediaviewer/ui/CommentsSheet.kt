@@ -104,6 +104,10 @@ fun CommentsSheet(
     var showTags by remember(currentItem?.id) { mutableStateOf(false) }
     // Item 20: which comment (if any) is actually being replied to.
     var replyTarget by remember(currentItem?.id) { mutableStateOf<CommentItem?>(null) }
+    // Your own comment held down: the delete confirmation.
+    var commentToDelete by remember(currentItem?.id) { mutableStateOf<CommentItem?>(null) }
+    fun isOwn(c: CommentItem) = appMode == AppMode.BLUESKY && c.uri.isNotBlank() &&
+        LocalOverlays.selfDid.isNotBlank() && c.authorDid == LocalOverlays.selfDid
     // Each reply level's scroll position (the top level keyed ""), so coming
     // back out of a comment's replies lands where the list was left.
     val listStates = remember(currentItem?.id) { mutableMapOf<String, LazyListState>() }
@@ -333,7 +337,8 @@ fun CommentsSheet(
                                         parent = parent, liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = backdrop,
                                         onBack = { threadStack = stack.dropLast(1) },
                                         onOpenProfile = openProfileOf,
-                                        onOpenMedia = { i -> viewerMedia = parent.media to i }
+                                        onOpenMedia = { i -> viewerMedia = parent.media to i },
+                                        onLongPress = if (isOwn(parent)) ({ commentToDelete = parent }) else null
                                     )
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp,
                                         modifier = Modifier.padding(vertical = 4.dp))
@@ -368,7 +373,8 @@ fun CommentsSheet(
                                         dominantColor = dominantColor, backdrop = backdrop,
                                         indented = parent != null,
                                         onOpenProfile = openProfileOf,
-                                        onOpenMedia = { i -> viewerMedia = comment.media to i }
+                                        onOpenMedia = { i -> viewerMedia = comment.media to i },
+                                        onLongPress = if (isOwn(comment)) ({ commentToDelete = comment }) else null
                                     )
                                 }
                             }
@@ -497,6 +503,23 @@ fun CommentsSheet(
         // A comment's picture / video / GIF, full screen.
         viewerMedia?.let { (list, start) ->
             CommentMediaViewer(list, start, dominantColor, liquidGlass, backdrop) { viewerMedia = null }
+        }
+
+        commentToDelete?.let { c ->
+            ConfirmPopup(
+                title = "Delete Comment?",
+                message = "This will permanently delete your comment.",
+                confirmLabel = "Delete",
+                liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                onConfirm = {
+                    commentToDelete = null
+                    if (replyTarget?.id == c.id) replyTarget = null
+                    // Its replies page was open: back out of it.
+                    if (threadStack.any { it.id == c.id }) threadStack = threadStack.takeWhile { it.id != c.id }
+                    LocalOverlays.deleteComment?.invoke(c)
+                },
+                onDismiss = { commentToDelete = null }
+            )
         }
 
         // ── Tag popups (hold = delete, double-tap = rename, Add Tag) ──
@@ -640,6 +663,7 @@ private fun TagRow(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun CommentRow(
     comment: CommentItem,
@@ -653,7 +677,9 @@ private fun CommentRow(
     backdrop: GlassBackdrop? = null,
     indented: Boolean = false,
     onOpenProfile: (CommentItem) -> Unit = {},
-    onOpenMedia: (Int) -> Unit = {}
+    onOpenMedia: (Int) -> Unit = {},
+    /** Your own comment held down (anywhere on it, its media too): delete. */
+    onLongPress: (() -> Unit)? = null
 ) {
     @Composable
     fun RowContent() {
@@ -661,7 +687,12 @@ private fun CommentRow(
         Row(
             modifier = Modifier.fillMaxWidth()
                 .padding(start = if (indented) 20.dp else 0.dp)
-                .clickable(enabled = comment.replies.isNotEmpty()) { tap(); onOpenThread(comment) }
+                .then(
+                    if (onLongPress != null) Modifier.combinedClickable(
+                        onClick = { if (comment.replies.isNotEmpty()) { tap(); onOpenThread(comment) } },
+                        onLongClick = { tap(); onLongPress() }
+                    ) else Modifier.clickable(enabled = comment.replies.isNotEmpty()) { tap(); onOpenThread(comment) }
+                )
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -692,7 +723,7 @@ private fun CommentRow(
             }
             Spacer(Modifier.height(2.dp))
             if (comment.body.isNotBlank()) Text(comment.body, color = Color.White.copy(0.88f), fontSize = 13.sp, lineHeight = 17.sp)
-            if (comment.media.isNotEmpty()) CommentMediaBlock(comment.media, dominantColor, onOpen = onOpenMedia)
+            if (comment.media.isNotEmpty()) CommentMediaBlock(comment.media, dominantColor, onOpen = onOpenMedia, onLongPress = onLongPress)
             Spacer(Modifier.height(4.dp))
 
             Row(
@@ -748,6 +779,7 @@ private fun CommentRow(
 // Occupies the top of the list whenever the user has drilled into a reply chain —
 // the tapped comment "becomes" the header, with a separate curved Back bubble to
 // its left. Tapping Back repeatedly walks back out one level at a time.
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ThreadParentHeader(
     parent: CommentItem,
@@ -756,7 +788,8 @@ private fun ThreadParentHeader(
     backdrop: GlassBackdrop?,
     onBack: () -> Unit,
     onOpenProfile: (CommentItem) -> Unit = {},
-    onOpenMedia: (Int) -> Unit = {}
+    onOpenMedia: (Int) -> Unit = {},
+    onLongPress: (() -> Unit)? = null
 ) {
     val tap = rememberHapticTap()
     val toProfile = Modifier.clickable(enabled = parent.authorDid.isNotBlank()) { tap(); onOpenProfile(parent) }
@@ -779,7 +812,12 @@ private fun ThreadParentHeader(
 
         @Composable
         fun ParentPillContent() {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .then(if (onLongPress != null) Modifier.combinedClickable(onClick = {}, onLongClick = { tap(); onLongPress() }) else Modifier)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 // Item 21: the opened (top) comment in a thread was missing its
                 // author's avatar, unlike every regular CommentRow below it.
                 if (parent.authorAvatarUrl != null) {
@@ -796,7 +834,7 @@ private fun ThreadParentHeader(
                     }
                     Spacer(Modifier.height(3.dp))
                     if (parent.body.isNotBlank()) Text(parent.body, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp)
-                    if (parent.media.isNotEmpty()) CommentMediaBlock(parent.media, dominantColor, onOpen = onOpenMedia)
+                    if (parent.media.isNotEmpty()) CommentMediaBlock(parent.media, dominantColor, onOpen = onOpenMedia, onLongPress = onLongPress)
                 }
             }
         }

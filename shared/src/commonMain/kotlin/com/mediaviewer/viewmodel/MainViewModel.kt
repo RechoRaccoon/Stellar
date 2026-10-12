@@ -8340,6 +8340,29 @@ class MainViewModel(
         updateCurrentItem { it.copy(author = transform(it.author)) }
     }
 
+    /** Deletes one of your own comments: gone from the list at once, then
+     *  from Bluesky (put back if that fails). */
+    fun deleteComment(comment: CommentItem) {
+        if (_appMode.value != AppMode.BLUESKY || comment.uri.isBlank()) return
+        val before = _comments.value
+        fun walk(list: List<CommentItem>): List<CommentItem> = list.filterNot { it.id == comment.id }
+            .map { if (it.replies.isNotEmpty()) it.copy(replies = walk(it.replies)) else it }
+        _comments.value = walk(before)
+        commentsShownFor?.let { key -> if (cachedComments(key) != null) putCachedComments(key, _comments.value) }
+        viewModelScope.launch(Dispatchers.IO) {
+            var result = bskyRepo.deletePost(bskyToken, _bskyDid.value, comment.uri)
+            if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                result = bskyRepo.deletePost(bskyToken, _bskyDid.value, comment.uri)
+            }
+            result.onSuccess { showToast("Comment deleted") }
+                .onFailure {
+                    _comments.value = before
+                    commentsShownFor?.let { key -> if (cachedComments(key) != null) putCachedComments(key, before) }
+                    _errorMessage.value = "Couldn't delete the comment: ${it.message}"
+                }
+        }
+    }
+
     private fun updateComment(commentId: String, transform: (CommentItem) -> CommentItem) {
         // Fix: replies live inside their parent's `replies`, any number of
         // levels down — liking one used to change nothing on screen (only

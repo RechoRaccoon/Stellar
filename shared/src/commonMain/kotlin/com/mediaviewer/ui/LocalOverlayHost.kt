@@ -62,10 +62,13 @@ fun LocalOverlayHost(
     val tagOnLike by viewModel.tagPostWhenLiked.collectAsState()
     val tagsEditable = viewModel.taggingSupported && tagOnLike
     LaunchedEffect(tagsEditable) { LocalOverlays.canEditTags = tagsEditable }
+    val selfDidNow by viewModel.bskyDid.collectAsState()
+    LaunchedEffect(selfDidNow) { LocalOverlays.selfDid = selfDidNow }
 
     SideEffect {
         LocalOverlays.onEditCurrentPost = viewModel::editCurrentPost
         LocalOverlays.editPostTag = viewModel::editCurrentPostTag
+        LocalOverlays.deleteComment = viewModel::deleteComment
         LocalOverlays.openInBrowser = viewModel::openInAppBrowser
         LocalOverlays.setHateFunBlur = viewModel::setHateFunBlurNsfw
         LocalOverlays.reloadFeed = { viewModel.loadFeed(reset = true) }

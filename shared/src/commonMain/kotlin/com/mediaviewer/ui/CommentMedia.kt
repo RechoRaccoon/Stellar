@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
 import com.mediaviewer.model.CommentMedia
 import com.mediaviewer.ui.compat.LocalContext
@@ -66,7 +74,8 @@ import com.mediaviewer.util.rememberHapticTap
  * fetched ahead so that's quick.
  */
 @Composable
-fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> Unit, modifier: Modifier = Modifier) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> Unit, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
     if (media.isEmpty()) return
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(12.dp)
@@ -85,7 +94,10 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
         val item = media[i]
         Box(
             m.clip(shape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, rim, shape)
-                .clickable { tap(); onOpen(i) },
+                .combinedClickable(
+                    onClick = { tap(); onOpen(i) },
+                    onLongClick = onLongPress?.let { f -> { tap(); f() } }
+                ),
             contentAlignment = Alignment.Center
         ) {
             when (item.kind) {
@@ -157,11 +169,45 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
     val tap = rememberHapticTap()
     com.mediaviewer.ui.compat.BackHandler(onBack = onClose)
     val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, (media.size - 1).coerceAtLeast(0))) { media.size }
+    // The colors come from the comment's own media (the one showing), not
+    // the post behind.
+    val shown = media.getOrNull(pager.currentPage)
+    val pageTint = rememberDominantColor(shown?.thumbUrl?.ifBlank { shown.fullUrl } ?: "").let { c ->
+        if (c == Color.Unspecified) tint else c
+    }
+    // The X's glass shows what's under it here (the media), not the post.
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val ownBackdrop = remember(layer) { GlassBackdrop(layer) { origin } }
+    // Swipe down to close: it follows the finger, and past a short way
+    // (or flicked) it closes; otherwise it springs back.
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var dragY by remember { mutableStateOf(0f) }
+    var closing by remember { mutableStateOf(false) }
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f * (1f - (dragY / 900f)).coerceIn(0f, 1f)))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+            .draggable(
+                orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
+                state = androidx.compose.foundation.gestures.rememberDraggableState { d -> if (!closing) dragY = (dragY + d).coerceAtLeast(0f) },
+                onDragStopped = { v ->
+                    if (dragY > 160f || v > 1400f) { closing = true; onClose() }
+                    else scope.launch {
+                        androidx.compose.animation.core.animate(dragY, 0f) { value, _ -> dragY = value }
+                    }
+                }
+            )
+            .graphicsLayer { translationY = dragY }
     ) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+        HorizontalPager(
+            state = pager,
+            modifier = Modifier.fillMaxSize()
+                .onGloballyPositioned { origin = it.positionInRoot() }
+                .drawWithContent {
+                    layer.record { this@drawWithContent.drawContent() }
+                    drawLayer(layer)
+                }
+        ) { page ->
             val item = media[page]
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 when (item.kind) {
@@ -178,10 +224,10 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
                     CommentMedia.Kind.GIF -> {
                         val closeTap = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
                         // An uploaded GIF opens like any video: full controls.
-                        if (item.videoUrl != null) CommentVideo(item, active = pager.currentPage == page, tint = tint, liquidGlass = liquidGlass, backdrop = backdrop)
+                        if (item.videoUrl != null) CommentVideo(item, active = pager.currentPage == page, fallbackTint = tint, liquidGlass = liquidGlass)
                         else AnimatedGifImage(item.fullUrl, item.alt.ifBlank { null }, closeTap, ContentScale.Fit)
                     }
-                    CommentMedia.Kind.VIDEO -> CommentVideo(item, active = pager.currentPage == page, tint = tint, liquidGlass = liquidGlass, backdrop = backdrop)
+                    CommentMedia.Kind.VIDEO -> CommentVideo(item, active = pager.currentPage == page, fallbackTint = tint, liquidGlass = liquidGlass)
                 }
             }
         }
@@ -194,7 +240,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
-            if (liquidGlass) LiquidGlassSurface(m, shape = CircleShape, tint = tint, backdrop = backdrop) { X() }
+            if (liquidGlass) LiquidGlassSurface(m, shape = CircleShape, tint = pageTint, backdrop = ownBackdrop) { X() }
             else Box(m.clip(CircleShape).background(Color.White.copy(alpha = 0.14f))) { X() }
         }
         // Which one of several.
@@ -206,7 +252,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
                 media.indices.forEach { i ->
                     Box(
                         Modifier.size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape)
-                            .background(if (i == pager.currentPage) vividAccent(tint) else Color.White.copy(alpha = 0.4f))
+                            .background(if (i == pager.currentPage) vividAccent(pageTint) else Color.White.copy(alpha = 0.4f))
                     )
                 }
             }
@@ -246,8 +292,14 @@ private fun GifVideo(item: CommentMedia, modifier: Modifier, scale: ContentScale
 
 /** A comment's video, full screen, with the post video controls. */
 @Composable
-private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liquidGlass: Boolean, backdrop: GlassBackdrop?) {
+private fun CommentVideo(item: CommentMedia, active: Boolean, fallbackTint: Color, liquidGlass: Boolean) {
     val url = item.videoUrl ?: return
+    // The controls wear this video's own color, and their glass shows this
+    // video (recorded below) — not the post the comments are on.
+    val tint = rememberDominantColor(item.thumbUrl).let { c -> if (c == Color.Unspecified) fallbackTint else c }
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val backdrop = remember(layer) { GlassBackdrop(layer) { origin } }
     val context = LocalContext.current
     val player = remember(url) { FeedVideos.acquire(context, url) }
     DisposableEffect(player) { onDispose { player.pause(); FeedVideos.recycle(url, player) } }
@@ -296,11 +348,20 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liqui
         val a = aspect.coerceIn(0.4f, 2.5f)
         val w = minOf(maxWidth, maxHeight * a)
         Box(Modifier.size(w, w / a), contentAlignment = Alignment.Center) {
-            FeedVideoView(player, Modifier.fillMaxSize())
-            // The poster stays OVER the video until a frame is really on
-            // screen — under it, the player's black screen showed first.
-            if (!firstFrame && item.thumbUrl.isNotBlank()) {
-                AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            Box(
+                Modifier.fillMaxSize()
+                    .onGloballyPositioned { origin = it.positionInRoot() }
+                    .drawWithContent {
+                        layer.record { this@drawWithContent.drawContent() }
+                        drawLayer(layer)
+                    }
+            ) {
+                FeedVideoView(player, Modifier.fillMaxSize())
+                // The poster stays OVER the video until a frame is really on
+                // screen — under it, the player's black screen showed first.
+                if (!firstFrame && item.thumbUrl.isNotBlank()) {
+                    AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                }
             }
             AnimatedVisibility(
                 visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),

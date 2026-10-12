@@ -118,6 +118,10 @@ object LocalOverlays {
     /** Whether the post on screen's tags can be edited (Bluesky posts,
      *  where the tagger's dataset exists). */
     var canEditTags by mutableStateOf(false)
+    /** Your own Bluesky DID (which comments are yours, so they can be deleted). */
+    var selfDid by mutableStateOf("")
+    /** Deletes one of your comments (after its confirmation). */
+    var deleteComment: ((com.mediaviewer.model.CommentItem) -> Unit)? = null
     var pollTally: (suspend (postUri: String) -> PollTally?)? = null
     var pollVote: ((item: MediaItem, letter: String, onDone: (Boolean) -> Unit) -> Unit)? = null
     /** Re-counts a chat's streak from its history. */

@@ -983,3 +983,8 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 
 ### Update 65 — no black blink opening comment videos/GIFs
 - CommentVideo and GifVideo draw the poster ABOVE FeedVideoView until a frame is on screen (onFirstFrame, or playing past 150 ms for a pooled player that already rendered); under it, the PlayerView's black shutter showed first.
+
+### Update 66 — comment media viewer: own colors, swipe down; delete own comments
+- CommentMediaViewer: X button and page dots tinted from the shown media (`rememberDominantColor(thumb)`), X glass backdrop = the viewer's own recorded pager. CommentVideo records its own video box as the controls' GlassBackdrop and tints them from the video's poster — no longer the main post's color/backdrop.
+- Swipe down closes the viewer (vertical draggable; follows the finger, closes past 160 px or a flick, springs back otherwise).
+- Own comments (authorDid == `LocalOverlays.selfDid`, Bluesky): hold the row, the thread header, or a media tile → ConfirmPopup "Delete Comment?" → `MainViewModel.deleteComment` (removed at once, `deletePost` on Bluesky, restored on failure; backs out of its replies page if open).
