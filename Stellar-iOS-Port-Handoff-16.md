@@ -988,3 +988,6 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - CommentMediaViewer: X button and page dots tinted from the shown media (`rememberDominantColor(thumb)`), X glass backdrop = the viewer's own recorded pager. CommentVideo records its own video box as the controls' GlassBackdrop and tints them from the video's poster — no longer the main post's color/backdrop.
 - Swipe down closes the viewer (vertical draggable; follows the finger, closes past 160 px or a flick, springs back otherwise).
 - Own comments (authorDid == `LocalOverlays.selfDid`, Bluesky): hold the row, the thread header, or a media tile → ConfirmPopup "Delete Comment?" → `MainViewModel.deleteComment` (removed at once, `deletePost` on Bluesky, restored on failure; backs out of its replies page if open).
+
+### Update 67 — status bubbles appear whole
+- AnimatedStatus: expandIn / shrinkOut use `clip = false`, so a bubble fades + scales in whole while its space opens, instead of being revealed from the sides (which cut off its rounded ends).

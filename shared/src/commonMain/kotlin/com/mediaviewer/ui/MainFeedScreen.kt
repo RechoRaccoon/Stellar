@@ -3009,9 +3009,12 @@ private fun <T : Any> RowScope.AnimatedStatus(value: T?, reducedAnimations: Bool
     AnimatedVisibility(
         visibleState = state,
         enter = if (reducedAnimations) EnterTransition.None
-            else fadeIn(tween(220)) + expandIn(tween(260, easing = FastOutSlowInEasing), expandFrom = Alignment.TopCenter) + scaleIn(tween(260), initialScale = 0.85f),
+            // (The space opens up for it, but the bubble itself isn't
+            // clipped while it does — it just fades and scales in whole,
+            // rounded ends and all.)
+            else fadeIn(tween(220)) + expandIn(tween(260, easing = FastOutSlowInEasing), expandFrom = Alignment.TopCenter, clip = false) + scaleIn(tween(260), initialScale = 0.85f),
         exit = if (reducedAnimations) ExitTransition.None
-            else fadeOut(tween(180)) + shrinkOut(tween(240, easing = FastOutSlowInEasing), shrinkTowards = Alignment.TopCenter) + scaleOut(tween(240), targetScale = 0.85f)
+            else fadeOut(tween(180)) + shrinkOut(tween(240, easing = FastOutSlowInEasing), shrinkTowards = Alignment.TopCenter, clip = false) + scaleOut(tween(240), targetScale = 0.85f)
     ) {
         @Suppress("UNCHECKED_CAST")
         val shown = (value ?: holder[0]) as T?
