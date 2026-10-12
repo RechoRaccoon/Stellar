@@ -88,6 +88,8 @@ kotlin {
 
             implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
             implementation("io.coil-kt.coil3:coil-video:3.2.0")
+            // Animated GIFs (comments' GIF-picker GIFs) — see AnimatedGif.android.kt.
+            implementation("io.coil-kt.coil3:coil-gif:3.2.0")
 
             implementation("androidx.media3:media3-exoplayer:1.8.0")
             implementation("androidx.media3:media3-exoplayer-hls:1.8.0")

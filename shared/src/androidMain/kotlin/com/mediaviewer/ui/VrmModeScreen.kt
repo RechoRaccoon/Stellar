@@ -558,7 +558,8 @@ actual fun VrmModeScreen(
     androidx.compose.runtime.LaunchedEffect(springBones) { store.put(K.SPRING_BONES, springBones) }
     androidx.compose.runtime.LaunchedEffect(showDebug) { store.put(K.SHOW_DEBUG, showDebug) }
     androidx.compose.runtime.LaunchedEffect(showPreview) { store.put(K.SHOW_PREVIEW, showPreview) }
-    androidx.compose.runtime.LaunchedEffect(hiddenParts) { store.put(K.HIDDEN_PARTS, hiddenParts) }
+    // (Saved per avatar — below, once the current avatar is known — so
+    // each avatar keeps its own part toggles when switching between them.)
     val trackerGate = remember { TrackerGate() }
 
     // Everything per-frame lives here, outside Compose: MediaPipe results,
@@ -581,6 +582,12 @@ actual fun VrmModeScreen(
     val prefsManager = remember { PreferencesManager(context) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     var pickedVrmUri by remember { mutableStateOf<Uri?>(null) }
+    // The current avatar's part toggles: saved for that avatar (and as the
+    // last-used set, which is also how a first launch after this finds them).
+    androidx.compose.runtime.LaunchedEffect(hiddenParts, pickedVrmUri) {
+        store.put(K.HIDDEN_PARTS, hiddenParts)
+        pickedVrmUri?.let { store.put(vrmPartsKey(it.toString()), hiddenParts) }
+    }
     // Every avatar added (VRM Settings › Avatar's row of thumbnails). Each
     // is a link to the file where the person keeps it; only the selected
     // one is ever read and loaded.
@@ -828,7 +835,8 @@ actual fun VrmModeScreen(
         // A newly picked avatar gets a fresh try at full-quality textures,
         // and all of its parts start visible.
         com.mediaviewer.util.CrashBreadcrumbs.resetVrmTextureMode()
-        if (uri != pickedVrmUri) hiddenParts = emptySet()
+        // Each avatar keeps its own part toggles (a new one starts all visible).
+        if (uri != pickedVrmUri) hiddenParts = store.strings(vrmPartsKey(uri.toString()))
         // Added to the row (or, if it's already there, just selected).
         val existing = vrmModels.firstOrNull { it.source == uri.toString() }
         if (existing != null) {
@@ -850,7 +858,8 @@ actual fun VrmModeScreen(
     fun selectModel(model: com.mediaviewer.util.VrmModel) {
         val uri = Uri.parse(model.source)
         if (uri != pickedVrmUri) {
-            hiddenParts = emptySet()
+            // That avatar's own part toggles, as they were left.
+            hiddenParts = store.strings(vrmPartsKey(model.source))
             com.mediaviewer.util.CrashBreadcrumbs.resetVrmTextureMode()
         }
         saveModels(vrmModels, model.id)
@@ -3546,3 +3555,6 @@ internal fun DisplayRefreshCap(hz: Float) {
         }
     }
 }
+
+/** Where one avatar's hidden parts are saved (per avatar file). */
+private fun vrmPartsKey(source: String): String = com.mediaviewer.util.VrmSettingsStore.HIDDEN_PARTS + ":" + source.hashCode().toUInt().toString(16)

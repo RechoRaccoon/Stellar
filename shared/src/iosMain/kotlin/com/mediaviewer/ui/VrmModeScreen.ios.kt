@@ -120,6 +120,8 @@ private const val KEY_FULL_BRIGHT = "full_bright"
 private const val KEY_ARM_IK = "arm_ik"
 private const val KEY_ARMS_NEED_HANDS = "arms_need_hands"
 private const val KEY_HIDDEN_PARTS = "hidden_parts"
+/** Where one avatar's hidden parts are saved (each avatar keeps its own). */
+private fun partsKey(source: String): String = KEY_HIDDEN_PARTS + ":" + source.hashCode().toUInt().toString(16)
 internal const val KEY_MIC_MUTED = "mic_muted"
 private const val KEY_LIGHT_LEVEL = "light_level"
 internal const val KEY_STREAM_URL = "stream_url"
@@ -430,7 +432,7 @@ actual fun VrmModeScreen(
         if (parts.isNotEmpty()) {
             val ids = parts.map { it.id }.toSet()
             val kept = hiddenParts.filter { it in ids }.toSet()
-            if (kept != hiddenParts) { hiddenParts = kept; prefs.edit().putStringSet(KEY_HIDDEN_PARTS, kept).apply() }
+            if (kept != hiddenParts) { hiddenParts = kept; prefs.edit().putStringSet(KEY_HIDDEN_PARTS, kept).putStringSet(partsKey(avatarFile), kept).apply() }
         }
     }
 
@@ -438,8 +440,10 @@ actual fun VrmModeScreen(
     fun selectModel(model: com.mediaviewer.util.VrmModel) {
         skipAutoLoad = false
         if (model.source != avatarFile) {
-            hiddenParts = emptySet()
-            prefs.edit().putString(KEY_AVATAR, model.source).putStringSet(KEY_HIDDEN_PARTS, emptySet()).apply()
+            // That avatar's own part toggles, as they were left.
+            val theirs = prefs.getStringSet(partsKey(model.source), null) ?: emptySet()
+            hiddenParts = theirs
+            prefs.edit().putString(KEY_AVATAR, model.source).putStringSet(KEY_HIDDEN_PARTS, theirs).apply()
         }
         saveModels(models, model.id)
         avatarFile = model.source
@@ -878,7 +882,7 @@ actual fun VrmModeScreen(
                                             val shown = avatarParts.count { it.id !in hiddenParts }
                                             VrmActionRow("Avatar parts", "$shown/${avatarParts.size}  ${if (partsExpanded) "▴" else "▾"}", tint) { partsExpanded = !partsExpanded }
                                             if (partsExpanded) {
-                                                fun setHidden(next: Set<String>) { hiddenParts = next; prefs.edit().putStringSet(KEY_HIDDEN_PARTS, next).apply() }
+                                                fun setHidden(next: Set<String>) { hiddenParts = next; prefs.edit().putStringSet(KEY_HIDDEN_PARTS, next).putStringSet(partsKey(avatarFile), next).apply() }
                                                 VrmTileGrid(tint, avatarParts.map { part ->
                                                     VrmTile(part.label, part.id !in hiddenParts) { visible -> setHidden(if (visible) hiddenParts - part.id else hiddenParts + part.id) }
                                                 })

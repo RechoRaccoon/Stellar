@@ -924,3 +924,10 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Data and Privacy order: Blocked Accounts · Scan Following for Blogs/Reviews · Auto-Download New Likes and Saves · Download All Liked AT Protocol Media · Download All Saved e621 Media · Export/Import App Data (labels title-cased).
 - Multi-image fullscreen viewer: a double tap (like) no longer closes it — the second tap of a double tap no longer schedules its own close (`MultiImageViewer`, `lastTapUp` / `secondTap`).
 - Text-only stats bubble: "Stats" is centered.
+
+### Update 54 — media in comments, profile taps, VRM parts per avatar
+- `CommentItem` now has `authorDid` and `media: List<CommentMedia>` (IMAGE / VIDEO / GIF; `BlueskyRepository.commentMediaOf` reads images, gallery, video, recordWithMedia and `.gif` external embeds — Tenor GIFs carry their size in `ww`/`hh`).
+- `ui/CommentMedia.kt`: `CommentMediaBlock` (one item at its own shape, several in a 2-wide grid, "+N" past four; rounded with the tile rim; GIFs animate inline, videos show a play badge) and `CommentMediaViewer` (full screen over the comments: pager, pictures/GIFs fit, videos via `FeedVideos` with tap to pause, glass X, Back, page dots).
+- `AnimatedGifImage` (new expect): Android = Coil `AnimatedImageDecoder` (API 28+) / `GifDecoder` — **new dependency `io.coil-kt.coil3:coil-gif:3.2.0`** (androidMain); iOS = Skia `Codec` frames (≤90, cached for the last 6 GIFs), still image until decoded.
+- Comments: tapping an avatar or name/handle opens that profile (`CommentsSheet(onOpenProfile)`, from MainFeedScreen's `onOpenProfile`); handles are dimmer; the thread header supports both too.
+- VRM: avatar part toggles are saved per avatar (key `hidden_parts:<hash of source>`; `hidden_parts` stays as the current set) — switching avatars restores each one's own choices (Android `vrmPartsKey`, iOS `partsKey`).

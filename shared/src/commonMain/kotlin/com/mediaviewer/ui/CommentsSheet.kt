@@ -85,8 +85,17 @@ fun CommentsSheet(
     backdrop: GlassBackdrop? = null,
     reducedAnimations: Boolean = false,
     /** 0 = fully open … 1 = dragged all the way down (for the blur behind). */
-    onDragFractionChanged: (Float) -> Unit = {}
+    onDragFractionChanged: (Float) -> Unit = {},
+    /** A commenter's picture or name tapped: their profile. */
+    onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit = {}
 ) {
+    // A comment's media opened full screen (its list and which one).
+    var viewerMedia by remember(currentItem?.id) { mutableStateOf<Pair<List<com.mediaviewer.model.CommentMedia>, Int>?>(null) }
+    val openProfileOf: (CommentItem) -> Unit = { c ->
+        if (c.authorDid.isNotBlank()) onOpenProfile(
+            com.mediaviewer.model.AuthorInfo(did = c.authorDid, handle = c.authorHandle, displayName = c.authorDisplayName, avatarUrl = c.authorAvatarUrl)
+        )
+    }
     val tap = rememberHapticTap()
     var threadStack by remember(currentItem?.id) { mutableStateOf(listOf<CommentItem>()) }
     var commentText by remember { mutableStateOf("") }
@@ -295,7 +304,9 @@ fun CommentsSheet(
                                 item(key = "parent-${parent.id}") {
                                     ThreadParentHeader(
                                         parent = parent, liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = backdrop,
-                                        onBack = { threadStack = stack.dropLast(1) }
+                                        onBack = { threadStack = stack.dropLast(1) },
+                                        onOpenProfile = openProfileOf,
+                                        onOpenMedia = { i -> viewerMedia = parent.media to i }
                                     )
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp,
                                         modifier = Modifier.padding(vertical = 4.dp))
@@ -322,7 +333,9 @@ fun CommentsSheet(
                                         onReplyToComment = { c -> replyTarget = c },
                                         onOpenThread = { c -> if (c.replies.isNotEmpty()) threadStack = stack + c },
                                         dominantColor = dominantColor, backdrop = backdrop,
-                                        indented = parent != null
+                                        indented = parent != null,
+                                        onOpenProfile = openProfileOf,
+                                        onOpenMedia = { i -> viewerMedia = comment.media to i }
                                     )
                                 }
                             }
@@ -409,6 +422,10 @@ fun CommentsSheet(
                     }
                 }
             }
+        }
+        // A comment's picture / video / GIF, full screen.
+        viewerMedia?.let { (list, start) ->
+            CommentMediaViewer(list, start, dominantColor, liquidGlass, backdrop) { viewerMedia = null }
         }
 
         // ── Tag popups (hold = delete, double-tap = rename, Add Tag) ──
@@ -539,7 +556,9 @@ private fun CommentRow(
     onOpenThread: (CommentItem) -> Unit = {},
     dominantColor: Color = NeutralGlassTint,
     backdrop: GlassBackdrop? = null,
-    indented: Boolean = false
+    indented: Boolean = false,
+    onOpenProfile: (CommentItem) -> Unit = {},
+    onOpenMedia: (Int) -> Unit = {}
 ) {
     @Composable
     fun RowContent() {
@@ -551,11 +570,13 @@ private fun CommentRow(
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+        // Their picture and name open their profile.
+        val toProfile = Modifier.clickable(enabled = comment.authorDid.isNotBlank()) { tap(); onOpenProfile(comment) }
         if (comment.authorAvatarUrl != null) {
-            AsyncImage(model = comment.authorAvatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(30.dp).clip(CircleShape))
+            AsyncImage(model = comment.authorAvatarUrl, contentDescription = "${comment.authorDisplayName}'s profile", contentScale = ContentScale.Crop,
+                modifier = Modifier.size(30.dp).clip(CircleShape).then(toProfile))
         } else {
-            Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)))
+            Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)).then(toProfile))
         }
 
         Column(modifier = Modifier.weight(1f)) {
@@ -563,19 +584,20 @@ private fun CommentRow(
             // with an ellipsis before wrapping; the handle only gets whatever room
             // is left over and also ellipsizes — so long names/handles never wrap
             // onto a second line and break the row's height.
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = toProfile) {
                 Text(
                     comment.authorDisplayName, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 Text(
-                    "@${comment.authorHandle}", color = Color.White, fontSize = 11.sp,
+                    "@${comment.authorHandle}", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(Modifier.height(2.dp))
-            Text(comment.body, color = Color.White.copy(0.88f), fontSize = 13.sp, lineHeight = 17.sp)
+            if (comment.body.isNotBlank()) Text(comment.body, color = Color.White.copy(0.88f), fontSize = 13.sp, lineHeight = 17.sp)
+            if (comment.media.isNotEmpty()) CommentMediaBlock(comment.media, dominantColor, onOpen = onOpenMedia)
             Spacer(Modifier.height(4.dp))
 
             Row(
@@ -637,9 +659,12 @@ private fun ThreadParentHeader(
     liquidGlass: Boolean,
     dominantColor: Color,
     backdrop: GlassBackdrop?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenProfile: (CommentItem) -> Unit = {},
+    onOpenMedia: (Int) -> Unit = {}
 ) {
     val tap = rememberHapticTap()
+    val toProfile = Modifier.clickable(enabled = parent.authorDid.isNotBlank()) { tap(); onOpenProfile(parent) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -664,18 +689,19 @@ private fun ThreadParentHeader(
                 // author's avatar, unlike every regular CommentRow below it.
                 if (parent.authorAvatarUrl != null) {
                     AsyncImage(model = parent.authorAvatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(30.dp).clip(CircleShape))
+                        modifier = Modifier.size(30.dp).clip(CircleShape).then(toProfile))
                 } else {
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)))
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)).then(toProfile))
                 }
                 Column(Modifier.weight(1f)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = toProfile) {
                         Text(parent.authorDisplayName, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        Text("@${parent.authorHandle}", color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("@${parent.authorHandle}", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(3.dp))
-                    Text(parent.body, color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (parent.body.isNotBlank()) Text(parent.body, color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (parent.media.isNotEmpty()) CommentMediaBlock(parent.media, dominantColor, onOpen = onOpenMedia)
                 }
             }
         }

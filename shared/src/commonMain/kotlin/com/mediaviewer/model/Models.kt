@@ -229,8 +229,31 @@ data class CommentItem(
     // Full reply-thread support: Bluesky's getPostThread already returns nested
     // replies up to a fixed depth in one call, so the whole chain the user can
     // navigate into is available locally — no extra network round-trip per level.
-    val replies: List<CommentItem> = emptyList()
+    val replies: List<CommentItem> = emptyList(),
+    /** The commenter's account (blank for e621 comments): tapping their
+     *  picture or name opens their profile. */
+    val authorDid: String = "",
+    /** Pictures, a video or a GIF attached to the comment. */
+    val media: List<CommentMedia> = emptyList()
 )
+
+/** One picture / video / GIF attached to a comment. */
+@Serializable
+data class CommentMedia(
+    val kind: Kind = Kind.IMAGE,
+    /** Small version for the comment (a picture's thumbnail, a video's or
+     *  GIF's poster). */
+    val thumbUrl: String = "",
+    /** Full picture, or the GIF itself. */
+    val fullUrl: String = "",
+    /** A video's playlist. */
+    val videoUrl: String? = null,
+    /** Width / height, 0 if unknown. */
+    val aspect: Float = 0f,
+    val alt: String = ""
+) {
+    enum class Kind { IMAGE, VIDEO, GIF }
+}
 
 // ── Bluesky ──────────────────────────────────────────────────────────────────
 

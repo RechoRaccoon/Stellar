@@ -732,7 +732,8 @@ fun MainFeedScreen(
                 dominantColor   = lastDominantColor,
                 backdrop        = lastBackdrop,
                 reducedAnimations = reducedAnimations,
-                onDragFractionChanged = { commentsDragFraction = it }
+                onDragFractionChanged = { commentsDragFraction = it },
+                onOpenProfile = onOpenProfile
             )
         }
 

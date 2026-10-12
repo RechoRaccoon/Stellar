@@ -2068,6 +2068,38 @@ class BlueskyRepository {
 
     // ── Thread / Comments ─────────────────────────────────────────────────────
 
+    /** A comment's attached pictures / video / GIF (inside a quote too). */
+    private fun commentMediaOf(embed: BskyEmbed?): List<CommentMedia> {
+        if (embed == null) return emptyList()
+        val type = embed.type
+        fun ratio(a: BskyAspectRatio?) = if (a != null && a.width > 0 && a.height > 0) a.width.toFloat() / a.height else 0f
+        return when {
+            type.contains("recordWithMedia") -> commentMediaOf(embed.media)
+            type.contains("images") || type.contains("gallery") -> (embed.images ?: embed.items ?: emptyList()).mapNotNull { img ->
+                val thumb = img.thumb.takeIf { !it.isNullOrBlank() } ?: img.thumbnail ?: img.fullsize
+                val full = img.fullsize.takeIf { !it.isNullOrBlank() } ?: thumb
+                if (full.isNullOrBlank()) null
+                else CommentMedia(CommentMedia.Kind.IMAGE, thumb ?: full, full, null, ratio(img.aspectRatio), img.alt.orEmpty())
+            }
+            type.contains("video") && !embed.playlist.isNullOrBlank() -> listOf(
+                CommentMedia(CommentMedia.Kind.VIDEO, embed.thumbnail.orEmpty(), embed.thumbnail.orEmpty(), embed.playlist, ratio(embed.aspectRatio))
+            )
+            type.contains("external") -> {
+                val ext = embed.external ?: return emptyList()
+                val path = ext.uri.substringBefore('?').lowercase()
+                if (!path.endsWith(".gif")) emptyList()
+                else {
+                    // GIF-picker GIFs (Tenor) carry their size in the link.
+                    val w = Regex("[?&]ww=(\\d+)").find(ext.uri)?.groupValues?.get(1)?.toFloatOrNull()
+                    val h = Regex("[?&]hh=(\\d+)").find(ext.uri)?.groupValues?.get(1)?.toFloatOrNull()
+                    val aspect = if (w != null && h != null && w > 0f && h > 0f) w / h else 0f
+                    listOf(CommentMedia(CommentMedia.Kind.GIF, ext.thumb ?: ext.uri, ext.uri, null, aspect, ext.title.orEmpty()))
+                }
+            }
+            else -> emptyList()
+        }
+    }
+
     suspend fun getPostThread(token: String, uri: String): Result<List<CommentItem>> = runCatching {
         val resp = api.getPostThread("Bearer $token", uri, 10)
         val body = resp.body() ?: error("Thread ${resp.code()}")
@@ -2082,6 +2114,8 @@ class BlueskyRepository {
             if (com.mediaviewer.util.BlockedAccounts.isHidden(post.author.did)) return null
             val childReplies = (view.replies ?: emptyList()).mapNotNull { toCommentItem(it) }
             return CommentItem(
+                authorDid         = post.author.did,
+                media             = commentMediaOf(post.embed),
                 id                = post.cid,
                 uri               = post.uri,
                 cid               = post.cid,
