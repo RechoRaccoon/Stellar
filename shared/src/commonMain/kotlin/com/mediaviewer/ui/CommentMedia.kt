@@ -228,12 +228,19 @@ private fun GifVideo(item: CommentMedia, modifier: Modifier, scale: ContentScale
         player.addListener(l)
         onDispose { player.removeListener(l) }
     }
-    LaunchedEffect(player) { player.play() }
+    LaunchedEffect(player) {
+        player.play()
+        while (!firstFrame) {
+            if (player.isPlaying && player.currentPosition > 150L) firstFrame = true
+            kotlinx.coroutines.delay(200)
+        }
+    }
     Box(modifier) {
+        FeedVideoView(player, Modifier.fillMaxSize())
+        // Poster over the video until a frame is showing (no black blink).
         if (!firstFrame && item.thumbUrl.isNotBlank()) {
             AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = scale, modifier = Modifier.fillMaxSize())
         }
-        FeedVideoView(player, Modifier.fillMaxSize())
     }
 }
 
@@ -268,6 +275,9 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liqui
             playing = player.isPlaying
             if (player.duration > 0) durationMs = player.duration
             if (!seeking) positionMs = player.currentPosition.coerceAtLeast(0L)
+            // (A player that was already playing never reports a first
+            // frame again.)
+            if (!firstFrame && player.isPlaying && player.currentPosition > 150L) firstFrame = true
             kotlinx.coroutines.delay(200)
         }
     }
@@ -286,10 +296,12 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liqui
         val a = aspect.coerceIn(0.4f, 2.5f)
         val w = minOf(maxWidth, maxHeight * a)
         Box(Modifier.size(w, w / a), contentAlignment = Alignment.Center) {
+            FeedVideoView(player, Modifier.fillMaxSize())
+            // The poster stays OVER the video until a frame is really on
+            // screen — under it, the player's black screen showed first.
             if (!firstFrame && item.thumbUrl.isNotBlank()) {
                 AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             }
-            FeedVideoView(player, Modifier.fillMaxSize())
             AnimatedVisibility(
                 visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
                 modifier = Modifier.align(Alignment.Center)

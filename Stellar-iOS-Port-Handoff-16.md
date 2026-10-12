@@ -980,3 +980,6 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 
 ### Update 64 — no flash of the system video controls
 - Android FeedVideoView (and CapturePreviewScreen): `useController = false` is set before the player is attached; attaching first briefly showed Media3's own controls (seen when opening a comment video).
+
+### Update 65 — no black blink opening comment videos/GIFs
+- CommentVideo and GifVideo draw the poster ABOVE FeedVideoView until a frame is on screen (onFirstFrame, or playing past 150 ms for a pooled player that already rendered); under it, the PlayerView's black shutter showed first.
