@@ -723,7 +723,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             onToggleBookmark          = viewModel::toggleBookmark,
             onToggleFollow            = viewModel::toggleFollow,
             onE621Vote                = viewModel::e621Vote,
-            onPostComment             = { text, replyTo, media -> viewModel.postComment(text, replyTo, media) },
+            onPostComment             = { text, replyTo, media, labels -> viewModel.postComment(text, replyTo, media, labels) },
             onLikeComment             = viewModel::likeComment,
             onVoteComment             = viewModel::voteComment,
             // All feed-chip selections route through selectFeedFromAnyContext so that

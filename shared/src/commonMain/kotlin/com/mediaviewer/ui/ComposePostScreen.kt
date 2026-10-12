@@ -172,7 +172,7 @@ enum class AdultContentLabel(val value: String, val title: String, val descripti
 }
 
 /** Bluesky's independent "Other" self-label. */
-private const val GRAPHIC_MEDIA_LABEL = "graphic-media"
+internal const val GRAPHIC_MEDIA_LABEL = "graphic-media"
 private const val GRAPHIC_MEDIA_DESCRIPTION = "Media that may be disturbing or inappropriate for some audiences."
 
 /** Item 2: one thread post's *live editing* state — its text field value
@@ -1763,7 +1763,7 @@ fun ComposePostScreen(
  *  selected one. Rendered in-place (no separate Dialog window) like the
  *  app's other popups. */
 @Composable
-private fun ContentLabelsPopup(
+internal fun ContentLabelsPopup(
     adult: AdultContentLabel?, graphic: Boolean,
     liquidGlass: Boolean, tint: Color,
     onAdultChange: (AdultContentLabel) -> Unit,
@@ -2029,7 +2029,7 @@ private fun GlassCircleButton(
  *  dim-unless-selected treatment as GlassCircleButton above, just a label
  *  in a rounded glass pill rather than an icon in a circle. */
 @Composable
-private fun TextToggleButton(
+internal fun TextToggleButton(
     label: String,
     liquidGlass: Boolean, tint: Color,
     enabled: Boolean = true,

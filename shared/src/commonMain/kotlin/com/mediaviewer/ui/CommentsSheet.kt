@@ -74,7 +74,7 @@ fun CommentsSheet(
     commentsLoading: Boolean,
     appMode: AppMode,
     liquidGlass: Boolean,
-    onPostComment: (String, CommentItem?, List<PlatformUri>) -> Unit,
+    onPostComment: (String, CommentItem?, List<PlatformUri>, List<String>) -> Unit,
     onLikeComment: (CommentItem) -> Unit,
     onVoteComment: (CommentItem, Int) -> Unit,
     onSwipeDown: () -> Unit,
@@ -116,6 +116,12 @@ fun CommentsSheet(
     // video / GIF (the same rule as Bluesky posts).
     val platformContext = LocalContext.current
     var attached by remember(currentItem?.id) { mutableStateOf(listOf<PlatformUri>()) }
+    // Content warnings on the attached media (the same menu as posting).
+    var adultLabel by remember(currentItem?.id) { mutableStateOf<AdultContentLabel?>(null) }
+    var graphicMedia by remember(currentItem?.id) { mutableStateOf(false) }
+    var labelsOpen by remember(currentItem?.id) { mutableStateOf(false) }
+    // No media left: no labels either.
+    LaunchedEffect(attached.isEmpty()) { if (attached.isEmpty()) { adultLabel = null; graphicMedia = false } }
     fun isMotion(uri: PlatformUri): Boolean {
         val type = com.mediaviewer.platform.MediaBridge.mimeTypeOf(platformContext, uri)?.lowercase().orEmpty()
         return type.startsWith("video/") || type == "image/gif"
@@ -416,6 +422,16 @@ fun CommentsSheet(
                             attached.forEach { uri ->
                                 AttachedThumb(uri, isMotion(uri), dominantColor) { attached = attached - uri }
                             }
+                            // Content warnings, right after the last picture
+                            // (bright once one is set).
+                            Box(Modifier.height(58.dp), contentAlignment = Alignment.Center) {
+                                TextToggleButton(
+                                    label = "Labels",
+                                    liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                                    selected = adultLabel != null || graphicMedia,
+                                    onClick = { labelsOpen = true }
+                                )
+                            }
                         }
                     }
                     Row(
@@ -430,7 +446,9 @@ fun CommentsSheet(
                         val canSend = (commentText.isNotBlank() || attached.isNotEmpty()) && !sending
                         fun send() {
                             if (canSend) {
-                                onPostComment(commentText.trim(), replyTarget, attached)
+                                val labels = if (attached.isEmpty()) emptyList()
+                                    else listOfNotNull(adultLabel?.value, if (graphicMedia) GRAPHIC_MEDIA_LABEL else null)
+                                onPostComment(commentText.trim(), replyTarget, attached, labels)
                                 commentText = ""; replyTarget = null; attached = emptyList()
                             }
                         }
@@ -503,6 +521,18 @@ fun CommentsSheet(
         // A comment's picture / video / GIF, full screen.
         viewerMedia?.let { (list, start) ->
             CommentMediaViewer(list, start, dominantColor, liquidGlass, backdrop) { viewerMedia = null }
+        }
+
+        if (labelsOpen) {
+            ContentLabelsPopup(
+                adult = adultLabel, graphic = graphicMedia,
+                liquidGlass = liquidGlass, tint = dominantColor,
+                // One Adult Content option at a time (tap again to clear);
+                // Graphic Media is separate — as when posting.
+                onAdultChange = { picked -> adultLabel = if (adultLabel == picked) null else picked },
+                onGraphicChange = { graphicMedia = it },
+                onDismiss = { labelsOpen = false }
+            )
         }
 
         commentToDelete?.let { c ->

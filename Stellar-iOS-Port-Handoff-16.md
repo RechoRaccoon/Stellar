@@ -994,3 +994,8 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 
 ### Update 68 — status bubbles: the real cause of the side cut-off
 - The cut-off came from the horizontalScroll container (added in 63): a scroll area clips to its own bounds, and it was only as wide as the bubbles, so while a bubble's space opened the row grew from the middle and clipped it. Now the scroll area is always full width (BoxWithConstraints → outer Row fillMaxWidth().horizontalScroll → inner Row widthIn(min = maxWidth), centered arrangement), so it only clips at the screen edges.
+
+### Update 69 — content labels on comment media
+- Comment box: once media is attached, a "Labels" button (composer's `TextToggleButton`, now internal — comment tint + glass backdrop, dim until a label is set) sits right after the last thumbnail. It opens the composer's `ContentLabelsPopup` (now internal): one Adult Content option (Suggestive/Nudity/Adult) + Graphic Media. Labels clear when the media is removed or the comment is sent.
+- `postComment(..., selfLabels)` → `replyToPostWithMedia(..., selfLabels)` writes the record's `labels` (com.atproto.label.defs#selfLabels, same as posts) when there's an embed.
+- Not done: Stellar doesn't yet blur labeled media inside comments when reading them.

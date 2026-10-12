@@ -3045,7 +3045,9 @@ class BlueskyRepository {
         token: String, did: String, context: PlatformContext,
         rootUri: String, rootCid: String,
         parentUri: String, parentCid: String,
-        text: String, media: List<PlatformUri>
+        text: String, media: List<PlatformUri>,
+        /** Content warnings on the media — the same self-labels a post gets. */
+        selfLabels: List<String> = emptyList()
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             // A video, or an animated GIF (which goes up as a looping video,
@@ -3074,6 +3076,7 @@ class BlueskyRepository {
             )
             embed?.let { record["embed"] = it }
             buildHashtagFacets(text).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+            if (embed != null && selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels)
             createRecord(token, did, "app.bsky.feed.post", record).getOrThrow()
         }
     }

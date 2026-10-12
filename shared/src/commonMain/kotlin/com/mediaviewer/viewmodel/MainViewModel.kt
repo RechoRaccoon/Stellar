@@ -7503,7 +7503,11 @@ class MainViewModel(
     // of always posting a fresh top-level reply to the post with just an
     // "@handle" tacked onto the text. The root stays the original post, same
     // as Bluesky's own reply-thread semantics.
-    fun postComment(text: String, replyTo: CommentItem? = null, media: List<com.mediaviewer.platform.PlatformUri> = emptyList()) {
+    fun postComment(
+        text: String, replyTo: CommentItem? = null, media: List<com.mediaviewer.platform.PlatformUri> = emptyList(),
+        /** Content-warning self-labels for the attached media (Bluesky's). */
+        selfLabels: List<String> = emptyList()
+    ) {
         val item = currentItem.value ?: return
         if (media.isNotEmpty()) com.mediaviewer.util.CommentSend.sending = true
         // Item 8: haptic tap on sending a comment.
@@ -7529,7 +7533,7 @@ class MainViewModel(
                 suspend fun send() = if (media.isEmpty()) bskyRepo.replyToPost(bskyToken, _bskyDid.value,
                     root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text)
                 else bskyRepo.replyToPostWithMedia(bskyToken, _bskyDid.value, platform.context,
-                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, media)
+                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, media, selfLabels)
                 var result = send()
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) result = send()
                 com.mediaviewer.util.CommentSend.sending = false

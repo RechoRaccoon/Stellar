@@ -242,7 +242,7 @@ fun MainFeedScreen(
     onToggleBookmark: () -> Unit,
     onToggleFollow: () -> Unit,
     onE621Vote: (Int) -> Unit,
-    onPostComment: (String, CommentItem?, List<com.mediaviewer.platform.PlatformUri>) -> Unit,
+    onPostComment: (String, CommentItem?, List<com.mediaviewer.platform.PlatformUri>, List<String>) -> Unit,
     onLikeComment: (CommentItem) -> Unit,
     onVoteComment: (CommentItem, Int) -> Unit,
     onSelectFeed: (String?) -> Unit,
