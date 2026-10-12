@@ -803,7 +803,24 @@ class MainViewModel(
         activeFeedMode = ActiveFeedMode.HISTORY
         activeFeedActorDid = null
         _mediaItems.value = items
-        _screenState.value = ScreenState.FEED
+        // Opens in Explore (grid) mode, like Saved Posts.
+        _screenState.value = ScreenState.GRID
+        // History only stores what's needed to draw a post, not whether you
+        // follow its account or have liked / reposted it — so the posts are
+        // read again from Bluesky (25 a request) and swapped in, keeping the
+        // order. Posts that can't be read keep their stored version.
+        val generation = feedLoadGeneration
+        val uris = items.map { it.postUri }.filter { it.startsWith("at://") }.distinct()
+        if (uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            var result = bskyRepo.getPostsByUris(bskyToken, uris)
+            if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                result = bskyRepo.getPostsByUris(bskyToken, uris)
+            }
+            val fresh = result.getOrNull()?.groupBy { it.postUri }?.mapValues { it.value.first() } ?: return@launch
+            if (generation != feedLoadGeneration || activeFeedMode != ActiveFeedMode.HISTORY) return@launch
+            _mediaItems.value = filterHidden(_mediaItems.value.map { old -> fresh[old.postUri] ?: old })
+        }
     }
 
     /** Switching into Saved Posts / From Friends / History: remembers the
@@ -7481,8 +7498,9 @@ class MainViewModel(
     // of always posting a fresh top-level reply to the post with just an
     // "@handle" tacked onto the text. The root stays the original post, same
     // as Bluesky's own reply-thread semantics.
-    fun postComment(text: String, replyTo: CommentItem? = null) {
+    fun postComment(text: String, replyTo: CommentItem? = null, media: List<com.mediaviewer.platform.PlatformUri> = emptyList()) {
         val item = currentItem.value ?: return
+        if (media.isNotEmpty()) com.mediaviewer.util.CommentSend.sending = true
         // Item 8: haptic tap on sending a comment.
         tapHaptic()
         viewModelScope.launch(Dispatchers.IO) {
@@ -7501,10 +7519,13 @@ class MainViewModel(
                 // The post on screen may itself be a reply: then the root is
                 // its thread's root, not the post.
                 val root = bskyRepo.threadRootOf(item.postUri)
-                suspend fun send() = bskyRepo.replyToPost(bskyToken, _bskyDid.value,
+                suspend fun send() = if (media.isEmpty()) bskyRepo.replyToPost(bskyToken, _bskyDid.value,
                     root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text)
+                else bskyRepo.replyToPostWithMedia(bskyToken, _bskyDid.value, platform.context,
+                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, media)
                 var result = send()
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) result = send()
+                com.mediaviewer.util.CommentSend.sending = false
                 result
                     .onSuccess {
                         loadComments(force = true)

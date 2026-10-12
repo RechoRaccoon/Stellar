@@ -156,7 +156,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
     com.mediaviewer.ui.compat.BackHandler(onBack = onClose)
     val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, (media.size - 1).coerceAtLeast(0))) { media.size }
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.94f))
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
     ) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
@@ -178,7 +178,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
                         Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() },
                         ContentScale.Fit
                     )
-                    CommentMedia.Kind.VIDEO -> CommentVideo(item, active = pager.currentPage == page, tint = tint)
+                    CommentMedia.Kind.VIDEO -> CommentVideo(item, active = pager.currentPage == page, tint = tint, liquidGlass = liquidGlass, backdrop = backdrop)
                 }
             }
         }
@@ -214,7 +214,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
 /** A comment's video, full screen: plays while it's the page shown; tap to
  *  pause / play. */
 @Composable
-private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color) {
+private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liquidGlass: Boolean, backdrop: GlassBackdrop?) {
     val url = item.videoUrl ?: return
     val context = LocalContext.current
     val player = remember(url) { FeedVideos.acquire(context, url) }
@@ -222,6 +222,13 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color) {
     var playing by remember(url) { mutableStateOf(false) }
     var aspect by remember(url) { mutableStateOf(player.aspectRatio.takeIf { it > 0f } ?: item.aspect.takeIf { it > 0f } ?: (16f / 9f)) }
     var firstFrame by remember(url) { mutableStateOf(false) }
+    // The same controls as a video post: tap shows / hides them; play,
+    // back / forward 10 seconds and the seek bar.
+    var controls by remember(url) { mutableStateOf(true) }
+    var positionMs by remember(url) { mutableStateOf(0L) }
+    var durationMs by remember(url) { mutableStateOf(0L) }
+    var seeking by remember(url) { mutableStateOf(false) }
+    var seekPreviewMs by remember(url) { mutableStateOf(0L) }
     DisposableEffect(player) {
         val l = object : FeedVideoListener {
             override fun onAspectRatio(ratio: Float) { if (ratio > 0f) aspect = ratio }
@@ -232,22 +239,53 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color) {
     }
     LaunchedEffect(active) { if (active) player.play() else player.pause() }
     LaunchedEffect(player) {
-        while (true) { playing = player.isPlaying; kotlinx.coroutines.delay(250) }
+        while (true) {
+            playing = player.isPlaying
+            if (player.duration > 0) durationMs = player.duration
+            if (!seeking) positionMs = player.currentPosition.coerceAtLeast(0L)
+            kotlinx.coroutines.delay(200)
+        }
     }
-    val tap = rememberHapticTap()
+    fun seekTo(ms: Long) {
+        val target = ms.coerceIn(0L, if (durationMs > 0) durationMs else Long.MAX_VALUE)
+        positionMs = target
+        player.seekTo(target)
+    }
     Box(
-        Modifier.fillMaxWidth().aspectRatio(aspect.coerceIn(0.4f, 2.5f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                tap(); if (player.isPlaying) player.pause() else player.play()
-            },
+        Modifier.fillMaxSize()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { controls = !controls },
         contentAlignment = Alignment.Center
     ) {
-        if (!firstFrame && item.thumbUrl.isNotBlank()) {
-            AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxWidth().aspectRatio(aspect.coerceIn(0.4f, 2.5f)), contentAlignment = Alignment.Center) {
+            if (!firstFrame && item.thumbUrl.isNotBlank()) {
+                AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            }
+            FeedVideoView(player, Modifier.fillMaxSize())
         }
-        FeedVideoView(player, Modifier.fillMaxSize())
-        AnimatedVisibility(!playing, enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.85f), exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.85f)) {
-            PlayBadge(tint)
+        AnimatedVisibility(
+            visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            VideoTransportButtons(
+                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                isPlaying = playing,
+                onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
+                onSkip = { delta -> seekTo(positionMs + delta) }
+            )
+        }
+        AnimatedVisibility(
+            visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navBarSpace)
+                .padding(start = 14.dp, end = 14.dp, bottom = 30.dp)
+        ) {
+            VideoSeekBar(
+                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                positionMs = if (seeking) seekPreviewMs else positionMs,
+                durationMs = durationMs,
+                onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
+                onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
+            )
         }
     }
 }

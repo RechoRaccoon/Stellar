@@ -3030,6 +3030,61 @@ class BlueskyRepository {
     ))
 
     /**
+     * A comment with pictures, a video or a GIF attached. The media goes
+     * through exactly what posting uses: pictures are sized/compressed by
+     * [uploadImageBlobs] (≤4, an images embed with aspect ratios); a video
+     * through [uploadVideo] (re-encoded if too big, metadata scrubbed,
+     * Bluesky's video service). A GIF is sent to the video service too —
+     * Bluesky turns it into a looping video the way its own app does — and
+     * if that's refused it goes up as a picture instead.
+     */
+    suspend fun replyToPostWithMedia(
+        token: String, did: String, context: PlatformContext,
+        rootUri: String, rootCid: String,
+        parentUri: String, parentCid: String,
+        text: String, media: List<PlatformUri>
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val types = media.map { MediaBridge.mimeTypeOf(context, it).orEmpty().lowercase() }
+            val videoIndex = types.indexOfFirst { it.startsWith("video/") || it == "image/gif" }
+            var embed: Map<String, Any>? = null
+            if (videoIndex >= 0) {
+                val uri = media[videoIndex]
+                val isGif = types[videoIndex] == "image/gif"
+                val video = runCatching { uploadVideo(token, did, context, uri, null) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE)
+                val uploaded = video.getOrNull()
+                if (uploaded != null) {
+                    var (w, h) = uploaded.width to uploaded.height
+                    if (isGif && (w <= 0 || h <= 0)) {
+                        runCatching { MediaBridge.readBytes(context, uri)?.let { MediaBridge.imageSize(it) } }.getOrNull()?.let { w = it.first; h = it.second }
+                    }
+                    val v = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to uploaded.blob)
+                    if (w > 0 && h > 0) v["aspectRatio"] = mapOf("width" to w, "height" to h)
+                    embed = v
+                } else if (isGif) {
+                    embed = buildImagesEmbed(uploadImageBlobs(token, context, listOf(uri)))
+                } else throw video.exceptionOrNull() ?: error("Video upload failed")
+            } else if (media.isNotEmpty()) {
+                embed = buildImagesEmbed(uploadImageBlobs(token, context, media.take(4)))
+            }
+            val record = mutableMapOf<String, Any>(
+                "\$type" to "app.bsky.feed.post",
+                "text" to text,
+                "reply" to mapOf(
+                    "root" to mapOf("uri" to rootUri, "cid" to rootCid),
+                    "parent" to mapOf("uri" to parentUri, "cid" to parentCid)
+                ),
+                "createdAt" to com.mediaviewer.platform.nowIsoString()
+            )
+            embed?.let { record["embed"] = it }
+            buildHashtagFacets(text).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+            createRecord(token, did, "app.bsky.feed.post", record).getOrThrow()
+        }
+    }
+
+    /**
      * A poll's votes: every direct reply that is just one answer letter,
      * one per account (their first). Read straight from Bluesky's AppView
      * (service auth), so refreshing it every few seconds never touches the

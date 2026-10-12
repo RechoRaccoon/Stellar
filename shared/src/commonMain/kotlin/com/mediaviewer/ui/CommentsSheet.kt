@@ -5,6 +5,7 @@ import com.mediaviewer.ui.compat.navBarSpace
 import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
 import com.mediaviewer.ui.compat.ActivityResultContracts
+import com.mediaviewer.ui.compat.LocalContext
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
@@ -72,7 +74,7 @@ fun CommentsSheet(
     commentsLoading: Boolean,
     appMode: AppMode,
     liquidGlass: Boolean,
-    onPostComment: (String, CommentItem?) -> Unit,
+    onPostComment: (String, CommentItem?, List<PlatformUri>) -> Unit,
     onLikeComment: (CommentItem) -> Unit,
     onVoteComment: (CommentItem, Int) -> Unit,
     onSwipeDown: () -> Unit,
@@ -102,6 +104,27 @@ fun CommentsSheet(
     var showTags by remember(currentItem?.id) { mutableStateOf(false) }
     // Item 20: which comment (if any) is actually being replied to.
     var replyTarget by remember(currentItem?.id) { mutableStateOf<CommentItem?>(null) }
+    // Each reply level's scroll position (the top level keyed ""), so coming
+    // back out of a comment's replies lands where the list was left.
+    val listStates = remember(currentItem?.id) { mutableMapOf<String, LazyListState>() }
+
+    // Media attached to the comment being written: up to 4 pictures, or one
+    // video / GIF (the same rule as Bluesky posts).
+    val platformContext = LocalContext.current
+    var attached by remember(currentItem?.id) { mutableStateOf(listOf<PlatformUri>()) }
+    fun isMotion(uri: PlatformUri): Boolean {
+        val type = com.mediaviewer.platform.MediaBridge.mimeTypeOf(platformContext, uri)?.lowercase().orEmpty()
+        return type.startsWith("video/") || type == "image/gif"
+    }
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(4)) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val motion = uris.firstOrNull { isMotion(it) }
+        attached = when {
+            motion != null -> listOf(motion)
+            attached.any { isMotion(it) } -> uris.take(4)
+            else -> (attached + uris.filterNot { it in attached }).take(4)
+        }
+    }
 
     // ── Drag-to-close ──
     val scope = rememberCoroutineScope()
@@ -184,7 +207,11 @@ fun CommentsSheet(
             // sheet: it's a full-screen scrim in FeedView that fades in with
             // the blur, so it doesn't slide up with the comments.)
     ) {
-        Column(Modifier.fillMaxSize()) {
+        // Behind a comment's media opened full screen: blurred, not dimmed.
+        val viewerBlur by androidx.compose.animation.core.animateDpAsState(
+            if (viewerMedia != null) 26.dp else 0.dp, tween(if (reducedAnimations) 0 else 220), label = "comment-media-blur"
+        )
+        Column(Modifier.fillMaxSize().then(if (viewerBlur > 0.dp) Modifier.blur(viewerBlur) else Modifier)) {
             // ── Header: grab it anywhere to drag the sheet ──
             Column(
                 Modifier
@@ -246,11 +273,11 @@ fun CommentsSheet(
                         contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
                     ) {
                         if (tags.isEmpty()) {
-                            item {
-                                Box(
-                                    if (canEditTags) Modifier.fillMaxWidth().padding(vertical = 28.dp) else Modifier.fillParentMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) { Text("no tags", color = DimGray, fontSize = 14.sp) }
+                            // Editable: just the Add Tag button, at the top.
+                            if (!canEditTags) item {
+                                Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("no tags", color = DimGray, fontSize = 14.sp)
+                                }
                             }
                         } else {
                             items(tags, key = { it }) { tag ->
@@ -296,7 +323,9 @@ fun CommentsSheet(
                         // comment as it was when it was opened.)
                         val parent = stack.lastOrNull()?.let { opened -> findComment(comments, opened.id) ?: opened }
                         val displayedComments = parent?.replies ?: comments
+                        val listState = listStates.getOrPut(stack.lastOrNull()?.id ?: "") { LazyListState() }
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(top = 2.dp, bottom = 8.dp)
                         ) {
@@ -331,7 +360,13 @@ fun CommentsSheet(
                                         // into the message; the bar above the field says
                                         // who it's replying to.
                                         onReplyToComment = { c -> replyTarget = c },
-                                        onOpenThread = { c -> if (c.replies.isNotEmpty()) threadStack = stack + c },
+                                        onOpenThread = { c ->
+                                            if (c.replies.isNotEmpty()) {
+                                                // A level opened fresh starts at its top.
+                                                listStates.remove(c.id)
+                                                threadStack = stack + c
+                                            }
+                                        },
                                         dominantColor = dominantColor, backdrop = backdrop,
                                         indented = parent != null,
                                         onOpenProfile = openProfileOf,
@@ -369,16 +404,51 @@ fun CommentsSheet(
                             )
                         }
                     }
+                    if (com.mediaviewer.util.CommentSend.sending) {
+                        val stage = com.mediaviewer.util.VideoUpload.label.ifBlank { "Uploading…" }
+                        Text(
+                            stage, color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)
+                        )
+                    }
+                    if (attached.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            attached.forEach { uri ->
+                                AttachedThumb(uri, isMotion(uri), dominantColor) { attached = attached - uri }
+                            }
+                        }
+                    }
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val fieldShape = RoundedCornerShape(24.dp)
+                        val canSend = (commentText.isNotBlank() || attached.isNotEmpty()) && !com.mediaviewer.util.CommentSend.sending
                         fun send() {
-                            if (commentText.isNotBlank()) {
-                                onPostComment(commentText.trim(), replyTarget)
-                                commentText = ""; replyTarget = null
+                            if (canSend) {
+                                onPostComment(commentText.trim(), replyTarget, attached)
+                                commentText = ""; replyTarget = null; attached = emptyList()
+                            }
+                        }
+                        if (appMode == AppMode.BLUESKY) {
+                            val mediaModifier = Modifier.size(46.dp).clickable {
+                                tap()
+                                mediaPicker.launch(com.mediaviewer.ui.compat.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            }
+                            @Composable
+                            fun MediaContent() {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Image, contentDescription = "Add media", tint = Color.White, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            if (liquidGlass) {
+                                LiquidGlassSurface(mediaModifier, shape = CircleShape, tint = dominantColor, backdrop = backdrop) { MediaContent() }
+                            } else {
+                                Box(mediaModifier.clip(CircleShape).background(Color.White.copy(0.14f))) { MediaContent() }
                             }
                         }
                         @Composable
@@ -403,7 +473,7 @@ fun CommentsSheet(
                         } else {
                             Box(Modifier.weight(1f).height(46.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { FieldContent() }
                         }
-                        val sendModifier = Modifier.size(46.dp).clickable(enabled = commentText.isNotBlank()) { tap(); send() }
+                        val sendModifier = Modifier.size(46.dp).clickable(enabled = canSend) { tap(); send() }
                         @Composable
                         fun SendContent() {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -474,6 +544,30 @@ fun CommentsSheet(
                 },
                 onDismiss = { addingTag = false }
             )
+        }
+    }
+}
+
+/** A picture / video attached to the comment being written, with an X to
+ *  take it off. */
+@Composable
+private fun AttachedThumb(uri: PlatformUri, motion: Boolean, tint: Color, onRemove: () -> Unit) {
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(10.dp)
+    Box(Modifier.size(58.dp).clip(shape).background(Color.White.copy(alpha = 0.10f))) {
+        AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (motion) {
+            Icon(
+                Icons.Default.PlayArrow, contentDescription = null, tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).size(22.dp)
+            )
+        }
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.6f)).clickable { tap(); onRemove() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(12.dp))
         }
     }
 }

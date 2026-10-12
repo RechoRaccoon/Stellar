@@ -937,3 +937,11 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - The media spilled over the comment's text and buttons: a `fillMaxWidth().heightIn(max).aspectRatio()` tile measured taller than its space and was centered over it. Now sized exactly: one item = its full shape, at most 200dp tall (`BoxWithConstraints`); several = a `LazyRow` at 130dp tall, each at its own shape. Nothing is cropped.
 - Thread header shows the opened comment's whole text (no 3-line cut).
 - Opening is faster: full pictures are fetched when the comment appears; the viewer shows the thumbnail at once under the full picture. (Videos aren't preloaded — `FeedVideos.preload` replaces the feed's own window.)
+
+### Update 56 — comments: media attach, scroll memory, video player; History
+- CommentsSheet: per-level `LazyListState` map (`listStates`, key = opened comment id, "" = top); opening a level clears its saved state, going back restores the previous level's position.
+- Comment media attach (Bluesky only): image button left of the field; picker `PickMultipleVisualMedia(4)`; ≤4 pictures or 1 video/GIF; thumbnails with X above the field; `util/CommentSend.sending` shows "Uploading…" (or `VideoUpload.label`).
+- `BlueskyRepository.replyToPostWithMedia`: pictures via `uploadImageBlobs` (same compression as posts) → images embed; video via `uploadVideo` (re-encode/scrub/video service) → video embed with aspectRatio; GIF tries the video service, falls back to an image upload. `MainViewModel.postComment(text, replyTo, media)`.
+- Comment media viewer: videos use the post controls (`VideoTransportButtons` + `VideoSeekBar`, tap toggles); the sheet behind is blurred (26dp, animated) with a light 0.3 scrim instead of 0.94 black.
+- Tags tab: no "no tags" gap when tags are editable — Add Tag sits at the top.
+- History: opens in Explore (GRID); after showing stored entries, re-reads the posts (`getPostsByUris`) and swaps them in so follow / like / repost state is right.
