@@ -7393,6 +7393,9 @@ class MainViewModel(
     fun downloadCurrentItem() {
         val item = currentItem.value ?: return
         if (item.isTextOnly) return
+        // The bubble at the top of the post (one job per picture).
+        val jobs = if (item.mediaGroup.size > 1) item.mediaGroup.indices.map { "${item.id}_$it" } else listOf(item.id)
+        com.mediaviewer.util.PostDownloads.start(item.id, asGif = false, jobIds = jobs)
         enqueueDownload(item)
         updateCurrentItem { it.copy(isDownloaded = true) }
     }
@@ -7403,6 +7406,8 @@ class MainViewModel(
     fun downloadCurrentItemAsGif() {
         val item = currentItem.value ?: return
         if (item.isTextOnly) return
+        val jobs = if (item.mediaGroup.size > 1) item.mediaGroup.indices.map { "gif_${item.id}_$it" } else listOf("gif_${item.id}")
+        com.mediaviewer.util.PostDownloads.start(item.id, asGif = true, jobIds = jobs)
         if (item.mediaGroup.size > 1) {
             item.mediaGroup.forEachIndexed { i, img ->
                 platform.enqueueGifDownload(img.mediaUrl, false, "gif_${item.id}_$i")
@@ -7504,6 +7509,8 @@ class MainViewModel(
         // Item 8: haptic tap on sending a comment.
         tapHaptic()
         viewModelScope.launch(Dispatchers.IO) {
+          // (The comment box is free again however this ends.)
+          try {
             if (_appMode.value == AppMode.BLUESKY) {
                 val parentUri = replyTo?.uri?.takeIf { it.isNotBlank() } ?: item.postUri
                 // Fix: the first comment of a session could silently fail —
@@ -7538,6 +7545,9 @@ class MainViewModel(
                     .onSuccess { loadComments(force = true) }
                     .onFailure { _errorMessage.value = it.message }
             }
+          } finally {
+            com.mediaviewer.util.CommentSend.sending = false
+          }
         }
     }
 

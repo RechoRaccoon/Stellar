@@ -27,7 +27,7 @@ class DownloadWorker(private val context: Context, params: WorkerParameters) : C
         const val FOLDER_NAME   = "Stellar"
 
         fun enqueue(context: Context, url: String, filename: String, mimeType: String, postId: String = "") {
-            if (isAlreadyDownloaded(context, postId)) return
+            if (isAlreadyDownloaded(context, postId)) { com.mediaviewer.util.PostDownloads.jobDone(postId, true); return }
             val data = workDataOf(KEY_URL to url, KEY_FILENAME to filename, KEY_MIME_TYPE to mimeType, KEY_POST_ID to postId)
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setInputData(data)
@@ -40,7 +40,7 @@ class DownloadWorker(private val context: Context, params: WorkerParameters) : C
         /** Downloads the real original video blob for a Bluesky video post
          *  (see BlueskyBlobResolver) instead of its HLS playlist URL. */
         fun enqueueVideoBlob(context: Context, did: String, cid: String, postId: String) {
-            if (isAlreadyDownloaded(context, postId)) return
+            if (isAlreadyDownloaded(context, postId)) { com.mediaviewer.util.PostDownloads.jobDone(postId, true); return }
             val filename = "simpleOSFeed_${postId}_${System.currentTimeMillis()}.mp4"
             val data = workDataOf(
                 KEY_BLOB_DID to did, KEY_BLOB_CID to cid,
@@ -76,8 +76,8 @@ class DownloadWorker(private val context: Context, params: WorkerParameters) : C
         val postId   = inputData.getString(KEY_POST_ID)   ?: ""
         val blobDid  = inputData.getString(KEY_BLOB_DID)
         val blobCid  = inputData.getString(KEY_BLOB_CID)
-        if (isAlreadyDownloaded(context, postId)) return Result.success()
-        return withContext(Dispatchers.IO) {
+        if (isAlreadyDownloaded(context, postId)) { com.mediaviewer.util.PostDownloads.jobDone(postId, true); return Result.success() }
+        val result = withContext(Dispatchers.IO) {
             try {
                 val url = if (!blobDid.isNullOrBlank() && !blobCid.isNullOrBlank())
                     BlueskyBlobResolver.resolveBlobUrl(blobDid, blobCid)
@@ -88,6 +88,9 @@ class DownloadWorker(private val context: Context, params: WorkerParameters) : C
             }
             catch (e: Exception) { e.printStackTrace(); if (runAttemptCount < 3) Result.retry() else Result.failure() }
         }
+        // The post's download bubble (a retry isn't the end yet).
+        if (result !is Result.Retry) com.mediaviewer.util.PostDownloads.jobDone(postId, result is Result.Success)
+        return result
     }
 
     private fun downloadFile(url: String, filename: String, mimeType: String) {

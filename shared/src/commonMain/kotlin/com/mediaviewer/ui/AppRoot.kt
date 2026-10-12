@@ -1353,7 +1353,9 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             val notchTint = if (vrmModeOpen || cameraModeOpen || composePostOpen) {
                 val selfAvatar = selfProfile?.author?.avatarUrl
                 com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
-            } else if (dmInboxOpen) {
+            } else if (dmInboxOpen && !dmHiddenBehindFeed) {
+                // (A post opened from a DM is in front: it falls through to
+                // the post's own color below.)
                 // DMs: in a 1:1 chat the notch wears the other person's
                 // profile colors (like the chat itself); the inbox and group
                 // chats keep yours.

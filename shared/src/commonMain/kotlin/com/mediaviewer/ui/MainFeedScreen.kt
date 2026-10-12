@@ -1917,7 +1917,9 @@ private fun PostContent(
                         reducedAnimations = reducedAnimations,
                         onToggleTranslationView = onToggleTranslationView,
                         edited = !item.editedAt.isNullOrBlank(),
-                        onOpenEditHistory = { LocalOverlays.editHistoryFor = item }
+                        onOpenEditHistory = { LocalOverlays.editHistoryFor = item },
+                        downloadLabel = com.mediaviewer.util.PostDownloads.labelFor(item.id),
+                        downloadRunning = com.mediaviewer.util.PostDownloads.isRunning(item.id)
                     )
                 }
             }
@@ -3028,11 +3030,18 @@ private fun PostStatusRow(
     /** The post was edited in Stellar: an "Edited" bubble that opens its
      *  version history. */
     edited: Boolean = false,
-    onOpenEditHistory: () -> Unit = {}
+    onOpenEditHistory: () -> Unit = {},
+    /** This post's download bubble ("Downloading…", "Downloaded"…). */
+    downloadLabel: String? = null,
+    downloadRunning: Boolean = false
 ) {
+    // Centered as a group; if they don't all fit, the row scrolls sideways.
+    // Left to right: Edited, blocked, trackers, Tagging, Download, and
+    // Translation always last (far right).
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top
     ) {
         AnimatedStatus(if (edited) "edited" else null, reducedAnimations) {
@@ -3049,10 +3058,12 @@ private fun PostStatusRow(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
-        AnimatedStatus(translation, reducedAnimations) { t ->
-            TranslationIndicatorPill(
-                state = t, liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                onClick = onToggleTranslationView, modifier = Modifier.padding(bottom = 4.dp)
+        // VRM mode's trackers downloading (keeps going if VRM mode is left).
+        AnimatedStatus(com.mediaviewer.util.TrackerDownload.label, reducedAnimations) { label ->
+            StatusPill(
+                label = label, spinning = true, liquidGlass = liquidGlass,
+                tint = tint, backdrop = backdrop, onClick = null,
+                modifier = Modifier.padding(bottom = 4.dp)
             )
         }
         AnimatedStatus(taggingLabel, reducedAnimations) { label ->
@@ -3062,14 +3073,21 @@ private fun PostStatusRow(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
-        // VRM mode's trackers downloading (keeps going if VRM mode is left).
-        AnimatedStatus(com.mediaviewer.util.TrackerDownload.label, reducedAnimations) { label ->
+        // This post downloading (normally or as a GIF), then done.
+        AnimatedStatus(downloadLabel, reducedAnimations) { label ->
             StatusPill(
-                label = label, spinning = true, liquidGlass = liquidGlass,
+                label = label, spinning = downloadRunning, liquidGlass = liquidGlass,
                 tint = tint, backdrop = backdrop, onClick = null,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
+        AnimatedStatus(translation, reducedAnimations) { t ->
+            TranslationIndicatorPill(
+                state = t, liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                onClick = onToggleTranslationView, modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+    }
     }
 }
 

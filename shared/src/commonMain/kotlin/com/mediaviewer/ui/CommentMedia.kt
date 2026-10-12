@@ -249,7 +249,7 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liqui
     var firstFrame by remember(url) { mutableStateOf(false) }
     // The same controls as a video post: tap shows / hides them; play,
     // back / forward 10 seconds and the seek bar.
-    var controls by remember(url) { mutableStateOf(true) }
+    var controls by remember(url) { mutableStateOf(false) }  // hidden until tapped
     var positionMs by remember(url) { mutableStateOf(0L) }
     var durationMs by remember(url) { mutableStateOf(0L) }
     var seeking by remember(url) { mutableStateOf(false) }
@@ -276,41 +276,43 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, tint: Color, liqui
         positionMs = target
         player.seekTo(target)
     }
-    Box(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         Modifier.fillMaxSize()
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { controls = !controls },
         contentAlignment = Alignment.Center
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(aspect.coerceIn(0.4f, 2.5f)), contentAlignment = Alignment.Center) {
+        // The video as big as fits, at its own shape; the controls sit
+        // inside it, like on a video post.
+        val a = aspect.coerceIn(0.4f, 2.5f)
+        val w = minOf(maxWidth, maxHeight * a)
+        Box(Modifier.size(w, w / a), contentAlignment = Alignment.Center) {
             if (!firstFrame && item.thumbUrl.isNotBlank()) {
                 AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             }
             FeedVideoView(player, Modifier.fillMaxSize())
-        }
-        AnimatedVisibility(
-            visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            VideoTransportButtons(
-                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                isPlaying = playing,
-                onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
-                onSkip = { delta -> seekTo(positionMs + delta) }
-            )
-        }
-        AnimatedVisibility(
-            visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navBarSpace)
-                .padding(start = 14.dp, end = 14.dp, bottom = 30.dp)
-        ) {
-            VideoSeekBar(
-                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                positionMs = if (seeking) seekPreviewMs else positionMs,
-                durationMs = durationMs,
-                onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
-                onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
-            )
+            AnimatedVisibility(
+                visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                VideoTransportButtons(
+                    liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                    isPlaying = playing,
+                    onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
+                    onSkip = { delta -> seekTo(positionMs + delta) }
+                )
+            }
+            AnimatedVisibility(
+                visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                VideoSeekBar(
+                    liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                    positionMs = if (seeking) seekPreviewMs else positionMs,
+                    durationMs = durationMs,
+                    onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
+                    onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
+                )
+            }
         }
     }
 }

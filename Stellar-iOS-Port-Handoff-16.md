@@ -961,3 +961,19 @@ The opened text bubble ends with likes · reposts · saves · comments (icons in
 - Feed (Timeline/Explore) never reads `presentation`: uploaded GIFs there are ordinary videos (controls, "Video" label) — unchanged.
 - Comments: a "gif" video autoplays + loops in its tile (GifVideo); opened, it uses CommentVideo with the full post controls like any video. "GIF" label moved to the bottom-right corner.
 - Tenor GIFs (external .gif links) are image files: they still loop in the viewer without a timeline.
+
+### Update 60 — notch color over a post opened from a DM
+- AppRoot notch tint: the DM branch now requires `!dmHiddenBehindFeed`, so a post opened from a DM (DM hidden behind the feed) gives the notch the post's color like any feed post.
+
+### Update 61 — comment media blur is instant
+- CommentsSheet: the blur behind an opened comment's media is set at once (no animateDpAsState).
+
+### Update 62 — comment video controls inside the video; upload status in the comment box
+- CommentVideo: video sized to fit (BoxWithConstraints) and the transport buttons + seek bar sit inside the video's bounds, like posts.
+- Comment box: while `CommentSend.sending`, the field shows the upload stage centered (VideoUpload.label or "Uploading…") instead of the text field; media and send buttons disabled. `postComment` resets `sending` in a finally block.
+
+### Update 63 — download bubble; status row order/scroll; comment video controls hidden at first
+- `util/PostDownloads`: VM `downloadCurrentItem` / `downloadCurrentItemAsGif` register the post with its job ids (`id`, `id_i`, `gif_id`, `gif_id_i`); Android DownloadWorker / GifDownloadWorker and iOS IosDownloads (save/saveVideoBlob/saveAsGif, now with postId) call `jobDone(jobId, ok)` on final success/failure (not on retry; already-downloaded counts as done). Bubble: "Downloading…"/"Saving GIF…" (spinner) → "Downloaded"/"GIF Saved"/"Download Failed" for 2.5 s.
+- PostStatusRow: order Edited, Blocked, Trackers, Tagging, Download, Translation (last); a centered group in a Box with a horizontally scrollable Row when it overflows.
+- CommentVideo opens with its controls hidden (tap shows them).
+- (Update 62 is folded in: controls inside the video bounds; upload status inside the comment box.)

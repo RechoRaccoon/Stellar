@@ -28,7 +28,7 @@ import kotlin.coroutines.suspendCoroutine
 object IosDownloads {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    fun save(url: String, filename: String, mimeType: String) {
+    fun save(url: String, filename: String, mimeType: String, postId: String = "") {
         scope.launch {
             val result = runCatching {
                 if (!ensureAccess()) error("Allow Stellar to add to Photos in Settings")
@@ -43,6 +43,7 @@ object IosDownloads {
                 if (!writeLocalFile(path, resp.body)) error("Couldn't write the file")
                 try { saveFileToPhotos(path, actual.startsWith("video")) } finally { deleteLocalFile(path) }
             }
+            com.mediaviewer.util.PostDownloads.jobDone(postId, result.isSuccess)
             AppEvents.postMessage(
                 if (result.isSuccess) "Saved to Photos"
                 else "Couldn't save: ${result.exceptionOrNull()?.message ?: "unknown error"}"
@@ -59,7 +60,11 @@ object IosDownloads {
      */
     fun saveAsGif(url: String, isVideo: Boolean, postId: String, blobDid: String?, blobCid: String?) {
         val tools = IosMediaBridge.tools
-        if (tools == null) { AppEvents.postMessage("Saving as GIF isn't available in this build"); return }
+        if (tools == null) {
+            AppEvents.postMessage("Saving as GIF isn't available in this build")
+            com.mediaviewer.util.PostDownloads.jobDone(postId, false)
+            return
+        }
         scope.launch {
             val stamp = currentTimeMillis()
             val source = IosPaths.cacheDir() + "/gif_source_$stamp." + (if (isVideo) "mp4" else "img")
@@ -89,6 +94,7 @@ object IosDownloads {
             }
             deleteLocalFile(source)
             deleteLocalFile(out)
+            com.mediaviewer.util.PostDownloads.jobDone(postId, result.isSuccess)
             AppEvents.postMessage(
                 if (result.isSuccess) "GIF saved to Photos"
                 else "Couldn't save the GIF: ${result.exceptionOrNull()?.message ?: "unknown error"}"
@@ -120,11 +126,15 @@ object IosDownloads {
         }
     }
 
-    fun saveVideoBlob(did: String, cid: String) {
+    fun saveVideoBlob(did: String, cid: String, postId: String = "") {
         scope.launch {
             val url = runCatching { BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
-            if (url == null) { AppEvents.postMessage("Couldn't find that video"); return@launch }
-            save(url, "stellar_${cid.takeLast(12)}.mp4", "video/mp4")
+            if (url == null) {
+                AppEvents.postMessage("Couldn't find that video")
+                com.mediaviewer.util.PostDownloads.jobDone(postId, false)
+                return@launch
+            }
+            save(url, "stellar_${cid.takeLast(12)}.mp4", "video/mp4", postId)
         }
     }
 

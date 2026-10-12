@@ -208,9 +208,7 @@ fun CommentsSheet(
             // the blur, so it doesn't slide up with the comments.)
     ) {
         // Behind a comment's media opened full screen: blurred, not dimmed.
-        val viewerBlur by androidx.compose.animation.core.animateDpAsState(
-            if (viewerMedia != null) 26.dp else 0.dp, tween(if (reducedAnimations) 0 else 220), label = "comment-media-blur"
-        )
+        val viewerBlur = if (viewerMedia != null) 26.dp else 0.dp
         Column(Modifier.fillMaxSize().then(if (viewerBlur > 0.dp) Modifier.blur(viewerBlur) else Modifier)) {
             // ── Header: grab it anywhere to drag the sheet ──
             Column(
@@ -404,13 +402,6 @@ fun CommentsSheet(
                             )
                         }
                     }
-                    if (com.mediaviewer.util.CommentSend.sending) {
-                        val stage = com.mediaviewer.util.VideoUpload.label.ifBlank { "Uploading…" }
-                        Text(
-                            stage, color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp,
-                            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)
-                        )
-                    }
                     if (attached.isNotEmpty()) {
                         Row(
                             Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp),
@@ -427,7 +418,10 @@ fun CommentsSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val fieldShape = RoundedCornerShape(24.dp)
-                        val canSend = (commentText.isNotBlank() || attached.isNotEmpty()) && !com.mediaviewer.util.CommentSend.sending
+                        // While a comment with media is uploading, the box shows
+                        // its progress and can't take another comment.
+                        val sending = com.mediaviewer.util.CommentSend.sending
+                        val canSend = (commentText.isNotBlank() || attached.isNotEmpty()) && !sending
                         fun send() {
                             if (canSend) {
                                 onPostComment(commentText.trim(), replyTarget, attached)
@@ -435,7 +429,7 @@ fun CommentsSheet(
                             }
                         }
                         if (appMode == AppMode.BLUESKY) {
-                            val mediaModifier = Modifier.size(46.dp).clickable {
+                            val mediaModifier = Modifier.size(46.dp).clickable(enabled = !sending) {
                                 tap()
                                 mediaPicker.launch(com.mediaviewer.ui.compat.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                             }
@@ -453,7 +447,14 @@ fun CommentsSheet(
                         }
                         @Composable
                         fun FieldContent() {
-                            Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                            if (sending) {
+                                Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        com.mediaviewer.util.VideoUpload.label.ifBlank { "Uploading…" },
+                                        color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, maxLines = 1
+                                    )
+                                }
+                            } else Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
                                 BasicTextField(
                                     value = commentText, onValueChange = { commentText = it },
                                     singleLine = true,

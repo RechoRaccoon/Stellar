@@ -61,7 +61,14 @@ class GifDownloadWorker(private val context: Context, params: WorkerParameters) 
         }
     }
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result {
+        val result = work()
+        // The post's download bubble (a retry isn't the end yet).
+        if (result !is Result.Retry) com.mediaviewer.util.PostDownloads.jobDone(inputData.getString(KEY_POST_ID) ?: "", result is Result.Success)
+        return result
+    }
+
+    private suspend fun work(): Result = withContext(Dispatchers.IO) {
         val url     = inputData.getString(KEY_URL) ?: return@withContext Result.failure()
         val isVideo = inputData.getBoolean(KEY_IS_VIDEO, false)
         val postId  = inputData.getString(KEY_POST_ID) ?: ""

@@ -29,11 +29,11 @@ class IosAppPlatform(
     }
 
     override fun enqueueDownload(url: String, filename: String, mimeType: String, postId: String) {
-        IosDownloads.save(url, filename, mimeType)
+        IosDownloads.save(url, filename, mimeType, postId)
     }
 
     override fun enqueueVideoBlobDownload(did: String, cid: String, postId: String) {
-        IosDownloads.saveVideoBlob(did, cid)
+        IosDownloads.saveVideoBlob(did, cid, postId)
     }
 
     override fun enqueueGifDownload(url: String, isVideo: Boolean, postId: String, blobDid: String?, blobCid: String?) {
