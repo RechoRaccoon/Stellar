@@ -1,5 +1,6 @@
 package com.mediaviewer.ui
 
+import com.mediaviewer.ui.compat.mousePager
 import com.mediaviewer.ui.compat.navBarSpace
 
 import com.mediaviewer.ui.compat.coilContext
@@ -14,7 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
-import androidx.compose.foundation.horizontalScroll
+import com.mediaviewer.ui.compat.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -3319,7 +3320,8 @@ private fun MultiImageViewer(
         val h = constraints.maxHeight.toFloat()
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (settled) 1f else 0f },
+            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (settled) 1f else 0f }
+                .mousePager(pagerState, settled && interactive && zoomScale <= 1.02f),
             userScrollEnabled = settled && interactive && zoomScale <= 1.02f
         ) { page ->
             val img = images[page]

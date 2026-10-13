@@ -1,5 +1,6 @@
 package com.mediaviewer.ui
 
+import com.mediaviewer.ui.compat.mousePager
 import com.mediaviewer.ui.compat.navBarSpace
 
 import com.mediaviewer.util.rememberHapticTap
@@ -26,7 +27,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import com.mediaviewer.ui.compat.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -1069,7 +1070,7 @@ private fun AtProtocolPageContent(
             // (No swiping while a button is held: the edges turn the page.)
             userScrollEnabled = !lpDrag.active,
             // The badges poke out past the buttons' corners.
-            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false }.mousePager(launchPager, !lpDrag.active),
             verticalAlignment = Alignment.Top
         ) { page ->
             val held = lpDrag.id.takeIf { lpDrag.active }
@@ -1336,7 +1337,7 @@ private fun AtProtocolPageContent(
             // Lazy: only the cards actually on screen are composed (each is
             // a blurred glass card with artwork — building all 20 up front
             // was a big part of the Hub's open time).
-            androidx.compose.foundation.lazy.LazyRow(
+            com.mediaviewer.ui.compat.LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1376,7 +1377,7 @@ private fun AtProtocolPageContent(
             // above it — the Hub mixes posts from many different accounts
             // in one row, unlike a profile's Blogs tab where the author is
             // implicit, so each card needs to say whose it is.
-            androidx.compose.foundation.lazy.LazyRow(
+            com.mediaviewer.ui.compat.LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1801,7 +1802,7 @@ private fun HubListSection(
                     .then(if (state?.failed == true) Modifier.clickable { tap(); onLoad() } else Modifier)
             )
         } else {
-            androidx.compose.foundation.lazy.LazyRow(
+            com.mediaviewer.ui.compat.LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1871,7 +1872,7 @@ private fun HubListSection(
                     (info.totalItemsCount > 0 && last >= info.totalItemsCount - 4) || !rowState.canScrollForward
                 }.collect { nearEnd -> if (nearEnd && state?.hasMore != false) latestLoadMore() }
             }
-            androidx.compose.foundation.lazy.LazyRow(
+            com.mediaviewer.ui.compat.LazyRow(
                 Modifier.fillMaxWidth(),
                 state = rowState,
                 contentPadding = PaddingValues(horizontal = 16.dp),

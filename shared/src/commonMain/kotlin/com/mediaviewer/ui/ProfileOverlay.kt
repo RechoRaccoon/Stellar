@@ -1,5 +1,6 @@
 package com.mediaviewer.ui
 
+import com.mediaviewer.ui.compat.mousePager
 import com.mediaviewer.ui.compat.navBarSpace
 
 import androidx.compose.material.icons.filled.Send
@@ -38,7 +39,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import com.mediaviewer.ui.compat.horizontalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -2754,7 +2755,7 @@ private fun SwipeableThumbBox(
         // content, not a solid box laid on top of it, or the effect reads
         // as a flat grey dim instead of a real blur.
         val blurNsfw = item.nsfwBlurred(LocalHateFunBlurNsfw.current)
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().let { if (blurNsfw) it.blur(80.dp) else it }) { page ->
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().mousePager(pagerState).let { if (blurNsfw) it.blur(80.dp) else it }) { page ->
             val img = item.mediaGroup.getOrNull(page)
             val thumb = img?.thumbUrl?.ifBlank { img.mediaUrl }?.takeIf { it.isNotBlank() } ?: item.thumbUrl.ifBlank { item.mediaUrl }
             if (thumb.isNotBlank()) {
@@ -5194,7 +5195,7 @@ private fun TabBubbleRow(
     onSelect: (Int) -> Unit, onSelectorMoved: (Float?) -> Unit
 ) {
     var rowLeft by remember { mutableStateOf(0f) }
-    androidx.compose.foundation.lazy.LazyRow(
+    com.mediaviewer.ui.compat.LazyRow(
         state = listState,
         modifier = Modifier.fillMaxWidth().onGloballyPositioned { rowLeft = it.positionInRoot().x },
         contentPadding = PaddingValues(horizontal = 12.dp),

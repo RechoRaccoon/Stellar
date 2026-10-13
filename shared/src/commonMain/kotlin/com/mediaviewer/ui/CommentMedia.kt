@@ -1,5 +1,6 @@
 package com.mediaviewer.ui
 
+import com.mediaviewer.ui.compat.mousePager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -125,7 +126,7 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
             Tile(0, Modifier.size(w, w / a))
         }
     } else {
-        androidx.compose.foundation.lazy.LazyRow(
+        com.mediaviewer.ui.compat.LazyRow(
             modifier.fillMaxWidth().padding(top = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -201,7 +202,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
     ) {
         HorizontalPager(
             state = pager,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().mousePager(pager)
                 .onGloballyPositioned { origin = it.positionInRoot() }
                 .drawWithContent {
                     layer.record { this@drawWithContent.drawContent() }
