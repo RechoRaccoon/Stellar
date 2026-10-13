@@ -262,3 +262,177 @@ Not a JSON Primitive: {0}
 Unsupported DID method: {0}
 Unrecognized embed on {0}: type='{1}' 
 DID resolution failed: HTTP {0}
+# Developer messages, log lines and file/query formats
+ (textures off).\n
+#backlog
+(SELECT COUNT(*) FROM import_plays p WHERE p.import_id=i.id AND p.state=1), 
+(SELECT COUNT(*) FROM import_plays p WHERE p.import_id=i.id AND p.state=2) 
+(SELECT post_uri FROM media_tags GROUP BY post_uri HAVING MIN(confidence) = 1.0 AND MAX(confidence) = 1.0)
+12 AM
+12 PM
+@setDataFrame
+A textshot post reading: 
+A textshot post with emoji reading: 
+Couldn't queue helper close
+Face tracking fell behind — rebuilding the face landmarker
+Freeing VRM scene objects failed
+Freeing model resources failed
+Freeing the VRM background failed
+Hardware overlay snapshot failed; using software snapshots
+MToonApplier
+MToonParser
+Pitched audio loop failed
+Releasing recording surface failed
+Releasing stream surface failed
+The app was killed without a Java exception (native crash or out of memory).\n\n
+VRMC_materials_mtoon-1.0
+[avatar]
+couldn't watch media sessions
+face: no landmarker output yet\n(check face_landmarker.task in assets/)
+hands: no landmarker output yet\n(check hand_landmarker.task in assets/)
+pose: no landmarker output yet\n(check pose_landmarker_full.task in assets/)
+pose: off (enable "Upper Body" in Settings)
+setLiveNowStatus failed: 
+tongue out
+too many levels
+\nVRM textures now use safe mode {0} of {1}
+'{0}' (material '{1}')
+'{0}' uses material '{1}' with no baseColorMap — skipped
+(glTF texture {0}, {1}x{2}, safe mode {3})
+Audio wiring refused: {0}
+Author feed {0}
+Availability {0}: {1}
+Binding '{0}' failed: {1}
+Bookmark {0}: {1}
+Bookmarks {0}: {1}
+CommentVote failed: {0}
+Could not create FaceLandmarker — is {0} in app/src/main/assets/?
+Could not create HandLandmarker — is {0} in app/src/main/assets/?
+Could not create PoseLandmarker — is {0} in app/src/main/assets/?
+Could not read rest transform for {0}
+Couldn't attach to audio session {0}
+Couldn't build mesh {0}
+Couldn't decode {0}
+Empty body fetching {0}
+FaceLandmarker({0}) failed: {1}
+Feed generator not found: {0}
+Feed {0}: {1}
+Followers {0}
+Follows {0}
+GetConvo {0}: {1}
+GetConvoLog {0}: {1}
+GetConvoMembers {0}: {1}
+GetList {0}: {1}
+GetMessages {0}: {1}
+HTTP {0} fetching {1}
+Likes {0}
+List feed {0}
+ListConvos {0}: {1}
+ListFeed {0}: {1}
+Lists {0}: {1}
+Live Link action '{0}' failed
+MediaRecorder setup failed (audio={0})
+No value for {0}
+Not a local date-time: {0}
+Not an RTMP server (handshake version {0})
+Notifications {0}: {1}
+Parsed {0} materials ({1} MToon), 
+Patched VRM materials: {0}
+Poll {0}
+Preferences {0}
+Prefs HTTP {0}
+Prefs {0}
+Profile style {0}
+Profile style {0}: {1}
+Profile {0}
+Profile {0}: {1}
+Put prefs {0}: {1}
+Resolved {0}/{1} glTF nodes to entities by name
+Resolved {0}/{1} primitives to renderables
+Search actors {0}
+Search feeds {0}
+Search posts {0}
+Search starter packs {0}
+Search {0}: {1}
+SendMessage {0}: {1}
+Session {0} silent while music plays — trying another source
+Spring bones: {0} joints simulated
+StarterPacks {0}: {1}
+Stellar_{0}.{1}
+Streamplace live users failed: {0}
+Streamplace video list failed: {0}
+Texture {0}: decode failed
+Texture {0}: out of memory — skipped
+Texture {0}: unreadable image ({1} bytes, {2})
+Thread {0}
+Timeline {0}: {1}
+Toggling part {0} failed
+Trending {0}
+Unbookmark {0}: {1}
+Unread count {0}: {1}
+Unsupported AMF0 type {0}
+VRM 0.x blend shape bind references mesh {0} with no owning node — skipped
+Value at {0} is not a JSONArray
+Value at {0} is not a JSONObject
+Value at {0} is not a boolean
+Value at {0} is not a double
+Value at {0} is not a long
+Value at {0} is not an int
+Value at {0} is null.
+Video bitrate → {0} kbps
+bad size {0}x{1}
+camera: FAILED\n{0}
+camera: streaming ({0} frames)
+clearLiveNowStatus failed: {0}
+create texture {0}x{1}, {2} levels, {3}
+createPost {0}: {1}
+deleteRecord failed: {0} {1}
+exit reason {0}
+face {0} · body joints {1} · hands {2} · camera picture read as {3}
+face: FAILED to start\n{0}
+face: landmarker running ({0} results), no face detected\n(is your face in the front camera frame?)
+get material instance of '{0}' primitive {1}
+getBlocks {0}: {1}
+getFollows failed: {0}
+getFollows {0}: {1}
+level {0} buffer too small
+listRecords failed: {0} {1}
+orphan morphs: {0} ({1} ARKit-named)\n
+pose: detected ({0} points)
+putRecord failed: {0} {1}
+read material of '{0}'
+retarget: {0}/{1} nodes → entities
+set baseColorIndex on {0}
+set baseColorMap on {0}
+set baseColorUvMatrix on {0}
+setLiveNowStatus failed: {0} {1}
+setMorphWeights failed for node {0}
+setTransform failed for {0}
+simpleOSFeed_{0}_%
+textures: loading… (safe mode {0})
+textures: {0} materials textured (safe mode {1})
+upload level {0} ({1}x{2}, {3} bytes)
+uploadBlob failed: {0} {1}
+uploadBlob {0}: {1}
+vrm file: {0} — {1} bones, {2} expressions\n
+{0} (TV series)
+{0} (album)
+{0} (book)
+{0} (film)
+{0} (novel)
+{0} (song)
+{0} (video game)
+{0} ({1} album)
+{0} ({1} film)
+{0} ({1} song)
+{0} ({1} video game)
+{0} LIKE ?
+{0} bones · {1} expressions · {2} spring joints\n
+{0} made unlit, {1} unlit→lit, {2} metallic fixed, 
+{0} morph normal/tangent sets dropped, {1} meshes given morph weights
+{0} vertex-color prims stripped, {1} texture refs taken over, 
+{0} vertices · {1} triangles · {2} morph targets\n
+{0} — first frame drawn with it
+{0}Foot
+{0}Hand
+{0}{1} (pss {2} MB)

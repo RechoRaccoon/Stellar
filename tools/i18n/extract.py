@@ -93,7 +93,7 @@ def ui_like(s):
 NOT_UI_FILE = os.path.join(HERE, 'not_ui.txt')
 not_ui = set()
 if os.path.exists(NOT_UI_FILE):
-    not_ui = {l.rstrip('\n') for l in open(NOT_UI_FILE, encoding='utf8') if l.strip() and not l.startswith('# ')}
+    not_ui = {l.rstrip('\n').replace('\\n', '\n') for l in open(NOT_UI_FILE, encoding='utf8') if l.strip() and not l.startswith('# ')}
 
 strings, templates = set(), set()
 for root in ROOTS:
