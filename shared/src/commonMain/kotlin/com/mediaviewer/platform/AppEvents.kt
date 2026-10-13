@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 object AppEvents {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val messages: SharedFlow<String> = _messages
-    fun postMessage(message: String) { _messages.tryEmit(message) }
+    fun postMessage(message: String) { _messages.tryEmit(com.mediaviewer.i18n.tr(message)) }
 
     private val _restart = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     /** Account switched: rebuild the ViewModel/UI from the saved state. */

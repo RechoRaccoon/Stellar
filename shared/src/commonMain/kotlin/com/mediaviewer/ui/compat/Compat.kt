@@ -29,7 +29,7 @@ object Toast {
 }
 
 class ToastMessage(val text: String, val long: Boolean) {
-    fun show() = showPlatformToast(text, long)
+    fun show() = showPlatformToast(com.mediaviewer.i18n.tr(text), long)
 }
 
 /** Shows a short message (a Toast on Android; an in-app message on iOS). */

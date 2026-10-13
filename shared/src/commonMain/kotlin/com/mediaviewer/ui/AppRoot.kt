@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
+import com.mediaviewer.i18n.Text
 import com.mediaviewer.model.AppMode
 import com.mediaviewer.model.ScreenState
 import com.mediaviewer.ui.GlassBackdrop

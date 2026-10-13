@@ -28,7 +28,7 @@ object AndroidToastHost {
 
 actual fun showPlatformToast(message: String, long: Boolean) {
     val ctx = AndroidToastHost.appContext ?: return
-    val show = { android.widget.Toast.makeText(ctx, message, if (long) android.widget.Toast.LENGTH_LONG else android.widget.Toast.LENGTH_SHORT).show() }
+    val show = { android.widget.Toast.makeText(ctx, com.mediaviewer.i18n.tr(message), if (long) android.widget.Toast.LENGTH_LONG else android.widget.Toast.LENGTH_SHORT).show() }
     if (Looper.myLooper() == Looper.getMainLooper()) show() else AndroidToastHost.main.post { show() }
 }
 

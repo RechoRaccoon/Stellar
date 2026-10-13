@@ -343,13 +343,13 @@ fun StellarSceneCard(text: String, modifier: Modifier = Modifier) {
         Box(Modifier.align(Alignment.Center).padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
             // The glow: a blurred copy of the words behind them.
             androidx.compose.material3.Text(
-                text, style = style, maxLines = 2,
+                com.mediaviewer.i18n.tr(text), style = style, maxLines = 2,
                 modifier = Modifier.graphicsLayer { alpha = 0.5f + 0.25f * breathe }
                     .blur(16.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
                     .padding(48.dp)
             )
             androidx.compose.material3.Text(
-                text, style = style, maxLines = 2,
+                com.mediaviewer.i18n.tr(text), style = style, maxLines = 2,
                 modifier = Modifier.graphicsLayer {
                     val s = 1f + 0.015f * breathe
                     scaleX = s; scaleY = s

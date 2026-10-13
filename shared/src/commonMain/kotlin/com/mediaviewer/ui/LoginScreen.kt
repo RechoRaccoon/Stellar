@@ -25,7 +25,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.Text
+import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +57,11 @@ import com.mediaviewer.util.rememberHapticTap
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.MarkEmailRead
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import kotlinx.coroutines.launch
 
 /** The login page's accent: Stellar pink (nobody's profile colors to use yet). */
@@ -264,6 +269,8 @@ fun LoginScreen(
                         LoginButton("Create Account", enabled = !isLoading, busy = false, outlined = true) {
                             tap(); focusManager.clearFocus(); problem = null; step = LoginStep.CREATE
                         }
+                        Spacer(Modifier.height(22.dp))
+                        LoginLanguagePicker()
                     }
                     LoginStep.CREATE -> {
                         LoginField(
@@ -408,6 +415,68 @@ fun LoginScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/**
+ * The login page's language choice: a small pill under the buttons — a
+ * globe, the language in its own name, and a menu of every language (each
+ * in its own name, so anyone can find theirs). The same setting as
+ * Settings → App Functionality → Language.
+ */
+@Composable
+private fun LoginLanguagePicker() {
+    val tap = rememberHapticTap()
+    val scope = rememberCoroutineScope()
+    val current = com.mediaviewer.i18n.Translations.language
+    var open by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    Box {
+        Row(
+            Modifier
+                .height(36.dp)
+                .clip(shape)
+                .background(Color.White.copy(alpha = 0.06f))
+                .border(1.dp, LoginPink.copy(alpha = 0.45f), shape)
+                .clickable { tap(); open = true }
+                .padding(start = 12.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Language, contentDescription = "Language", tint = LoginPink, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            // (A language's own name is never translated.)
+            androidx.compose.material3.Text(current.nativeName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = Color(0xFF16121A),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, LoginPink.copy(alpha = 0.35f))
+        ) {
+            com.mediaviewer.i18n.AppLanguage.entries.forEach { option ->
+                val selected = option == current
+                DropdownMenuItem(
+                    text = {
+                        androidx.compose.material3.Text(
+                            option.nativeName,
+                            color = if (selected) LoginPink else Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    trailingIcon = if (selected) {
+                        { Icon(Icons.Default.Check, contentDescription = null, tint = LoginPink, modifier = Modifier.size(18.dp)) }
+                    } else null,
+                    onClick = {
+                        tap()
+                        open = false
+                        if (!selected) scope.launch { com.mediaviewer.i18n.Translations.select(option) }
+                    }
+                )
             }
         }
     }

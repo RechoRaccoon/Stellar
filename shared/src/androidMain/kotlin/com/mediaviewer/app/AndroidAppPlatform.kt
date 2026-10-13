@@ -63,7 +63,7 @@ class AndroidAppPlatform(
     private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     override fun toast(message: String) {
-        val show = { Toast.makeText(application, message, Toast.LENGTH_SHORT).show() }
+        val show = { Toast.makeText(application, com.mediaviewer.i18n.tr(message), Toast.LENGTH_SHORT).show() }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) show() else mainHandler.post { show() }
     }
 

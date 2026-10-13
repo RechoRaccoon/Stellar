@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -93,38 +93,41 @@ fun SharedAppHost(
     val selectedFont = com.mediaviewer.util.FontStore.selected
     val fontFamily = com.mediaviewer.util.FontStore.familyFor(selectedFont)
     MediaViewerTheme(customFontFamily = fontFamily) {
-        val crash = pendingCrash
-        if (crash != null) {
-            CrashLogScreen(log = crash, onDismiss = { onCrashLogDismissed(); pendingCrash = null })
-            return@MediaViewerTheme
-        }
-        // A restart request rebuilds the ViewModel (and every screen) from
-        // the saved state, like Android's process restart.
-        var generation by remember { mutableIntStateOf(0) }
-        LaunchedEffect(Unit) { AppEvents.restart.collect { generation++ } }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            key(generation) {
-                val store = remember { ViewModelStore() }
-                DisposableEffect(store) { onDispose { store.clear() } }
-                val viewModel = remember(store) {
-                    ViewModelProvider.create(
-                        store,
-                        viewModelFactory { initializer { MainViewModel(createPlatform) } }
-                    )[MainViewModel::class]
-                }
-                // DM/Inbox polling pauses while the app is in the background.
-                LifecycleStartEffect(viewModel) {
-                    viewModel.setAppForeground(true)
-                    onStopOrDispose { viewModel.setAppForeground(false) }
-                }
-                // (A Bluesky link handed to Stellar opens that profile/post.)
-                AppRoot(
-                    viewModel,
-                    pendingProfileLink = com.mediaviewer.util.AppLinks.pendingProfile,
-                    onProfileLinkHandled = { com.mediaviewer.util.AppLinks.clearProfile() }
-                )
+        // (The chosen language's words are loaded before the first frame.)
+        com.mediaviewer.i18n.AppLanguageGate(context) {
+            val crash = pendingCrash
+            if (crash != null) {
+                CrashLogScreen(log = crash, onDismiss = { onCrashLogDismissed(); pendingCrash = null })
+                return@AppLanguageGate
             }
-            AppMessageToast(Modifier.align(Alignment.BottomCenter))
+            // A restart request rebuilds the ViewModel (and every screen) from
+            // the saved state, like Android's process restart.
+            var generation by remember { mutableIntStateOf(0) }
+            LaunchedEffect(Unit) { AppEvents.restart.collect { generation++ } }
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                key(generation) {
+                    val store = remember { ViewModelStore() }
+                    DisposableEffect(store) { onDispose { store.clear() } }
+                    val viewModel = remember(store) {
+                        ViewModelProvider.create(
+                            store,
+                            viewModelFactory { initializer { MainViewModel(createPlatform) } }
+                        )[MainViewModel::class]
+                    }
+                    // DM/Inbox polling pauses while the app is in the background.
+                    LifecycleStartEffect(viewModel) {
+                        viewModel.setAppForeground(true)
+                        onStopOrDispose { viewModel.setAppForeground(false) }
+                    }
+                    // (A Bluesky link handed to Stellar opens that profile/post.)
+                    AppRoot(
+                        viewModel,
+                        pendingProfileLink = com.mediaviewer.util.AppLinks.pendingProfile,
+                        onProfileLinkHandled = { com.mediaviewer.util.AppLinks.clearProfile() }
+                    )
+                }
+                AppMessageToast(Modifier.align(Alignment.BottomCenter))
+            }
         }
     }
 }

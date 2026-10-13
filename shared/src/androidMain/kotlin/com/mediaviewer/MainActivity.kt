@@ -264,7 +264,10 @@ class MainActivity : ComponentActivity() {
             val selectedFont = com.mediaviewer.util.FontStore.selected
             val customFontFamily = com.mediaviewer.util.FontStore.familyFor(selectedFont)
             MediaViewerTheme(customFontFamily = customFontFamily) {
-                com.mediaviewer.ui.AppRoot(viewModel, pendingProfileLink = pendingProfileLink.value, onProfileLinkHandled = { pendingProfileLink.value = null })
+                // (The chosen language's words are loaded before the first frame.)
+                com.mediaviewer.i18n.AppLanguageGate(applicationContext) {
+                    com.mediaviewer.ui.AppRoot(viewModel, pendingProfileLink = pendingProfileLink.value, onProfileLinkHandled = { pendingProfileLink.value = null })
+                }
             }
         }
     }

@@ -22,7 +22,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
+import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -296,6 +299,57 @@ private fun SearchEngineBubble(liquidGlass: Boolean, tint: Color, backdrop: Glas
                         DropdownMenuItem(
                             text = { Text(option.label, fontWeight = if (option == local.searchEngine) FontWeight.SemiBold else FontWeight.Normal) },
                             onClick = { local.updateSearchEngine(option); engineMenu = false }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Settings → App Functionality → Language: the language Stellar's own words
+ * are shown in. The names in the menu are each language's own name, so
+ * anyone can find theirs whatever the app is showing now.
+ */
+@Composable
+private fun LanguageBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val scope = rememberCoroutineScope()
+    val current = com.mediaviewer.i18n.Translations.language
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        var menuOpen by remember { mutableStateOf(false) }
+        BubbleRow {
+            RowLabel("Language", Modifier.weight(1f))
+            Box {
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).clickable { menuOpen = true }.padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // (A language's own name is never translated.)
+                    androidx.compose.material3.Text(
+                        current.nativeName, color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                    )
+                    Icon(
+                        Icons.Default.ArrowDropDown, contentDescription = null,
+                        tint = LocalSettingsAccent.current, modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    com.mediaviewer.i18n.AppLanguage.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                androidx.compose.material3.Text(
+                                    option.nativeName,
+                                    fontWeight = if (option == current) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            },
+                            trailingIcon = if (option == current) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                if (option != current) scope.launch { com.mediaviewer.i18n.Translations.select(option) }
+                            }
                         )
                     }
                 }
@@ -724,6 +778,8 @@ internal fun SettingsPageContent(
                 OpenLinksSetupDialog(liquidGlass = liquidGlass, tint = tint, onDismiss = { linkSetupOpen = false })
             }
 
+            // The language Stellar's own words are shown in (last in the section).
+            LanguageBubble(liquidGlass, tint, backdrop)
         }
 
         // ── UI Customization ────────────────────────────────────────────

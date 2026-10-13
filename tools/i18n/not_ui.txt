@@ -1,0 +1,264 @@
+# Strings that look like text but are never shown as the app's own words
+# (language names in their own language, brand names, keys, formats, log
+# lines). extract.py leaves these out.
+English
+Español
+Français
+Deutsch
+Italiano
+Português (Brasil)
+Русский
+日本語
+한국어
+简体中文
+pt-BR
+zh-Hans
+AT Protocol
+Bluesky
+Stellar
+Rocksky
+Popfeed
+Streamplace
+Spotify
+Deezer
+Tidal
+SoundCloud
+Apple Music
+YouTube Music
+Ko-fi
+PayPal
+Cash App
+Google
+Bing
+DuckDuckGo
+Ecosia
+Brave
+Startpage
+Wikipedia
+Wikipedia & Wikidata
+Hugging Face
+DecAPI
+ML Kit
+MediaPipe
+Audiowide
+Audile
+Shatter
+Leaflet / Standard.site
+Recho Raccoon
+RechoRaccoonBusiness@proton.me
+$RechoRaccoon
+Z3D-E621-Convnext
+CC BY-SA 4.0
+Rose (SomeDudeGT)
+Claude Opus 5.5, Claude Sonnet, and Muse by Meta (RJ).
+Jetpack Compose, Media3/ExoPlayer, CameraX, Filament, Coil, OkHttp, Retrofit, Gson, ZXing, and the Audiowide font by Astigmatic (SIL OFL).
+$link
+$type
+%.1f MB
+%.1fK
+%.1fM
+%.2f GB
+% or
+&colorScheme=dark
+&state=
+#backlog
+@jpeg
+@png
+MMM d
+MMM d, h:mm a
+MMM d, yyyy
+MMM d, yyyy · h:mm a
+yyyy-MM-dd
+yyyy-MM-dd'T'HH:mm:ss
+yyyy-MM-dd HH:mm
+Content-Type
+User-Agent
+Authorization
+application/json; charset=UTF-8
+application/sparql-results+json
+image/*
+audio/*
+video/*
+android.permission.POST_NOTIFICATIONS
+android.permission.RECORD_AUDIO
+Basic 
+Bearer {0}
+NewAccountCannotCreateGroup
+NotFollowedBySender
+UserForbidsGroups
+JsonElement can only be read from JSON
+JsonElement can only be written as JSON
+Expected a JSON array
+Expected a JSON object
+No PDS service found in DID document
+No service entries in DID document
+Prefs: empty body
+getFeedGenerators: empty body
+getFollows: empty body
+block record not found
+membership lookup failed
+no resolver
+putRecord failed: 
+pub.leaflet.pages.linearDocument
+pub.leaflet.pages.linearDocument#block
+social.popfeed.feed.listItem
+comment[body]
+comment[bump]
+comment[post_id]
+search[post_id]
+compose.tools+compose.thread
+ex.refresh+ex.layout
+hub.launchpad.label+hub.launchpad
+hub.timeline+hub.explore
+profile.tabs+profile.kinds
+tl.author+tl.follow
+capture.bar@0,0.17,0.15,0.83
+capture.bar@0.194,0.17,0.344,0.83
+capture.bar@0.3875,0,0.6125,1
+capture.bar@0.656,0.17,0.806,0.83
+capture.bar@0.85,0.17,1,0.83
+removed_defaults@
+"files":[
+"root":"
+,"archiveMedia":{
+,"archiveMedia":{"files":[
+,"files":[
+,"localMedia":{
+,"localMedia":{"root":
+-Infinity
+Infinity
+NaN
++faststart
+GIF89a
+NETSCAPE2.0
+SHA-256
+UTF-8
+FCPublish
+FCUnpublish
+FMLE/3.0 (compatible; FMSc/1.0)
+Truncated AMF0
+url.dll,FileProtocolHandler
+no browse
+file:
+load:
+package:
+built_for:
+note_id:
+id=?
+import_id=?
+seen<?
+post_uri = ?
+if (_surface.diffuse.a < 
+Incomplete trailing escape (%) pattern
+Value is not a JSONArray
+Value is not a JSONObject
+Not a GLB file (bad magic)
+not a GLB file (bad magic)
+file too short for a GLB header
+chunk length runs past end of file
+no JSON chunk
+no EGL config
+eglCreateWindowSurface failed
+EGL init failed
+Shader compile failed: 
+TextureView.getBitmap failed
+BitmapFactory returned null
+could not convert to ARGB_8888
+createAsset returned null
+detectAsync failed
+configure failed
+update failed
+updateWidget failed
+sampling failed
+unbindAll() on close failed
+faceHelper.close() failed
+handHelper.close() failed
+poseHelper.close() failed
+Filament Utils.init() failed
+Filament render() failed
+Filament failed to load VRM file as glTF
+VRM model load (Filament loadModelGlb)
+Could not set Filament background skybox
+Could not set linear tone mapping
+Couldn't remove ModelViewer's default light
+Couldn't turn off SSAO
+Could not bind CameraX ImageAnalysis
+Could not build retarget target
+Could not parse VRM extension block
+Could not persist VRM file permission
+Could not read GLB container
+Could not read picked VRM file
+Could not set up spring bones
+Closing the old FaceLandmarker failed
+HandLandmarker GPU failed, using CPU
+PoseLandmarker GPU failed, using CPU
+Failed to create MediaPipe task helpers
+Failed to parse VRM materials
+MediaPipe runtime error
+MediaRecorder.stop failed
+MediaStore insert failed
+AudioRecord init failed
+Java crash
+Android exit reason: 
+It died during: 
+native crash
+killed by signal
+killed for low memory
+excessive resource use
+not responding (ANR)
+The app was killed without a Java exception (native crash or out of memory).\n\n
+reading a recognition failed
+syncing note choices failed
+ticking a note line failed
+arm rotation: no pose detected
+arm rotation: tracking
+leg rotation: no pose detected
+leg rotation: tracking
+head rotation: no face detected
+head rotation: tracking
+camera: bound, waiting for frames…
+hands: 
+hands: none detected
+orphan morphs: none
+face: no landmarker output yet\n(check face_landmarker.task in assets/)
+hands: no landmarker output yet\n(check hand_landmarker.task in assets/)
+pose: no landmarker output yet\n(check pose_landmarker_full.task in assets/)
+textures: none bound (untextured model, or decode failed — see logcat MToonApplier)
+textures: off — crashed in every safe mode (pick the avatar again to retry)
+ (textures off).\n
+Short read
+Short write
+Empty body
+Debug info
+Stellar-file
+Stellar-backup-{0}
+simpleOSFeed_{0}_{1}.{2}
+track_{0}_{1}_{2}
+{ ?item wdt:{0} "{1}" . }
+{0}|synced|{1}
+{0}#block
+{0}#bsky_fg
+{0}#header
+{0}#image
+{0}#text
+imdb:{0}
+mailto:{0}
+load:{0}
+sorted:{0}
+textLen={0}
+hasMedia={0} hasRecord={1} 
+images={0} items={1} 
+loadE621Posts(reset={0})
+loadFeed(reset={0})
+setMode: {0} -> {1}
+replies: {0}
+Response{code={0}, message={1}}
+Array must have size 1, but has size {0}
+Can't write {0} as JSON (not @Serializable)
+Not a JSON Array: {0}
+Not a JSON Null: {0}
+Not a JSON Object: {0}
+Not a JSON Primitive: {0}
+Unsupported DID method: {0}
+Unrecognized embed on {0}: type='{1}' 
+DID resolution failed: HTTP {0}

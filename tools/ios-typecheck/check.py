@@ -87,7 +87,7 @@ for x in ('concurrent', 'native', 'nativeDarwin'): walk(co + x + '/src', plat)
 for f in os.listdir(GEN): os.remove(os.path.join(GEN, f))
 rd = APP + '/shared/src/commonMain/composeResources'
 g = ['@file:OptIn(org.jetbrains.compose.resources.InternalResourceApi::class)', 'package com.mediaviewer.resources',
-     'import org.jetbrains.compose.resources.*', 'object Res { object drawable; object font; object string }']
+     'import org.jetbrains.compose.resources.*', 'object Res { object drawable; object font; object string; suspend fun readBytes(path: String): ByteArray = TODO() }']
 for kind, typ in (('drawable', 'DrawableResource'), ('font', 'FontResource')):
     for f in sorted(os.listdir(rd + '/' + kind)) if os.path.isdir(rd + '/' + kind) else []:
         g.append('val Res.%s.%s: %s get() = TODO()' % (kind, f.rsplit('.', 1)[0], typ))
