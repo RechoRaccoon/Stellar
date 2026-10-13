@@ -168,7 +168,8 @@ object Translations {
      *  when it's one of the app's own words. */
     internal fun trValue(value: String): String = exact[value] ?: value
 
-    private val PLACEHOLDER = Regex("\\{\\d+}")
+    // (Both braces escaped: Android's regex engine rejects a bare "}".)
+    private val PLACEHOLDER = Regex("\\{\\d+\\}")
 
     /** One sentence with blanks, and its translation. */
     private class Pattern(private val regex: Regex, private val order: List<Int>, private val anchor: String, private val translation: String, val literalLength: Int) {
@@ -203,8 +204,9 @@ object Translations {
     }
 }
 
-/** [text] in the app's chosen language (see [Translations]). */
-fun tr(text: String): String = Translations.tr(text)
+/** [text] in the app's chosen language (see [Translations]). Any problem
+ *  with the translations shows the English text rather than failing. */
+fun tr(text: String): String = try { Translations.tr(text) } catch (_: Throwable) { text }
 
 /**
  * Waits for the saved language's words before showing [content] (only a
