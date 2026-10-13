@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import com.mediaviewer.platform.PlatformContext
 import com.mediaviewer.platform.sharedPreferences
+import com.mediaviewer.platform.synchronizedCompat
 import com.mediaviewer.resources.Res
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -124,7 +125,7 @@ object Translations {
         }
         // Longer patterns first: "{0} of {1} checked" before "{0} of {1}".
         pats.sortByDescending { it.literalLength }
-        synchronized(cache) {
+        synchronizedCompat(cache) {
             exact = plain
             patterns = pats
             loadedFor = lang
@@ -140,7 +141,7 @@ object Translations {
         if (lang == AppLanguage.ENGLISH || lang != loadedFor || text.isEmpty()) return text
         exact[text]?.let { return it }
         if (text.length > 400 || patterns.isEmpty()) return text
-        synchronized(cache) { cache[text] }?.let { return it }
+        synchronizedCompat(cache) { cache[text] }?.let { return it }
         var out = text
         for (p in patterns) {
             val m = p.match(text) ?: continue
@@ -156,7 +157,7 @@ object Translations {
                 if (inner != trimmed) out = text.replace(trimmed, inner)
             }
         }
-        synchronized(cache) {
+        synchronizedCompat(cache) {
             if (cache.size > 4000) cache.clear()
             cache[text] = out
         }
