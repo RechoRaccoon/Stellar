@@ -2,8 +2,9 @@ name: Build Stellar iOS
 
 # Separate from build.yml so an iOS failure never blocks the Android APK.
 on:
+  # Every push, on any branch: Android, iOS, Windows and macOS are all
+  # built from the same commit.
   push:
-    branches: [ main ]
   # Run by hand (Actions › Build Stellar iOS › Run workflow) to try the
   # other kind of Mac GitHub offers. The usual one (macos-15) has 7 GB of
   # memory, which the Kotlin build fills; macos-15-intel has 14 GB and

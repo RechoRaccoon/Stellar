@@ -5,8 +5,9 @@ name: Build Stellar Desktop
 # is built on its own system: the app bundles that system's FFmpeg and
 # JavaFX (see shared/build.gradle.kts).
 on:
+  # Every push, on any branch: Android, iOS, Windows and macOS are all
+  # built from the same commit.
   push:
-    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
