@@ -2,7 +2,8 @@
 // installers. All app code lives in :shared (commonMain + desktopMain).
 //
 //   gradle :desktopApp:run                  — run it
-//   gradle :desktopApp:packageMsi / packageExe   (on Windows)
+//   gradle :desktopApp:packageMsi            (on Windows; the .exe installer
+//                                              is Inno Setup: windows/stellar.iss)
 //   gradle :desktopApp:packageDmg           (on a Mac)
 //
 // Installers can only be built on the system they're for; CI builds all
@@ -39,7 +40,7 @@ compose.desktop {
         }
 
         nativeDistributions {
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Dmg)
+            targetFormats(TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Stellar"
             packageVersion = "1.0.0"
             description = "Stellar — an open-source social app for the AT Protocol"

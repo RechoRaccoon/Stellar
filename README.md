@@ -24,8 +24,8 @@ Every feature in Stellar is free for everyone!! If you'd like to help Recho affo
 # Install on Android
 Download and run Stellar.apk from the [latest releases](https://github.com/RechoRaccoon/Stellar/releases)
 # Install on Windows
-- Download **Stellar-Windows.msi** (or **Stellar-Windows.exe**) from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
-- Open it and follow the installer. If Windows SmartScreen says it "protected your PC", click **More info** → **Run anyway** (the installer isn't code-signed).
+- Download **Stellar-Windows.exe** (or **Stellar-Windows.msi**) from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
+- Open it and follow the installer. If Windows SmartScreen says it "protected your PC", click **More info** → **Run anyway** (the installer isn't code-signed). The .exe can open Stellar as soon as it's installed.
 - Stellar is then in the Start menu.
 
 # Install on macOS

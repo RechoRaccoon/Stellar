@@ -24,7 +24,8 @@ jobs:
         include:
           - name: Windows installer
             runner: windows-latest
-            tasks: ":desktopApp:packageMsi :desktopApp:packageExe"
+            # The .msi from jpackage; the app folder for the .exe (Inno Setup, below).
+            tasks: ":desktopApp:packageMsi :desktopApp:createDistributable"
             artifact: Stellar-Windows
           - name: macOS installer (Apple silicon)
             runner: macos-15
@@ -53,13 +54,23 @@ jobs:
       - name: Build installer
         run: gradle ${{ matrix.tasks }} --stacktrace
 
+      # The .exe installer: Inno Setup, for its "Launch Stellar" box on the
+      # Finish page (see desktopApp/windows/stellar.iss).
+      - name: Build Windows .exe installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q desktopApp\windows\stellar.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Plain names for the download page: Stellar-Windows.msi / .exe,
       # Stellar-macOS-AppleSilicon.dmg, Stellar-macOS-Intel.dmg.
       - name: Collect installer
         shell: bash
         run: |
           mkdir -p out
-          for f in desktopApp/build/compose/binaries/main/*/*.{msi,exe,dmg}; do
+          for f in desktopApp/build/compose/binaries/main/*/*.{msi,dmg} desktopApp/build/inno/*.exe; do
             [ -e "$f" ] || continue
             cp "$f" "out/${{ matrix.artifact }}.${f##*.}"
           done
