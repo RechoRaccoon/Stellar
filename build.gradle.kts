@@ -10,4 +10,6 @@ plugins {
     // Compose Multiplatform: the same Compose APIs on Android (where it
     // resolves to the regular androidx.compose artifacts) and iOS.
     id("org.jetbrains.compose") version "1.8.2" apply false
+    // The desktop app shell (:desktopApp — Windows and macOS).
+    id("org.jetbrains.kotlin.jvm") version "2.1.21" apply false
 }

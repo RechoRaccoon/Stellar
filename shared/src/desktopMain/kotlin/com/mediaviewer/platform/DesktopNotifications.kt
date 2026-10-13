@@ -1,0 +1,194 @@
+package com.mediaviewer.platform
+
+import com.mediaviewer.repository.BlueskyRepository
+import com.mediaviewer.util.AppLinks
+import com.mediaviewer.util.BskyServices
+import com.mediaviewer.util.LocalData
+import com.mediaviewer.util.PreferencesManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.awt.SystemTray
+import java.awt.TrayIcon
+
+/**
+ * Supporter Settings → Notifications on a computer: the same check Android
+ * runs (worker/StellarNotificationWorker.kt) — unread DMs and new Inbox
+ * activity, read straight from Bluesky — every few minutes while Stellar is
+ * open but not the window in front, shown as the system's own
+ * notifications (Windows' notification centre, macOS' Notification Center)
+ * through the tray / menu-bar icon. Clicking one brings Stellar forward on
+ * that chat or the Inbox. Nothing runs once Stellar is closed.
+ */
+object DesktopNotifications {
+    private const val STATE_PREFS = "stellar_notification_state"
+    private const val EVERY_MS = 3 * 60_000L
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var loop: Job? = null
+    private var tray: TrayIcon? = null
+    private var lastLink: String? = null
+
+    /** Set by the window: true while Stellar is the window in front. */
+    @Volatile var windowFocused: Boolean = true
+
+    /** Set by the window: brings it to the front (a notification was clicked). */
+    @Volatile var showWindow: (() -> Unit)? = null
+
+    /** The tray icon's picture (set by the app before the first check). */
+    @Volatile var trayImage: java.awt.Image? = null
+
+    private fun wanted(): Boolean {
+        val prefs = DesktopContext.sharedPreferences(LocalData.PREFS)
+        return prefs.getBoolean(LocalData.KEY_NOTIFY_DMS, false) || prefs.getBoolean(LocalData.KEY_NOTIFY_INBOX, false)
+    }
+
+    /** Starts or stops the check to match the two Supporter Settings switches. */
+    fun sync() {
+        val on = wanted()
+        if (!on) { loop?.cancel(); loop = null; return }
+        if (loop?.isActive == true) return
+        loop = scope.launch {
+            while (isActive) {
+                delay(EVERY_MS)
+                withTimeoutOrNull(60_000) { runCatching { check() } }
+            }
+        }
+    }
+
+    private suspend fun check() {
+        // While Stellar's window is in front it shows all of this itself
+        // (badges, the in-app banner).
+        if (windowFocused) return
+        val context = DesktopContext
+        val local = context.sharedPreferences(LocalData.PREFS)
+        val wantDms = local.getBoolean(LocalData.KEY_NOTIFY_DMS, false)
+        val wantInbox = local.getBoolean(LocalData.KEY_NOTIFY_INBOX, false)
+
+        val p = PreferencesManager(context)
+        var token = p.bskyAccessJwt.first().orEmpty()
+        var did = p.bskyDid.first().orEmpty()
+        if (token.isBlank() || did.isBlank()) return
+        // Supporters only (the widget included, like on Android).
+        val supporters = context.sharedPreferences("stellar_supporters")
+            .getString("dids", null)?.split(',')?.toSet() ?: emptySet()
+        if (!com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE && did !in supporters) return
+
+        // (An account on its own PDS is checked there.)
+        BskyServices.init(context)
+        val repo = BlueskyRepository().apply { updateServiceUrl(BskyServices.urlFor(did)) }
+        val state = context.sharedPreferences(STATE_PREFS)
+
+        suspend fun refresh(): Boolean {
+            val refreshJwt = p.bskyRefreshJwt.first().orEmpty()
+            if (refreshJwt.isBlank()) return false
+            val r = repo.refreshToken(refreshJwt).getOrNull() ?: return false
+            p.saveBskySession(r.accessJwt, r.refreshJwt, r.did, r.handle)
+            token = r.accessJwt
+            did = r.did
+            return true
+        }
+        fun authError(t: Throwable?): Boolean {
+            val m = t?.message ?: return false
+            return m.contains("401") || m.contains("400") || m.contains("ExpiredToken", true) || m.contains("InvalidToken", true)
+        }
+
+        // (Only the 50 most recently active chats: anything unread is
+        // among them.)
+        var convos = repo.listConvos(token, did, maxPages = 1)
+        if (convos.isFailure && authError(convos.exceptionOrNull()) && refresh()) convos = repo.listConvos(token, did, maxPages = 1)
+        val list = convos.getOrNull()
+        if (list != null) {
+            if (wantDms) {
+                val editor = state.edit()
+                val firstRun = !state.contains("dm_seeded")
+                for (c in list) {
+                    if (c.unreadCount <= 0) continue
+                    val key = "dm_" + c.convoId
+                    // "Already told you about this": the chat's newest
+                    // activity plus how many are unread.
+                    val stamp = c.lastActivityAt + "|" + c.unreadCount
+                    if (state.getString(key, null) == stamp) continue
+                    editor.putString(key, stamp)
+                    // The very first check only records what's already there.
+                    if (firstRun) continue
+                    val name = c.member.displayName.ifBlank { c.member.handle }.ifBlank { "New message" }
+                    val text = c.lastMessageText.ifBlank {
+                        if (c.unreadCount == 1) "Sent you a message" else "${c.unreadCount} new messages"
+                    }
+                    post("dm_" + c.convoId, "dms", name, text, "dm:" + c.convoId)
+                }
+                editor.putBoolean("dm_seeded", true).apply()
+            }
+        }
+
+        if (wantInbox) {
+            var resp = repo.listNotifications(token, did, limit = 25)
+            if (resp.isFailure && authError(resp.exceptionOrNull()) && refresh()) resp = repo.listNotifications(token, did, limit = 25)
+            val all = resp.getOrNull()?.notifications.orEmpty()
+            val last = state.getString("inbox_last", null)
+            val newest = all.maxOfOrNull { it.indexedAt }
+            if (last != null) {
+                val fresh = all.filter { !it.isRead && it.indexedAt > last }.sortedByDescending { it.indexedAt }
+                if (fresh.isNotEmpty()) {
+                    val first = fresh.first()
+                    val who = first.author.displayName?.ifBlank { null } ?: first.author.handle
+                    val what = when (first.reason) {
+                        "like", "like-via-repost" -> "liked your post"
+                        "repost", "repost-via-repost" -> "reposted your post"
+                        "follow" -> "followed you"
+                        "mention" -> "mentioned you"
+                        "reply" -> "replied to you"
+                        "quote" -> "quoted your post"
+                        else -> "sent you a notification"
+                    }
+                    val title = if (fresh.size == 1) "Stellar" else "${fresh.size} new notifications"
+                    val text = if (fresh.size == 1) "$who $what" else "$who $what, and ${fresh.size - 1} more"
+                    post("inbox", "inbox", title, text, "inbox")
+                }
+            }
+            if (newest != null && newest != last) state.edit().putString("inbox_last", newest).apply()
+        }
+    }
+
+    /** One notification; [link] is where a click goes. */
+    @Suppress("UNUSED_PARAMETER")
+    private fun post(id: String, thread: String, title: String, text: String, link: String) {
+        runCatching {
+            val icon = trayIcon() ?: return
+            lastLink = link
+            icon.displayMessage(title, text, TrayIcon.MessageType.NONE)
+        }
+    }
+
+    private fun trayIcon(): TrayIcon? {
+        tray?.let { return it }
+        if (!SystemTray.isSupported()) return null
+        val image = trayImage ?: return null
+        val icon = TrayIcon(image, "Stellar").apply {
+            isImageAutoSize = true
+            // A click on the notification (or the icon) opens what it was about.
+            addActionListener {
+                lastLink?.let { AppLinks.open(it) }
+                lastLink = null
+                showWindow?.invoke()
+            }
+        }
+        runCatching { SystemTray.getSystemTray().add(icon) }.onFailure { return null }
+        tray = icon
+        return icon
+    }
+
+    /** Takes the tray icon away (Stellar is closing). */
+    fun shutdown() {
+        loop?.cancel()
+        tray?.let { t -> runCatching { SystemTray.getSystemTray().remove(t) } }
+        tray = null
+    }
+}

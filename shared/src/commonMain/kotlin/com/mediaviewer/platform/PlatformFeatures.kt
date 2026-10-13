@@ -1,8 +1,9 @@
 package com.mediaviewer.platform
 
 /**
- * Features that only exist on Android. On iOS they stay visible in the UI
- * but dimmed, not clickable, and marked with an "Android only" tag (see
+ * Features that only exist on Android. On iOS and the desktop app they stay
+ * visible in the UI but dimmed, not clickable, and marked with an "Android
+ * only" tag (see
  * ui/AndroidOnly.kt) — never hidden, never removed from Android.
  */
 enum class PlatformFeature(val label: String) {
@@ -26,10 +27,12 @@ enum class PlatformFeature(val label: String) {
         (this == AI_TAGGING && IosCapabilities.aiTagging) ||
         // iOS: GIFs made with Apple's own image and video frameworks.
         (this == GIF_EXPORT && IosCapabilities.gifExport) ||
-        // iOS: fonts imported from the Files app.
+        // iOS: fonts imported from the Files app; desktop: from any folder.
         this == CUSTOM_FONT ||
         // iOS: through a share-sheet shortcut (Settings explains how).
-        this == OPEN_BY_DEFAULT_LINKS
+        (this == OPEN_BY_DEFAULT_LINKS && currentPlatform == PlatformKind.IOS) ||
+        // Desktop: GIFs made with the bundled FFmpeg.
+        (this == GIF_EXPORT && currentPlatform == PlatformKind.DESKTOP)
 }
 
 /** What the iOS app turned out to be able to do, set once at launch when

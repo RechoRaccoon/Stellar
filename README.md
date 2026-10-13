@@ -23,6 +23,21 @@ Every feature in Stellar is free for everyone!! If you'd like to help Recho affo
 
 # Install on Android
 Download and run Stellar.apk from the [latest releases](https://github.com/RechoRaccoon/Stellar/releases)
+# Install on Windows
+- Download **Stellar-Windows.msi** (or **Stellar-Windows.exe**) from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
+- Open it and follow the installer. If Windows SmartScreen says it "protected your PC", click **More info** → **Run anyway** (the installer isn't code-signed).
+- Stellar is then in the Start menu.
+
+# Install on macOS
+- Download the .dmg for your Mac from the [latest release](https://github.com/RechoRaccoon/Stellar/releases):
+   - **Stellar-macOS-AppleSilicon.dmg** for M1/M2/M3/M4 Macs
+   - **Stellar-macOS-Intel.dmg** for Intel Macs
+   - (Not sure? Apple menu → **About This Mac**: "Chip: Apple M…" means Apple silicon.)
+- Open the .dmg and drag **Stellar** into **Applications**.
+- The first time, **right-click** Stellar in Applications → **Open** → **Open** (the app isn't notarized by Apple). If macOS still refuses, go to System Settings → Privacy & Security and click **Open Anyway**.
+
+The desktop app opens in a phone-shaped (portrait) window, since Stellar was made for phones — drag its edges to make it any size or shape you like, and it remembers. **Esc** or the mouse's back button goes back. VRM mode, the Camera page, AI Tagging, Translate, the audio visualizer and music scrobbling are phone-only and show as "Not on Desktop".
+
 # Install on iOS
 - Download Stellar.ipa from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
 - On Windows, install **iTunes** and **iCloud** from **apple.com** (not the Microsoft Store) (Mac can skip this)

@@ -1,11 +1,30 @@
 // Shared code module (Kotlin Multiplatform).
 //
-// Targets: Android (the real app, all code in src/androidMain for now) and
+// Targets: Android (the real app, all code in src/androidMain for now),
 // iOS (iosArm64 = iPhone, iosSimulatorArm64 = Simulator on Apple-silicon
-// Macs). Portable code moves from src/androidMain into src/commonMain
-// package by package; Android-only pieces stay in androidMain behind
-// expect/actual declarations with iOS versions in src/iosMain.
+// Macs) and desktop (a JVM build for Windows and macOS, src/desktopMain;
+// the app shell and installers are in :desktopApp). Portable code moves
+// from src/androidMain into src/commonMain package by package;
+// Android-only pieces stay in androidMain behind expect/actual
+// declarations with iOS versions in src/iosMain and desktop ones in
+// src/desktopMain.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+// The desktop build's native libraries (FFmpeg for video, JavaFX for web
+// pages) are this computer's: each installer is built on its own system
+// (Windows, Intel Mac, Apple-silicon Mac) by .github/workflows/desktop.yml.
+val hostOs: String = System.getProperty("os.name").lowercase()
+val hostArm: Boolean = System.getProperty("os.arch").lowercase().let { it == "aarch64" || it == "arm64" }
+val ffmpegClassifier: String = when {
+    hostOs.startsWith("windows") -> "windows-x86_64"
+    hostOs.startsWith("mac") -> if (hostArm) "macosx-arm64" else "macosx-x86_64"
+    else -> if (hostArm) "linux-arm64" else "linux-x86_64"
+}
+val javafxClassifier: String = when {
+    hostOs.startsWith("windows") -> "win"
+    hostOs.startsWith("mac") -> if (hostArm) "mac-aarch64" else "mac"
+    else -> if (hostArm) "linux-aarch64" else "linux"
+}
 
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
@@ -17,6 +36,13 @@ plugins {
 
 kotlin {
     androidTarget {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+
+    // Windows and macOS.
+    jvm("desktop") {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
@@ -70,6 +96,35 @@ kotlin {
             implementation("io.coil-kt.coil3:coil-network-ktor3:3.2.0")
             // Compose Multiplatform's BackHandler (iOS back gesture).
             implementation("org.jetbrains.compose.ui:ui-backhandler:1.8.2")
+        }
+        val desktopMain by getting {
+            dependencies {
+                // Dispatchers.Main = the window's (Swing) UI thread.
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+                // HTTP: OkHttp, with the same client setup as Android.
+                implementation("com.squareup.okhttp3:okhttp:4.12.0")
+                implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
+                // Backups (the same streamed JSON format as Android's).
+                implementation("com.google.code.gson:gson:2.10.1")
+                // Video: FFmpeg through JavaCV — playback (Bluesky's HLS
+                // streams included), upload re-encoding, GIF <-> video. The
+                // GPL build (x264); Stellar itself is GPLv3. Only the pieces
+                // used, for this computer: JavaCV would otherwise pull in
+                // OpenCV and a dozen other libraries for every system.
+                val javacv = "1.5.11"
+                val ffmpeg = "7.1-$javacv"
+                implementation("org.bytedeco:javacv:$javacv") { isTransitive = false }
+                implementation("org.bytedeco:javacpp:$javacv") { isTransitive = false }
+                implementation("org.bytedeco:javacpp:$javacv:$ffmpegClassifier") { isTransitive = false }
+                implementation("org.bytedeco:ffmpeg:$ffmpeg") { isTransitive = false }
+                implementation("org.bytedeco:ffmpeg:$ffmpeg:$ffmpegClassifier-gpl") { isTransitive = false }
+                // Web pages (Search's browser, live-stream embeds, Bluesky's
+                // sign-up check): JavaFX's WebView.
+                val javafx = "21.0.6"
+                for (module in listOf("base", "graphics", "controls", "media", "web", "swing")) {
+                    implementation("org.openjfx:javafx-$module:$javafx:$javafxClassifier") { isTransitive = false }
+                }
+            }
         }
         androidMain.dependencies {
             implementation(compose.preview)
