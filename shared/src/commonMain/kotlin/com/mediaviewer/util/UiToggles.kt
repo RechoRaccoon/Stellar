@@ -150,7 +150,9 @@ object UiToggles {
      *  drawn, as set by pinching on the bar (1 = the standard size). */
     var landscapeBarScale by mutableStateOf(1f)
         private set
-    const val LANDSCAPE_BAR_MIN_SCALE = 0.6f
+    // Never smaller than the standard size: pinching in all the way puts
+    // it back exactly where it started.
+    const val LANDSCAPE_BAR_MIN_SCALE = 1f
     const val LANDSCAPE_BAR_MAX_SCALE = 1.8f
     val starFrameRateOptions = listOf(30, 60, 90, 120)
 

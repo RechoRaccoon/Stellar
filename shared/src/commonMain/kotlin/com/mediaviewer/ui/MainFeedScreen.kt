@@ -4205,8 +4205,8 @@ private fun LandscapeBarScale(landscape: Boolean, content: @Composable () -> Uni
 
 /**
  * Landscape: pinching with two fingers that starts on the interaction bar
- * resizes the bar and the text bubble above it (remembered — see
- * UiToggles.landscapeBarScale). Watched before the post's own gestures and
+ * resizes the bar and the text bubble above it, from the standard size
+ * up (remembered — see UiToggles.landscapeBarScale). Watched before the post's own gestures and
  * only claimed then, so swipes, taps and zooming the picture are
  * unaffected. With a mouse: Ctrl + wheel over the bar (Windows touchpads
  * send their pinches that way too).
@@ -4228,8 +4228,6 @@ private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds:
                     }
                     event.type == PointerEventType.Press && onBar && event.changes.count { it.pressed } == 1 -> {
                         // A finger on the bar: if a second joins, it's a pinch.
-                        val start = util.landscapeBarScale
-                        var zoom = 1f
                         var pinching = false
                         while (true) {
                             val e = awaitPointerEvent(PointerEventPass.Initial)
@@ -4237,8 +4235,10 @@ private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds:
                             if (down == 0) break
                             if (down >= 2) {
                                 pinching = true
-                                zoom *= e.calculateZoom()
-                                util.setLandscapeBarScale(start * zoom, save = false)
+                                // Step by step from the current size, so after
+                                // pinching in to the standard size (the
+                                // smallest), pinching out grows it straight away.
+                                util.setLandscapeBarScale(util.landscapeBarScale * e.calculateZoom(), save = false)
                             }
                             if (pinching) e.changes.forEach { it.consume() }
                         }
