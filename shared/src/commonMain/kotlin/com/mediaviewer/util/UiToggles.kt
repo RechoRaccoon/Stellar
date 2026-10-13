@@ -29,6 +29,7 @@ object UiToggles {
     private const val KEY_VISUALIZER_PERMISSION_ASKED = "audio_visualizer_permission_asked"
     private const val KEY_STARRY_BACKGROUND = "starry_background"
     private const val KEY_STAR_FRAME_RATE = "starry_background_fps"
+    private const val KEY_LANDSCAPE_BAR_SCALE = "landscape_bar_scale"
     // Override App Colors is saved per signed-in account: these are the old
     // shared keys, now only read once to carry an existing choice over to
     // the first account that opens the app (see setAccount).
@@ -144,6 +145,13 @@ object UiToggles {
      *  drop to its idle refresh rate when nothing else is moving. */
     var starFrameRate by mutableStateOf(30)
         private set
+
+    /** Landscape: how big the post's text bubble and interaction bar are
+     *  drawn, as set by pinching on the bar (1 = the standard size). */
+    var landscapeBarScale by mutableStateOf(1f)
+        private set
+    const val LANDSCAPE_BAR_MIN_SCALE = 0.6f
+    const val LANDSCAPE_BAR_MAX_SCALE = 1.8f
     val starFrameRateOptions = listOf(30, 60, 90, 120)
 
     /** Settings → UI Customization → "Override App Colors": everywhere the
@@ -253,6 +261,7 @@ object UiToggles {
         audioVisualizer = p.getBoolean(KEY_AUDIO_VISUALIZER, true)
         starryBackground = p.getBoolean(KEY_STARRY_BACKGROUND, true)
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
+        landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)
@@ -337,6 +346,12 @@ object UiToggles {
         overrideColor = argb or 0xFF000000.toInt()
         prefs?.edit()?.putInt(acct(KEY_OVERRIDE_COLOR, overrideDid), overrideColor)
             ?.putBoolean(acct(KEY_OVERRIDE_COLORS, overrideDid), overrideAppColors)?.apply()
+    }
+
+    /** Resizes the landscape bar while pinching; [save] once the pinch ends. */
+    fun setLandscapeBarScale(scale: Float, save: Boolean) {
+        landscapeBarScale = scale.coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
+        if (save) prefs?.edit()?.putFloat(KEY_LANDSCAPE_BAR_SCALE, landscapeBarScale)?.apply()
     }
 
     fun updateStarFrameRate(fps: Int) {

@@ -1364,7 +1364,16 @@ private fun PostContent(
         }
     }
 
-    Box(Modifier.fillMaxSize().onGloballyPositioned { postBoxRootOrigin = it.positionInRoot() }) {
+    Box(
+        Modifier.fillMaxSize()
+            .onGloballyPositioned { postBoxRootOrigin = it.positionInRoot() }
+            .landscapeBarPinch(landscape, item.id) {
+                // The interaction bar, in this box's coordinates.
+                actionBarOrigin?.takeIf { actionBarSize != IntSize.Zero }?.let { o ->
+                    androidx.compose.ui.geometry.Rect(o - postBoxRootOrigin, actionBarSize.toSize())
+                }
+            }
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1944,14 +1953,16 @@ private fun PostContent(
         ) {
             LandscapeChromeScale(landscape) {
             Box(Modifier.fillMaxWidth()) {
+            // Sideways: a compact fixed width at the bottom left, drawn at
+            // the size set by pinching on the bar — from that corner, so it
+            // grows up and to the right (portrait: edge to edge, as always).
+            Box(
+                if (landscape) Modifier.align(Alignment.BottomStart).landscapeSideSafe()
+                else Modifier.fillMaxWidth()
+            ) {
+            LandscapeBarScale(landscape) {
             Column(
-                // Sideways: a compact fixed width at the bottom left
-                // (portrait: edge to edge, as always).
-                modifier = if (landscape) Modifier
-                    .align(Alignment.BottomStart)
-                    .landscapeSideSafe()
-                    .width(landscapeClusterWidth(appMode, liquidGlass))
-                else Modifier.fillMaxWidth(),
+                modifier = if (landscape) Modifier.width(landscapeClusterWidth(appMode, liquidGlass)) else Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // The visualizer takes up no layout space at all (drawn upward
@@ -2087,6 +2098,8 @@ private fun PostContent(
                     onLikeButtonCenter = { likeButtonCenterRoot = it },
                     interactionsBlocked = authorBlocksViewer
                 )
+            }
+            }
             }
             if (landscape) {
                 // Round fullscreen button, bottom right: hides the UI
@@ -4175,6 +4188,66 @@ private fun landscapeClusterWidth(appMode: AppMode, liquidGlass: Boolean): Dp {
     val gaps = 4.dp * (icons + gifs - 1)
     return buttons + gaps + 20.dp + (if (liquidGlass) 24.dp else 0.dp)
 }
+
+/** Landscape: the text bubble and interaction bar at the size set by
+ *  pinching on the bar (see [landscapeBarPinch]), on top of
+ *  [LandscapeChromeScale]'s own. */
+@Composable
+private fun LandscapeBarScale(landscape: Boolean, content: @Composable () -> Unit) {
+    val scale = com.mediaviewer.util.UiToggles.landscapeBarScale
+    if (!landscape || scale == 1f) { content(); return }
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * scale, d.fontScale),
+        content = content
+    )
+}
+
+/**
+ * Landscape: pinching with two fingers that starts on the interaction bar
+ * resizes the bar and the text bubble above it (remembered — see
+ * UiToggles.landscapeBarScale). Watched before the post's own gestures and
+ * only claimed then, so swipes, taps and zooming the picture are
+ * unaffected. With a mouse: Ctrl + wheel over the bar (Windows touchpads
+ * send their pinches that way too).
+ */
+private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds: () -> androidx.compose.ui.geometry.Rect?): Modifier =
+    if (!landscape) this else this.pointerInput(key) {
+        val util = com.mediaviewer.util.UiToggles
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull() ?: continue
+                val onBar = barBounds()?.inflate(12.dp.toPx())?.contains(change.position) == true
+                when {
+                    event.type == PointerEventType.Scroll -> {
+                        if (onBar && event.keyboardModifiers.isCtrlPressed && change.scrollDelta.y != 0f) {
+                            util.setLandscapeBarScale(util.landscapeBarScale * (1f - change.scrollDelta.y * 0.08f), save = true)
+                            change.consume()
+                        }
+                    }
+                    event.type == PointerEventType.Press && onBar && event.changes.count { it.pressed } == 1 -> {
+                        // A finger on the bar: if a second joins, it's a pinch.
+                        val start = util.landscapeBarScale
+                        var zoom = 1f
+                        var pinching = false
+                        while (true) {
+                            val e = awaitPointerEvent(PointerEventPass.Initial)
+                            val down = e.changes.count { it.pressed }
+                            if (down == 0) break
+                            if (down >= 2) {
+                                pinching = true
+                                zoom *= e.calculateZoom()
+                                util.setLandscapeBarScale(start * zoom, save = false)
+                            }
+                            if (pinching) e.changes.forEach { it.consume() }
+                        }
+                        if (pinching) util.setLandscapeBarScale(util.landscapeBarScale, save = true)
+                    }
+                }
+            }
+        }
+    }
 
 /** Landscape: the post's UI drawn smaller (everything scaled by the same
  *  factor, so it stays proportional) to leave the picture more room. */
