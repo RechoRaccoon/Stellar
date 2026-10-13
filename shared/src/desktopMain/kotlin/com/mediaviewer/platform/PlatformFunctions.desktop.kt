@@ -41,13 +41,41 @@ actual fun defaultLanguageCode(): String = java.util.Locale.getDefault().languag
 
 /** Log lines go to the console (warnings and errors only, unless
  *  STELLAR_DEBUG is set). */
+/**
+ * Stellar's log on a computer. Warnings and errors (failed requests among
+ * them) always go to stellar.log in the data folder — on Windows
+ * %APPDATA%\Stellar\stellar.log — so a problem can be looked into
+ * without a console. Everything else only with STELLAR_DEBUG set.
+ */
 internal object DesktopLog {
     private val verbose = System.getenv("STELLAR_DEBUG") != null
+    private const val MAX_BYTES = 2L * 1024 * 1024
+    private val file: java.io.File? by lazy { runCatching { java.io.File(DesktopPaths.filesDir, "stellar.log") }.getOrNull() }
+    private val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
     fun write(level: String, tag: String?, msg: String, tr: Throwable?): Int {
         if (!verbose && level != "w" && level != "e") return 0
         val line = "${level.uppercase()}/${tag ?: "Stellar"}: $msg"
         System.err.println(line)
         tr?.printStackTrace()
+        append(line, tr)
         return line.length
+    }
+
+    @Synchronized private fun append(line: String, tr: Throwable?) {
+        val f = file ?: return
+        runCatching {
+            // One older copy is kept: stellar.log.old.
+            if (f.length() > MAX_BYTES) {
+                val old = java.io.File(f.parentFile, "stellar.log.old")
+                old.delete()
+                f.renameTo(old)
+            }
+            val text = buildString {
+                append(java.time.LocalDateTime.now().format(stamp)).append(' ').append(line).append('\n')
+                if (tr != null) append(tr.stackTraceToString()).append('\n')
+            }
+            f.appendText(text, Charsets.UTF_8)
+        }
     }
 }

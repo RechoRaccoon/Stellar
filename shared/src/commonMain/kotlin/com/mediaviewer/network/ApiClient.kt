@@ -84,7 +84,14 @@ abstract class ApiClient(baseUrl: String, profile: HttpProfile) {
         }
         val serializer: KSerializer<T>? = if (kind == BodyKind.JSON) serializer<T>() else null
         val raw = engine.execute(buildRequest(method, path, headers, query, body))
-        return toResponse(raw, kind, serializer)
+        return try {
+            toResponse(raw, kind, serializer)
+        } catch (e: Exception) {
+            // An answer that doesn't read as the expected shape: worth a log
+            // line naming the endpoint (the caller only sees the exception).
+            com.mediaviewer.platform.Log.w("Api", "Couldn't read the $path answer (HTTP ${raw.code}): ${e.message?.take(300)}")
+            throw e
+        }
     }
 
     /** JSON body for a @Body parameter. */

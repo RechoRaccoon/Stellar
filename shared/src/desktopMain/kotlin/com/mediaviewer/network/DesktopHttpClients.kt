@@ -136,12 +136,21 @@ private class OkHttpEngine(private val client: OkHttpClient) : HttpEngine {
         val response = suspendCancellableCoroutine<okhttp3.Response> { cont ->
             cont.invokeOnCancellation { runCatching { call.cancel() } }
             call.enqueue(object : Callback {
-                override fun onFailure(call: Call, e: java.io.IOException) { cont.resumeWithException(e) }
+                override fun onFailure(call: Call, e: java.io.IOException) {
+                    if (!call.isCanceled()) com.mediaviewer.platform.Log.w("Http", "${request.method} ${where(call)} failed: $e")
+                    cont.resumeWithException(e)
+                }
                 override fun onResponse(call: Call, response: okhttp3.Response) { cont.resume(response) }
             })
         }
         return response.use { r ->
             val bytes = r.body?.bytes() ?: ByteArray(0)
+            // Failed requests go to the log (stellar.log): where, the status
+            // and the start of the server's answer. Headers — the sign-in
+            // token among them — and query strings are never written.
+            if (!r.isSuccessful && r.code != 304) {
+                com.mediaviewer.platform.Log.w("Http", "${request.method} ${where(call)} -> ${r.code} ${bytes.decodeToString().take(300).replace('\n', ' ')}")
+            }
             HttpResponseData(
                 code = r.code,
                 message = r.message,
@@ -152,5 +161,8 @@ private class OkHttpEngine(private val client: OkHttpClient) : HttpEngine {
         }
     }
 }
+
+/** "host/path" of a request, for the log. */
+private fun where(call: Call): String = call.request().url.let { it.host + it.encodedPath }
 
 actual fun createHttpEngine(profile: HttpProfile): HttpEngine = OkHttpEngine(DesktopHttpClients.clientFor(profile))

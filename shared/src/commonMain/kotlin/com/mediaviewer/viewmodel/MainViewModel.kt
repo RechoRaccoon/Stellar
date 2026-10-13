@@ -690,6 +690,7 @@ class MainViewModel(
         if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
             result = bskyRepo.getFullProfile(bskyToken, _bskyDid.value)
         }
+        result.onFailure { com.mediaviewer.platform.Log.w("Stellar", "Couldn't load your profile: ${it.message}") }
         result.onSuccess {
             _selfProfile.value = it
             // Live Link widget feature: keeps a cached copy of the avatar
@@ -4164,6 +4165,7 @@ class MainViewModel(
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
             }
+            result.onFailure { com.mediaviewer.platform.Log.w("Stellar", "Couldn't load your feeds: ${it.message}") }
             result.onSuccess { feeds ->
                 _availableFeeds.value = feeds
                 _feedInteractionSupport.value = _feedInteractionSupport.value + feeds.associate { it.uri to it.acceptsInteractions }
@@ -6737,6 +6739,7 @@ class MainViewModel(
                 // preload) retry silently — the DM/From Friends UI itself retries live and
                 // reports its own failure if that also doesn't pan out, so a banner here
                 // would just be a confusing, non-actionable false alarm.
+                com.mediaviewer.platform.Log.w("Stellar", "Couldn't load mutuals/DMs: ${it.message}")
                 if (!silent) _errorMessage.value = "Couldn't load DMs: ${it.message}"
             }
         _dmConversationsLoading.value = false
