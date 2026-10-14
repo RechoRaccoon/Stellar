@@ -1526,7 +1526,7 @@ private fun AtProtocolPageContent(
     }
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
-        Column(Modifier.width(HUB_SIDEBAR_WIDTH).fillMaxHeight()) {
+        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight()) {
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
                 ButtonsSection()
@@ -1535,6 +1535,7 @@ private fun AtProtocolPageContent(
             }
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
         }
+        SideListEdge(dominantColor)
     }
     Column(
         Modifier
@@ -3390,9 +3391,6 @@ private fun HubFeedRow(
         }
     }
 }
-
-/** How wide the landscape Hub's side list is. */
-private val HUB_SIDEBAR_WIDTH = 400.dp
 
 /** The picked-up chip: lifted (bigger, with a shadow) and following the
  *  finger; shrinks and turns red over the Remove bubble. */

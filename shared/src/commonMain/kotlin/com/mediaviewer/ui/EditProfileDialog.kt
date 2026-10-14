@@ -152,8 +152,6 @@ fun EditProfileDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            Text("Edit Profile", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
 
             // Row 1: avatar | banner, same height. Above the banner's
             // top-right corner, "Default" / "Video" switch which pair you're
@@ -162,7 +160,11 @@ fun EditProfileDialog(
             val rowH = 96.dp
             // (Square at the top right, where the tabs above meet it.)
             val bannerSlotShape = RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // The title, with the Default / Animated tabs in the room already
+            // under it, sitting on the banner's corner (no extra height).
+            Box(Modifier.fillMaxWidth().height(36.dp)) {
+                Text("Edit Profile", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.TopStart))
+                Row(Modifier.align(Alignment.BottomEnd)) {
                 // Two joined tabs: square where they meet, and the right
                 // one's right edge running straight down into the banner.
                 @Composable
@@ -184,6 +186,7 @@ fun EditProfileDialog(
                 }
                 SlotTab("Default", !videoSlots, left = true) { videoSlots = false }
                 SlotTab("Animated", videoSlots, left = false) { if (supporter) videoSlots = true else { onDismiss(); com.mediaviewer.util.Supporter.openPage() } }
+            }
             }
             Row(Modifier.fillMaxWidth().height(rowH), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // (Square straight away when the supporter option below is on.)

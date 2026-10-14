@@ -31,6 +31,7 @@ object UiToggles {
     private const val KEY_STAR_FRAME_RATE = "starry_background_fps"
     private const val KEY_LANDSCAPE_BAR_SCALE = "landscape_bar_scale"
     private const val KEY_LANDSCAPE_COLUMNS = "landscape_columns"
+    private const val KEY_SIDE_LIST_WIDTH = "side_list_width_dp"
     // Override App Colors is saved per signed-in account: these are the old
     // shared keys, now only read once to carry an existing choice over to
     // the first account that opens the app (see setAccount).
@@ -161,6 +162,21 @@ object UiToggles {
     const val LANDSCAPE_DEFAULT_COLUMNS = 5
     const val LANDSCAPE_MAX_COLUMNS = 10
 
+    /** Landscape: how wide the side list on the left of every split page
+     *  is (Hub, Search, profiles, Explore, DMs), in dp — dragged with the
+     *  handle on its edge. */
+    var sideListWidthDp by mutableStateOf(SIDE_LIST_DEFAULT_DP)
+        private set
+    const val SIDE_LIST_DEFAULT_DP = 340
+    const val SIDE_LIST_MIN_DP = 200
+    const val SIDE_LIST_MAX_DP = 560
+
+    /** While dragging: [save] = false just moves it; the drag's end saves. */
+    fun updateSideListWidth(dp: Int, save: Boolean) {
+        sideListWidthDp = dp.coerceIn(SIDE_LIST_MIN_DP, SIDE_LIST_MAX_DP)
+        if (save) prefs?.edit()?.putInt(KEY_SIDE_LIST_WIDTH, sideListWidthDp)?.apply()
+    }
+
     fun updateLandscapeColumns(columns: Int) {
         landscapeColumns = columns.coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         prefs?.edit()?.putInt(KEY_LANDSCAPE_COLUMNS, landscapeColumns)?.apply()
@@ -280,6 +296,7 @@ object UiToggles {
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
         landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
         landscapeColumns = p.getInt(KEY_LANDSCAPE_COLUMNS, LANDSCAPE_DEFAULT_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
+        sideListWidthDp = p.getInt(KEY_SIDE_LIST_WIDTH, SIDE_LIST_DEFAULT_DP).coerceIn(SIDE_LIST_MIN_DP, SIDE_LIST_MAX_DP)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)

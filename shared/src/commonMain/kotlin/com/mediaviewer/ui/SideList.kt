@@ -27,6 +27,13 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,8 +63,66 @@ import com.mediaviewer.util.rememberHapticTap
 /** True while drawing inside a landscape side list. */
 val LocalSideList = compositionLocalOf { false }
 
-/** How wide the side list is. */
-val SIDE_LIST_WIDTH: Dp = 220.dp
+/**
+ * How wide the side list is — the same on every split page, set by
+ * dragging the handle on its edge (see [SideListEdge]); never more than
+ * about half the window.
+ */
+@Composable
+fun rememberSideListWidth(): Dp {
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    val max = minOf(com.mediaviewer.util.UiToggles.SIDE_LIST_MAX_DP, (screen.width * 0.45f).toInt())
+        .coerceAtLeast(com.mediaviewer.util.UiToggles.SIDE_LIST_MIN_DP)
+    return com.mediaviewer.util.UiToggles.sideListWidthDp.coerceIn(com.mediaviewer.util.UiToggles.SIDE_LIST_MIN_DP, max).dp
+}
+
+/**
+ * The side list's edge: a small upright pill, centred, to grab and drag
+ * sideways — every split page's side list follows. While it's held, a line
+ * in the page's [tint] runs the whole height of the edge (like resizing
+ * split windows). Takes no room in its row: place it right after the side
+ * list.
+ */
+@Composable
+fun SideListEdge(tint: Color, modifier: Modifier = Modifier) {
+    var dragging by remember { mutableStateOf(false) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val width = rememberSideListWidth()
+    val latestWidth by androidx.compose.runtime.rememberUpdatedState(width)
+    val grab = 24.dp
+    val line = lerp(tint, Color.White, 0.3f)
+    androidx.compose.ui.layout.Layout(
+        content = {
+            Box(
+                Modifier.fillMaxHeight().width(grab)
+                    .pointerInput(Unit) {
+                        var dragDp = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragging = true; dragDp = latestWidth.value },
+                            onDragEnd = { dragging = false; com.mediaviewer.util.UiToggles.updateSideListWidth(latestWidth.value.toInt(), save = true) },
+                            onDragCancel = { dragging = false; com.mediaviewer.util.UiToggles.updateSideListWidth(latestWidth.value.toInt(), save = true) }
+                        ) { change, dx ->
+                            change.consume()
+                            dragDp += dx / density.density
+                            com.mediaviewer.util.UiToggles.updateSideListWidth(dragDp.toInt(), save = false)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (dragging) Box(Modifier.fillMaxHeight().width(2.dp).background(line))
+                Box(
+                    Modifier.width(if (dragging) 7.dp else 5.dp).height(44.dp).clip(RoundedCornerShape(50))
+                        .background(if (dragging) line else Color.White.copy(alpha = 0.35f))
+                )
+            }
+        },
+        modifier = modifier.fillMaxHeight().zIndex(2f)
+    ) { measurables, constraints ->
+        val g = grab.roundToPx()
+        val p = measurables.first().measure(androidx.compose.ui.unit.Constraints.fixed(g, constraints.maxHeight))
+        layout(0, constraints.maxHeight) { p.place(-g / 2, 0) }
+    }
+}
 
 /** One button in a side list: full width, its text at the left. */
 @Composable
@@ -111,7 +176,7 @@ fun SideListDivider(tint: Color) {
 }
 
 /**
- * The side list itself: [SIDE_LIST_WIDTH] wide, the page's full height,
+ * The side list itself: [rememberSideListWidth] wide, the page's full height,
  * scrolling if it runs long. [footer] sits at the bottom.
  */
 @Composable
@@ -123,8 +188,8 @@ fun LandscapeSideList(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
-        modifier.width(SIDE_LIST_WIDTH).fillMaxHeight()
-            .padding(start = 12.dp, end = 8.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
+        modifier.width(rememberSideListWidth()).fillMaxHeight()
+            .padding(start = 16.dp, end = 16.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
     ) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SideListButton(backLabel, selected = false, liquidGlass = liquidGlass, tint = tint, icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack)

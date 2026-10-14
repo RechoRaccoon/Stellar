@@ -305,12 +305,13 @@ fun DmInboxOverlay(
             }
         } else {
             Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
-                Column(Modifier.width(Landscape.SIDE_LIST_WIDTH).fillMaxHeight()) {
+                Column(Modifier.width(rememberSideListWidth()).fillMaxHeight()) {
                     Header(null, profileTint) { onClose() }
                     HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
                     PickerPane()
                 }
                 Box(Modifier.fillMaxHeight().width(0.5.dp).background(Color.White.copy(0.10f)))
+                SideListEdge(profileTint)
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (thread != null) {
                         Header(thread, theirTint) { onCloseThread() }

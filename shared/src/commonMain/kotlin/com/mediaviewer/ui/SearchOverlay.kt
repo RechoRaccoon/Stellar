@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -310,12 +311,14 @@ fun SearchOverlay(
             // Hub's bar and search bar.
             val sideways = rememberLandscape()
             @Composable
-            fun SearchBarBlock(m: Modifier) {
+            fun SearchBarBlock(m: Modifier, showBack: Boolean = true) {
             Box(m.height(44.dp)) {
-                val p = split.value
+                // (Landscape's side list has its own Back row, so the bar is
+                // exactly the Hub's: field and search button.)
+                val p = if (showBack) split.value else 0f
                 // Back: a round bubble the same size as the search button on
                 // the right, sliding out of the field's left end.
-                RoundBackButton(
+                if (showBack) RoundBackButton(
                     liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop, onClick = closeWithMerge,
                     size = 44.dp,
                     modifier = Modifier.align(Alignment.CenterStart).graphicsLayer {
@@ -432,35 +435,9 @@ fun SearchOverlay(
             )
             }
             }
-            if (sideways) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.weight(1f)) { TabsBlock() }
-                    Spacer(Modifier.width(8.dp))
-                    SearchBarBlock(Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(4.dp))
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-            } else {
-                SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-
-            Spacer(Modifier.height(10.dp))
-
-            // ── Filter row ────────────────────────────────────────────────
-            // Roadmap: restyled to match the Hub's "Feeds" row — rounder,
-            // compact, horizontally scrollable pills that float over the
-            // live backdrop, instead of a fixed SpaceEvenly row between two
-            // dividers.
-            // Main tabs — the same big pills as a profile's tab row, framed
-            // by the same thin dividers.
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-            TabsBlock()
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-            }
             // Content-type sub-tabs — Posts and Tagged only.
+            @Composable
+            fun KindTabs() {
             if (isPosts && state.posts.isNotEmpty()) {
                 PostKindSubTabRow(state.posts, postsKind, liquidGlass, profileTint, showAll = true) { postsKind = it }
             } else if (isLiked && hasTaggedDataset && likedTagResults.isNotEmpty()) {
@@ -470,8 +447,10 @@ fun SearchOverlay(
                 }
             }
 
-            // ── Results ──────────────────────────────────────────────────
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            }
+            @Composable
+            fun Results(m: Modifier) {
+            Box(m) {
                 when {
                     // Web Browser: a live page filling the space between the
                     // tabs and the interaction bar.
@@ -657,7 +636,58 @@ fun SearchOverlay(
                         }
                     }
                 }
+                        }
             }
+            if (sideways) {
+                // Landscape: a side list like the Hub's — the very same
+                // search bar at the top, Back and the tabs as a list of
+                // buttons, the post-type filters, the grid size slider at
+                // the bottom — and the results beside it.
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight()) {
+                        SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp), showBack = false)
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            androidx.compose.runtime.CompositionLocalProvider(LocalSideList provides true) {
+                                SideListButton(
+                                    "Back", selected = false, liquidGlass = liquidGlass, tint = profileTint,
+                                    icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = closeWithMerge
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                TabsBlock()
+                                if ((isPosts && state.posts.isNotEmpty()) || (isLiked && hasTaggedDataset && likedTagResults.isNotEmpty())) {
+                                    SideListDivider(profileTint)
+                                    KindTabs()
+                                }
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) { GridSizeSlider(profileTint) }
+                    }
+                    SideListEdge(profileTint)
+                    Results(Modifier.weight(1f).fillMaxHeight())
+                }
+            } else {
+                SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+
+            Spacer(Modifier.height(10.dp))
+
+            // ── Filter row ────────────────────────────────────────────────
+            // Roadmap: restyled to match the Hub's "Feeds" row — rounder,
+            // compact, horizontally scrollable pills that float over the
+            // live backdrop, instead of a fixed SpaceEvenly row between two
+            // dividers.
+            // Main tabs — the same big pills as a profile's tab row, framed
+            // by the same thin dividers.
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            TabsBlock()
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            KindTabs()
+            Results(Modifier.weight(1f).fillMaxWidth())
+            }
+
         }
 
         // Profile-style interaction bar, trimmed to Refresh + Grid layout.
@@ -666,7 +696,7 @@ fun SearchOverlay(
             BrowserInteractionBar(
                 state = BrowserHome.state, liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
                 onPopout = { LocalOverlays.popOut(BrowserHome.state.url) },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (rememberLandscape()) rememberSideListWidth() else 0.dp)
             )
         } else if (!isE621Filter && !(isLiked && !hasTaggedDataset)) {
             val sortTap = rememberHapticTap()
@@ -678,7 +708,8 @@ fun SearchOverlay(
                 filter = if (isPosts || isLiked) kindForTab else null,
                 gridMode = effectiveGridMode(kindForTab, resultsGridMode(gridScreen, kindForTab), sideways),
                 onGrid = { cycleResultsGridMode(gridScreen, kindForTab, landscape = sideways) },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                // (Landscape: centred under the results, beside the side list.)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (sideways) rememberSideListWidth() else 0.dp),
                 // Tagged: Sort, at the right end — its choices pop up off it
                 // like the More button's.
                 trailing = if (!isLiked) null else ({

@@ -379,6 +379,7 @@ fun GridScreen(
                 tint = tint, liquidGlass = liquidGlass, backLabel = "Back", onBack = onSwipeDown,
                 footer = { GridSizeSlider(tint) }
             ) { HeaderRows() }
+            SideListEdge(tint)
         }
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(spec.lanes),
@@ -552,7 +553,7 @@ fun GridScreen(
                 pendingAnchor = middleAnchor(gridState)
                 cycleResultsGridMode(gridScreen, kind, landscape = wideDp > 0)
             },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) SIDE_LIST_WIDTH else 0.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),
             refreshAnchor = "ex.refresh", gridAnchor = "ex.layout"
         )
         pendingStatusDelete?.let { entry ->
@@ -569,7 +570,7 @@ fun GridScreen(
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(
             visible = showScrollTop,
-            modifier = Modifier.align(Alignment.TopCenter).padding(start = if (wideDp > 0) SIDE_LIST_WIDTH else 0.dp, top = rememberTopCutoutClearance() + 8.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp, top = rememberTopCutoutClearance() + 8.dp),
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f)
         ) {

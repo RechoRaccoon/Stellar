@@ -979,6 +979,7 @@ fun ProfileOverlay(
             tint = blended, liquidGlass = liquidGlass, backLabel = "Back", onBack = onClose,
             footer = { GridSizeSlider(blended) }
         ) { TabsAndFilters() }
+        if (sideways) SideListEdge(blended)
         LazyColumn(
             state = listState,
             // Bug fix (per feedback): the last item in a tab (e.g. the
@@ -1101,7 +1102,7 @@ fun ProfileOverlay(
         var profileSortOpen by remember(author.did) { mutableStateOf(false) }
         var profileSortBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         if ((profile != null || !state.loadingProfile) && !editingStatus) {
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = if (configuration.width > configuration.height) SIDE_LIST_WIDTH else 0.dp).windowInsetsPadding(WindowInsets.navBarSpace)) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = if (configuration.width > configuration.height) rememberSideListWidth() else 0.dp).windowInsetsPadding(WindowInsets.navBarSpace)) {
                 ProfileInteractionBar(
                     liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
                     refreshing = state.refreshing, animateRefresh = !reducedAnimations, onRefresh = onRefresh,

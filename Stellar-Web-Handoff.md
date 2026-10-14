@@ -54,6 +54,14 @@ from that branch, or from `main` once it's merged.
 - **Android notch bubble:** in landscape it opens up and down, with stacked
   letters.
 - **Launchpad:** Saved Posts uses the bookmark icon.
+- **Shared side-list width:** every split page (Hub, Search, profiles,
+  Explore, DMs) uses one width, `UiToggles.sideListWidthDp` (default 340dp,
+  200–560dp, at most 45% of the window), set by dragging the pill on its
+  edge (`SideListEdge` in `ui/SideList.kt`). While dragging, a line in the
+  page's color runs the edge's full height.
+- **Search in landscape:** the side list has the Hub's search bar at the
+  top (no back bubble), then Back and the tabs as buttons, the post-type
+  filters, and the grid slider at the bottom.
 
 ## 0b. Update: faster profiles, more landscape, video banners, statuses
 
