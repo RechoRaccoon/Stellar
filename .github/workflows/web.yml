@@ -52,7 +52,7 @@ jobs:
           get() { curl -fsSL --retry 4 -o "$DIST/fonts/$1" "$2"; }
           get NotoSans-Regular.ttf https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf
           get NotoSans-Bold.ttf https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSans/hinted/ttf/NotoSans-Bold.ttf
-          get NotoColorEmoji.ttf https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/NotoColorEmoji.ttf
+          get NotoColorEmoji.ttf https://raw.githubusercontent.com/google/fonts/main/ofl/notocoloremoji/NotoColorEmoji-Regular.ttf
           get NotoSansCJKjp-Regular.otf https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
           get NotoSansCJKkr-Regular.otf https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf
           get NotoSansCJKsc-Regular.otf https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
@@ -65,12 +65,15 @@ jobs:
           ls -la "$DIST"
           test -s "$DIST/index.html"
           test -s "$DIST/stellar.js"
-          WASM=$(grep -o '"[^"]*\.wasm"' "$DIST/stellar.js" | head -n 1 | tr -d '"' | sed 's#^\./##')
-          echo "The loader asks for: $WASM"
-          if [ -z "$WASM" ] || [ ! -s "$DIST/$WASM" ]; then
-            echo "::error::$WASM is missing from the site"
-            exit 1
-          fi
+          WASMS=$(grep -o '"[^"]*\.wasm"' "$DIST/stellar.js" | tr -d '"' | sed 's#^\./##' | sort -u)
+          echo "The loader asks for: $WASMS"
+          test -n "$WASMS"
+          for W in $WASMS; do
+            if [ ! -s "$DIST/$W" ]; then
+              echo "::error::$W is missing from the site"
+              exit 1
+            fi
+          done
           # GitHub Pages: no Jekyll processing of the files.
           touch "$DIST/.nojekyll"
           du -sh "$DIST"
