@@ -162,7 +162,7 @@ internal fun SupportPageContent(liquidGlass: Boolean, tint: Color) {
     val tap = rememberHapticTap()
 
     // The page scrolls (it used to be shrunk to fit one screen).
-    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             // ── Logo with a soft breathing glow in the profile color ──
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

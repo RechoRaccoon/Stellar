@@ -461,7 +461,46 @@ val NeutralGlassTint = Color(0xFF7A7AA6)
  *  fall back to a plain tinted glass look on older devices instead of showing
  *  an unblurred capture poking through. */
 // Item: Hub "Profile" button now also uses this to gate its own blur.
-internal val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+internal val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && LiteGlass.LIVE
+
+/**
+ * The web version's lighter glass. A browser draws the whole app on one
+ * canvas, on one thread: re-recording a page into a layer every frame and
+ * blurring crops of it (what the other versions' glass does) is the
+ * slowest thing it can be asked to do. So on the web nothing is recorded
+ * or blurred: glass panels are a solid frosted fill of their own color
+ * with a flat rim, and page backgrounds hold still. Everything keeps its
+ * profile/post color; Android, iOS and desktop are unchanged.
+ */
+object LiteGlass {
+    /** False on the web: no live backdrops, no backdrop blur. */
+    val LIVE: Boolean = com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB
+
+    /** The solid "frosted" fill a glass panel gets instead of a blurred
+     *  backdrop: the panel's color, deepened, nearly opaque. */
+    fun frostedFill(tint: Color, intensity: Float): Color =
+        androidx.compose.ui.graphics.lerp(Color(0xFF0B0B10), tint, 0.30f).copy(alpha = 0.40f + 0.45f * intensity)
+}
+
+/** Records this node into [layer] (a [GlassBackdrop]'s source) while it
+ *  draws — only where glass blurs live ([LiteGlass.LIVE]); elsewhere it's
+ *  drawn exactly as before, with nothing recorded. */
+fun Modifier.recordBackdrop(layer: GraphicsLayer, enabled: Boolean = true): Modifier =
+    if (!enabled || !LiteGlass.LIVE) this
+    else this.drawWithContent {
+        layer.record { this@drawWithContent.drawContent() }
+        drawContent()
+    }
+
+/** Blurs a whole page behind a popup — on the web, where a full-page blur
+ *  is very slow, the page is dimmed by the same amount instead. */
+fun Modifier.pageBlur(radius: Dp): Modifier =
+    if (radius <= 0.dp) this
+    else if (LiteGlass.LIVE) this.blur(radius)
+    else this.drawWithContent {
+        drawContent()
+        drawRect(Color.Black.copy(alpha = (radius.value / 30f).coerceIn(0f, 0.55f)))
+    }
 
 /**
  * Big Update #4: a live, real-time source for backdrop-blurred glass —
@@ -527,7 +566,7 @@ private fun vibrantRimHighlight(c: Color): Color {
  *  single flat tint (at [edgeAlpha] strength) with no gradient at all when
  *  the person's turned that off in Settings. */
 fun glassRimBrush(tint: Color, rimIntensity: Float, vibrantSecondary: Boolean, edgeAlpha: Float, midAlpha: Float): Brush =
-    if (vibrantSecondary) {
+    if (vibrantSecondary && LiteGlass.LIVE) {
         Brush.linearGradient(listOf(
             tint.copy(alpha = edgeAlpha * rimIntensity),
             vibrantRimHighlight(tint).copy(alpha = midAlpha * rimIntensity),
@@ -569,9 +608,13 @@ fun Modifier.glassPanel(
 
     this
         .clip(shape)
-        .background(
-            Brush.linearGradient(
-                listOf(tint.copy(alpha = 0.20f * intensity), Color.White.copy(alpha = 0.07f * intensity), tint.copy(alpha = 0.15f * intensity))
+        .then(
+            // (Web: one flat fill of the same color — see LiteGlass.)
+            if (!LiteGlass.LIVE) Modifier.background(tint.copy(alpha = 0.17f * intensity))
+            else Modifier.background(
+                Brush.linearGradient(
+                    listOf(tint.copy(alpha = 0.20f * intensity), Color.White.copy(alpha = 0.07f * intensity), tint.copy(alpha = 0.15f * intensity))
+                )
             )
         )
         .then(if (scrimAlpha > 0f) Modifier.background(Color.Black.copy(alpha = scrimAlpha)) else Modifier)
@@ -634,7 +677,7 @@ fun Modifier.opaqueMaskPanel(
             // devices always fell straight to the flat, squashed-gradient
             // fallback above, which is exactly the "mask has its own
             // gradient instead of the real background" symptom.
-            if (backdrop != null) {
+            if (backdrop != null && LiteGlass.LIVE) {
                 // No .blur()/magnify/tint scrim here on purpose, unlike
                 // LiquidGlassSurface's version of this same crop — this is
                 // meant to read as plain, sharp background, not glass.
@@ -774,7 +817,12 @@ fun LiquidGlassSurface(
         }
         // Base frosted tint — deliberately light on alpha so the live/colored
         // backdrop behind the panel actually reads through the "glass".
-        Box(
+        // (Web: no blurred backdrop, so a solid frosted fill of the same
+        // color stands in for it — see LiteGlass.)
+        if (!LiteGlass.LIVE) {
+            if (backdrop != null && intensity > 0.01f) Box(Modifier.matchParentSize().background(LiteGlass.frostedFill(tint, intensity)))
+            else Box(Modifier.matchParentSize().background(tint.copy(alpha = 0.14f * intensity)))
+        } else Box(
             Modifier.matchParentSize().background(
                 Brush.linearGradient(
                     listOf(tint.copy(alpha = 0.16f * intensity), Color.White.copy(alpha = 0.06f * intensity), tint.copy(alpha = 0.12f * intensity))

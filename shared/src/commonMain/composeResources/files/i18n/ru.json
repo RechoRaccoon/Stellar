@@ -1786,5 +1786,6 @@
 "Live Link isn't available on the web": "Live Link недоступен в веб-версии",
 "Not available on the web": "Недоступно в веб-версии",
 "Couldn't read the file to upload": "Не удалось прочитать файл для загрузки",
-"Network error: {0}": "Ошибка сети: {0}"
+"Network error: {0}": "Ошибка сети: {0}",
+"Choose a chat to read it here": "Выберите чат, чтобы читать его здесь"
 }

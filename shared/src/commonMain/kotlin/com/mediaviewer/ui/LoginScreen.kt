@@ -179,6 +179,8 @@ fun LoginScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .imePadding()
+                    // (Landscape: a sign-in form of a sensible width, centered.)
+                    .landscapeReadable(Landscape.FORM_WIDTH)
                     .padding(horizontal = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {

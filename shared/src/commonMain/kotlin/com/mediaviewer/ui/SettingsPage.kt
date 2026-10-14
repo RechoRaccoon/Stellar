@@ -641,7 +641,8 @@ internal fun SettingsPageContent(
 
     androidx.compose.runtime.CompositionLocalProvider(LocalSettingsAccent provides headerColorFor(tint)) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+        // (Landscape: a column of a comfortable reading width, centered.)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // ── Supporter Settings ──────────────────────────────────────────

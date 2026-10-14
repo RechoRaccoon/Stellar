@@ -29,6 +29,7 @@ Mac --> dmg
 # Use Stellar in your browser
 Open **https://rechoraccoon.github.io/Stellar/** — nothing to install. Works in Chrome or Edge 119+, Firefox 120+ and Safari 18.2+.
 - Make the window any size or shape you like: a narrow window looks like the phone app.
+- A wide window (or any device turned sideways) gets the landscape layout: grids fill the screen, comments sit beside the post, and DMs show your chats beside the open one.
 - **Esc**, the mouse's back button, or the browser's back button goes back.
 - Your sign-in and settings stay in that browser (clearing the site's data signs you out).
 - VRM mode, the Camera page, AI Tagging, Translate, the audio visualizer, music scrobbling and saving as a GIF show as "Not on Web".

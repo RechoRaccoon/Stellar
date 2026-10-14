@@ -416,8 +416,7 @@ fun SettingsSheet(
                     if (liquidGlass) Modifier
                         .onGloballyPositioned { hubBackgroundOrigin = it.positionInRoot() }
                         .drawWithContent {
-                            hubBackgroundLayer.record { this@drawWithContent.drawContent() }
-                            drawLayer(hubBackgroundLayer)
+                            if (LiteGlass.LIVE) { hubBackgroundLayer.record { this@drawWithContent.drawContent() }; drawLayer(hubBackgroundLayer) } else drawContent()
                         }
                     else Modifier.background(OledBlack)
                 )
@@ -596,7 +595,8 @@ fun SettingsSheet(
             // The bar sits right at the bottom now (the old credit line under
             // it is gone), just clear of the system navigation bar.
             Box(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(top = 6.dp)
+                // (Landscape: a bar of a sensible width, centered.)
+                Modifier.landscapeReadable(640.dp).padding(horizontal = 14.dp).padding(top = 6.dp)
                     .windowInsetsPadding(WindowInsets.navBarSpace)
                     .padding(bottom = 10.dp)
             ) {
@@ -801,7 +801,8 @@ private fun AtProtocolPageContent(
     // the same way content stops at the Return to Feed bar below.
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            // (Landscape: a search bar of a sensible width, centered.)
+            Modifier.landscapeReadable().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -917,6 +918,10 @@ private fun AtProtocolPageContent(
         // third row once a page has two full rows. The order is kept per
         // account on this device (HubLayout.launchpad).
         val launchPager = androidx.compose.foundation.pager.rememberPagerState { com.mediaviewer.util.HubLayout.LAUNCHPAD_PAGES }
+        // Landscape: one row of buttons once they fit (about 118 dp each).
+        val lpWideRow = rememberLandscapeWidthDp().let { w ->
+            w > 0 && w >= maxOf(3, com.mediaviewer.util.HubLayout.launchpad.maxOfOrNull { it.size } ?: 3) * 118
+        }
         val launchpad = com.mediaviewer.util.HubLayout.launchpad
         val lpDrag = remember { LaunchpadDragState() }
         val lpView = rememberPlatformView()
@@ -1077,7 +1082,14 @@ private fun AtProtocolPageContent(
             val base = launchpad.getOrNull(page).orEmpty().filter { it != held }
             val shown: List<String> = if (held != null && lpDrag.targetPage == page)
                 base.toMutableList().apply { add(lpDrag.targetIndex.coerceIn(0, size), held) } else base
-            val perRow = com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_ROW
+            // Landscape, when the window is wide enough: each page is one
+            // row holding all of its buttons (as many slots as the fullest
+            // page, plus one while a button is held) — not three giant
+            // stretched columns.
+            val perRow = if (lpWideRow) {
+                val most = maxOf(3, launchpad.maxOfOrNull { it.size } ?: 3)
+                (if (held != null) most + 1 else most).coerceAtMost(com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_PAGE)
+            } else com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_ROW
             // While a button is held, every page with room shows one more
             // slot (a third row appears under two full ones).
             val wanted = if (held != null) maxOf(shown.size, base.size + 1) else shown.size
@@ -1204,11 +1216,14 @@ private fun AtProtocolPageContent(
         // Fix: only people you both follow — open chats with anyone else
         // used to fill this row too.
         val friends = remember(dmConversations) { dmConversations.filter { !it.isGroup && it.isMutual }.map { it.member } }
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        // Lazy: only the avatars on screen are loaded (someone with
+        // hundreds of mutuals used to load every one of them).
+        com.mediaviewer.ui.compat.LazyRow(
+            Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            for (i in 0 until maxOf(MUTUAL_SKELETON_SLOTS, friends.size)) {
+            items(maxOf(MUTUAL_SKELETON_SLOTS, friends.size)) { i ->
                 val friend = friends.getOrNull(i)
                 val avatarShape = CircleShape
                 Column(
@@ -2569,8 +2584,7 @@ private fun MutualReviewCard(
             val recorded = if (coverBackdrop != null) Modifier
                 .onGloballyPositioned { coverOrigin = it.positionInRoot() }
                 .drawWithContent {
-                    coverLayer.record { this@drawWithContent.drawContent() }
-                    drawLayer(coverLayer)
+                    if (LiteGlass.LIVE) { coverLayer.record { this@drawWithContent.drawContent() }; drawLayer(coverLayer) } else drawContent()
                 } else Modifier
             if (cover != null) {
                 AsyncImage(model = cover, contentDescription = null, contentScale = ContentScale.Crop,

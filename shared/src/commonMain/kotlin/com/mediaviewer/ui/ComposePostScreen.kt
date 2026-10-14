@@ -910,8 +910,8 @@ fun ComposePostScreen(
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
         val backdrop = if (liquidGlass) remember(backdropLayer) { GlassBackdrop(backdropLayer) { backdropOrigin } } else null
         // The draft blurs softly behind a "remove this?" question.
-        val pageBlur by androidx.compose.animation.core.animateDpAsState(if (confirmRemoval != null) 10.dp else 0.dp, label = "composeBlur")
-        Box(Modifier.fillMaxSize().then(if (pageBlur > 0.dp) Modifier.blur(pageBlur) else Modifier)) {
+        val composeBlur by androidx.compose.animation.core.animateDpAsState(if (confirmRemoval != null) 10.dp else 0.dp, label = "composeBlur")
+        Box(Modifier.fillMaxSize().pageBlur(composeBlur)) {
             // ── Scrollable content ──────────────────────────────────────
             // Fills the whole screen down to the keyboard/nav bar (instead
             // of stopping at the top of the button bar) so text scrolls
@@ -921,7 +921,7 @@ fun ComposePostScreen(
                 Modifier.fillMaxSize()
                     .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                     .drawWithContent {
-                        if (liquidGlass) backdropLayer.record { this@drawWithContent.drawContent() }
+                        if (liquidGlass && LiteGlass.LIVE) backdropLayer.record { this@drawWithContent.drawContent() }
                         drawContent()
                     }
             ) {
@@ -932,6 +932,8 @@ fun ComposePostScreen(
             Column(
                 Modifier.fillMaxSize().then(bottomInsetModifier)
                     .verticalScroll(rememberScrollState())
+                    // (Landscape: the draft in a column of a comfortable width.)
+                    .landscapeReadable()
                     .padding(horizontal = 14.dp)
             ) {
                 Spacer(Modifier.height(rememberTopCutoutClearance()))
@@ -1368,6 +1370,8 @@ fun ComposePostScreen(
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(bottomInsetModifier)
                     .onSizeChanged { bottomBarHeight = with(barDensity) { it.height.toDp() } }
+                    // (Landscape: lined up with the draft's column above.)
+                    .landscapeReadable()
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 // Item 12: Review mode has no attach-image/Blog/Textshot/

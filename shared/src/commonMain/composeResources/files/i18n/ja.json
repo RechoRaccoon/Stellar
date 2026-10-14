@@ -1786,5 +1786,6 @@
 "Live Link isn't available on the web": "Live LinkはWeb版では使えません",
 "Not available on the web": "Web版では使えません",
 "Couldn't read the file to upload": "アップロードするファイルを読み込めませんでした",
-"Network error: {0}": "ネットワークエラー：{0}"
+"Network error: {0}": "ネットワークエラー：{0}",
+"Choose a chat to read it here": "チャットを選ぶとここに表示されます"
 }

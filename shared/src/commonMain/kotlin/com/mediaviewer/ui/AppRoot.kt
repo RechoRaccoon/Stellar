@@ -617,14 +617,11 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val appLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val appBackdrop = remember(appLayer) { GlassBackdrop(appLayer) { androidx.compose.ui.geometry.Offset.Zero } }
     Box(Modifier.fillMaxSize().then(
-        if (localPopupShown) Modifier.drawWithContent {
-            appLayer.record { this@drawWithContent.drawContent() }
-            drawContent()
-        } else Modifier
+        if (localPopupShown) Modifier.recordBackdrop(appLayer) else Modifier
     ).then(
         if (onboardingBlurActive || onboardingShown) Modifier.graphicsLayer {
             val amount = onboardingBlur.value
-            renderEffect = if (amount > 0.01f) {
+            renderEffect = if (amount > 0.01f && LiteGlass.LIVE) {
                 val r = 26.dp.toPx() * amount
                 androidx.compose.ui.graphics.BlurEffect(r, r, androidx.compose.ui.graphics.TileMode.Clamp)
             } else null

@@ -274,8 +274,7 @@ fun SearchOverlay(
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .then(
                     if (liquidGlass) Modifier.drawWithContent {
-                        backdropLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(backdropLayer)
+                        if (LiteGlass.LIVE) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
                     } else Modifier.background(OledBlack)
                 )
         ) {
@@ -300,7 +299,9 @@ fun SearchOverlay(
             // they're two separately-positioned elements.
             // Same size, spacing and position as the Hub's search bar (the
             // back button lives up in the camera row instead, see below).
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp)) {
+            // (Landscape: a search bar of a sensible width, centered — the
+            // same place the Hub's sits.)
+            Box(Modifier.landscapeReadable().padding(horizontal = 16.dp).height(44.dp)) {
                 val p = split.value
                 // Back: a round bubble the same size as the search button on
                 // the right, sliding out of the field's left end.
@@ -494,8 +495,10 @@ fun SearchOverlay(
                             val sortNow = com.mediaviewer.util.UiToggles.taggedSort
                             val lastSort = remember { intArrayOf(sortNow) }
                             LaunchedEffect(sortNow) { if (lastSort[0] != sortNow) { lastSort[0] = sortNow; taggedList.scrollToItem(0) } }
+                            val wideDp = rememberLandscapeWidthDp()
                             LazyColumn(Modifier.fillMaxSize(), state = taggedList, contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
+                                    wideDp = wideDp,
                                     items = likedTagResults, loading = taggedLoadingMore, filter = taggedKind,
                                     gridMode = resultsGridMode(gridScreen, taggedKind), tint = profileTint, liquidGlass = liquidGlass,
                                     onTapItem = { item -> likedTagResults.indexOf(item).takeIf { it >= 0 }?.let(onOpenLikedPost) },
@@ -526,7 +529,8 @@ fun SearchOverlay(
                     }
                     state.filter == MainViewModel.SearchFilter.FEEDS -> {
                         if (state.feeds.isEmpty()) EmptyResultsText() else {
-                            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
+                            val side = rememberLandscapeSidePadding()
+                            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = 96.dp)) {
                                 items(state.feeds, key = { it.uri }) { feed ->
                                     val entry = remember(feed) {
                                         com.mediaviewer.model.ProfileListEntry(
@@ -552,8 +556,10 @@ fun SearchOverlay(
                     }
                     state.filter == MainViewModel.SearchFilter.POSTS -> {
                         if (state.posts.isEmpty()) EmptyResultsText() else {
+                            val wideDp = rememberLandscapeWidthDp()
                             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
+                                    wideDp = wideDp,
                                     items = state.posts, loading = state.loadingMorePosts, filter = postsKind,
                                     gridMode = resultsGridMode(gridScreen, postsKind), tint = profileTint, liquidGlass = liquidGlass,
                                     onTapItem = { item -> state.posts.indexOf(item).takeIf { it >= 0 }?.let(onOpenPost) },
@@ -566,27 +572,39 @@ fun SearchOverlay(
                     }
                     state.filter == MainViewModel.SearchFilter.ACCOUNTS -> {
                         if (state.accounts.isEmpty()) EmptyResultsText() else {
+                            // Landscape: the accounts side by side, about
+                            // 420 dp each, filling the window.
+                            val columns = Landscape.lanes(1, rememberLandscapeWidthDp(), 420)
+                            val rows = remember(state.accounts, columns) { state.accounts.chunked(columns) }
                             LazyColumn(
                                 Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                items(state.accounts, key = { it.author.did }) { result ->
-                                    AccountResultRow(
-                                        author = result.author, description = result.description, isFollowing = result.isFollowing,
-                                        liquidGlass = liquidGlass, backdrop = searchBackdrop,
-                                        onClick = {
-                                            com.mediaviewer.util.RecentAccountSearches.record(result.author)
-                                            onOpenAccount(result.author)
+                                items(rows, key = { it.first().author.did }) { row ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        row.forEach { result ->
+                                            Box(Modifier.weight(1f)) {
+                                                AccountResultRow(
+                                                    author = result.author, description = result.description, isFollowing = result.isFollowing,
+                                                    liquidGlass = liquidGlass, backdrop = searchBackdrop,
+                                                    onClick = {
+                                                        com.mediaviewer.util.RecentAccountSearches.record(result.author)
+                                                        onOpenAccount(result.author)
+                                                    }
+                                                )
+                                            }
                                         }
-                                    )
+                                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                    }
                                 }
                             }
                         }
                     }
                     state.filter == MainViewModel.SearchFilter.STARTER_PACKS -> {
                         if (state.starterPacks.isEmpty()) EmptyResultsText() else {
-                            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
+                            val side = rememberLandscapeSidePadding()
+                            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = 96.dp)) {
                                 items(state.starterPacks, key = { it.uri }) { pack ->
                                     val entry = remember(pack) {
                                         com.mediaviewer.model.ProfileListEntry(
@@ -780,9 +798,10 @@ private fun TrendingSearchesList(
     onPick: (com.mediaviewer.repository.BlueskyRepository.TrendingTopic) -> Unit
 ) {
     val tap = rememberHapticTap()
+    val side = rememberLandscapeSidePadding()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item(key = "trending_header") {
@@ -928,9 +947,10 @@ private fun RecentAccountSearchesList(liquidGlass: Boolean, backdrop: GlassBackd
         }
         return
     }
+    val side = rememberLandscapeSidePadding()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item(key = "recent_header") {

@@ -98,7 +98,9 @@ internal fun LazyListScope.profileListsRows(
     savedFeedUris: Set<String>,
     listActions: Map<String, String>,
     onOpen: (ProfileListEntry) -> Unit,
-    onAction: (ProfileListEntry) -> Unit
+    onAction: (ProfileListEntry) -> Unit,
+    /** Landscape: the window's width (rows side by side); 0 in portrait. */
+    wideDp: Int = 0
 ) {
     val lists = state.lists
     val filter = state.listKindFilter
@@ -139,8 +141,9 @@ internal fun LazyListScope.profileListsRows(
                     Text("${ofKind.size}", color = DimGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-            items(ofKind, key = { "lists_${it.kind.name}_${it.uri}" }) { entry ->
+            landscapeGridRows(ofKind, Landscape.lanes(1, wideDp, 460), key = { "lists_${it.kind.name}_${it.uri}" }, spacing = 0.dp) { entry, cell ->
                 ProfileListRow(
+                    modifier = cell,
                     entry = entry, liquidGlass = liquidGlass, tint = tint,
                     label = listActions[entry.uri] ?: entry.actionLabel(savedFeedUris),
                     busy = listActions[entry.uri]?.let { it.endsWith("…") || it.contains('/') } == true,
@@ -165,13 +168,14 @@ internal fun ProfileListRow(
     done: Boolean,
     /** Null: the row itself isn't tappable (only its button is). */
     onOpen: (() -> Unit)?,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(16.dp)
     val danger = entry.kind == ProfileListKind.MOD_LIST && entry.blockUri == null
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
             .glassPanel(liquidGlass, tint = tint.copy(alpha = 0.45f), shape = shape)
             .then(if (onOpen != null) Modifier.clickable { tap(); onOpen() } else Modifier)
             .padding(start = 8.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),

@@ -14,7 +14,69 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0. Status (latest): the web version exists
+## 0a. Update: web speed, and landscape on every version (latest)
+
+### Web speed (web only, `LiteGlass` in `ui/GlassTheme.kt`)
+A browser draws the whole app on one canvas on one thread, so the things
+the other versions do every frame were what made the web version slow.
+`LiteGlass.LIVE` is false on the web only; Android, iOS and desktop are
+unchanged.
+- **No live glass on the web.** Nothing is recorded into a GraphicsLayer
+  (`Modifier.recordBackdrop`, and every `.record {}` site checks
+  `LiteGlass.LIVE`) and nothing is blurred (`CAN_BLUR` is false). Glass
+  panels that would have blurred a backdrop get a solid "frosted" fill of
+  their own color (`LiteGlass.frostedFill`); rims and panel tints are flat
+  colors instead of gradients. Page blurs behind popups
+  (`Modifier.pageBlur`) become a dim.
+- **Still starry sky** on the web (`SpaceSky` doesn't tick).
+- **Pictures** (`util/WebImageLoading.kt`): the browser decodes them off the
+  page's thread and shrinks them to the size they're shown at
+  (`createImageBitmap` → RGBA pixels → Skia bitmap); the old
+  download-and-decode stays as the fallback. Small avatars/feed pictures
+  ask the CDN for its thumbnail sizes (when the CDN is reachable).
+- The 10-a-second video frame copies for blurred video controls are off
+  on the web (nothing blurs them now).
+- **All versions** (no visual change): off-screen tiles in the profile
+  masonry (one non-lazy item) show a same-sized stand-in, so their
+  pictures are let go (`MasonryWindowed`); the Hub's Mutuals row is lazy.
+
+### Landscape (all versions, `ui/Landscape.kt`)
+Only when the window is wider than tall; portrait is untouched.
+- Post grids (Explore, profiles, Search, Hub lists) get more columns as
+  the window widens (`Landscape.postLanes`, `resultsLayoutSpec(…, wideDp)`,
+  `sharedPostResults(…, wideDp)`); horizontal videos become a video-card
+  grid (`VideoCard`); blogs, reviews, VODs, music history, lists and
+  Search accounts sit side by side.
+- Hub: the launchpad is one row once its buttons fit; search bar and the
+  Timeline/Explore bar are centered at a sensible width.
+- Timeline: comments open as a side panel and the post moves over.
+- DMs (≥ 760 dp): chat list on the left, the open chat on the right.
+- Settings, Support, About, the composer, Inbox, blog/review/title pages,
+  the Calendar/Notes/Timer/Calculator apps, sign-in, and the Add To /
+  Quote popups keep a centered reading width (`Modifier.landscapeReadable`,
+  `rememberLandscapeSidePadding`).
+
+### From the update before (not written up then)
+- Images: cdn.bsky.app doesn't let web pages read its pictures, so after
+  it refuses once, each picture comes from the poster's PDS
+  (`com.atproto.sync.getBlob`) — full-size originals, which is why the
+  in-browser shrinking above matters.
+- Video: frame copies for blurred controls (now off on the web, see above).
+
+### Still open
+- "Jumps to Timeline on startup": not reproduced locally — a reload opens
+  the Hub; signing in opens Timeline, as on Android.
+- Whether e621, Rocksky, Streamplace etc. allow the page to connect (CORS)
+  still needs a real browser (the console shows `W/Http: … failed`).
+
+### Local web build (cloud sandbox)
+Google's Maven is blocked, so `androidx.annotation` 1.9.1 and
+`androidx.collection` 1.5.0 (wasm) were compiled from
+compose-multiplatform-core v1.8.2 sources into a local Maven folder, and a
+wasm-only Gradle project pointed at the repo's sources built the page; a
+Playwright script fed it stand-in Bluesky answers for screenshots.
+
+## 0. Status: the web version exists
 
 Built on `claude/blissful-shannon-dj3lzg` (from the desktop branch, with
 `main` merged in). Decisions from Recho: **GitHub Pages**, and the page

@@ -90,7 +90,8 @@ fun QuoteRepostDialog(
     ) {
         PopupSheetSurface(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-            modifier = Modifier.fillMaxWidth()
+            // (Landscape: a popup of a sensible width, centered.)
+            modifier = Modifier.landscapeReadable(560.dp).fillMaxWidth()
         ) {
             Column(Modifier.fillMaxWidth()) {
                 PopupSheetHeader(

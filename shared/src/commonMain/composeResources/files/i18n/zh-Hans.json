@@ -1786,5 +1786,6 @@
 "Live Link isn't available on the web": "网页版无法使用 Live Link",
 "Not available on the web": "网页版不可用",
 "Couldn't read the file to upload": "无法读取要上传的文件",
-"Network error: {0}": "网络错误：{0}"
+"Network error: {0}": "网络错误：{0}",
+"Choose a chat to read it here": "选择一个聊天，在这里阅读"
 }

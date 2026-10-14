@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.focusRequester
@@ -160,8 +161,7 @@ fun DmInboxOverlay(
                     // gradient everywhere else (no "other person" yet on the
                     // conversation picker).
                     if (liquidGlass) Modifier.drawWithContent {
-                        backdropLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(backdropLayer)
+                        if (LiteGlass.LIVE) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
                     } else Modifier.background(OledBlack)
                 )
         ) {
@@ -173,8 +173,13 @@ fun DmInboxOverlay(
             }
         }
 
-        Column(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
-            // ── Header ──
+        // Landscape, on a wide enough window: the chat list down the left
+        // and the open chat beside it (like a desktop messaging app),
+        // instead of one stretched page at a time.
+        val twoPane = rememberLandscapeWidthDp() >= 760
+        // The header row: the DM list's (t = null) or an open chat's.
+        @Composable
+        fun Header(t: MainViewModel.DmThreadState?, tint: Color, onBack: () -> Unit) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -183,49 +188,49 @@ fun DmInboxOverlay(
                 val shape = CircleShape
                 Box(
                     Modifier.size(32.dp)
-                        .then(if (liquidGlass) Modifier.glassPanel(true, shape = shape, tint = headerTint) else Modifier.clip(shape).background(Color.White.copy(0.14f)))
-                        .clickable(onClick = { tap(); if (thread != null) onCloseThread() else onClose() }),
+                        .then(if (liquidGlass) Modifier.glassPanel(true, shape = shape, tint = tint) else Modifier.clip(shape).background(Color.White.copy(0.14f)))
+                        .clickable(onClick = { tap(); onBack() }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = if (thread != null) "Back" else "Close",
+                        contentDescription = if (t != null) "Back" else "Close",
                         tint = Color.White, modifier = Modifier.size(17.dp)
                     )
                 }
-                if (thread != null && isGroup) {
-                    DmConvoAvatar(thread.convo, 30.dp)
+                if (t != null && t.convo.isGroup) {
+                    DmConvoAvatar(t.convo, 30.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(thread.convo.member.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        Text(t.convo.member.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         // Bluesky's own member count (you included); the
                         // lists are only a fallback, and `members` already
                         // includes you — counting it +1 again made a group
                         // of 4 read "5".
-                        val count = thread.convo.memberCount.takeIf { it > 0 }
-                            ?: (thread.members.keys + thread.convo.groupMembers.map { it.did } + selfDid).filter { it.isNotBlank() }.toSet().size
+                        val count = t.convo.memberCount.takeIf { it > 0 }
+                            ?: (t.members.keys + t.convo.groupMembers.map { it.did } + selfDid).filter { it.isNotBlank() }.toSet().size
                         Text("$count members", color = DimGray, fontSize = 11.sp, maxLines = 1)
                     }
-                } else if (thread != null) {
-                    if (thread.convo.member.avatarUrl != null) {
-                        AsyncImage(model = thread.convo.member.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(28.dp).clip(CircleShape).clickable { tap(); onTapAuthor(thread.convo.member) })
+                } else if (t != null) {
+                    if (t.convo.member.avatarUrl != null) {
+                        AsyncImage(model = t.convo.member.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(28.dp).clip(CircleShape).clickable { tap(); onTapAuthor(t.convo.member) })
                     }
-                    Column(Modifier.weight(1f).clickable { tap(); onTapAuthor(thread.convo.member) }) {
-                        Text(thread.convo.member.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    Column(Modifier.weight(1f).clickable { tap(); onTapAuthor(t.convo.member) }) {
+                        Text(t.convo.member.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("@${thread.convo.member.handle}", color = DimGray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("@${t.convo.member.handle}", color = DimGray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     // The streak with this person (tap to re-count it).
-                    DmStreakBadge(thread.convo.convoId, fontSize = 14)
+                    DmStreakBadge(t.convo.convoId, fontSize = 14)
                     // Start a group chat with this person.
                     Box(
                         Modifier.size(32.dp)
-                            .then(if (liquidGlass) Modifier.glassPanel(true, shape = CircleShape, tint = headerTint) else Modifier.clip(CircleShape).background(Color.White.copy(0.14f)))
-                            .clickable { tap(); onNewGroupWith(thread.convo.member) },
+                            .then(if (liquidGlass) Modifier.glassPanel(true, shape = CircleShape, tint = tint) else Modifier.clip(CircleShape).background(Color.White.copy(0.14f)))
+                            .clickable { tap(); onNewGroupWith(t.convo.member) },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.GroupAdd, contentDescription = "New group with ${thread.convo.member.displayName}", tint = Color.White, modifier = Modifier.size(17.dp))
+                        Icon(Icons.Default.GroupAdd, contentDescription = "New group with ${t.convo.member.displayName}", tint = Color.White, modifier = Modifier.size(17.dp))
                     }
                 } else {
                     // Item 12: there was a second, redundant Close button here on
@@ -238,9 +243,9 @@ fun DmInboxOverlay(
                     Spacer(Modifier.size(32.dp))
                 }
             }
-            HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
-
-            if (thread == null) {
+        }
+        @Composable
+        fun PickerPane() {
                 // The chat list is recorded (over the page background) so
                 // the + button can blur whatever chats scroll behind it.
                 val pickerLayer = rememberGraphicsLayer()
@@ -253,7 +258,7 @@ fun DmInboxOverlay(
                         Modifier.fillMaxSize()
                             .onGloballyPositioned { pickerOrigin = it.positionInRoot() }
                             .drawWithContent {
-                                if (liquidGlass) pickerLayer.record {
+                                if (liquidGlass && LiteGlass.LIVE) pickerLayer.record {
                                     translate(backdropOrigin.x - pickerOrigin.x, backdropOrigin.y - pickerOrigin.y) {
                                         drawLayer(backdropLayer)
                                     }
@@ -262,7 +267,8 @@ fun DmInboxOverlay(
                                 drawContent()
                             }
                     ) {
-                        DmConversationPicker(conversations = conversations, loading = loading, liquidGlass = liquidGlass, tint = profileTint, onSelectConvo = onSelectConvo)
+                        DmConversationPicker(conversations = conversations, loading = loading, liquidGlass = liquidGlass, tint = profileTint, onSelectConvo = onSelectConvo,
+                            selectedConvoId = if (twoPane) thread?.convo?.convoId else null)
                     }
                     // New chat / new group.
                     val fabShape = CircleShape
@@ -280,14 +286,46 @@ fun DmInboxOverlay(
                         Box(fabModifier.clip(fabShape).background(androidx.compose.ui.graphics.lerp(profileTint, Color.Black, 0.3f))) { fabContent() }
                     }
                 }
-            } else {
-                DmThreadView(
-                    thread = thread, liquidGlass = liquidGlass, selfAvatarUrl = selfAvatarUrl,
-                    profileTint = profileTint,
-                    backdrop = dmBackdrop, onSendReply = onSendReply,
-                    onLoadMoreMessages = onLoadMoreMessages, onOpenSharedPostsFeed = onOpenSharedPostsFeed,
-                    onToggleReaction = onToggleReaction, selfDid = selfDid
-                )
+        }
+        @Composable
+        fun ThreadPane(t: MainViewModel.DmThreadState) {
+            DmThreadView(
+                thread = t, liquidGlass = liquidGlass, selfAvatarUrl = selfAvatarUrl,
+                profileTint = profileTint,
+                backdrop = dmBackdrop, onSendReply = onSendReply,
+                onLoadMoreMessages = onLoadMoreMessages, onOpenSharedPostsFeed = onOpenSharedPostsFeed,
+                onToggleReaction = onToggleReaction, selfDid = selfDid
+            )
+        }
+        if (!twoPane) {
+            Column(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
+                Header(thread, headerTint) { if (thread != null) onCloseThread() else onClose() }
+                HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
+                if (thread == null) PickerPane() else ThreadPane(thread)
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
+                Column(Modifier.width(Landscape.SIDE_LIST_WIDTH).fillMaxHeight()) {
+                    Header(null, profileTint) { onClose() }
+                    HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
+                    PickerPane()
+                }
+                Box(Modifier.fillMaxHeight().width(0.5.dp).background(Color.White.copy(0.10f)))
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    if (thread != null) {
+                        Header(thread, theirTint) { onCloseThread() }
+                        HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
+                        ThreadPane(thread)
+                    } else {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Chat, contentDescription = null, tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(44.dp))
+                                Spacer(Modifier.height(10.dp))
+                                Text("Choose a chat to read it here", color = DimGray, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -300,7 +338,9 @@ private fun DmConversationPicker(
     loading: Boolean,
     liquidGlass: Boolean,
     tint: Color = NeutralGlassTint,
-    onSelectConvo: (DmConversation) -> Unit
+    onSelectConvo: (DmConversation) -> Unit,
+    /** Landscape's chat list beside the open chat: that chat stands out. */
+    selectedConvoId: String? = null
 ) {
     val tap = rememberHapticTap()
     // Only accounts we actually have history with — a mutual with no convo yet
@@ -332,7 +372,8 @@ private fun DmConversationPicker(
                     if (pinned.isNotEmpty()) {
                         item(key = "pinned_header") { DmSectionTitle("Pinned") }
                         items(pinned, key = { it.convoId }) { convo ->
-                            DmConvoRow(convo, liquidGlass, tint, onClick = { tap(); onSelectConvo(convo) }, onLongClick = { LocalOverlays.pinDmFor = convo })
+                            DmConvoRow(convo, liquidGlass, tint, onClick = { tap(); onSelectConvo(convo) }, onLongClick = { LocalOverlays.pinDmFor = convo },
+                                selected = convo.convoId == selectedConvoId)
                         }
                         item(key = "unpinned_header") { DmSectionTitle("Unpinned") }
                     }
@@ -340,7 +381,7 @@ private fun DmConversationPicker(
                         DmConvoRow(convo, liquidGlass, tint, onClick = { tap(); onSelectConvo(convo) }, onLongClick = {
                             // Pinning is a supporter benefit.
                             if (com.mediaviewer.util.Supporter.active) LocalOverlays.pinDmFor = convo else com.mediaviewer.util.Supporter.openPage()
-                        })
+                        }, selected = convo.convoId == selectedConvoId)
                     }
                     // Room for the + button.
                     item(key = "fab_space") { Spacer(Modifier.height(80.dp)) }
@@ -357,7 +398,7 @@ private fun DmConversationPicker(
  */
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun DmConvoRow(convo: DmConversation, liquidGlass: Boolean, selfTint: Color, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+private fun DmConvoRow(convo: DmConversation, liquidGlass: Boolean, selfTint: Color, onClick: () -> Unit, onLongClick: () -> Unit = {}, selected: Boolean = false) {
     val rowTint = if (convo.isGroup || convo.member.did.isBlank()) selfTint
         else rememberAuthorProfileTint(convo.member.did, convo.member.avatarUrl)
     val unread = convo.unreadCount
@@ -369,6 +410,8 @@ private fun DmConvoRow(convo: DmConversation, liquidGlass: Boolean, selfTint: Co
                 else Modifier.clip(shape).background(androidx.compose.ui.graphics.lerp(Color(0xFF16161B), rowTint, 0.18f))
             )
             .then(if (unread > 0) Modifier.border(1.2.dp, rowTint.copy(alpha = 0.9f), shape) else Modifier)
+            // (The chat open beside the list.)
+            .then(if (selected) Modifier.background(rowTint.copy(alpha = 0.30f), shape).border(1.6.dp, androidx.compose.ui.graphics.lerp(rowTint, Color.White, 0.5f), shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -562,7 +605,7 @@ private fun DmThreadView(
     val bubbleLayer = rememberGraphicsLayer()
     var bubbleOrigin by remember { mutableStateOf(Offset.Zero) }
     val bubbleBackdrop = remember(bubbleLayer) { GlassBackdrop(bubbleLayer) { bubbleOrigin } }
-    val bubblesOut = liquidGlass && effectPlay?.first == DmEffect.BUBBLES
+    val bubblesOut = liquidGlass && LiteGlass.LIVE && effectPlay?.first == DmEffect.BUBBLES
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().then(
@@ -588,7 +631,7 @@ private fun DmThreadView(
             else Modifier
         )
     ) {
-        Box(Modifier.weight(1f).fillMaxWidth().then(if (listBlur > 0.dp) Modifier.blur(listBlur) else Modifier)) {
+        Box(Modifier.weight(1f).fillMaxWidth().pageBlur(listBlur)) {
             when {
                 thread.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)

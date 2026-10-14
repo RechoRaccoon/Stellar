@@ -6,17 +6,23 @@ import coil3.SingletonImageLoader
 import coil3.Uri
 import coil3.decode.DataSource
 import coil3.decode.ImageSource
+import coil3.asImage
 import coil3.fetch.FetchResult
 import coil3.fetch.Fetcher
+import coil3.fetch.ImageFetchResult
 import coil3.fetch.SourceFetchResult
 import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.Options
+import coil3.size.Dimension
+import coil3.size.Scale
 import com.mediaviewer.network.PlainHttp
 import com.mediaviewer.platform.JsBytes
 import com.mediaviewer.platform.WebBlobs
 import com.mediaviewer.platform.WebFiles
 import com.mediaviewer.platform.WebImagePreloader
+import com.mediaviewer.platform.jsGet
+import com.mediaviewer.platform.jsGetInt
 import com.mediaviewer.platform.toByteArray
 import com.mediaviewer.platform.webPathOf
 import kotlinx.coroutines.await
@@ -29,6 +35,14 @@ import kotlin.js.Promise
  * pictures through the browser's fetch (its own cache stands in for the
  * disk cache), and Stellar's stored files ("file://…") from WebFiles —
  * for a video, its first frame.
+ *
+ * Speed: a page has one thread, and decoding a full-size JPEG on it
+ * stalls everything (scrolling a grid decodes dozens). So web pictures
+ * are decoded by the browser itself, off that thread, already shrunk to
+ * the size they're shown at (createImageBitmap), and only those pixels
+ * come into the app. Pictures shown small are asked of Bluesky's CDN in
+ * its thumbnail sizes. Anything that can't go that way falls back to the
+ * ordinary download-and-decode.
  */
 object WebImageLoading {
     private var installed = false
@@ -72,6 +86,19 @@ private class WebFetcher(private val uri: String, private val options: Options) 
         // poster's own server (their PDS), which does.
         val blob = BskyCdn.parse(uri)
         if (blob != null && BskyCdn.blocked) return fromPds(blob)
+        // The fast way first (see WebImageLoading): decoded and shrunk by
+        // the browser.
+        when (val fast = browserDecoded(BskyCdn.sized(uri, targetBox()))) {
+            is Decoded.Image -> return fast.result
+            Decoded.Refused -> if (blob != null) {
+                if (!BskyCdn.blocked) {
+                    BskyCdn.blocked = true
+                    com.mediaviewer.platform.Log.w("Images", "cdn.bsky.app refused the page; loading pictures from each account's server instead")
+                }
+                return fromPds(blob)
+            }
+            Decoded.Failed -> {}
+        }
         val resp = try {
             PlainHttp.get(uri)
         } catch (e: com.mediaviewer.platform.IOException) {
@@ -92,9 +119,49 @@ private class WebFetcher(private val uri: String, private val options: Options) 
     /** The picture's original file, from the account's PDS (getBlob). */
     private suspend fun fromPds(blob: Pair<String, String>): FetchResult {
         val url = com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(blob.first, blob.second)
+        (browserDecoded(url) as? Decoded.Image)?.let { return it.result }
         val resp = PlainHttp.get(url)
         if (resp.code !in 200..299) error("HTTP ${resp.code}")
         return SourceFetchResult(ImageSource(Buffer().write(resp.body), options.fileSystem), resp.contentType, DataSource.NETWORK)
+    }
+
+    /** The box (in pixels) the picture is shown in; 0 where it's unknown. */
+    private fun targetBox(): Pair<Int, Int> {
+        val w = (options.size.width as? Dimension.Pixels)?.px ?: 0
+        val h = (options.size.height as? Dimension.Pixels)?.px ?: 0
+        return w to h
+    }
+
+    private sealed interface Decoded {
+        class Image(val result: FetchResult) : Decoded
+        /** The server answered but wouldn't let the page read it (CORS),
+         *  or said no — worth trying another server. */
+        data object Refused : Decoded
+        /** Anything else (an old browser, an odd format): the ordinary way. */
+        data object Failed : Decoded
+    }
+
+    private suspend fun browserDecoded(url: String): Decoded {
+        val (w, h) = targetBox()
+        val r: JsAny? = try {
+            decodeInBrowser(url, w, h, options.scale == Scale.FILL, MAX_SIDE).await()
+        } catch (e: Throwable) {
+            // fetch() only throws when the server can't be read at all.
+            return Decoded.Refused
+        }
+        if (r == null) return Decoded.Failed
+        val status = jsGetInt(r, "status")
+        if (status != 0) return if (status in 400..599) Decoded.Refused else Decoded.Failed
+        val width = jsGetInt(r, "w")
+        val height = jsGetInt(r, "h")
+        val data = jsGet(r, "data")?.unsafeCast<JsBytes>() ?: return Decoded.Failed
+        if (width <= 0 || height <= 0) return Decoded.Failed
+        val bitmap = org.jetbrains.skia.Bitmap()
+        val info = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.RGBA_8888, org.jetbrains.skia.ColorAlphaType.UNPREMUL)
+        if (!bitmap.installPixels(info, data.toByteArray(), width * 4)) return Decoded.Failed
+        // Immutable: drawn as is every frame, never copied again.
+        bitmap.setImmutable()
+        return Decoded.Image(ImageFetchResult(bitmap.asImage(), isSampled = jsGetInt(r, "scaled") == 1, dataSource = DataSource.NETWORK))
     }
 
     object Factory : Fetcher.Factory<Uri> {
@@ -105,8 +172,25 @@ private class WebFetcher(private val uri: String, private val options: Options) 
     }
 }
 
+/** Longest side a picture is ever kept at (a full-screen one included). */
+private const val MAX_SIDE = 2560
+
 /** Bluesky's picture CDN: https://cdn.bsky.app/img/<size>/plain/<did>/<cid>@<format>. */
 private object BskyCdn {
+    /** [url] in the CDN's smaller size when the picture is shown small
+     *  enough for it: avatars at up to 160 px use the avatar thumbnail
+     *  (128 px), feed pictures at up to 1000 px the feed thumbnail. */
+    fun sized(url: String, box: Pair<Int, Int>): String {
+        if (!url.startsWith("https://cdn.bsky.app/img/")) return url
+        val side = maxOf(box.first, box.second)
+        if (side <= 0) return url
+        return when {
+            side <= 160 && url.contains("/img/avatar/") -> url.replace("/img/avatar/", "/img/avatar_thumbnail/")
+            side <= 1000 && url.contains("/img/feed_fullsize/") -> url.replace("/img/feed_fullsize/", "/img/feed_thumbnail/")
+            else -> url
+        }
+    }
+
     /** Set once the CDN has refused the page this session. */
     var blocked = false
 
@@ -138,3 +222,42 @@ private fun videoFrame(url: String): Promise<JsBytes> = js("""new Promise((resol
     };
     v.src = url;
 })""")
+
+/**
+ * Fetches [url] and lets the browser decode it off the page's thread,
+ * shrunk to fit ([fill] false) or cover ([fill] true) a [w]×[h] box (never
+ * enlarged; 0 = any size, up to [maxSide]). Resolves to {w, h, data
+ * (RGBA bytes), scaled}, {status} when the server said no, or null when
+ * this browser can't do it.
+ */
+private fun decodeInBrowser(url: String, w: Int, h: Int, fill: Boolean, maxSide: Int): Promise<JsAny?> = js("""(async () => {
+    if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return null;
+    const r = await fetch(url, { credentials: 'omit' });
+    if (!r.ok) return { status: r.status || 1 };
+    try {
+    const bmp = await createImageBitmap(await r.blob());
+    let tw = bmp.width, th = bmp.height;
+    if (w > 0 && h > 0) {
+        const s = fill ? Math.max(w / tw, h / th) : Math.min(w / tw, h / th);
+        if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+    } else if (w > 0 || h > 0) {
+        const s = w > 0 ? w / tw : h / th;
+        if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+    }
+    const big = Math.max(tw, th);
+    if (big > maxSide) { const s = maxSide / big; tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+    const scaled = (tw !== bmp.width || th !== bmp.height);
+    let src = bmp;
+    if (scaled) {
+        try { src = await createImageBitmap(bmp, { resizeWidth: tw, resizeHeight: th, resizeQuality: 'high' }); bmp.close(); } catch (e) { src = bmp; }
+    }
+    const c = new OffscreenCanvas(tw, th);
+    const g = c.getContext('2d');
+    if (!g) { src.close(); return null; }
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, tw, th);
+    src.close();
+    const px = g.getImageData(0, 0, tw, th).data;
+    return { status: 0, w: tw, h: th, scaled: scaled ? 1 : 0, data: new Uint8Array(px.buffer, px.byteOffset, px.byteLength) };
+    } catch (e) { return null; }
+})()""")

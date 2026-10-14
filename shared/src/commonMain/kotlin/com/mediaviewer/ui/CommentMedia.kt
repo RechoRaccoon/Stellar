@@ -205,8 +205,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
             modifier = Modifier.fillMaxSize().mousePager(pager)
                 .onGloballyPositioned { origin = it.positionInRoot() }
                 .drawWithContent {
-                    layer.record { this@drawWithContent.drawContent() }
-                    drawLayer(layer)
+                    if (LiteGlass.LIVE) { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) } else drawContent()
                 }
         ) { page ->
             val item = media[page]
@@ -353,8 +352,7 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, fallbackTint: Colo
                 Modifier.fillMaxSize()
                     .onGloballyPositioned { origin = it.positionInRoot() }
                     .drawWithContent {
-                        layer.record { this@drawWithContent.drawContent() }
-                        drawLayer(layer)
+                        if (LiteGlass.LIVE) { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) } else drawContent()
                     }
             ) {
                 FeedVideoView(player, Modifier.fillMaxSize())

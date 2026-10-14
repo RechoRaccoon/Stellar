@@ -106,8 +106,7 @@ fun InboxOverlay(
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .then(
                     if (liquidGlass) Modifier.drawWithContent {
-                        backdropLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(backdropLayer)
+                        if (LiteGlass.LIVE) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
                     } else Modifier.background(OledBlack)
                 )
         ) {
@@ -147,9 +146,11 @@ fun InboxOverlay(
                         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
                             .collect { last -> if (last >= items.size - 5) onLoadMore() }
                     }
+                    // (Landscape: the cards in a column of a comfortable width.)
+                    val side = rememberLandscapeSidePadding()
                     LazyColumn(
                         Modifier.fillMaxSize(), state = listState,
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 40.dp),
+                        contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 12.dp, bottom = 40.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(items, key = { it.key }) { item ->

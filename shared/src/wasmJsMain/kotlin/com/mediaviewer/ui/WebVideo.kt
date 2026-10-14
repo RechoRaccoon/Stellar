@@ -151,7 +151,9 @@ internal fun WebVideoSurface(player: WebVideoPlayer, modifier: Modifier, backdro
         onDispose { player.hide() }
     }
     var viewRect by remember { mutableStateOf(Rect.Zero) }
-    if (backdropKey != null) {
+    // (Off while glass doesn't blur — see LiteGlass: copying the picture
+    // ten times a second made the whole page redraw that often.)
+    if (backdropKey != null && com.mediaviewer.ui.LiteGlass.LIVE) {
         // The glass controls over a video blur what's under them, but the
         // video isn't part of what Compose draws: small copies of its
         // picture are handed to them instead (as on iOS and desktop).

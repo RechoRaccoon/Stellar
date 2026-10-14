@@ -1786,5 +1786,6 @@
 "Live Link isn't available on the web": "Live Link ist im Web nicht verfügbar",
 "Not available on the web": "Im Web nicht verfügbar",
 "Couldn't read the file to upload": "Die hochzuladende Datei konnte nicht gelesen werden",
-"Network error: {0}": "Netzwerkfehler: {0}"
+"Network error: {0}": "Netzwerkfehler: {0}",
+"Choose a chat to read it here": "Wähle einen Chat, um ihn hier zu lesen"
 }

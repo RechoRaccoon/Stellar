@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -462,8 +463,13 @@ fun MainFeedScreen(
             label = "screen"
         ) { state ->
             when (state) {
-                ScreenState.FEED, ScreenState.COMMENTS -> FeedView(
-                    commentsFraction  = commentsFraction,
+                // Landscape: the comments open beside the post (a side
+                // panel, like a video site's), so the post slides over to
+                // make room and keeps its buttons.
+                ScreenState.FEED, ScreenState.COMMENTS -> Box(
+                    Modifier.fillMaxSize().padding(end = if (isLandscape) Landscape.SIDE_PANEL_WIDTH * commentsFraction else 0.dp)
+                ) { FeedView(
+                    commentsFraction  = if (isLandscape) 0f else commentsFraction,
                     mediaItems        = mediaItems,
                     currentIndex      = currentIndex,
                     currentItem       = currentItem,
@@ -527,7 +533,7 @@ fun MainFeedScreen(
                         onCurrentBackdropChanged(backdrop, color)
                     },
                     hateFunBlurNsfw        = hateFunBlurNsfw
-                )
+                ) }
                 ScreenState.SETTINGS -> SettingsSheet(
                     appMode                   = appMode,
                     hasVisitedFeed            = hasVisitedFeed,
@@ -709,14 +715,20 @@ fun MainFeedScreen(
         // anymore — the post stays exactly as it was, and only the comment
         // bubbles themselves blur what's behind each of them.
 
-        // The comments sheet, over the (blurred) post.
+        // The comments sheet, over the (blurred) post. Landscape: a panel
+        // down the right-hand side, beside the post (see FeedView above).
         AnimatedVisibility(
             visible = commentsOpen,
             enter = if (reducedAnimations) EnterTransition.None
+                else if (isLandscape) slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { it }
                 else slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it },
             exit = if (reducedAnimations) ExitTransition.None
+                else if (isLandscape) slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220))
                 else slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
-            modifier = Modifier.fillMaxSize().zIndex(5f)
+            modifier = if (isLandscape) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(Landscape.SIDE_PANEL_WIDTH).zIndex(5f)
+                .background(dimSpaceColor(lastDominantColor, 0.18f))
+                .drawBehind { drawLine(lastDominantColor.copy(alpha = 0.55f), Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
+                else Modifier.fillMaxSize().zIndex(5f)
         ) {
             CommentsSheet(
                 currentItem     = currentItem,
@@ -732,7 +744,8 @@ fun MainFeedScreen(
                 onTagAdd        = onTagAdd,
                 onTagExclude    = onTagExclude,
                 dominantColor   = lastDominantColor,
-                backdrop        = lastBackdrop,
+                // (Beside the post there's no post behind the panel to blur.)
+                backdrop        = if (isLandscape) null else lastBackdrop,
                 reducedAnimations = reducedAnimations,
                 onDragFractionChanged = { commentsDragFraction = it },
                 onOpenProfile = onOpenProfile
@@ -1380,12 +1393,9 @@ private fun PostContent(
                 .onSizeChanged { containerSize = it }
                 .then(if (liquidGlass) Modifier.onGloballyPositioned { backdropOrigin = it.positionInRoot() } else Modifier)
                 .then(
-                    if (liquidGlass) Modifier.drawWithContent {
-                        // Re-record this frame's real pixels into the shared layer,
-                        // then draw them to the actual screen as normal.
-                        backdropLayer.record { this@drawWithContent.drawContent() }
-                        drawContent()
-                    } else Modifier
+                    // Re-record this frame's real pixels into the shared layer,
+                    // then draw them to the actual screen as normal.
+                    if (liquidGlass) Modifier.recordBackdrop(backdropLayer) else Modifier
                 )
                 .pointerInput(item.id) {
                     var lastTapMs = 0L

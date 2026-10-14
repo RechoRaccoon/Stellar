@@ -93,6 +93,7 @@ fun SendDmDialog(
             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
         contentAlignment = Alignment.Center
     ) {
+        val wideDp = rememberLandscapeWidthDp()
         PopupSheetSurface(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             modifier = Modifier.fillMaxWidth().fillMaxHeight()
@@ -112,8 +113,9 @@ fun SendDmDialog(
                         conversations.isEmpty() ->
                             Text("No conversations yet", color = Color.White, fontSize = 13.sp,
                                 modifier = Modifier.align(Alignment.Center).popupTextShadow().padding(horizontal = 12.dp, vertical = 6.dp))
+                        // (Landscape: more people a row, about 140 dp each.)
                         else -> LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
+                            columns = GridCells.Fixed(Landscape.lanes(3, wideDp, 140)),
                             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),

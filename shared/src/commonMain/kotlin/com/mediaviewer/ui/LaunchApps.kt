@@ -109,6 +109,8 @@ internal fun LaunchAppPage(
         SpaceSky(tint, Modifier.matchParentSize())
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navBarSpace).imePadding()
+                // (Landscape: the app in a column of a comfortable width.)
+                .landscapeReadable()
                 .padding(horizontal = 14.dp)
         ) {
             Spacer(Modifier.height(rememberTopCutoutClearance() + 6.dp))
@@ -444,8 +446,11 @@ fun TimerPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
     fun tick() { runCatching { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) } }
 
     LaunchAppPage("Timer", tint, liquidGlass, onClose) {
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            BoxWithConstraints(Modifier.fillMaxWidth(0.92f).aspectRatio(1f), contentAlignment = Alignment.Center) {
+        val sideways = rememberLandscape()
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            // (Landscape: as big as fits the height too, not just the width.)
+            val dial = if (sideways) Modifier.size(minOf(maxWidth, maxHeight) * 0.92f) else Modifier.fillMaxWidth(0.92f).aspectRatio(1f)
+            BoxWithConstraints(dial, contentAlignment = Alignment.Center) {
                 val density = LocalDensity.current
                 val sizePx = with(density) { maxWidth.toPx() }
                 Canvas(

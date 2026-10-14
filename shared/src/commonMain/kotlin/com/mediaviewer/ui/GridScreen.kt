@@ -147,7 +147,9 @@ fun GridScreen(
     var kind by remember { mutableStateOf(PostKindFilter.ALL) }
     val gridScreen = "feed_grid"
     val gridMode = resultsGridMode(gridScreen, kind)
-    val spec = resultsLayoutSpec(kind, gridMode, roundedGridTiles)
+    // Landscape: more columns as the window widens (see Landscape).
+    val wideDp = rememberLandscapeWidthDp()
+    val spec = resultsLayoutSpec(kind, gridMode, roundedGridTiles, wideDp)
     // Saved Posts / From Friends / History all use your own DID, so the
     // name is part of the key too — switching between them starts fresh.
     val memoryScope = "$appMode|${authorFeedState?.author?.let { it.did + "|" + it.handle + "|" + it.displayName } ?: selectedFeedUri}"
@@ -250,7 +252,7 @@ fun GridScreen(
         Modifier.fillMaxSize()
             .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
             .drawWithContent {
-                if (liquidGlass) backdropLayer.record { this@drawWithContent.drawContent() }
+                if (liquidGlass && LiteGlass.LIVE) backdropLayer.record { this@drawWithContent.drawContent() }
                 drawContent()
             }
             .then(if (liquidGlass) Modifier else Modifier.background(OledBlack))
@@ -460,6 +462,7 @@ fun GridScreen(
                         item = item, filter = kind, gridMode = gridMode, tint = tint,
                         liquidGlass = liquidGlass, roundedGridTiles = roundedGridTiles,
                         onSeedSubImageIndex = { id, page -> pendingSeed[0] = id to page },
+                        videoCards = wideDp > 0,
                         onClick = {
                             val idx = latestItems.indexOfFirst { it.id == item.id }
                             if (idx >= 0) {
@@ -555,8 +558,7 @@ internal fun SentByTileOverlay(
             Modifier
                 .onGloballyPositioned { origin = it.positionInRoot() }
                 .drawWithContent {
-                    layer.record { this@drawWithContent.drawContent() }
-                    drawLayer(layer)
+                    if (LiteGlass.LIVE) { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) } else drawContent()
                 }
         ) { tile() }
         val shape = RoundedCornerShape(12.dp)

@@ -86,8 +86,7 @@ fun TaggingOverlay(
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .then(
                     if (liquidGlass) Modifier.drawWithContent {
-                        backdropLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(backdropLayer)
+                        if (LiteGlass.LIVE) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
                     } else Modifier.background(OledBlack)
                 )
         ) {

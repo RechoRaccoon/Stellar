@@ -194,7 +194,8 @@ fun ListPickerDialog(
         PopupSheetSurface(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             // Wraps its rows; the list inside scrolls once it runs out of room.
-            modifier = Modifier.fillMaxWidth().wrapContentHeight().animateContentSize()
+            // (Landscape: a popup of a sensible width, centered.)
+            modifier = Modifier.landscapeReadable(560.dp).wrapContentHeight().animateContentSize()
         ) {
             Column(Modifier.fillMaxWidth()) {
                 PopupSheetHeader(

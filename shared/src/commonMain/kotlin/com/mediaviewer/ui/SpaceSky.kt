@@ -46,6 +46,8 @@ import kotlin.random.Random
  *  - [SpaceSkyControl.paused] freezes every sky (VRM mode sets it).
  *  - Settings → "Starry Background" turns the stars off entirely, leaving
  *    just the dim color.
+ *  - On the web the sky is drawn once and holds still (no twinkling or
+ *    shooting stars): see [LiteGlass].
  */
 object SpaceSkyControl {
     /** True while VRM mode is open: every sky stops ticking. */
@@ -145,7 +147,9 @@ fun SpaceSky(color: Color, modifier: Modifier = Modifier, dim: Float = SPACE_BAC
     }
     val shooting = remember { ShootingStars(com.mediaviewer.platform.nanoTime()) }
     val time = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(shooting) {
+    // (Web: the stars hold still — a sky that ticks makes the browser
+    // redraw the whole app many times a second. See LiteGlass.)
+    if (LiteGlass.LIVE) LaunchedEffect(shooting) {
         val t0 = com.mediaviewer.platform.nanoTime()
         while (true) {
             if (SpaceSkyControl.paused) { delay(400); continue }

@@ -220,7 +220,7 @@ fun CommentsSheet(
     ) {
         // Behind a comment's media opened full screen: blurred, not dimmed.
         val viewerBlur = if (viewerMedia != null) 26.dp else 0.dp
-        Column(Modifier.fillMaxSize().then(if (viewerBlur > 0.dp) Modifier.blur(viewerBlur) else Modifier)) {
+        Column(Modifier.fillMaxSize().pageBlur(viewerBlur)) {
             // ── Header: grab it anywhere to drag the sheet ──
             Column(
                 Modifier

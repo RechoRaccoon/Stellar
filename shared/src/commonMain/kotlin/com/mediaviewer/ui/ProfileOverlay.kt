@@ -122,6 +122,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.draw.blur
@@ -741,7 +743,7 @@ fun ProfileOverlay(
     CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
     Box(Modifier.fillMaxSize()) {
     // Item 19: the whole page blurs behind the edit popup.
-    Box(Modifier.fillMaxSize().then(if (editingProfile) Modifier.blur(18.dp) else Modifier)) {
+    Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else 0.dp)) {
         // Bug fix: this recording box must wrap *only* the scrollable
         // content (the LazyColumn) — not the interaction bar or anything
         // else on this page that itself reads [backdrop] to render. The
@@ -760,7 +762,7 @@ fun ProfileOverlay(
                 .fillMaxSize()
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .drawWithContent {
-                    if (liquidGlass) backdropLayer.record { this@drawWithContent.drawContent() }
+                    if (liquidGlass && LiteGlass.LIVE) backdropLayer.record { this@drawWithContent.drawContent() }
                     drawContent()
                 }
                 // Pinch-out detection: watched passively (PointerEventPass.Initial,
@@ -797,6 +799,8 @@ fun ProfileOverlay(
         // Dim profile color + stars, recorded with the page so the glass
         // blurs them.
         SpaceSky(blended, Modifier.matchParentSize())
+        // Landscape: the grids below get more columns as the window widens.
+        val wideDp = rememberLandscapeWidthDp()
         LazyColumn(
             state = listState,
             // Bug fix (per feedback): the last item in a tab (e.g. the
@@ -1042,7 +1046,8 @@ fun ProfileOverlay(
                             if (entry.blockUri == null) pendingListAction = entry else onListEntryAction(entry)
                         else -> onListEntryAction(entry)
                     }
-                }
+                },
+                wideDp = wideDp
             )
         }
         } // close the backdrop-recording Box (LazyColumn only) — see its own doc comment above
@@ -1597,10 +1602,7 @@ private fun ProfileHeaderSection(
                 Modifier.matchParentSize()
                     .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                     .then(
-                        if (liquidGlass) Modifier.drawWithContent {
-                            backdropLayer.record { this@drawWithContent.drawContent() }
-                            drawContent()
-                        } else Modifier
+                        if (liquidGlass) Modifier.recordBackdrop(backdropLayer) else Modifier
                     )
             ) {
                 if (profile?.bannerUrl != null) {
@@ -2327,7 +2329,9 @@ private fun LazyListScope.profileResultsContent(
     savedFeedUris: Set<String> = emptySet(),
     listActions: Map<String, String> = emptyMap(),
     onOpenListEntry: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
-    onListEntryAction: (com.mediaviewer.model.ProfileListEntry) -> Unit = {}
+    onListEntryAction: (com.mediaviewer.model.ProfileListEntry) -> Unit = {},
+    /** Landscape: the window's width (more columns); 0 in portrait. */
+    wideDp: Int = 0
 ) {
     // Lists/Feeds keeps its own state (not a ProfileTabState) and has its
     // own loading/empty rows.
@@ -2335,7 +2339,7 @@ private fun LazyListScope.profileResultsContent(
         profileListsRows(
             state = state, liquidGlass = liquidGlass, tint = profileTint,
             savedFeedUris = savedFeedUris, listActions = listActions,
-            onOpen = onOpenListEntry, onAction = onListEntryAction
+            onOpen = onOpenListEntry, onAction = onListEntryAction, wideDp = wideDp
         )
         return
     }
@@ -2348,54 +2352,12 @@ private fun LazyListScope.profileResultsContent(
     // three further layouts per that sub-tab's own remembered grid-mode
     // index (adjustment #5). HORIZONTAL_VIDEOS is always the list.
     fun postsLayoutRowsInner(allItems: List<MediaItem>, loading: Boolean) {
-        when (postKindFilter) {
-            PostKindFilter.ALL, PostKindFilter.IMAGES -> when (gridModeFor(postKindFilter)) {
-                2 -> profileMediaGridRows(
-                    items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                    onTapItem = onTapItem, onLoadMore = onLoadMore, filter = { postKindFilter.matches(it) },
-                    roundedGridTiles = roundedGridTiles, onSeedSubImageIndex = onSeedSubImageIndex
-                )
-                1 -> postsPinterestGridRows(
-                    items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                    onTapItem = onTapItem, onSeedSubImageIndex = onSeedSubImageIndex, onLoadMore = onLoadMore,
-                    filter = { postKindFilter.matches(it) }, columns = 3
-                )
-                else -> postsPinterestGridRows(
-                    items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                    onTapItem = onTapItem, onSeedSubImageIndex = onSeedSubImageIndex, onLoadMore = onLoadMore,
-                    filter = { postKindFilter.matches(it) }, columns = 2
-                )
-            }
-            PostKindFilter.TEXT_POSTS -> when (gridModeFor(postKindFilter)) {
-                2 -> postsPinterestGridRows(
-                    items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                    onTapItem = onTapItem, onSeedSubImageIndex = onSeedSubImageIndex, onLoadMore = onLoadMore,
-                    filter = { postKindFilter.matches(it) }, columns = 3
-                )
-                1 -> postsPinterestGridRows(
-                    items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                    onTapItem = onTapItem, onSeedSubImageIndex = onSeedSubImageIndex, onLoadMore = onLoadMore,
-                    filter = { postKindFilter.matches(it) }, columns = 2
-                )
-                else -> postsTextRows(
-                    items = allItems, loading = loading, liquidGlass = liquidGlass, profileTint = profileTint,
-                    onTapItem = onTapItem, onLoadMore = onLoadMore,
-                    filter = { postKindFilter.matches(it) }
-                )
-            }
-            // Fix (per feedback): Horizontal Videos is always the YouTube-style
-            // list — no grid options, so gridMode is ignored here.
-            PostKindFilter.HORIZONTAL_VIDEOS -> postsHorizontalVideoRows(
-                items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                onTapItem = onTapItem, onLoadMore = onLoadMore,
-                filter = { postKindFilter.matches(it) }
-            )
-            PostKindFilter.VERTICAL_VIDEOS -> postsVerticalVideoGridRows(
-                items = allItems, loading = loading, profileTint = profileTint, liquidGlass = liquidGlass,
-                onTapItem = onTapItem, onLoadMore = onLoadMore,
-                filter = { postKindFilter.matches(it) }
-            )
-        }
+        sharedPostResults(
+            items = allItems, loading = loading, filter = postKindFilter, gridMode = gridModeFor(postKindFilter),
+            tint = profileTint, liquidGlass = liquidGlass, roundedGridTiles = roundedGridTiles,
+            onTapItemAt = onTapItem, onSeedSubImageIndex = onSeedSubImageIndex, onLoadMore = onLoadMore,
+            wideDp = wideDp
+        )
     }
     fun postsLayoutRows(allItems: List<MediaItem>, loading: Boolean) {
         // Whether this tab has nothing left to load — lets an empty filter
@@ -2423,8 +2385,11 @@ private fun LazyListScope.profileResultsContent(
         MainViewModel.ProfileTab.REPOSTS, MainViewModel.ProfileTab.LIKES -> {
             postsLayoutRows(tabState?.items ?: emptyList(), tabState?.loading == true)
         }
+        // (Landscape: blogs, reviews and VODs sit side by side, about
+        // 460 dp each, filling the window — see landscapeGridRows.)
         MainViewModel.ProfileTab.BLOGS -> {
-            items(tabState?.blogs ?: emptyList(), key = { "blog_${it.uri}" }) { blog ->
+            landscapeGridRows(tabState?.blogs ?: emptyList(), Landscape.lanes(1, wideDp, 460), key = { "blog_${it.uri}" },
+                rowModifier = Modifier.padding(horizontal = 6.dp), spacing = 0.dp) { blog, cell ->
                 // Item 7: rims/background reflect the blog's own thumbnail
                 // color when it has one, same as Reviews — falling back to
                 // this profile's own avatar color (via the shared
@@ -2432,24 +2397,27 @@ private fun LazyListScope.profileResultsContent(
                 // of its own to pull a color from.
                 BlogBubble(blog = blog, liquidGlass = liquidGlass, fallbackAvatarUrl = state.author.avatarUrl, onOpenBlog = onOpenBlog,
                     fallbackTint = profileTint,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp))
+                    modifier = cell.fillMaxWidth().padding(horizontal = if (wideDp > 0) 6.dp else 12.dp, vertical = 5.dp))
             }
         }
         MainViewModel.ProfileTab.REVIEWS -> {
             val reviews = (tabState?.reviews ?: emptyList()).filter { reviewKindFilter.matchesReview(it) }
-            items(reviews, key = { "review_${it.uri}" }) { review ->
+            landscapeGridRows(reviews, Landscape.lanes(1, wideDp, 460), key = { "review_${it.uri}" },
+                rowModifier = Modifier.padding(horizontal = 6.dp), spacing = 0.dp) { review, cell ->
                 ReviewRow(review = review, liquidGlass = liquidGlass, onOpenReview = onOpenReview,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                    modifier = cell.padding(horizontal = if (wideDp > 0) 6.dp else 12.dp, vertical = 5.dp))
             }
         }
         MainViewModel.ProfileTab.BACKLOG -> {
             val backlog = (tabState?.backlog ?: emptyList()).filter { reviewKindFilter.matchesBacklog(it) }
-            profileBacklogGridRows(items = backlog, liquidGlass = liquidGlass, onOpenTitle = onOpenTitle)
+            profileBacklogGridRows(items = backlog, liquidGlass = liquidGlass, onOpenTitle = onOpenTitle,
+                columns = if (wideDp > 0) Landscape.lanes(3, wideDp, 170) else 3)
         }
         MainViewModel.ProfileTab.VODS -> {
-            items(tabState?.vods ?: emptyList(), key = { "vod_${it.uri}" }) { vod ->
+            landscapeGridRows(tabState?.vods ?: emptyList(), Landscape.lanes(1, wideDp, 460), key = { "vod_${it.uri}" },
+                rowModifier = Modifier.padding(horizontal = 6.dp), spacing = 0.dp) { vod, cell ->
                 VodBubble(vod = vod, liquidGlass = liquidGlass, tint = profileTint,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                    modifier = cell.padding(horizontal = if (wideDp > 0) 6.dp else 12.dp, vertical = 5.dp))
             }
         }
         MainViewModel.ProfileTab.MUSIC_HISTORY -> {
@@ -2467,7 +2435,8 @@ private fun LazyListScope.profileResultsContent(
                 tracks = tabState?.musicHistory ?: emptyList(), loading = tabState?.loading ?: false,
                 liquidGlass = liquidGlass, tint = profileTint, onLoadMore = onLoadMore,
                 onLongPress = onLongPressTrack,
-                onDoubleTapCover = onDoubleTapCover
+                onDoubleTapCover = onDoubleTapCover,
+                columns = Landscape.lanes(1, wideDp, 460)
             )
             }
         }
@@ -2509,7 +2478,9 @@ private fun LazyListScope.profileMediaGridRows(
     roundedGridTiles: Boolean,
     // Fix (per feedback): multi-image posts are swipeable right in the
     // square grid, like Pinterest mode — needs the sub-image seed callback.
-    onSeedSubImageIndex: (String, Int) -> Unit
+    onSeedSubImageIndex: (String, Int) -> Unit,
+    /** 3 in portrait; more in landscape. */
+    columns: Int = 3
 ) {
     val matched = items.filter(filter)
     // Fix (per feedback): flat squares by default — no rounded corners, no
@@ -2526,8 +2497,8 @@ private fun LazyListScope.profileMediaGridRows(
     // continuing to page in looking for a match.
     emptyAfterFilterLoadMore(this, matched, items, loading, onLoadMore, "grid_filtered_empty_loadmore")
 
-    val rows = matched.mapIndexed { i, item -> i to item }.chunked(3)
-    itemsIndexed(rows, key = { i, row -> "grid_row_${i}_${row.firstOrNull()?.first ?: i}" }) { rowIndex, row ->
+    val rows = matched.mapIndexed { i, item -> i to item }.chunked(columns)
+    itemsIndexed(rows, key = { i, row -> "grid_row_${columns}_${i}_${row.firstOrNull()?.first ?: i}" }) { rowIndex, row ->
         // Fire load-more once we're rendering near the last few rows.
         if (!loading && items.isNotEmpty() && rowIndex >= rows.size - 4) {
             LaunchedEffect(rowIndex, matched.size) { onLoadMore() }
@@ -2549,7 +2520,7 @@ private fun LazyListScope.profileMediaGridRows(
                 }
             }
             // Pad out a short last row so cells keep their square aspect ratio and stay left-aligned.
-            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
     // Same fix as the Text Posts tab: only show this "load more" spinner
@@ -2616,6 +2587,8 @@ private fun MediaItem.estimatedMasonryHeightUnits(): Float = if (isTextOnly && !
 private fun Modifier.tileRim(tint: Color, shape: RoundedCornerShape, liquidGlass: Boolean): Modifier = composed {
     if (!liquidGlass) return@composed this.border(1.dp, Color.White.copy(alpha = 0.35f), shape)
     val rimIntensity = LocalGlassRimIntensity.current
+    // (Web: a flat rim of the same color — see LiteGlass.)
+    if (!LiteGlass.LIVE) return@composed this.border(1.dp, tint.copy(alpha = 0.8f * rimIntensity), shape)
     this.border(
         width = 1.dp,
         brush = Brush.linearGradient(listOf(tint.copy(alpha = 0.85f * rimIntensity), Color.White.copy(alpha = 0.5f * rimIntensity), tint.copy(alpha = 0.7f * rimIntensity))),
@@ -2925,13 +2898,22 @@ private fun LazyListScope.postsPinterestGridRows(
         // fixes the reported slowdown as a Pinterest-layout tab accumulates
         // more and more loaded posts.
         val cols = remember(matched) { assignMasonryColumns(matched, columns) }
+        // This one item holds every loaded tile, so it isn't virtualized:
+        // the tiles further than ~1.5 screens from the window show a
+        // same-sized stand-in instead, which lets their pictures go
+        // (decoded images are the big cost — memory, and on the web the
+        // drawing too). They're back long before they scroll into view.
+        // Where the window is, in this masonry's own coordinates.
+        val viewTop = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp)
                 .onGloballyPositioned { c ->
                     // Unclipped bottom edge vs. ~1.5 screens down.
-                    val bottom = c.positionInWindow().y + c.size.height
+                    val top = c.positionInWindow().y
+                    val bottom = top + c.size.height
                     val near = bottom < windowHeightPx * 2.5f
                     if (near != masonryNearEnd) masonryNearEnd = near
+                    viewTop.floatValue = -top
                 },
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -2939,7 +2921,9 @@ private fun LazyListScope.postsPinterestGridRows(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     colEntries.forEach { e ->
                         key(e.item.id) {
-                            PinterestEntryTile(e.item, profileTint, mediaShape, textShape, liquidGlass, onSeedSubImageIndex) { onTapItem(matched, e.localIndex) }
+                            MasonryWindowed(e.item, viewTop, windowHeightPx, mediaShape) {
+                                PinterestEntryTile(e.item, profileTint, mediaShape, textShape, liquidGlass, onSeedSubImageIndex) { onTapItem(matched, e.localIndex) }
+                            }
                         }
                     }
                 }
@@ -2952,6 +2936,33 @@ private fun LazyListScope.postsPinterestGridRows(
                 CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 1.5.dp)
             }
         }
+    }
+}
+
+/** One masonry tile, shown only while it's within ~1.5 screens of the
+ *  window ([viewTop] = the window's top in the masonry's coordinates);
+ *  further away, a stand-in of exactly its size (see postsPinterestGridRows).
+ *  Text-only tiles have no picture to let go of, so they always show. */
+@Composable
+private fun MasonryWindowed(
+    item: MediaItem, viewTop: androidx.compose.runtime.State<Float>, windowHeightPx: Float,
+    shape: RoundedCornerShape, tile: @Composable () -> Unit
+) {
+    if (item.isTextOnly && !item.isEmojiTextshot) { tile(); return }
+    var y by remember { mutableStateOf(Float.NaN) }
+    var h by remember { mutableStateOf(0f) }
+    val near by remember {
+        androidx.compose.runtime.derivedStateOf {
+            val top = viewTop.value
+            y.isNaN() || (y + h > top - windowHeightPx * 1.5f && y < top + windowHeightPx * 2.5f)
+        }
+    }
+    Box(Modifier.fillMaxWidth().onPlaced { c ->
+        // (The tile's place in its column = its place in the masonry.)
+        y = c.positionInParent().y; h = c.size.height.toFloat()
+    }) {
+        if (near) tile()
+        else Box(Modifier.fillMaxWidth().aspectRatio(item.tileAspectRatio()).clip(shape).background(Color.White.copy(alpha = 0.05f)))
     }
 }
 
@@ -2979,10 +2990,35 @@ private fun PinterestEntryTile(
 // moved under the Posts sub-filter row instead of being its own tab. ───────
 private fun LazyListScope.postsTextRows(
     items: List<MediaItem>, loading: Boolean, liquidGlass: Boolean, profileTint: Color,
-    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean
+    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean,
+    /** 1 in portrait; landscape sets the bubbles side by side. */
+    columns: Int = 1
 ) {
     val matched = items.filter(filter)
     emptyAfterFilterLoadMore(this, matched, items, loading, onLoadMore, "textposts_filtered_empty_loadmore")
+    if (columns > 1) {
+        val rows = matched.mapIndexed { i, item -> i to item }.chunked(columns)
+        itemsIndexed(rows, key = { i, row -> "textrow_${columns}_${i}_${row.firstOrNull()?.second?.id}" }) { rowIndex, row ->
+            if (!loading && items.isNotEmpty() && rowIndex >= rows.size - 3) {
+                LaunchedEffect(rowIndex, matched.size) { onLoadMore() }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                row.forEach { (localIndex, item) ->
+                    TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) },
+                        modifier = Modifier.weight(1f).padding(horizontal = 6.dp, vertical = 5.dp))
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        if (loading && items.isNotEmpty()) {
+            item(key = "textposts_loading_more") {
+                Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 1.5.dp)
+                }
+            }
+        }
+        return
+    }
 
     itemsIndexed(matched, key = { i, item -> "textpost_${item.id}_$i" }) { localIndex, item ->
         if (!loading && items.isNotEmpty() && localIndex >= matched.size - 4) {
@@ -3004,11 +3040,37 @@ private fun LazyListScope.postsTextRows(
 // thumbnail on the left, title/meta on the right. ───────────────────────────
 private fun LazyListScope.postsHorizontalVideoRows(
     items: List<MediaItem>, loading: Boolean, profileTint: Color, liquidGlass: Boolean,
-    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean
+    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean,
+    /** 1 in portrait (the list); landscape: this many video cards a row. */
+    columns: Int = 1
 ) {
     val matched = items.filter(filter)
     emptyAfterFilterLoadMore(this, matched, items, loading, onLoadMore, "hvideo_filtered_empty_loadmore")
     val shape = RoundedCornerShape(10.dp)
+    if (columns > 1) {
+        // Landscape: a video site's grid — the picture on top, its title,
+        // who posted it and its numbers underneath.
+        val rows = matched.mapIndexed { i, item -> i to item }.chunked(columns)
+        itemsIndexed(rows, key = { i, row -> "hvcard_${columns}_${i}_${row.firstOrNull()?.second?.id}" }) { rowIndex, row ->
+            if (!loading && items.isNotEmpty() && rowIndex >= rows.size - 3) {
+                LaunchedEffect(rowIndex, matched.size) { onLoadMore() }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { (localIndex, item) ->
+                    VideoCard(item, profileTint, liquidGlass, Modifier.weight(1f)) { onTapItem(matched, localIndex) }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        if (loading && items.isNotEmpty()) {
+            item(key = "hvideo_loading_more") {
+                Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 1.5.dp)
+                }
+            }
+        }
+        return
+    }
 
     itemsIndexed(matched, key = { i, item -> "hvideo_${item.id}_$i" }) { localIndex, item ->
         // Fix 9: the shared light tap, via the shared helper.
@@ -3050,20 +3112,49 @@ private fun LazyListScope.postsHorizontalVideoRows(
     }
 }
 
+/** Landscape's horizontal-video card: the 16:9 picture, then the post's
+ *  text as its title, who posted it, and its likes/replies. */
+@Composable
+private fun VideoCard(item: MediaItem, tint: Color, liquidGlass: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    Column(modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onClick() }) {
+        ThumbBox(item, tint, RoundedCornerShape(12.dp), Modifier.fillMaxWidth().aspectRatio(16f / 9f), liquidGlass,
+            playIconSize = 22.dp, onClick = onClick)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(32.dp).clip(CircleShape).background(Color.White.copy(0.1f))) {
+                if (item.author.avatarUrl != null) AsyncImage(
+                    model = item.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    item.text.ifBlank { "@${item.author.handle}" }, color = Color.White, fontSize = 14.sp, lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(item.author.displayName.ifBlank { item.author.handle }, color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${item.likeCount} likes · ${item.replyCount} replies", color = DimGray, fontSize = 12.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
 // ─── Posts tab: "Vertical Videos" — TikTok-style grid, fixed 9:16 tiles
 // instead of squares. Square/non-landscape videos live here too (see
 // MediaItem.isVerticalVideo). ────────────────────────────────────────────────
 private fun LazyListScope.postsVerticalVideoGridRows(
     items: List<MediaItem>, loading: Boolean, profileTint: Color, liquidGlass: Boolean,
-    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean
+    onTapItem: (List<MediaItem>, Int) -> Unit, onLoadMore: () -> Unit, filter: (MediaItem) -> Boolean,
+    /** 3 in portrait; more in landscape. */
+    columns: Int = 3
 ) {
-    val columns = 3
     val matched = items.filter(filter)
     emptyAfterFilterLoadMore(this, matched, items, loading, onLoadMore, "vvideo_filtered_empty_loadmore")
     val indexedRows = matched.mapIndexed { i, item -> i to item }.chunked(columns)
     val shape = RoundedCornerShape(10.dp)
 
-    itemsIndexed(indexedRows, key = { i, row -> "vvideo_row_${i}_${row.firstOrNull()?.first ?: i}" }) { rowIndex, row ->
+    itemsIndexed(indexedRows, key = { i, row -> "vvideo_row_${columns}_${i}_${row.firstOrNull()?.first ?: i}" }) { rowIndex, row ->
         if (!loading && items.isNotEmpty() && rowIndex >= indexedRows.size - 4) {
             LaunchedEffect(rowIndex, matched.size) { onLoadMore() }
         }
@@ -3176,7 +3267,9 @@ private fun VideoCoverBadge(modifier: Modifier = Modifier, @Suppress("UNUSED_PAR
 private fun LazyListScope.profileMusicHistoryRows(
     tracks: List<RockskyTrack>, loading: Boolean, liquidGlass: Boolean, tint: Color, onLoadMore: () -> Unit,
     onLongPress: ((RockskyTrack) -> Unit)? = null,
-    onDoubleTapCover: ((RockskyTrack) -> Unit)? = null
+    onDoubleTapCover: ((RockskyTrack) -> Unit)? = null,
+    /** 1 in portrait; landscape sets the songs side by side. */
+    columns: Int = 1
 ) {
     // The same song played several times in a row is one row with a
     // counter ("x2", "x26"), dated by its latest play.
@@ -3188,12 +3281,26 @@ private fun LazyListScope.profileMusicHistoryRows(
         ) grouped[grouped.size - 1] = last.first to last.second + 1
         else grouped += t to 1
     }
-    items(grouped, key = { (it) -> it.uri.ifBlank { "track_${it.playedAt}_${it.title}_${it.artist}" } }) { (track, count) ->
+    if (columns <= 1) items(grouped, key = { (it) -> it.uri.ifBlank { "track_${it.playedAt}_${it.title}_${it.artist}" } }) { (track, count) ->
         MusicHistoryRow(track = track, liquidGlass = liquidGlass, tint = tint, count = count,
             // (Only a listen that is a record of its own can be deleted.)
             onLongPress = if (onLongPress != null && track.uri.isNotBlank()) { { onLongPress(track) } } else null,
             onDoubleTapCover = if (onDoubleTapCover != null) { { onDoubleTapCover(track) } } else null,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp))
+    } else {
+        // Landscape: the songs side by side, a row of [columns] at a time.
+        val rows = grouped.chunked(columns)
+        itemsIndexed(rows, key = { i, row -> "music_row_${columns}_${i}_${row.first().first.uri}" }) { _, row ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                row.forEach { (track, count) ->
+                    MusicHistoryRow(track = track, liquidGlass = liquidGlass, tint = tint, count = count,
+                        onLongPress = if (onLongPress != null && track.uri.isNotBlank()) { { onLongPress(track) } } else null,
+                        onDoubleTapCover = if (onDoubleTapCover != null) { { onDoubleTapCover(track) } } else null,
+                        modifier = Modifier.weight(1f).padding(horizontal = 6.dp, vertical = 5.dp))
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
     }
     // Item 7: pages in the next chunk once the person's actually scrolled
     // near the bottom of what's loaded so far — same "fire once the list
@@ -3615,9 +3722,9 @@ private fun WrappedGenreChips(genres: List<Pair<String, Long>>, modifier: Modifi
     }
 }
 
-private fun LazyListScope.profileBacklogGridRows(items: List<PopfeedBacklogItem>, liquidGlass: Boolean, onOpenTitle: (PopfeedBacklogItem) -> Unit = {}) {
-    val rows = items.chunked(3)
-    itemsIndexed(rows, key = { i, row -> "backlog_row_${i}_${row.firstOrNull()?.uri ?: i}" }) { _, row ->
+private fun LazyListScope.profileBacklogGridRows(items: List<PopfeedBacklogItem>, liquidGlass: Boolean, onOpenTitle: (PopfeedBacklogItem) -> Unit = {}, columns: Int = 3) {
+    val rows = items.chunked(columns)
+    itemsIndexed(rows, key = { i, row -> "backlog_row_${columns}_${i}_${row.firstOrNull()?.uri ?: i}" }) { _, row ->
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -3625,7 +3732,7 @@ private fun LazyListScope.profileBacklogGridRows(items: List<PopfeedBacklogItem>
             row.forEach { backlogItem ->
                 BacklogCard(item = backlogItem, liquidGlass = liquidGlass, onOpenTitle = onOpenTitle, modifier = Modifier.weight(1f))
             }
-            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -4222,12 +4329,12 @@ private fun BlogDetailOverlay(
             Modifier.fillMaxSize()
                 .onGloballyPositioned { layerOrigin = it.positionInRoot() }
                 .drawWithContent {
-                    if (liquidGlass) layer.record { this@drawWithContent.drawContent() }
+                    if (liquidGlass && LiteGlass.LIVE) layer.record { this@drawWithContent.drawContent() }
                     drawContent()
                 }
                 .background(pageBrush)
         ) {
-            Column(Modifier.fillMaxSize().verticalScroll(blogScroll).padding(horizontal = 20.dp)) {
+            Column(Modifier.fillMaxSize().verticalScroll(blogScroll).landscapeReadable().padding(horizontal = 20.dp)) {
                 Spacer(Modifier.height(rememberTopCutoutClearance() + 18.dp))
                 // Title, byline and date are part of the page itself now
                 // (they used to float above it as glass bubbles) — set like
@@ -4710,7 +4817,7 @@ private fun ReviewDetailOverlay(review: PopfeedReview, author: AuthorInfo, liqui
             // Horizontal padding matches the 12dp used by the header row
             // above so the banner and body text's edges line up with the
             // buttons above them.
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 20.dp)) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).landscapeReadable().padding(horizontal = 12.dp, vertical = 20.dp)) {
                 if (bannerImage != null) {
                     val shape = RoundedCornerShape(16.dp)
                     Box(
@@ -4962,7 +5069,7 @@ fun TitleDetailOverlay(
             Modifier.fillMaxSize()
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .drawWithContent {
-                    if (liquidGlass) backdropLayer.record { this@drawWithContent.drawContent() }
+                    if (liquidGlass && LiteGlass.LIVE) backdropLayer.record { this@drawWithContent.drawContent() }
                     drawContent()
                 }
                 .then(if (liquidGlass) Modifier else Modifier.background(OledBlack))
@@ -4994,6 +5101,8 @@ fun TitleDetailOverlay(
                 Column(
                     Modifier.fillMaxWidth().padding(top = topClearance).verticalScroll(rememberScrollState())
                         .heightIn(min = minScrollableHeight)
+                        // (Landscape: the title's page in a column of a comfortable width.)
+                        .landscapeReadable(900.dp)
                 ) {
                 Spacer(Modifier.height(bannerHeight - overlap))
 
@@ -5690,24 +5799,51 @@ fun LazyListScope.sharedPostResults(
     onLoadMore: () -> Unit = {},
     /** Nothing further to load (non-null = this caller knows; see
      *  emptyAfterFilterLoadMore's "No posts of this type"). */
-    exhausted: Boolean? = null
+    exhausted: Boolean? = null,
+    /** Landscape: the window's width (more columns); 0 in portrait. */
+    wideDp: Int = 0
 ) {
     if (exhausted != null) filterRowsExhausted = exhausted
     val tap: (List<MediaItem>, Int) -> Unit = { list, i -> list.getOrNull(i)?.let(onTapItem) }
+    sharedPostResults(items, loading, filter, gridMode, tint, liquidGlass, roundedGridTiles, tap, onSeedSubImageIndex, onLoadMore, wideDp)
+}
+
+/** Same as the one above, with [onTapItemAt] getting the list the tapped
+ *  post is in (only the posts this sub-tab shows) and its index there. */
+fun LazyListScope.sharedPostResults(
+    items: List<MediaItem>,
+    loading: Boolean,
+    filter: PostKindFilter,
+    gridMode: Int,
+    tint: Color,
+    liquidGlass: Boolean,
+    roundedGridTiles: Boolean,
+    onTapItemAt: (List<MediaItem>, Int) -> Unit,
+    onSeedSubImageIndex: (String, Int) -> Unit,
+    onLoadMore: () -> Unit,
+    wideDp: Int
+) {
+    val tap = onTapItemAt
     val match: (MediaItem) -> Boolean = { filter.matches(it) }
+    // Portrait column counts; landscape adds columns as the window widens.
+    fun lanes(portrait: Int) = if (wideDp > 0) Landscape.postLanes(portrait, wideDp) else portrait
     when (filter) {
         PostKindFilter.ALL, PostKindFilter.IMAGES -> when (gridMode) {
-            2 -> profileMediaGridRows(items, loading, tint, liquidGlass, tap, onLoadMore, match, roundedGridTiles, onSeedSubImageIndex)
-            1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = 3)
-            else -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = 2)
+            2 -> profileMediaGridRows(items, loading, tint, liquidGlass, tap, onLoadMore, match, roundedGridTiles, onSeedSubImageIndex, columns = lanes(3))
+            1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(3))
+            else -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(2))
         }
         PostKindFilter.TEXT_POSTS -> when (gridMode) {
-            2 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = 3)
-            1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = 2)
-            else -> postsTextRows(items, loading, liquidGlass, tint, tap, onLoadMore, match)
+            2 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(3))
+            1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(2))
+            else -> postsTextRows(items, loading, liquidGlass, tint, tap, onLoadMore, match, columns = lanes(1))
         }
-        PostKindFilter.HORIZONTAL_VIDEOS -> postsHorizontalVideoRows(items, loading, tint, liquidGlass, tap, onLoadMore, match)
-        PostKindFilter.VERTICAL_VIDEOS -> postsVerticalVideoGridRows(items, loading, tint, liquidGlass, tap, onLoadMore, match)
+        // Fix (per feedback): Horizontal Videos is always the YouTube-style
+        // list — no grid options, so gridMode is ignored here. (Landscape:
+        // a grid of video cards.)
+        PostKindFilter.HORIZONTAL_VIDEOS -> postsHorizontalVideoRows(items, loading, tint, liquidGlass, tap, onLoadMore, match,
+            columns = if (wideDp > 0) Landscape.videoCardLanes(wideDp) else 1)
+        PostKindFilter.VERTICAL_VIDEOS -> postsVerticalVideoGridRows(items, loading, tint, liquidGlass, tap, onLoadMore, match, columns = lanes(3))
     }
 }
 
@@ -5797,7 +5933,18 @@ fun ResultsInteractionBar(
  *  each (filter, gridMode) pair means). */
 data class ResultsLayoutSpec(val lanes: Int, val spacing: Dp, val horizontalPadding: Dp)
 
-fun resultsLayoutSpec(filter: PostKindFilter, gridMode: Int, roundedGridTiles: Boolean): ResultsLayoutSpec = when (filter) {
+/** [wideDp]: landscape's window width (0 in portrait) — the same layouts
+ *  with more columns as the window widens (see [Landscape]). */
+fun resultsLayoutSpec(filter: PostKindFilter, gridMode: Int, roundedGridTiles: Boolean, wideDp: Int = 0): ResultsLayoutSpec {
+    val spec = portraitResultsLayoutSpec(filter, gridMode, roundedGridTiles)
+    if (wideDp <= 0) return spec
+    val lanes = if (filter == PostKindFilter.HORIZONTAL_VIDEOS) Landscape.videoCardLanes(wideDp) else Landscape.postLanes(spec.lanes, wideDp)
+    return if (filter == PostKindFilter.HORIZONTAL_VIDEOS) ResultsLayoutSpec(lanes, 12.dp, 10.dp)
+        else if (filter == PostKindFilter.TEXT_POSTS && gridMode == 0) ResultsLayoutSpec(lanes, 10.dp, 10.dp)
+        else spec.copy(lanes = lanes)
+}
+
+private fun portraitResultsLayoutSpec(filter: PostKindFilter, gridMode: Int, roundedGridTiles: Boolean): ResultsLayoutSpec = when (filter) {
     PostKindFilter.ALL, PostKindFilter.IMAGES -> when (gridMode) {
         2 -> if (roundedGridTiles) ResultsLayoutSpec(3, 4.dp, 4.dp) else ResultsLayoutSpec(3, 0.dp, 0.dp)
         1 -> ResultsLayoutSpec(3, 6.dp, 6.dp)
@@ -5822,10 +5969,16 @@ fun PostResultTile(
     liquidGlass: Boolean,
     roundedGridTiles: Boolean,
     onSeedSubImageIndex: (String, Int) -> Unit,
+    /** Landscape: horizontal videos as video cards (a grid of them). */
+    videoCards: Boolean = false,
     onClick: () -> Unit
 ) {
     val mediaShape = RoundedCornerShape(14.dp)
     val textShape = RoundedCornerShape(12.dp)
+    if (videoCards && filter == PostKindFilter.HORIZONTAL_VIDEOS) {
+        VideoCard(item, tint, liquidGlass, Modifier.fillMaxWidth(), onClick)
+        return
+    }
     when (filter) {
         PostKindFilter.ALL, PostKindFilter.IMAGES -> if (gridMode == 2) {
             val shape = if (roundedGridTiles) RoundedCornerShape(10.dp) else RoundedCornerShape(0.dp)
