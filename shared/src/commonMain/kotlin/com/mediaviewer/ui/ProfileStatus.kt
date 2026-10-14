@@ -108,8 +108,8 @@ private class StatusBubbleShape(private val radius: Float, private val tail: Flo
 
 /**
  * The status bubble by a profile picture: its bottom-left pointer touches
- * the picture's top-right. Empty on your own profile, it's a small "+"
- * that opens [ProfileStatusEditor]; on other people's, it's only shown
+ * the picture's top-right. Empty on your own profile, it says "Status" (greyed)
+ * and opens [ProfileStatusEditor]; on other people's, it's only shown
  * while they have a status.
  */
 @Composable
@@ -128,7 +128,7 @@ fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onC
             .padding(start = TAIL, bottom = TAIL)
     ) {
         if (status == null) {
-            Icon(Icons.Default.Add, contentDescription = "Set a status", tint = Color.White, modifier = Modifier.padding(5.dp).size(14.dp))
+            Text("Status", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
         } else {
             // As wide and tall as the room by the picture allows (see the
             // banner layout), so a longer status gets a bigger bubble.
@@ -141,14 +141,16 @@ fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onC
     }
 }
 
-private enum class StatusUnit(val minutes: Long, val short: String, val label: String) {
-    MINUTES(1, "m", "Minutes"), HOURS(60, "h", "Hours"), DAYS(60 * 24, "d", "Days")
+private enum class StatusUnit(val minutes: Long, val short: String, val label: String, val default: Int) {
+    MINUTES(1, "m", "Minutes", 30), HOURS(60, "h", "Hours", 24), DAYS(60 * 24, "d", "Days", 7),
+    /** Never clears by itself. */
+    NEVER(0, "", "Never", 0)
 }
 
 /**
  * Setting your status: a box like the comment box, with how long it lasts
- * on the left where the comment box has its media button. 24 hours unless
- * changed; 0 means it never clears by itself.
+ * on the left where the comment box has its media button: Minutes, Hours,
+ * Days (each remembering its own number) or Never.
  */
 @Composable
 fun ProfileStatusEditor(
@@ -159,8 +161,9 @@ fun ProfileStatusEditor(
 ) {
     val tap = rememberHapticTap()
     var text by remember { mutableStateOf(current?.text.orEmpty()) }
-    var amount by remember { mutableStateOf("24") }
-    var unit by remember { mutableStateOf(StatusUnit.HOURS) }
+    var unit by remember { mutableStateOf(StatusUnit.entries.firstOrNull { it.name == com.mediaviewer.util.UiToggles.statusUnit() } ?: StatusUnit.HOURS) }
+    fun savedAmount(u: StatusUnit) = if (u == StatusUnit.NEVER) "0" else com.mediaviewer.util.UiToggles.statusAmount(u.name, u.default).toString()
+    var amount by remember { mutableStateOf(savedAmount(unit)) }
     var durationOpen by remember { mutableStateOf(false) }
     val amountValue = amount.toLongOrNull()?.coerceAtLeast(0) ?: 0L
     val minutes = amountValue * unit.minutes
@@ -195,16 +198,21 @@ fun ProfileStatusEditor(
                 Panel(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Clear After", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             val fieldShape = RoundedCornerShape(12.dp)
+                            val never = unit == StatusUnit.NEVER
                             Box(
-                                Modifier.width(64.dp).height(36.dp).clip(fieldShape).background(Color.White.copy(alpha = 0.1f)).padding(horizontal = 10.dp),
+                                Modifier.width(64.dp).height(36.dp).clip(fieldShape).background(Color.White.copy(alpha = if (never) 0.05f else 0.1f)).padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 BasicTextField(
-                                    value = amount, onValueChange = { v -> amount = v.filter { it.isDigit() }.take(4) },
+                                    value = amount, enabled = !never,
+                                    onValueChange = { v ->
+                                        amount = v.filter { it.isDigit() }.take(4)
+                                        com.mediaviewer.util.UiToggles.saveStatusDuration(unit.name, amount.toIntOrNull() ?: 0)
+                                    },
                                     singleLine = true,
-                                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                    textStyle = TextStyle(color = Color.White.copy(alpha = if (never) 0.35f else 1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                                     cursorBrush = SolidColor(Color.White),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth()
@@ -213,15 +221,17 @@ fun ProfileStatusEditor(
                             StatusUnit.entries.forEach { u ->
                                 val selected = u == unit
                                 Box(
-                                    Modifier.height(32.dp).clip(RoundedCornerShape(16.dp))
+                                    Modifier.weight(1f).height(32.dp).clip(RoundedCornerShape(16.dp))
                                         .background(if (selected) accent.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f))
-                                        .clickable { tap(); unit = u }
-                                        .padding(horizontal = 12.dp),
+                                        .clickable {
+                                            tap(); unit = u; amount = savedAmount(u)
+                                            com.mediaviewer.util.UiToggles.saveStatusDuration(u.name, null)
+                                        }
+                                        .padding(horizontal = 4.dp),
                                     contentAlignment = Alignment.Center
-                                ) { Text(u.label, color = Color.White, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) }
+                                ) { Text(u.label, color = Color.White, fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) }
                             }
                         }
-                        Text("0 = never clear", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
                     }
                 }
             }

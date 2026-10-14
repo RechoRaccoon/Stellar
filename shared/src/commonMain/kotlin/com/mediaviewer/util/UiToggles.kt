@@ -32,6 +32,8 @@ object UiToggles {
     private const val KEY_LANDSCAPE_BAR_SCALE = "landscape_bar_scale"
     private const val KEY_LANDSCAPE_COLUMNS = "landscape_columns"
     private const val KEY_SIDE_LIST_WIDTH = "side_list_width_dp"
+    private const val KEY_STATUS_AMOUNT = "status_amount_" // + unit name
+    private const val KEY_STATUS_UNIT = "status_unit"
     // Override App Colors is saved per signed-in account: these are the old
     // shared keys, now only read once to carry an existing choice over to
     // the first account that opens the app (see setAccount).
@@ -175,6 +177,18 @@ object UiToggles {
     fun updateSideListWidth(dp: Int, save: Boolean) {
         sideListWidthDp = dp.coerceIn(SIDE_LIST_MIN_DP, SIDE_LIST_MAX_DP)
         if (save) prefs?.edit()?.putInt(KEY_SIDE_LIST_WIDTH, sideListWidthDp)?.apply()
+    }
+
+    /** The status popup's "Clear After": the number last typed for each
+     *  unit (Minutes 30, Hours 24, Days 7 until changed) and the unit last
+     *  picked ("NEVER" = it never clears). Kept in the backup with the rest. */
+    fun statusAmount(unit: String, default: Int): Int = prefs?.getInt(KEY_STATUS_AMOUNT + unit, default) ?: default
+    fun statusUnit(): String = prefs?.getString(KEY_STATUS_UNIT, null) ?: "HOURS"
+    fun saveStatusDuration(unit: String, amount: Int?) {
+        val e = prefs?.edit() ?: return
+        e.putString(KEY_STATUS_UNIT, unit)
+        if (amount != null) e.putInt(KEY_STATUS_AMOUNT + unit, amount)
+        e.apply()
     }
 
     fun updateLandscapeColumns(columns: Int) {

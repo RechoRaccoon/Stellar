@@ -1830,5 +1830,7 @@
 "Update Available": "有可用更新",
 "Update": "更新",
 "You have v{0}": "当前为 v{0}",
-"You're on the newest version": "已是最新版本"
+"You're on the newest version": "已是最新版本",
+"Never": "永不",
+"Status": "状态"
 }

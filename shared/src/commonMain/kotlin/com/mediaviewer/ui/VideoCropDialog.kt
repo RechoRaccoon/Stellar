@@ -247,13 +247,29 @@ fun LoopingVideoPreview(uri: PlatformUri, modifier: Modifier, fill: Boolean = fa
 
 /** One line of text that gets smaller (never below 8sp) until it fits. */
 @Composable
-private fun OneLineText(text: String, color: Color, startSp: Float) {
-    var size by remember(text) { mutableFloatStateOf(startSp) }
-    var ready by remember(text) { mutableStateOf(false) }
-    Text(
-        text, color = color, fontSize = size.sp, maxLines = 1, softWrap = false,
-        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-        onTextLayout = { r -> if (r.didOverflowWidth && size > 8f) size = (size - 0.5f).coerceAtLeast(8f) else ready = true },
-        modifier = Modifier.fillMaxWidth().drawWithContent { if (ready) drawContent() }
-    )
+internal fun OneLineText(
+    text: String, color: Color, startSp: Float,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    fontWeight: androidx.compose.ui.text.font.FontWeight? = null,
+    minSp: Float = 8f
+) {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val style = androidx.compose.material3.LocalTextStyle.current.merge(androidx.compose.ui.text.TextStyle(fontWeight = fontWeight))
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        // The biggest size (from startSp down, in half steps) that fits the
+        // width it actually has.
+        val room = constraints.maxWidth
+        val size = remember(text, startSp, room, style) {
+            var sp = startSp
+            if (room != androidx.compose.ui.unit.Constraints.Infinity) {
+                val shown = com.mediaviewer.i18n.tr(text)
+                while (sp > minSp && measurer.measure(shown, style.copy(fontSize = sp.sp), maxLines = 1, softWrap = false).size.width > room) sp -= 0.5f
+            }
+            sp.coerceAtLeast(minSp)
+        }
+        Text(
+            text, color = color, fontSize = size.sp, fontWeight = fontWeight, maxLines = 1, softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Clip
+        )
+    }
 }

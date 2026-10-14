@@ -1830,5 +1830,7 @@
 "Update Available": "업데이트 있음",
 "Update": "업데이트",
 "You have v{0}": "현재 v{0}",
-"You're on the newest version": "최신 버전입니다"
+"You're on the newest version": "최신 버전입니다",
+"Never": "안 함",
+"Status": "상태"
 }

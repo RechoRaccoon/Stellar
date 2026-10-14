@@ -1884,6 +1884,8 @@ private fun PostContent(
             modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter).zIndex(2f)
         ) {
             LandscapeChromeScale(landscape) {
+            // (Pinching the bar resizes this top row too.)
+            LandscapeBarScale(landscape) {
             Column(
                 Modifier.fillMaxWidth()
                     // Sideways the camera cutout is at a side: keep clear of it.
@@ -1943,6 +1945,7 @@ private fun PostContent(
                         downloadRunning = com.mediaviewer.util.PostDownloads.isRunning(item.id)
                     )
                 }
+            }
             }
             }
         }
@@ -2114,14 +2117,19 @@ private fun PostContent(
             if (landscape) {
                 // Round fullscreen button, bottom right: hides the UI
                 // (landscape only); a tap anywhere brings it back.
-                LandscapeFullscreenButton(
-                    liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
-                    onClick = { moreMenuExpanded = false; onLandscapeFullscreen() },
-                    modifier = Modifier.align(Alignment.BottomEnd)
+                Box(
+                    Modifier.align(Alignment.BottomEnd)
                         .windowInsetsPadding(WindowInsets.navBarSpace)
                         .landscapeSideSafe()
                         .padding(end = 12.dp, bottom = if (liquidGlass) 8.dp else 4.dp)
-                )
+                ) {
+                    LandscapeBarScale(landscape) {
+                        LandscapeFullscreenButton(
+                            liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
+                            onClick = { moreMenuExpanded = false; onLandscapeFullscreen() }
+                        )
+                    }
+                }
             }
             }
             }
@@ -3163,9 +3171,7 @@ private fun MultiImageGrid(
 ) {
     val context = LocalContext.current
     val count = images.size
-    val rows = remember(count) { gridRowsFor(count) }
-    val starts = remember(rows) { rows.runningFold(0) { acc, n -> acc + n } }
-    val cols = rows.maxOrNull() ?: 1
+    val landscape = rememberLandscape()
     val shape = RoundedCornerShape(16.dp)
     val rim = remember(outline) {
         Brush.linearGradient(listOf(lerp(outline, Color.White, 0.35f), outline, lerp(outline, Color.White, 0.2f)))
@@ -3174,16 +3180,35 @@ private fun MultiImageGrid(
     // text + interaction bars (bottom), but the group itself sits centered
     // on the screen — only nudged up/down if centering would run it into
     // either of those.
-    val topClear = 104.dp
-    val bottomClear = 176.dp
+    // (Landscape: the author row and the bars sit off to the sides, so the
+    // tiles get nearly the full height, in as many rows as makes them biggest.)
+    val topClear = if (landscape) 76.dp else 104.dp
+    val bottomClear = if (landscape) 76.dp else 176.dp
     BoxWithConstraints(
         Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         val gap = 8.dp
-        val cellW = (maxWidth - gap * (cols - 1)) / cols
-        val cellH = (maxHeight - topClear - bottomClear - gap * (rows.size - 1)) / rows.size
-        val cell = minOf(cellW, cellH).coerceAtLeast(48.dp)
+        fun cellFor(rows: List<Int>): Dp {
+            val cols = rows.maxOrNull() ?: 1
+            val cellW = (maxWidth - gap * (cols - 1)) / cols
+            val cellH = (maxHeight - topClear - bottomClear - gap * (rows.size - 1)) / rows.size
+            return minOf(cellW, cellH)
+        }
+        val rows = remember(count, landscape, maxWidth, maxHeight) {
+            if (!landscape) gridRowsFor(count)
+            else {
+                val n = count.coerceIn(1, 9)
+                (1..3).map { r ->
+                    // r rows, the earlier ones taking any extra.
+                    val base = n / r
+                    val extra = n % r
+                    List(r) { base + if (it < extra) 1 else 0 }.filter { it > 0 }
+                }.maxByOrNull { cellFor(it) } ?: listOf(n)
+            }
+        }
+        val starts = remember(rows) { rows.runningFold(0) { acc, n -> acc + n } }
+        val cell = cellFor(rows).coerceAtLeast(48.dp)
         val groupH = cell * rows.size + gap * (rows.size - 1)
         val centeredTop = (maxHeight - groupH) / 2
         val maxTop = (maxHeight - bottomClear - groupH).coerceAtLeast(topClear)
@@ -4204,7 +4229,8 @@ private fun landscapeClusterWidth(appMode: AppMode, liquidGlass: Boolean): Dp {
 
 /** Landscape: the text bubble and interaction bar at the size set by
  *  pinching on the bar (see [landscapeBarPinch]), on top of
- *  [LandscapeChromeScale]'s own. */
+ *  [LandscapeChromeScale]'s own — the top row (author, status pills) and
+ *  the fullscreen button follow it too, so the whole UI resizes together. */
 @Composable
 private fun LandscapeBarScale(landscape: Boolean, content: @Composable () -> Unit) {
     val scale = com.mediaviewer.util.UiToggles.landscapeBarScale
@@ -4263,13 +4289,17 @@ private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds:
     }
 
 /** Landscape: the post's UI drawn smaller (everything scaled by the same
- *  factor, so it stays proportional) to leave the picture more room. */
+ *  factor, so it stays proportional) to leave the picture more room — by
+ *  how short the screen is: a phone on its side gets the most compact UI,
+ *  a tablet or a desktop window (with room to spare) the standard size. */
 @Composable
 private fun LandscapeChromeScale(landscape: Boolean, content: @Composable () -> Unit) {
     if (!landscape) { content(); return }
     val d = androidx.compose.ui.platform.LocalDensity.current
+    val heightDp = com.mediaviewer.ui.compat.rememberScreenSizeDp().height
+    val base = (heightDp / 560f).coerceIn(0.76f, 1f)
     androidx.compose.runtime.CompositionLocalProvider(
-        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * 0.78f, d.fontScale),
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * base, d.fontScale),
         LocalCompactActionRow provides true,
         content = content
     )

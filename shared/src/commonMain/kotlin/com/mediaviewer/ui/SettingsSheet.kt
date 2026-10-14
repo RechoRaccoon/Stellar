@@ -466,7 +466,10 @@ fun SettingsSheet(
             modifier = Modifier
                 .fillMaxSize()
                 // (Landscape Settings: no gap for a camera cutout at the top.)
-                .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 0.dp else rememberTopCutoutClearance()),
+                .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 0.dp else rememberTopCutoutClearance())
+                // (…and the camera cutout and gesture bar's room on the left
+                // and right instead, the same on both sides.)
+                .then(if (hubLandscape && hubPage == HubPage.SETTINGS) Modifier.padding(horizontal = rememberLandscapeSideInset()) else Modifier),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // The main page's search bar sits right under the camera cutout
@@ -2854,8 +2857,8 @@ private fun SettingsGridButtonBody(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // (Shrinks to fit rather than cutting a long label off.)
+            OneLineText(label, Color.White, 11f, Modifier.weight(1f, fill = false), FontWeight.Medium, minSp = 7f)
             Spacer(Modifier.width(6.dp))
             Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(16.dp))
         }
@@ -3453,7 +3456,7 @@ private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean
 
 /** "Remove" drop target shown above Return to Feed while a feed is held. */
 @Composable
-private fun HubRemoveBubble(hovered: Boolean, liquidGlass: Boolean, modifier: Modifier = Modifier) {
+internal fun HubRemoveBubble(hovered: Boolean, liquidGlass: Boolean, modifier: Modifier = Modifier) {
     val red = Color(0xFFFF453A)
     val shape = RoundedCornerShape(22.dp)
     val scale by animateFloatAsState(if (hovered) 1.15f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "removeScale")

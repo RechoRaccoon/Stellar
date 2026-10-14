@@ -1830,5 +1830,7 @@
 "Update Available": "アップデートがあります",
 "Update": "アップデート",
 "You have v{0}": "現在は v{0} です",
-"You're on the newest version": "最新バージョンです"
+"You're on the newest version": "最新バージョンです",
+"Never": "なし",
+"Status": "ステータス"
 }

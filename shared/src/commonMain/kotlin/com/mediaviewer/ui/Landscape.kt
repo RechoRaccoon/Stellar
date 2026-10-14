@@ -47,14 +47,17 @@ object Landscape {
     /**
      * The column count for one of the post grids that has [portrait]
      * columns in portrait: the count set with the slider under a profile's
-     * side list (5 to 10, see UiToggles.landscapeColumns) for picture
-     * grids, two fewer (at least 3) for text posts set side by side.
+     * side list (1 to 10, see UiToggles.landscapeColumns) — text posts
+     * too (they shrink to keep their shape, see shrinkToWidth).
      */
     @Suppress("UNUSED_PARAMETER")
-    fun postLanes(portrait: Int, widthDp: Int): Int {
-        val n = com.mediaviewer.util.UiToggles.landscapeColumns
-        return if (portrait >= 2) n else maxOf(1, n - 2)
-    }
+    fun postLanes(portrait: Int, widthDp: Int): Int = com.mediaviewer.util.UiToggles.landscapeColumns
+
+    /** Text cards side by side in landscape (a profile's blogs, reviews,
+     *  VODs, lists): as many across as the slider says, each laid out
+     *  [TEXT_CARD_REFERENCE] wide and shrunk to its column (shrinkToWidth). */
+    fun textCardLanes(widthDp: Int): Int = if (widthDp > 0) com.mediaviewer.util.UiToggles.landscapeColumns else 1
+    val TEXT_CARD_REFERENCE: Dp = 420.dp
 
     /** Video cards (horizontal videos): as many across as the slider says. */
     @Suppress("UNUSED_PARAMETER")

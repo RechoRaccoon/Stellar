@@ -1830,5 +1830,7 @@
 "Update Available": "Update verfügbar",
 "Update": "Aktualisieren",
 "You have v{0}": "Du hast v{0}",
-"You're on the newest version": "Du hast bereits die neueste Version"
+"You're on the newest version": "Du hast bereits die neueste Version",
+"Never": "Nie",
+"Status": "Status"
 }

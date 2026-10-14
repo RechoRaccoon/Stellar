@@ -1830,5 +1830,7 @@
 "Update Available": "Доступно обновление",
 "Update": "Обновить",
 "You have v{0}": "У вас v{0}",
-"You're on the newest version": "У вас последняя версия"
+"You're on the newest version": "У вас последняя версия",
+"Never": "Никогда",
+"Status": "Статус"
 }

@@ -14,7 +14,29 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0e. Update: side lists shrink to fit, composer viewer, edit-history pictures (latest)
+## 0f. Update: status durations, banner pills, composer Remove bubble, landscape fit (latest)
+
+- **Status popup**: Minutes / Hours / Days / Never. Each unit remembers its
+  own number (30 / 24 / 7 by default; Never = 0, greyed); the last unit and
+  the numbers live in `ui_toggles` (`UiToggles.statusAmount/statusUnit`),
+  so they're in the backup. Your own empty bubble reads "Status" (greyed).
+- **Profile banner**: the name pills are one size and together half the
+  avatar's height; Follow/Edit (and Back) sit at the top, as far from the
+  top edge as the avatar/pills are from the bottom. Profile notes hug their
+  text.
+- **Composer**: opening an image blurs at once; hold an image and drag it
+  onto the "Remove" bubble (centred over the Drafts/counter row) to take it
+  off (`ImageDragState`, reusing `HubRemoveBubble`).
+- **Landscape**: no top gap on any page (`rememberTopCutoutClearance` is
+  ~10dp sideways); Settings gets even left/right room for the camera and
+  gesture bar (`rememberLandscapeSideInset`); launchpad labels shrink to fit
+  (`OneLineText`); blogs/reviews/VODs and text posts follow the Grid Size
+  slider (`Landscape.textCardLanes`, shrunk with `shrinkToWidth`);
+  multi-image posts pick the row count that makes the tiles biggest; the
+  post UI's base size follows the screen height, and pinching the bar
+  resizes the top row and fullscreen button too.
+
+## 0e. Update: side lists shrink to fit, composer viewer, edit-history pictures
 
 - **Side lists** (Hub sidebar, Search, DMs, Settings sidebar) lay out at
   `SIDE_LIST_LAYOUT_WIDTH` (340dp) and scale down evenly with
