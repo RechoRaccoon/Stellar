@@ -14,7 +14,24 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0d. Update: in-app updates, smaller name pills (latest)
+## 0e. Update: side lists shrink to fit, composer viewer, edit-history pictures (latest)
+
+- **Side lists** (Hub sidebar, Search, DMs, Settings sidebar) lay out at
+  `SIDE_LIST_LAYOUT_WIDTH` (340dp) and scale down evenly with
+  `Modifier.shrinkToFit` (`ui/Landscape.kt`) when narrowed, so text is never
+  cut. The drag pill is tinted with the page's profile colour.
+- **Landscape Settings**: no top gap and no nav-bar gap under the bottom bar.
+- **Edit history** keeps the old images: `stellarEditHistory` entries store
+  `imageBlobs` (so the PDS keeps the blobs) and the popup shows thumbnails
+  (`PostEditVersion.pictures`).
+- **Composer images**: a tap opens them fullscreen (`CommentMediaViewer`,
+  `showClose = false`, blur behind, tap again to close); press and hold
+  without moving to delete (with the existing confirmation).
+- **Crop popup**: the hint shrinks to stay on one line, and the video
+  autoplays muted and loops (`LoopingVideoPreview`, also used by Edit
+  Profile's Animated slots).
+
+## 0d. Update: in-app updates, smaller name pills
 
 - **Version:** one place, `shared/.../AppVersion.kt` (`NAME = "2.8"`).
   - The Android build reads it: `versionName`, and `versionCode` = major × 100 + minor (2.8 → 208).

@@ -89,13 +89,16 @@ fun EditHistoryPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdro
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            VersionCard("Current version", isoToText(item.editedAt.orEmpty()).let { if (it.isBlank()) "" else "Edited $it" }, item.text, tint, current = true)
+            val current = remember(item) {
+                if (item.isVideo) emptyList() else item.mediaGroup.map { it.thumbUrl.ifBlank { it.mediaUrl } }.filter { it.isNotBlank() }
+            }
+            VersionCard("Current version", isoToText(item.editedAt.orEmpty()).let { if (it.isBlank()) "" else "Edited $it" }, item.text, tint, current = true, pictures = current)
             versions.forEachIndexed { i, v ->
                 val original = i == versions.lastIndex
                 VersionCard(
                     if (original) "Original" else "Earlier version",
                     isoToText(v.at) + if (v.images > 0) " · ${v.images} image${if (v.images == 1) "" else "s"}" else "",
-                    v.text, tint, current = false
+                    v.text, tint, current = false, pictures = v.pictures(item.author.did)
                 )
             }
             if (versions.isEmpty()) Text(
@@ -108,7 +111,7 @@ fun EditHistoryPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdro
 }
 
 @Composable
-private fun VersionCard(label: String, sub: String, text: String, tint: Color, current: Boolean) {
+private fun VersionCard(label: String, sub: String, text: String, tint: Color, current: Boolean, pictures: List<String> = emptyList()) {
     val shape = RoundedCornerShape(16.dp)
     Column(
         Modifier.fillMaxWidth().clip(shape)
@@ -128,6 +131,18 @@ private fun VersionCard(label: String, sub: String, text: String, tint: Color, c
             text.ifBlank { "(no text)" }, color = Color.White.copy(alpha = if (current) 0.96f else 0.82f),
             fontSize = 14.sp, lineHeight = 19.sp
         )
+        // That version's pictures, in order.
+        if (pictures.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                pictures.forEach { url ->
+                    coil3.compose.AsyncImage(
+                        model = url, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.06f))
+                    )
+                }
+            }
+        }
     }
 }
 

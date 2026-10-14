@@ -166,7 +166,12 @@ private fun BoxScope.CornerLabel(text: String) {
  * on a picture — closes it.
  */
 @Composable
-fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, liquidGlass: Boolean, backdrop: GlassBackdrop?, onClose: () -> Unit) {
+fun CommentMediaViewer(
+    media: List<CommentMedia>, startIndex: Int, tint: Color, liquidGlass: Boolean, backdrop: GlassBackdrop?,
+    /** False: no X (tapping the picture closes it — the composer's preview). */
+    showClose: Boolean = true,
+    onClose: () -> Unit
+) {
     val tap = rememberHapticTap()
     com.mediaviewer.ui.compat.BackHandler(onBack = onClose)
     val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, (media.size - 1).coerceAtLeast(0))) { media.size }
@@ -232,7 +237,7 @@ fun CommentMediaViewer(media: List<CommentMedia>, startIndex: Int, tint: Color, 
             }
         }
         // Close.
-        Box(Modifier.windowInsetsPadding(WindowInsets.navBarSpace).padding(top = rememberTopCutoutClearance()).padding(12.dp)) {
+        if (showClose) Box(Modifier.windowInsetsPadding(WindowInsets.navBarSpace).padding(top = rememberTopCutoutClearance()).padding(12.dp)) {
             val m = Modifier.size(40.dp)
             @Composable
             fun X() {

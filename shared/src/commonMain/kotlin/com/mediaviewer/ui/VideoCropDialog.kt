@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -132,7 +133,8 @@ fun VideoCropDialog(
                 val dispWPx = with(density) { dispW.toPx() }
                 val dispHPx = with(density) { dispH.toPx() }
                 Box(Modifier.size(dispW, dispH).clip(RoundedCornerShape(10.dp))) {
-                    InlineVideoPlayer(uri, Modifier.fillMaxSize())
+                    // Playing on its own, muted, round and round.
+                    LoopingVideoPreview(uri, Modifier.fillMaxSize())
                     // Darkened outside the frame; the frame (and the icon's
                     // circle) on top. Drag to move, pinch to size.
                     Canvas(
@@ -188,7 +190,7 @@ fun VideoCropDialog(
                     )
                 }
             }
-            Text("Drag to move it · pinch or drag the corner to resize", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+            OneLineText("Drag to move it · pinch or drag the corner to resize", Color.White.copy(alpha = 0.6f), 12f)
             error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
@@ -222,4 +224,36 @@ fun VideoCropDialog(
             }
         }
     }
+}
+
+/** [uri] playing muted and looping, from the start, with no controls
+ *  ([fill]: cropped to fill instead of letterboxed). */
+@Composable
+fun LoopingVideoPreview(uri: PlatformUri, modifier: Modifier, fill: Boolean = false, cornerPercent: Int = 0) {
+    val context = LocalContext.current
+    val url = uri.toString()
+    val player = remember(url) { FeedVideos.acquire(context, url) }
+    androidx.compose.runtime.DisposableEffect(player) {
+        player.setVolumeMuted(true)
+        player.seekTo(0L)
+        player.play()
+        onDispose {
+            player.setVolumeMuted(false)
+            FeedVideos.recycle(url, player)
+        }
+    }
+    FeedVideoView(player, modifier, fill = fill, cornerPercent = cornerPercent)
+}
+
+/** One line of text that gets smaller (never below 8sp) until it fits. */
+@Composable
+private fun OneLineText(text: String, color: Color, startSp: Float) {
+    var size by remember(text) { mutableFloatStateOf(startSp) }
+    var ready by remember(text) { mutableStateOf(false) }
+    Text(
+        text, color = color, fontSize = size.sp, maxLines = 1, softWrap = false,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+        onTextLayout = { r -> if (r.didOverflowWidth && size > 8f) size = (size - 0.5f).coerceAtLeast(8f) else ready = true },
+        modifier = Modifier.fillMaxWidth().drawWithContent { if (ready) drawContent() }
+    )
 }

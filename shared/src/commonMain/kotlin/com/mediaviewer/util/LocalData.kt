@@ -189,9 +189,22 @@ data class NoteEntry(
     val updatedAt: Long = 0L
 )
 
-/** One earlier version of an edited post. */
+/** One earlier version of an edited post. [imageBlobs]: its pictures
+ *  (kept in the post record's history, so the PDS keeps them even after
+ *  an edit removed them; older edits only have the count). [imageUrls]:
+ *  the same pictures as addresses, for a version made on this device. */
 @Serializable
-data class PostEditVersion(val text: String = "", val at: String = "", val images: Int = 0)
+data class PostEditVersion(
+    val text: String = "", val at: String = "", val images: Int = 0,
+    val imageBlobs: List<com.mediaviewer.model.BskyBlob> = emptyList(),
+    val imageUrls: List<String> = emptyList()
+) {
+    /** The pictures to show for this version, for the post by [did]. */
+    fun pictures(did: String): List<String> =
+        imageUrls.ifEmpty {
+            imageBlobs.mapNotNull { b -> b.ref.link.takeIf { it.isNotBlank() }?.let { "https://cdn.bsky.app/img/feed_thumbnail/plain/$did/$it@jpeg" } }
+        }
+}
 
 /**
  * Everything Stellar keeps only on this device for the supporter features

@@ -143,3 +143,36 @@ fun <T> LazyListScope.landscapeGridRows(
         }
     }
 }
+
+/**
+ * For a side list made narrower than [reference]: lays its content out
+ * [reference] wide (and as tall as it then needs to be to fill the room)
+ * and shrinks all of it evenly to fit — so nothing gets squeezed, wrapped
+ * or cut off; it just gets smaller. At [reference] or wider, it's laid out
+ * as normal.
+ */
+fun Modifier.shrinkToFit(reference: Dp): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val ref = reference.roundToPx()
+        val w = constraints.maxWidth
+        val inf = androidx.compose.ui.unit.Constraints.Infinity
+        if (w == inf || w >= ref || constraints.maxHeight == inf) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val scale = w.toFloat() / ref
+            val p = measurable.measure(
+                androidx.compose.ui.unit.Constraints(
+                    minWidth = ref, maxWidth = ref,
+                    minHeight = (constraints.minHeight / scale).toInt(), maxHeight = (constraints.maxHeight / scale).toInt()
+                )
+            )
+            layout(w, (p.height * scale).toInt().coerceAtMost(constraints.maxHeight)) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)

@@ -466,7 +466,7 @@ fun SettingsSheet(
             modifier = Modifier
                 .fillMaxSize()
                 // (Landscape Settings: no gap for a camera cutout at the top.)
-                .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 6.dp else rememberTopCutoutClearance()),
+                .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 0.dp else rememberTopCutoutClearance()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // The main page's search bar sits right under the camera cutout
@@ -640,8 +640,10 @@ fun SettingsSheet(
             if (!hubBarAtTop) Box(
                 Modifier.landscapeReadable(if (hubPage == HubPage.SETTINGS && settingsTab == SettingsTab.SETTINGS) SETTINGS_LANDSCAPE_WIDTH else Landscape.READABLE_WIDTH)
                     .padding(horizontal = if (hubLandscape) 16.dp else 14.dp).padding(top = if (hubLandscape) 2.dp else 6.dp)
-                    .windowInsetsPadding(WindowInsets.navBarSpace)
-                    .padding(bottom = if (hubLandscape) 6.dp else 10.dp)
+                    // (Landscape Settings: no gap for the navigation bar — its
+                    // handle sits between the bar's two ends.)
+                    .then(if (hubLandscape && hubPage == HubPage.SETTINGS) Modifier else Modifier.windowInsetsPadding(WindowInsets.navBarSpace))
+                    .padding(bottom = if (hubLandscape) 4.dp else 10.dp)
             ) { hubBar(false) }
         }
 
@@ -1526,7 +1528,7 @@ private fun AtProtocolPageContent(
     }
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
-        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight()) {
+        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
                 ButtonsSection()

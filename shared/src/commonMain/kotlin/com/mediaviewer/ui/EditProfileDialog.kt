@@ -230,7 +230,7 @@ fun EditProfileDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             when {
-                                picked != null -> InlineVideoPlayer(picked, Modifier.fillMaxSize())
+                                picked != null -> LoopingVideoPreview(picked, Modifier.fillMaxSize(), fill = true, cornerPercent = cornerPercent)
                                 saved != null -> ProfileBannerVideo(author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent)
                             }
                             if (picked == null && saved == null) {

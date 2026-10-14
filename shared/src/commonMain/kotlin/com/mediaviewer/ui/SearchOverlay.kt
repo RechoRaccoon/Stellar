@@ -644,7 +644,7 @@ fun SearchOverlay(
                 // buttons, the post-type filters, the grid size slider at
                 // the bottom — and the results beside it.
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight()) {
+                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
                         SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp), showBack = false)
                         Spacer(Modifier.height(10.dp))
                         Column(

@@ -76,6 +76,10 @@ fun rememberSideListWidth(): Dp {
     return com.mediaviewer.util.UiToggles.sideListWidthDp.coerceIn(com.mediaviewer.util.UiToggles.SIDE_LIST_MIN_DP, max).dp
 }
 
+/** The width a side list's content is laid out at; narrower, it all
+ *  shrinks evenly to fit (see shrinkToFit) instead of being squeezed. */
+val SIDE_LIST_LAYOUT_WIDTH: Dp = 340.dp
+
 /**
  * The side list's edge: a small upright pill, centred, to grab and drag
  * sideways — every split page's side list follows. While it's held, a line
@@ -112,7 +116,7 @@ fun SideListEdge(tint: Color, modifier: Modifier = Modifier) {
                 if (dragging) Box(Modifier.fillMaxHeight().width(2.dp).background(line))
                 Box(
                     Modifier.width(if (dragging) 7.dp else 5.dp).height(44.dp).clip(RoundedCornerShape(50))
-                        .background(if (dragging) line else Color.White.copy(alpha = 0.35f))
+                        .background(if (dragging) line else line.copy(alpha = 0.75f))
                 )
             }
         },
@@ -188,7 +192,7 @@ fun LandscapeSideList(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
-        modifier.width(rememberSideListWidth()).fillMaxHeight()
+        modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)
             .padding(start = 16.dp, end = 16.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
     ) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {

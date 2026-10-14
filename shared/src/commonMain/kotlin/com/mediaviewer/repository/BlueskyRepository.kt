@@ -3899,15 +3899,22 @@ class BlueskyRepository {
             val history = ArrayList<Map<String, Any>>()
             runCatching { old.getAsJsonArray("stellarEditHistory") }.getOrNull()?.forEach { el ->
                 val o = runCatching { el.asJsonObject }.getOrNull() ?: return@forEach
-                history += mapOf(
+                val entry = linkedMapOf<String, Any>(
                     "text" to (runCatching { o.get("text")?.asString }.getOrNull().orEmpty()),
                     "at" to (runCatching { o.get("at")?.asString }.getOrNull().orEmpty()),
                     "images" to (runCatching { o.get("images")?.asInt }.getOrNull() ?: 0)
                 )
+                runCatching { o.getAsJsonArray("imageBlobs") }.getOrNull()?.let { entry["imageBlobs"] = it }
+                history += entry
             }
             val previousAt = runCatching { old.get("stellarEditedAt")?.asString }.getOrNull()?.takeIf { it.isNotBlank() }
                 ?: runCatching { old.get("createdAt")?.asString }.getOrNull().orEmpty()
-            history += mapOf("text" to oldText, "at" to previousAt, "images" to oldImages.size)
+            // The replaced version's pictures, as blob refs: kept in the
+            // record, the PDS keeps them, so the history can show them.
+            val oldBlobs = oldImages.mapNotNull { it.get("image")?.takeIf { b -> b.isJsonObject } }
+            history += linkedMapOf<String, Any>("text" to oldText, "at" to previousAt, "images" to oldImages.size).also {
+                if (oldBlobs.isNotEmpty()) it["imageBlobs"] = oldBlobs
+            }
             // Keeps the record comfortably small however often it's edited.
             record["stellarEditHistory"] = history.takeLast(30)
             record["stellarEditedAt"] = now

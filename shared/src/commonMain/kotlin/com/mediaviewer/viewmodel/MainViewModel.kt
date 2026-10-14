@@ -1656,7 +1656,8 @@ class MainViewModel(
                 postCid = newCid ?: m.postCid,
                 editedAt = now,
                 editHistory = (m.editHistory ?: emptyList()) + com.mediaviewer.util.PostEditVersion(
-                    text = edit.text, at = m.editedAt ?: m.createdAt.orEmpty(), images = edit.imageUrls.size
+                    text = edit.text, at = m.editedAt ?: m.createdAt.orEmpty(), images = edit.imageUrls.size,
+                    imageUrls = m.mediaGroup.map { it.thumbUrl.ifBlank { it.mediaUrl } }.filter { it.isNotBlank() }.ifEmpty { edit.imageUrls }
                 )
             )
         }

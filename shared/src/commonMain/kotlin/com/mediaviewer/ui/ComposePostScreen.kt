@@ -283,6 +283,9 @@ fun ComposePostScreen(
     val textshotPostFocus = remember { FocusRequester() }
     // A pending "remove this?" question (attached media, a thread post).
     var confirmRemoval by remember { mutableStateOf<RemovalRequest?>(null) }
+    // A tapped picture, full screen over the (blurred) composer: (all the
+    // post's pictures, which one).
+    var viewingImages by remember { mutableStateOf<Pair<List<Uri>, Int>?>(null) }
     // Item 8: pre-seeded straight from the camera-notch button's "Camera"
     // action, if that's how this composer was opened.
     var images by remember {
@@ -910,7 +913,9 @@ fun ComposePostScreen(
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
         val backdrop = if (liquidGlass) remember(backdropLayer) { GlassBackdrop(backdropLayer) { backdropOrigin } } else null
         // The draft blurs softly behind a "remove this?" question.
-        val composeBlur by androidx.compose.animation.core.animateDpAsState(if (confirmRemoval != null) 10.dp else 0.dp, label = "composeBlur")
+        val composeBlur by androidx.compose.animation.core.animateDpAsState(
+            if (viewingImages != null) 26.dp else if (confirmRemoval != null) 10.dp else 0.dp, label = "composeBlur"
+        )
         Box(Modifier.fillMaxSize().pageBlur(composeBlur)) {
             // ── Scrollable content ──────────────────────────────────────
             // Fills the whole screen down to the keyboard/nav bar (instead
@@ -1140,6 +1145,7 @@ fun ComposePostScreen(
                                 Spacer(Modifier.height(8.dp))
                                 ImageGrid(
                                     images = post.images,
+                                    onOpen = { uri -> viewingImages = post.images to post.images.indexOf(uri).coerceAtLeast(0) },
                                     onRemove = { uri ->
                                         confirmRemoval = RemovalRequest("Remove this image?", "It'll be taken off this post.", preview = uri) {
                                             threadPosts = threadPosts.toMutableList().also { list ->
@@ -1262,6 +1268,7 @@ fun ComposePostScreen(
                             Spacer(Modifier.height(10.dp))
                             ImageGrid(
                                 images = images,
+                                onOpen = { uri -> viewingImages = images to images.indexOf(uri).coerceAtLeast(0) },
                                 onRemove = { uri ->
                                     confirmRemoval = RemovalRequest("Remove this image?", "It'll be taken off your post.", preview = uri) {
                                         images = images - uri
@@ -1626,6 +1633,14 @@ fun ComposePostScreen(
             }
         }
 
+        // Tap the picture again (or go back) to close it.
+        viewingImages?.let { (list, start) ->
+            CommentMediaViewer(
+                media = list.map { u -> com.mediaviewer.model.CommentMedia(kind = com.mediaviewer.model.CommentMedia.Kind.IMAGE, thumbUrl = u.toString(), fullUrl = u.toString()) },
+                startIndex = start, tint = dominantColor, liquidGlass = liquidGlass, backdrop = backdrop,
+                showClose = false, onClose = { viewingImages = null }
+            )
+        }
         confirmRemoval?.let { request ->
             RemovalConfirmPopup(
                 request = request, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
@@ -2277,11 +2292,12 @@ private fun emojiVisualTransformation(store: EmojiStore) = VisualTransformation 
  *  exactly the same size as the first five instead of stretching to fill
  *  their row.
  *
- *  Tap a tile to remove it (after a confirmation); press and hold one to
- *  pick it up and drag it to a new spot — the others slide out of the way,
- *  with a haptic tick each time it takes a new place. */
+ *  Tap a tile to see it full screen. Press and hold one: let go without
+ *  moving to remove it (after a confirmation), or drag it to a new spot —
+ *  the others slide out of the way, with a haptic tick each time it takes
+ *  a new place. */
 @Composable
-private fun ImageGrid(images: List<Uri>, onRemove: (Uri) -> Unit, onMove: (from: Int, to: Int) -> Unit) {
+private fun ImageGrid(images: List<Uri>, onRemove: (Uri) -> Unit, onMove: (from: Int, to: Int) -> Unit, onOpen: (Uri) -> Unit = {}) {
     val tap = rememberHapticTap()
     val view = com.mediaviewer.ui.compat.rememberPlatformView()
     val columns = if (images.size > 5) 5 else images.size.coerceAtLeast(1)
@@ -2295,6 +2311,8 @@ private fun ImageGrid(images: List<Uri>, onRemove: (Uri) -> Unit, onMove: (from:
         val latestCell by rememberUpdatedState(cellPx)
         var dragging by remember { mutableStateOf<Uri?>(null) }
         var dragPos by remember { mutableStateOf(Offset.Zero) }
+        // How far the held tile has moved: barely at all = hold to remove.
+        var dragMoved by remember { mutableStateOf(0f) }
         fun slotOf(i: Int) = Offset((i % columns) * cellPx, (i / columns) * cellPx)
         Box(Modifier.fillMaxWidth().height(cellDp * rows)) {
             images.forEachIndexed { index, uri ->
@@ -2325,17 +2343,22 @@ private fun ImageGrid(images: List<Uri>, onRemove: (Uri) -> Unit, onMove: (from:
                                             val cols = if (latestImages.size > 5) 5 else latestImages.size.coerceAtLeast(1)
                                             dragPos = Offset((from % cols) * latestCell, (from / cols) * latestCell)
                                             dragging = uri
+                                            dragMoved = 0f
                                             view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
                                         }
                                     },
                                     onDragEnd = {
-                                        if (dragging == uri) view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.VIRTUAL_KEY)
+                                        val held = dragging == uri
+                                        if (held) view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.VIRTUAL_KEY)
                                         dragging = null
+                                        // Held and let go in place: remove it.
+                                        if (held && dragMoved < 12.dp.toPx()) onRemove(uri)
                                     },
                                     onDragCancel = { dragging = null }
                                 ) { change, amount ->
                                     if (dragging != uri) return@detectDragGesturesAfterLongPress
                                     change.consume()
+                                    dragMoved += amount.getDistance()
                                     val list = latestImages
                                     val cols = if (list.size > 5) 5 else list.size.coerceAtLeast(1)
                                     val rowCount = (list.size + cols - 1) / cols
@@ -2352,7 +2375,7 @@ private fun ImageGrid(images: List<Uri>, onRemove: (Uri) -> Unit, onMove: (from:
                                     }
                                 }
                             }
-                            .clickable { tap(); onRemove(uri) }
+                            .clickable { tap(); onOpen(uri) }
                     ) {
                         AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     }

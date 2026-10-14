@@ -674,7 +674,8 @@ internal fun SettingsPageContent(
     androidx.compose.runtime.CompositionLocalProvider(LocalSettingsAccent provides headerColorFor(tint)) {
     SettingsColumns(
         // (Landscape: two sections side by side — see SettingsColumns.)
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable(SETTINGS_LANDSCAPE_WIDTH).padding(horizontal = 16.dp, vertical = 10.dp)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable(SETTINGS_LANDSCAPE_WIDTH)
+            .padding(horizontal = 16.dp).padding(top = if (rememberLandscape()) 4.dp else 10.dp, bottom = 10.dp)
     ) {
         // ── Supporter Settings ──────────────────────────────────────────
         // (Only shown to supporters.)
