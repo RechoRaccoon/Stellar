@@ -318,7 +318,7 @@ private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBack
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
             RowLabel("Check for Updates", Modifier.weight(1f), sub = "v" + com.mediaviewer.AppVersion.NAME)
-            CompactSwitch(com.mediaviewer.util.AppUpdates.enabled) { com.mediaviewer.util.AppUpdates.setEnabled(it) }
+            CompactSwitch(com.mediaviewer.util.AppUpdates.enabled) { com.mediaviewer.util.AppUpdates.updateEnabled(it) }
         }
         BubbleDivider()
         BubbleRow {
@@ -2371,7 +2371,7 @@ private fun CustomizeHubSection(
                         )
                     }
                 }
-                CompactSwitch(hub.separateOrientations) { hub.setSeparateOrientations(it) }
+                CompactSwitch(hub.separateOrientations) { hub.useSeparateOrientations(it) }
             }
         }
         if (urlPopupOpen) {

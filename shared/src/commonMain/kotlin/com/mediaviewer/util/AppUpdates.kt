@@ -55,7 +55,7 @@ object AppUpdates {
         enabled = p.getBoolean("enabled", true)
     }
 
-    fun setEnabled(on: Boolean) {
+    fun updateEnabled(on: Boolean) {
         enabled = on
         prefs?.edit()?.putBoolean("enabled", on)?.apply()
     }

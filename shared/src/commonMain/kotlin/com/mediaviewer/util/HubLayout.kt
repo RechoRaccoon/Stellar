@@ -131,7 +131,7 @@ object HubLayout {
     private fun rowsKey(did: String) = keyFor(did) + suffix
     private fun removedKey(did: String) = removedKeyFor(did) + suffix
 
-    fun setSeparateOrientations(on: Boolean) {
+    fun useSeparateOrientations(on: Boolean) {
         val p = prefs ?: return
         if (on == separateOrientations) return
         separateOrientations = on
