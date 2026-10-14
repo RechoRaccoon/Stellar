@@ -16,6 +16,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.positionInRoot
+import com.mediaviewer.platform.JsBytes
+import com.mediaviewer.platform.jsGet
+import com.mediaviewer.platform.jsGetInt
+import com.mediaviewer.platform.toByteArray
+import kotlinx.coroutines.delay
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.Image
+import org.jetbrains.skia.ImageInfo
 import com.mediaviewer.platform.WebBlobs
 import com.mediaviewer.platform.webPathOf
 
@@ -91,6 +105,20 @@ class WebVideoPlayer(val url: String, muted: Boolean = false) : FeedVideoPlayer 
 
     fun setMuted(muted: Boolean) { if (!released) setVideoMuted(element, muted) }
 
+    /** A small copy of the picture showing now (at most [maxWidth] wide), for
+     *  the blurred glass over the video; null while there's none to copy. */
+    fun grabFrame(maxWidth: Int): ImageBitmap? {
+        if (released) return null
+        val f = runCatching { grabVideoFrame(element, maxWidth) }.getOrNull() ?: return null
+        val w = jsGetInt(f, "w")
+        val h = jsGetInt(f, "h")
+        val bytes = jsGet(f, "data")?.unsafeCast<JsBytes>()?.toByteArray() ?: return null
+        if (w <= 0 || h <= 0 || bytes.size < w * h * 4) return null
+        return runCatching {
+            Image.makeRaster(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL), bytes, w * 4).toComposeImageBitmap()
+        }.getOrNull()
+    }
+
     override fun addListener(listener: FeedVideoListener) { listeners += listener }
     override fun removeListener(listener: FeedVideoListener) { listeners -= listener }
 
@@ -117,14 +145,39 @@ class WebVideoPlayer(val url: String, muted: Boolean = false) : FeedVideoPlayer 
  * match, every time this moves.
  */
 @Composable
-internal fun WebVideoSurface(player: WebVideoPlayer, modifier: Modifier) {
+internal fun WebVideoSurface(player: WebVideoPlayer, modifier: Modifier, backdropKey: Any? = null) {
     val density = LocalDensity.current.density
     DisposableEffect(player) {
         onDispose { player.hide() }
     }
+    var viewRect by remember { mutableStateOf(Rect.Zero) }
+    if (backdropKey != null) {
+        // The glass controls over a video blur what's under them, but the
+        // video isn't part of what Compose draws: small copies of its
+        // picture are handed to them instead (as on iOS and desktop).
+        DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
+        LaunchedEffect(player, backdropKey) {
+            while (true) {
+                delay(if (player.isPlaying) 100 else 400)
+                val box = viewRect
+                if (box.width < 1f || box.height < 1f) continue
+                val image = player.grabFrame(BACKDROP_FRAME_WIDTH) ?: continue
+                val ratio = player.aspectRatio.takeIf { it > 0f } ?: (box.width / box.height)
+                val fitW = minOf(box.width, box.height * ratio)
+                val fitH = fitW / ratio
+                val fit = Rect(
+                    box.left + (box.width - fitW) / 2f, box.top + (box.height - fitH) / 2f,
+                    box.left + (box.width + fitW) / 2f, box.top + (box.height + fitH) / 2f
+                )
+                NativeVideoBackdrop.frames[backdropKey] = NativeVideoBackdrop.Frame(image, fit)
+            }
+        }
+    }
     Box(
         modifier
             .onGloballyPositioned { c ->
+                val r = c.positionInRoot()
+                viewRect = Rect(r.x, r.y, r.x + c.size.width, r.y + c.size.height)
                 val p = c.positionInWindow()
                 if (!c.isAttached || c.size.width == 0 || c.size.height == 0) player.hide()
                 else player.place(
@@ -135,6 +188,9 @@ internal fun WebVideoSurface(player: WebVideoPlayer, modifier: Modifier) {
             .drawBehind { drawRect(Color.Black, blendMode = BlendMode.Clear) }
     )
 }
+
+/** How wide the video copies for the glass blur are (they're blurred anyway). */
+private const val BACKDROP_FRAME_WIDTH = 160
 
 // ── The <video> elements ──────────────────────────────────────────────────
 
@@ -171,6 +227,25 @@ private fun listen(v: JsAny, onEvent: (String) -> Unit): Unit = js("""{
         v.addEventListener(name, () => onEvent(name));
     }
 }""")
+
+/** The current picture, scaled to at most [maxW] wide, as {w, h, data: RGBA bytes};
+ *  null before the first frame, or if the browser won't let it be read. */
+private fun grabVideoFrame(v: JsAny, maxW: Int): JsAny? = js("""(() => {
+    try {
+        const w0 = v.videoWidth, h0 = v.videoHeight;
+        if (!w0 || !h0 || v.readyState < 2) return null;
+        const s = Math.min(1, maxW / w0);
+        const w = Math.max(1, Math.round(w0 * s)), h = Math.max(1, Math.round(h0 * s));
+        let c = globalThis.__stellarFrameCanvas;
+        if (!c) { c = document.createElement('canvas'); globalThis.__stellarFrameCanvas = c; }
+        if (c.width !== w) c.width = w;
+        if (c.height !== h) c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(v, 0, 0, w, h);
+        const d = ctx.getImageData(0, 0, w, h).data;
+        return { w: w, h: h, data: new Uint8Array(d.buffer, d.byteOffset, d.byteLength) };
+    } catch (e) { return null; }
+})()""")
 
 private fun videoWidth(v: JsAny): Int = js("v.videoWidth | 0")
 private fun videoHeight(v: JsAny): Int = js("v.videoHeight | 0")

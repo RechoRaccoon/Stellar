@@ -67,7 +67,32 @@ private class WebFetcher(private val uri: String, private val options: Options) 
             val bytes = WebBlobs.readAll(path) ?: WebFiles.read(path) ?: error("File not found: $path")
             return SourceFetchResult(ImageSource(Buffer().write(bytes), options.fileSystem), null, DataSource.DISK)
         }
-        val resp = PlainHttp.get(uri)
+        // Bluesky's picture CDN may not let web pages read its pictures
+        // (no CORS headers): then the same picture is fetched from the
+        // poster's own server (their PDS), which does.
+        val blob = BskyCdn.parse(uri)
+        if (blob != null && BskyCdn.blocked) return fromPds(blob)
+        val resp = try {
+            PlainHttp.get(uri)
+        } catch (e: com.mediaviewer.platform.IOException) {
+            if (blob == null) throw e
+            if (!BskyCdn.blocked) {
+                BskyCdn.blocked = true
+                com.mediaviewer.platform.Log.w("Images", "cdn.bsky.app refused the page; loading pictures from each account's server instead")
+            }
+            return fromPds(blob)
+        }
+        if (resp.code !in 200..299) {
+            if (blob != null) return fromPds(blob)
+            error("HTTP ${resp.code}")
+        }
+        return SourceFetchResult(ImageSource(Buffer().write(resp.body), options.fileSystem), resp.contentType, DataSource.NETWORK)
+    }
+
+    /** The picture's original file, from the account's PDS (getBlob). */
+    private suspend fun fromPds(blob: Pair<String, String>): FetchResult {
+        val url = com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(blob.first, blob.second)
+        val resp = PlainHttp.get(url)
         if (resp.code !in 200..299) error("HTTP ${resp.code}")
         return SourceFetchResult(ImageSource(Buffer().write(resp.body), options.fileSystem), resp.contentType, DataSource.NETWORK)
     }
@@ -77,6 +102,21 @@ private class WebFetcher(private val uri: String, private val options: Options) 
             val s = data.toString()
             return if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("file:")) WebFetcher(s, options) else null
         }
+    }
+}
+
+/** Bluesky's picture CDN: https://cdn.bsky.app/img/<size>/plain/<did>/<cid>@<format>. */
+private object BskyCdn {
+    /** Set once the CDN has refused the page this session. */
+    var blocked = false
+
+    private val URL = Regex("^https://cdn\\.bsky\\.app/img/[^/]+/plain/([^/]+)/([^/@?#]+)")
+
+    /** (did, cid) of a CDN picture, or null for any other address. */
+    fun parse(url: String): Pair<String, String>? {
+        val m = URL.find(url) ?: return null
+        val did = m.groupValues[1].replace("%3A", ":").replace("%3a", ":")
+        return if (did.startsWith("did:")) did to m.groupValues[2] else null
     }
 }
 

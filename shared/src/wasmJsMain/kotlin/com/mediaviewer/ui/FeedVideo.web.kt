@@ -71,5 +71,6 @@ actual object FeedVideos {
 
 @Composable
 actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
-    WebVideoSurface(player as WebVideoPlayer, modifier)
+    val key = androidx.compose.runtime.remember { Any() }
+    WebVideoSurface(player as WebVideoPlayer, modifier, backdropKey = key)
 }
