@@ -523,3 +523,8 @@ crop={0}:{1}:{2}:{3}
 #portrait
 #landscape
 blob.type || ''
+Intel
+RechoRaccoon/Stellar
+Stellar-{0}
+Stellar {0}
+application/vnd.github+json

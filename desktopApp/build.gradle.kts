@@ -16,6 +16,11 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+// The version, from the one place it's kept (shared/.../AppVersion.kt).
+val stellarVersion: String = Regex("NAME = \"([0-9.]+)\"")
+    .find(rootProject.file("shared/src/commonMain/kotlin/com/mediaviewer/AppVersion.kt").readText())
+    ?.groupValues?.get(1) ?: "1.0"
+
 
 dependencies {
     implementation(project(":shared"))
@@ -42,7 +47,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Stellar"
-            packageVersion = "1.0.0"
+            // (MAJOR.MINOR.PATCH, from AppVersion.kt.)
+            packageVersion = stellarVersion.split('.').let { p -> List(3) { i -> p.getOrNull(i)?.toIntOrNull() ?: 0 }.joinToString(".") }
             description = "Stellar — an open-source social app for the AT Protocol"
             vendor = "Recho Raccoon"
             copyright = "© Recho Raccoon. GPLv3."

@@ -14,7 +14,24 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0c. Update: video icons, crop popup, landscape Hub, status history (latest)
+## 0d. Update: in-app updates, smaller name pills (latest)
+
+- **Version:** one place, `shared/.../AppVersion.kt` (`NAME = "2.8"`).
+  - The Android build reads it: `versionName`, and `versionCode` = major × 100 + minor (2.8 → 208).
+  - So do the desktop build (`packageVersion` 2.8.0) and the Inno Setup step in `desktop.yml`.
+  - iOS `MARKETING_VERSION` in `iosApp/project.yml` is set by hand to match.
+  - **Bump it before building a release, to the release tag's number.** Otherwise that build keeps offering itself as an update.
+- **Updates** (`util/AppUpdates.kt` + `PlatformUpdater`):
+  - Reads GitHub's latest release (tag `vX.Y`) at most every 12 hours. Settings → App Functionality → Check for Updates (on/off, Check Now).
+  - The popup shows the release notes, with Update / Later / Skip.
+  - Android: downloads `Stellar.apk` into `cache/updates/` (FileProvider path `updates`) and opens the system installer (`REQUEST_INSTALL_PACKAGES`). The first time, it opens "Install unknown apps" for Stellar.
+  - Windows: downloads `Stellar-Windows.exe`, opens it, and quits.
+  - Mac: opens the matching `.dmg`.
+  - iOS: opens the release page.
+  - Web: never checks.
+- **Profile banner:** the name and handle pills are compact (13sp/11sp, snug padding) at the bottom right. The avatar and follow button keep their old size and place.
+
+## 0c. Update: video icons, crop popup, landscape Hub, status history
 
 - **Status bubble:** plain triangle tail out of its square bottom-left
   corner, tip on the picture's top-right; it grows up to 300 characters as

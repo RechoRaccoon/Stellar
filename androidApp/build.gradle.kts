@@ -5,6 +5,11 @@ plugins {
     id("com.android.application")
 }
 
+// The version, from the one place it's kept (shared/.../AppVersion.kt).
+val stellarVersion: String = Regex("NAME = \"([0-9.]+)\"")
+    .find(rootProject.file("shared/src/commonMain/kotlin/com/mediaviewer/AppVersion.kt").readText())
+    ?.groupValues?.get(1) ?: "1.0"
+
 android {
     namespace = "rechoraccoon.stellar"
     compileSdk = 35
@@ -13,8 +18,10 @@ android {
         applicationId = "rechoraccoon.stellar"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // 2.8 → 208: always higher for a newer release, so the in-app update
+        // installs over the old one.
+        versionCode = stellarVersion.split('.').let { (it.getOrNull(0)?.toIntOrNull() ?: 1) * 100 + (it.getOrNull(1)?.toIntOrNull() ?: 0) }
+        versionName = stellarVersion
         // Size: only phone processors. The x86/x86_64 copies of every
         // native library (ONNX Runtime, MediaPipe, Filament, ML Kit …) are
         // for emulators and Chromebooks and made up a large share of the

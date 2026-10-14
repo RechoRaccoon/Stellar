@@ -1992,15 +1992,23 @@ private fun ProfileBannerOverlayLayout(
         val gapPx = gap.roundToPx()
         val nameGapPx = nameGap.roundToPx()
 
-        // Name pills, measured first: their combined height dictates the
-        // avatar's height.
+        // Name pills: small and snug around their text, so more of the
+        // banner shows. The avatar and the follow button keep the size and
+        // place they had with the old, roomier pills — those are measured
+        // here (never drawn) just to know that height.
         val displayNamePlaceable = subcompose("displayName") {
-            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 15.sp, bold = true, backdrop = backdrop)
+            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 13.sp, bold = true, backdrop = backdrop, compact = true)
         }.first().measure(loose)
         val usernamePlaceable = subcompose("username") {
-            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 12.sp, bold = false, backdrop = backdrop)
+            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 11.sp, bold = false, backdrop = backdrop, compact = true)
         }.first().measure(loose)
-        val namesHeight = displayNamePlaceable.height + nameGapPx + usernamePlaceable.height
+        val smallNamesHeight = displayNamePlaceable.height + nameGapPx + usernamePlaceable.height
+        val namesHeight = subcompose("namesSizer") {
+            Column(verticalArrangement = Arrangement.spacedBy(nameGap)) {
+                ProfileGlassPill(text = "Ag", liquidGlass = false, tint = bannerColor, fontSize = 15.sp, bold = true)
+                ProfileGlassPill(text = "Ag", liquidGlass = false, tint = bannerColor, fontSize = 12.sp, bold = false)
+            }
+        }.first().measure(loose).height
 
         val followPlaceable = subcompose("follow") {
             if (isOwnProfile) {
@@ -2048,10 +2056,13 @@ private fun ProfileBannerOverlayLayout(
             val stackY = ((height - stackHeight) / 2).coerceAtLeast(0)
             followPlaceable.placeRelative(width - followPlaceable.width, stackY)
             val namesY = stackY + followPlaceable.height + gapPx
-            displayNamePlaceable.placeRelative(width - displayNamePlaceable.width, namesY)
+            // (The small pills sit at the bottom right, level with the
+            // avatar's bottom edge.)
+            val smallY = namesY + namesHeight - smallNamesHeight
+            displayNamePlaceable.placeRelative(width - displayNamePlaceable.width, smallY)
             usernamePlaceable.placeRelative(
                 width - usernamePlaceable.width,
-                namesY + displayNamePlaceable.height + nameGapPx
+                smallY + displayNamePlaceable.height + nameGapPx
             )
 
             // Close bubble — top-left, vertically aligned with the follow button.

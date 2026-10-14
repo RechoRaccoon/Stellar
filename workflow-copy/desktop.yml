@@ -61,7 +61,11 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q desktopApp\windows\stellar.iss
+          # The version from AppVersion.kt (2.8 -> 2.8.0), like the .msi's.
+          $v = [regex]::Match((Get-Content shared\src\commonMain\kotlin\com\mediaviewer\AppVersion.kt -Raw), 'NAME = "([0-9.]+)"').Groups[1].Value
+          $parts = @($v.Split('.')) + @('0', '0', '0')
+          $ver = ($parts[0..2] -join '.')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$ver" desktopApp\windows\stellar.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Plain names for the download page: Stellar-Windows.msi / .exe,

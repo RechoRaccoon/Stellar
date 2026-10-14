@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Item 8: only exposes the one cache subfolder the camera-notch button's
-     capture flow actually writes into (see MainActivity's cameraCaptureUri
+<!-- Item 8: exposes only the cache subfolder the camera-notch button's
+     capture flow writes into, and the one an update downloads into (see MainActivity's cameraCaptureUri
      helper) — nothing else in the app's storage is reachable through this
      provider. -->
 <paths>
     <cache-path name="camera_capture" path="camera_capture/" />
+    <!-- A downloaded update (Stellar.apk), handed to the system installer. -->
+    <cache-path name="updates" path="updates/" />
 </paths>

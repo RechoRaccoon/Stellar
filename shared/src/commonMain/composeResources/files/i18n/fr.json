@@ -1813,5 +1813,22 @@
 "Statuses": "Statuts",
 "That video is too big for your profile (max {0} MB). Try a shorter one.": "Cette vidéo est trop lourde pour ton profil (max {0} Mo). Essaie-en une plus courte.",
 "Use This": "Utiliser",
-"Animated": "Animé"
+"Animated": "Animé",
+"Couldn't check for updates": "Impossible de vérifier les mises à jour",
+"The update couldn't be installed": "La mise à jour n’a pas pu être installée",
+"Allow Stellar to install apps, then tap Update again": "Autorise Stellar à installer des applis, puis touche à nouveau Mettre à jour",
+"Check Now": "Vérifier maintenant",
+"Check for Updates": "Rechercher des mises à jour",
+"Check": "Vérifier",
+"Checking…": "Vérification…",
+"Download failed ({0})": "Échec du téléchargement ({0})",
+"GitHub answered {0}": "GitHub a répondu {0}",
+"Later": "Plus tard",
+"Not on the web": "Pas sur le web",
+"Open Release": "Ouvrir la version",
+"Open the release page to update": "Ouvre la page de la version pour mettre à jour",
+"Update Available": "Mise à jour disponible",
+"Update": "Mettre à jour",
+"You have v{0}": "Tu as la v{0}",
+"You're on the newest version": "Tu as déjà la dernière version"
 }

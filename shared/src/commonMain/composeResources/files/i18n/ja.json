@@ -1813,5 +1813,22 @@
 "Statuses": "ステータス",
 "That video is too big for your profile (max {0} MB). Try a shorter one.": "この動画はプロフィールには大きすぎます(最大 {0} MB)。もっと短い動画をお試しください。",
 "Use This": "これを使う",
-"Animated": "アニメーション"
+"Animated": "アニメーション",
+"Couldn't check for updates": "アップデートを確認できませんでした",
+"The update couldn't be installed": "アップデートをインストールできませんでした",
+"Allow Stellar to install apps, then tap Update again": "Stellar にアプリのインストールを許可してから、もう一度「アップデート」をタップしてください",
+"Check Now": "今すぐ確認",
+"Check for Updates": "アップデートを確認",
+"Check": "確認",
+"Checking…": "確認中…",
+"Download failed ({0})": "ダウンロードに失敗しました ({0})",
+"GitHub answered {0}": "GitHub の応答: {0}",
+"Later": "あとで",
+"Not on the web": "Web 版では使えません",
+"Open Release": "リリースを開く",
+"Open the release page to update": "リリースページを開いてアップデートしてください",
+"Update Available": "アップデートがあります",
+"Update": "アップデート",
+"You have v{0}": "現在は v{0} です",
+"You're on the newest version": "最新バージョンです"
 }

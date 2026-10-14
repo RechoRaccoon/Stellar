@@ -1813,5 +1813,22 @@
 "Statuses": "状态",
 "That video is too big for your profile (max {0} MB). Try a shorter one.": "这个视频对个人资料来说太大了（最大 {0} MB）。试试短一点的。",
 "Use This": "使用这个",
-"Animated": "动态"
+"Animated": "动态",
+"Couldn't check for updates": "无法检查更新",
+"The update couldn't be installed": "无法安装更新",
+"Allow Stellar to install apps, then tap Update again": "请允许 Stellar 安装应用，然后再次点按“更新”",
+"Check Now": "立即检查",
+"Check for Updates": "检查更新",
+"Check": "检查",
+"Checking…": "正在检查…",
+"Download failed ({0})": "下载失败（{0}）",
+"GitHub answered {0}": "GitHub 返回 {0}",
+"Later": "稍后",
+"Not on the web": "网页版不可用",
+"Open Release": "打开发布页",
+"Open the release page to update": "打开发布页面进行更新",
+"Update Available": "有可用更新",
+"Update": "更新",
+"You have v{0}": "当前为 v{0}",
+"You're on the newest version": "已是最新版本"
 }

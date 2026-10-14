@@ -1509,6 +1509,11 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             hubShowing = screenState == ScreenState.SETTINGS && profileOverlay?.hidden != false
         )
 
+        // A newer Stellar on GitHub (checked at most twice a day; Settings →
+        // Check for Updates).
+        LaunchedEffect(Unit) { com.mediaviewer.util.AppUpdates.check(context) }
+        AppUpdatePopup(tint = selfProfileTint, modifier = Modifier.zIndex(14f))
+
         // A feed being shared (dragged onto the Hub's DMs button): the same
         // "Share with" popup, drawn here so the Hub behind it blurs.
         com.mediaviewer.ui.FadingPopupHost(sendPopupTarget?.takeIf { feedShareOpen }, Modifier.zIndex(10.6f)) { target ->

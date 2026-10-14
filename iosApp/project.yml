@@ -44,7 +44,7 @@ targets:
         # exceptions so a refused mic wiring can't close the app).
         SWIFT_OBJC_BRIDGING_HEADER: iosApp/Stellar-Bridging-Header.h
         CLANG_ENABLE_OBJC_ARC: YES
-        MARKETING_VERSION: "1.0"
+        MARKETING_VERSION: "2.8"  # keep equal to AppVersion.NAME (shared/.../AppVersion.kt)
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
@@ -78,7 +78,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: rechoraccoon.stellar.widgets
         INFOPLIST_FILE: StellarWidgets/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "1.0"
+        MARKETING_VERSION: "2.8"  # keep equal to AppVersion.NAME (shared/.../AppVersion.kt)
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"

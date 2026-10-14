@@ -307,6 +307,38 @@ private fun SearchEngineBubble(liquidGlass: Boolean, tint: Color, backdrop: Glas
 }
 
 /**
+ * Settings → App Functionality → Check for Updates: whether Stellar looks
+ * for a newer release on GitHub by itself (twice a day at most), and Check
+ * Now. See AppUpdates.
+ */
+@Composable
+private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val context = com.mediaviewer.ui.compat.LocalContext.current
+    var checking by remember { mutableStateOf(false) }
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("Check for Updates", Modifier.weight(1f), sub = "v" + com.mediaviewer.AppVersion.NAME)
+            CompactSwitch(com.mediaviewer.util.AppUpdates.enabled) { com.mediaviewer.util.AppUpdates.setEnabled(it) }
+        }
+        BubbleDivider()
+        BubbleRow {
+            RowLabel("Check Now", Modifier.weight(1f))
+            PillButton(if (checking) "Checking…" else "Check", {
+                if (!checking) {
+                    checking = true
+                    com.mediaviewer.util.AppUpdates.check(context, force = true) { found, err ->
+                        checking = false
+                        if (!found) com.mediaviewer.ui.compat.Toast.makeText(
+                            context, err ?: "You're on the newest version", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            })
+        }
+    }
+}
+
+/**
  * Settings → App Functionality → Language: the language Stellar's own words
  * are shown in. The names in the menu are each language's own name, so
  * anyone can find theirs whatever the app is showing now.
@@ -779,6 +811,7 @@ internal fun SettingsPageContent(
 
             // The language Stellar's own words are shown in (last in the section).
             LanguageBubble(liquidGlass, tint, backdrop)
+            if (com.mediaviewer.util.PlatformUpdater.checks) UpdatesBubble(liquidGlass, tint, backdrop)
         }
 
         // ── UI Customization ────────────────────────────────────────────

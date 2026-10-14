@@ -1813,5 +1813,22 @@
 "Statuses": "상태",
 "That video is too big for your profile (max {0} MB). Try a shorter one.": "이 동영상은 프로필에 쓰기에 너무 큽니다(최대 {0}MB). 더 짧은 동영상을 사용해 보세요.",
 "Use This": "이걸로 사용",
-"Animated": "애니메이션"
+"Animated": "애니메이션",
+"Couldn't check for updates": "업데이트를 확인할 수 없습니다",
+"The update couldn't be installed": "업데이트를 설치할 수 없습니다",
+"Allow Stellar to install apps, then tap Update again": "Stellar가 앱을 설치하도록 허용한 다음 업데이트를 다시 누르세요",
+"Check Now": "지금 확인",
+"Check for Updates": "업데이트 확인",
+"Check": "확인",
+"Checking…": "확인 중…",
+"Download failed ({0})": "다운로드 실패 ({0})",
+"GitHub answered {0}": "GitHub 응답: {0}",
+"Later": "나중에",
+"Not on the web": "웹에서는 사용할 수 없음",
+"Open Release": "릴리스 열기",
+"Open the release page to update": "릴리스 페이지를 열어 업데이트하세요",
+"Update Available": "업데이트 있음",
+"Update": "업데이트",
+"You have v{0}": "현재 v{0}",
+"You're on the newest version": "최신 버전입니다"
 }

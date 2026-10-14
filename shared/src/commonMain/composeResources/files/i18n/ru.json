@@ -1813,5 +1813,22 @@
 "Statuses": "Статусы",
 "That video is too big for your profile (max {0} MB). Try a shorter one.": "Это видео слишком большое для профиля (макс. {0} МБ). Попробуйте покороче.",
 "Use This": "Использовать",
-"Animated": "Анимированный"
+"Animated": "Анимированный",
+"Couldn't check for updates": "Не удалось проверить обновления",
+"The update couldn't be installed": "Не удалось установить обновление",
+"Allow Stellar to install apps, then tap Update again": "Разрешите Stellar устанавливать приложения и снова нажмите «Обновить»",
+"Check Now": "Проверить сейчас",
+"Check for Updates": "Проверять обновления",
+"Check": "Проверить",
+"Checking…": "Проверка…",
+"Download failed ({0})": "Ошибка загрузки ({0})",
+"GitHub answered {0}": "GitHub ответил {0}",
+"Later": "Позже",
+"Not on the web": "Недоступно в веб-версии",
+"Open Release": "Открыть релиз",
+"Open the release page to update": "Откройте страницу релиза, чтобы обновиться",
+"Update Available": "Доступно обновление",
+"Update": "Обновить",
+"You have v{0}": "У вас v{0}",
+"You're on the newest version": "У вас последняя версия"
 }
