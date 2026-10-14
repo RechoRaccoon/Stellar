@@ -155,9 +155,10 @@ object UiToggles {
     // it back exactly where it started.
     /** Landscape: how many posts across the post grids are (Explore,
      *  profiles, Search) — the slider under a profile's side list. */
-    var landscapeColumns by mutableStateOf(5)
+    var landscapeColumns by mutableStateOf(LANDSCAPE_DEFAULT_COLUMNS)
         private set
-    const val LANDSCAPE_MIN_COLUMNS = 5
+    const val LANDSCAPE_MIN_COLUMNS = 1
+    const val LANDSCAPE_DEFAULT_COLUMNS = 5
     const val LANDSCAPE_MAX_COLUMNS = 10
 
     fun updateLandscapeColumns(columns: Int) {
@@ -278,7 +279,7 @@ object UiToggles {
         starryBackground = p.getBoolean(KEY_STARRY_BACKGROUND, true)
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
         landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
-        landscapeColumns = p.getInt(KEY_LANDSCAPE_COLUMNS, LANDSCAPE_MIN_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
+        landscapeColumns = p.getInt(KEY_LANDSCAPE_COLUMNS, LANDSCAPE_DEFAULT_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)

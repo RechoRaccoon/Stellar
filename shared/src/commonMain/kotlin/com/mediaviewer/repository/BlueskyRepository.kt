@@ -4011,13 +4011,15 @@ class BlueskyRepository {
         val effect = text("effect")
             ?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } }
             ?.takeUnless { it == "confetti" && version < 2 } ?: "none"
-        // The video banner: an ordinary blob ref ({$type: blob, ref: {$link}}).
-        val video = (value["bannerVideo"] as? kotlinx.serialization.json.JsonObject)?.let { blob ->
+        // The video banner and icon: ordinary blob refs ({$type: blob, ref: {$link}}).
+        fun videoBlob(key: String) = (value[key] as? kotlinx.serialization.json.JsonObject)?.let { blob ->
             val cid = ((blob["ref"] as? kotlinx.serialization.json.JsonObject)?.get("\$link") as? kotlinx.serialization.json.JsonPrimitive)?.content
             val mime = (blob["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "video/mp4"
             val size = (blob["size"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 0L
             cid?.takeIf { it.isNotBlank() }?.let { com.mediaviewer.util.BannerVideo(it, mime, size) }
         }
+        val video = videoBlob("bannerVideo")
+        val iconVideo = videoBlob("iconVideo")
         val status = (value["status"] as? kotlinx.serialization.json.JsonObject)?.let { st ->
             fun field(k: String) = (st[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
             field("text")?.takeIf { it.isNotBlank() }?.let {
@@ -4030,7 +4032,8 @@ class BlueskyRepository {
             colorA = hexToColor(colors.getOrNull(0)),
             colorB = hexToColor(colors.getOrNull(1)),
             bannerVideo = video,
-            status = status
+            status = status,
+            iconVideo = iconVideo
         )
     }
 
@@ -4050,7 +4053,7 @@ class BlueskyRepository {
             val resp = api.uploadBlob("Bearer $token", mime, MediaBridge.videoUploadBody(context, clean, mime))
             if (!resp.isSuccessful) error("Upload failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
             val blob = resp.body()?.blob ?: error("Upload failed: no blob")
-            if (blob.size > com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES) error("That video is too big for a banner (max ${com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES / 1_000_000} MB). Try a shorter one.")
+            if (blob.size > com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES) error("That video is too big for your profile (max ${com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES / 1_000_000} MB). Try a shorter one.")
             com.mediaviewer.util.BannerVideo(blob.ref.link, blob.mimeType.ifBlank { mime }, blob.size)
         }
     }
@@ -4073,6 +4076,9 @@ class BlueskyRepository {
             if (a != null && b != null) record["colors"] = listOf(colorToHex(a), colorToHex(b))
             style.bannerVideo?.let { v ->
                 record["bannerVideo"] = mapOf("\$type" to "blob", "ref" to mapOf("\$link" to v.cid), "mimeType" to v.mimeType, "size" to v.size)
+            }
+            style.iconVideo?.let { v ->
+                record["iconVideo"] = mapOf("\$type" to "blob", "ref" to mapOf("\$link" to v.cid), "mimeType" to v.mimeType, "size" to v.size)
             }
             style.status?.let { st ->
                 record["status"] = buildMap<String, Any> {

@@ -53,6 +53,7 @@ object HubLayout {
     private const val KEY_ACTIVE_DID = "active_did"
     private const val KEY_LEGACY_CLAIMED = "legacy_claimed"
     private fun keyFor(did: String) = "$KEY_ROWS@" + did.ifBlank { "signed_out" }
+    private fun separateKeyFor(did: String) = "separate_orientations@" + did.ifBlank { "signed_out" }
     /** Default rows the account has removed (so they aren't put back). */
     private fun removedKeyFor(did: String) = "removed_defaults@" + did.ifBlank { "signed_out" }
 
@@ -113,6 +114,45 @@ object HubLayout {
     var rows by mutableStateOf(defaultRows())
         private set
 
+    // ── Layouts per orientation ──────────────────────────────────────────
+    // Customize Hub → "Custom Hub Layouts per Orientation". Off (the
+    // default): one layout, used by the Hub both ways up ("synced"). On:
+    // portrait and landscape each keep their own (both start as a copy of
+    // the synced one), and Customize Hub edits whichever one the screen is
+    // in. Turning it off goes back to the synced layout; all three stay
+    // saved (in this same file, so App Data Export carries them).
+    /** Separate portrait and landscape layouts are on. */
+    var separateOrientations by mutableStateOf(false)
+        private set
+    /** Which way up the screen is (set by the Hub). */
+    var landscapeNow by mutableStateOf(false)
+        private set
+    private val suffix: String get() = if (!separateOrientations) "" else if (landscapeNow) "#landscape" else "#portrait"
+    private fun rowsKey(did: String) = keyFor(did) + suffix
+    private fun removedKey(did: String) = removedKeyFor(did) + suffix
+
+    fun setSeparateOrientations(on: Boolean) {
+        val p = prefs ?: return
+        if (on == separateOrientations) return
+        separateOrientations = on
+        p.edit().putBoolean(separateKeyFor(accountDid), on).apply()
+        reloadRows(p)
+    }
+
+    /** The Hub tells which way up the screen is; with separate layouts on,
+     *  that's the one shown (and edited). */
+    fun setOrientation(landscape: Boolean) {
+        if (landscape == landscapeNow) return
+        landscapeNow = landscape
+        val p = prefs ?: return
+        if (separateOrientations) reloadRows(p)
+    }
+
+    private fun reloadRows(p: SharedPreferences) {
+        removedDefaults = readRemoved(p, accountDid)
+        rows = normalize(parse(readFor(p, accountDid)))
+    }
+
     private var prefs: SharedPreferences? = null
     /** Whose layout [rows] currently is. */
     private var accountDid: String = ""
@@ -132,6 +172,7 @@ object HubLayout {
         val p = context.sharedPreferences(PREFS)
         prefs = p
         accountDid = p.getString(KEY_ACTIVE_DID, null) ?: ""
+        separateOrientations = p.getBoolean(separateKeyFor(accountDid), false)
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
         launchpad = readLaunchpad(p, accountDid)
@@ -223,17 +264,21 @@ object HubLayout {
         if (did == accountDid && p.contains(keyFor(did))) return
         accountDid = did
         p.edit().putString(KEY_ACTIVE_DID, did).commit()
+        separateOrientations = p.getBoolean(separateKeyFor(did), false)
         removedDefaults = readRemoved(p, did)
         rows = normalize(parse(readFor(p, did)))
         launchpad = readLaunchpad(p, did)
     }
 
     private fun readRemoved(p: SharedPreferences, did: String): Set<String> =
-        p.getString(removedKeyFor(did), null)?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+        (p.getString(removedKey(did), null) ?: p.getString(removedKeyFor(did), null))
+            ?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
 
     /** [did]'s saved layout, claiming the old shared one for the first
      *  signed-in account that asks (so an existing setup isn't lost). */
     private fun readFor(p: SharedPreferences, did: String): String? {
+        // (A portrait/landscape layout not edited yet is the synced one.)
+        if (suffix.isNotEmpty()) p.getString(rowsKey(did), null)?.let { return it }
         p.getString(keyFor(did), null)?.let { return it }
         if (p.getBoolean(KEY_LEGACY_CLAIMED, false)) return null
         val legacy = p.getString(KEY_ROWS, null)
@@ -348,12 +393,13 @@ object HubLayout {
     }
 
     private fun saveRemoved() {
-        prefs?.edit()?.putString(removedKeyFor(accountDid), removedDefaults.joinToString(","))?.apply()
+        prefs?.edit()?.putString(removedKey(accountDid), removedDefaults.joinToString(","))?.apply()
     }
 
     /** Re-reads the saved layout (after an App Data import). */
     fun reload() {
         val p = prefs ?: return
+        separateOrientations = p.getBoolean(separateKeyFor(accountDid), false)
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
         launchpad = readLaunchpad(p, accountDid)
@@ -361,7 +407,7 @@ object HubLayout {
 
     private fun update(newRows: List<Row>) {
         rows = normalize(newRows)
-        prefs?.edit()?.putString(keyFor(accountDid), serialize(rows))?.apply()
+        prefs?.edit()?.putString(rowsKey(accountDid), serialize(rows))?.apply()
     }
 
     /** Every default row exactly once (new ones added in, removed ones left

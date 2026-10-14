@@ -10,6 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
@@ -88,7 +90,7 @@ actual object FeedVideos {
 /** Draws [player]'s current picture, fitted inside the view (letterboxed)
  *  and turned upright. */
 @Composable
-internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier, backdropKey: Any? = null) {
+internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier, backdropKey: Any? = null, fill: Boolean = false) {
     var viewRect by remember { mutableStateOf(Rect.Zero) }
     if (backdropKey != null) {
         DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
@@ -107,7 +109,7 @@ internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier,
             }
         }
     }
-    Canvas(modifier.onGloballyPositioned {
+    Canvas(modifier.then(if (fill) Modifier.clipToBounds() else Modifier).onGloballyPositioned {
         val p = it.positionInRoot()
         viewRect = Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height)
     }) {
@@ -116,7 +118,7 @@ internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier,
         // The picture's size once upright.
         val iw = if (turned) image.height.toFloat() else image.width.toFloat()
         val ih = if (turned) image.width.toFloat() else image.height.toFloat()
-        val scale = minOf(size.width / iw, size.height / ih)
+        val scale = if (fill) maxOf(size.width / iw, size.height / ih) else minOf(size.width / iw, size.height / ih)
         val dw = iw * scale
         val dh = ih * scale
         rotate(player.rotation.toFloat(), pivot = Offset(size.width / 2f, size.height / 2f)) {
@@ -134,7 +136,9 @@ internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier,
 }
 
 @Composable
-actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
+actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val key = remember { Any() }
-    DesktopVideoSurface(player as DesktopVideoPlayer, modifier, backdropKey = key)
+    // (Drawn by Compose here, so rounding is just a clip.)
+    val m = if (cornerPercent > 0) modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(cornerPercent)) else modifier
+    DesktopVideoSurface(player as DesktopVideoPlayer, m, backdropKey = key, fill = fill)
 }

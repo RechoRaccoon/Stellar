@@ -37,6 +37,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
@@ -407,6 +408,8 @@ fun SettingsSheet(
     // Settings/Timeline/Explore/Post: at the bottom, or (landscape, the
     // main page) in the top row beside the search bar.
     val hubLandscape = rememberLandscape()
+    // (Separate portrait/landscape Hub layouts: the one for this way up.)
+    LaunchedEffect(hubLandscape) { com.mediaviewer.util.HubLayout.setOrientation(hubLandscape) }
     val hubBarAtTop = hubLandscape && hubPage == HubPage.MAIN && bskyLoggedIn
     val hubBar: @Composable (Boolean) -> Unit = { atTop ->
         // A profile picked in the feed selector: Timeline/Explore
@@ -462,12 +465,13 @@ fun SettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = rememberTopCutoutClearance()),
+                // (Landscape Settings: no gap for a camera cutout at the top.)
+                .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 6.dp else rememberTopCutoutClearance()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // The main page's search bar sits right under the camera cutout
             // (the same line profile banners start on); Settings keeps a gap.
-            if (hubPage == HubPage.SETTINGS) Spacer(Modifier.height(8.dp))
+            if (hubPage == HubPage.SETTINGS && !hubLandscape) Spacer(Modifier.height(8.dp))
 
             // Item 14: the Settings/AT Protocol/e621 chip row is gone — the
             // Hub is a single page now (this Column's own scroll content
@@ -634,9 +638,10 @@ fun SettingsSheet(
             // topBar); on the Settings page it stays down here, its edges
             // lined up with the Settings column's.
             if (!hubBarAtTop) Box(
-                Modifier.landscapeReadable().padding(horizontal = if (hubLandscape) 16.dp else 14.dp).padding(top = 6.dp)
+                Modifier.landscapeReadable(if (hubPage == HubPage.SETTINGS && settingsTab == SettingsTab.SETTINGS) SETTINGS_LANDSCAPE_WIDTH else Landscape.READABLE_WIDTH)
+                    .padding(horizontal = if (hubLandscape) 16.dp else 14.dp).padding(top = if (hubLandscape) 2.dp else 6.dp)
                     .windowInsetsPadding(WindowInsets.navBarSpace)
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = if (hubLandscape) 6.dp else 10.dp)
             ) { hubBar(false) }
         }
 
@@ -815,16 +820,19 @@ private fun AtProtocolPageContent(
     // of the Hub scrolls underneath it and is clipped at its bottom edge —
     // the same way content stops at the Return to Feed bar below.
     Column(Modifier.fillMaxSize()) {
+        // Landscape (the Hub's main page): a side list down the left like a
+        // profile's — search at the top, the Launchpad (swiping between its
+        // pages), the feeds as a list, Create Feed, and the Settings/
+        // Timeline/Explore/Post bar at the bottom — and every other row
+        // scrolling on the right. Portrait: the search bar on top, as ever.
+        val hubSidebar = topBar != null
+        @Composable
+        fun SearchRow(modifier: Modifier) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // (Landscape: the bar on the left half, the search bar on the right.)
-            if (topBar != null) {
-                Box(Modifier.weight(1f)) { topBar() }
-                Spacer(Modifier.width(8.dp))
-            }
             val barShape = RoundedCornerShape(22.dp)
             @Composable
             fun SearchBarContent() {
@@ -856,45 +864,17 @@ private fun AtProtocolPageContent(
                 Box(Modifier.size(44.dp).clip(circleShape).background(Color.White.copy(0.06f))) { SearchCircleContent() }
             }
         }
-
-        Spacer(Modifier.height(6.dp))
+        }
+        if (!hubSidebar) {
+            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            Spacer(Modifier.height(6.dp))
+        }
     // At the very bottom of the Hub, a further swipe up returns to the
     // Timeline/Explore page you came from — but only a swipe that *starts*
     // at the bottom, so scrolling down to the end never overshoots into it.
     val hubScroll = rememberScrollState()
     val latestSwipeBack by rememberUpdatedState(onSwipeBackToFeed)
     val swipeView = rememberPlatformView()
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .clipToBounds()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val armed = !hubScroll.canScrollForward
-                    if (!armed) return@awaitEachGesture
-                    var dy = 0f; var dx = 0f
-                    var fired = false
-                    val threshold = 90.dp.toPx()
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (event.changes.count { it.pressed } > 1) break
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        val d = change.positionChange()
-                        dy += d.y; dx += d.x
-                        if (!fired && feedDrag.active.not() && !feedDrag.launchActive && -dy > threshold && -dy > kotlin.math.abs(dx) * 1.5f) {
-                            fired = true
-                            swipeView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY)
-                            latestSwipeBack()
-                        }
-                    }
-                }
-            }
-            .verticalScroll(hubScroll)
-            .padding(bottom = 16.dp)
-    ) {
         // Settings → Customize Hub decides which rows show, and in what
         // order (see HubLayout); each row below is its own piece.
         @Composable
@@ -938,7 +918,7 @@ private fun AtProtocolPageContent(
         // account on this device (HubLayout.launchpad).
         val launchPager = androidx.compose.foundation.pager.rememberPagerState { com.mediaviewer.util.HubLayout.LAUNCHPAD_PAGES }
         // Landscape: both pages side by side, each in full (no swiping).
-        val lpSideBySide = rememberLandscape()
+        val lpSideBySide = rememberLandscape() && !hubSidebar
         val launchpad = com.mediaviewer.util.HubLayout.launchpad
         val lpDrag = remember { LaunchpadDragState() }
         val lpView = rememberPlatformView()
@@ -989,7 +969,7 @@ private fun AtProtocolPageContent(
                     m = modifier.onGloballyPositioned { if (!lpDrag.active) feedDrag.dmBounds = it.boundsInRoot() }
                         .graphicsLayer { val sc = if (feedDrag.overDm) 1.08f else 1f; scaleX = sc; scaleY = sc }
                 )()
-                com.mediaviewer.util.HubLayout.LP_SAVED -> grid("Saved Posts", Icons.Default.Star, BookmarkYellow)()
+                com.mediaviewer.util.HubLayout.LP_SAVED -> grid("Saved Posts", Icons.Filled.Bookmark, Color.White)()
                 com.mediaviewer.util.HubLayout.LP_HISTORY -> grid("History", Icons.Default.History)()
                 com.mediaviewer.util.HubLayout.LP_FRIENDS -> grid("From Friends", Icons.Default.Send)()
                 com.mediaviewer.util.HubLayout.LP_ARCHIVED -> grid("Archived", Icons.Default.Inventory2)()
@@ -1515,13 +1495,86 @@ private fun AtProtocolPageContent(
                 subscribedReviewDids.isEmpty() && subscribedBlogDids.isEmpty()
         )
 
+    // ── Landscape: the side list ──
+    @Composable
+    fun SidebarFeeds() {
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
+            Text("Feeds", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 10.dp))
+            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
+        }
+        Spacer(Modifier.height(6.dp))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            availableFeeds.forEach { feed ->
+                SideListButton(
+                    feed.displayName, selected = feed.uri == highlightedFeedUri && !authorChipSelected,
+                    liquidGlass = liquidGlass, tint = dominantColor, iconUrl = feed.avatarUrl, small = true
+                ) { onSelectFeed(feed.uri) }
+            }
+            // Create Feed (the Feed Builder; supporters).
+            val supporter = com.mediaviewer.util.Supporter.active
+            SideListButton(
+                "Create Feed", selected = false, liquidGlass = liquidGlass, tint = dominantColor,
+                icon = Icons.Default.Add, small = true, locked = !supporter
+            ) {
+                if (supporter) LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
+                else com.mediaviewer.util.Supporter.openPage()
+            }
+        }
+    }
+    Row(Modifier.fillMaxWidth().weight(1f)) {
+    if (hubSidebar) {
+        Column(Modifier.width(HUB_SIDEBAR_WIDTH).fillMaxHeight()) {
+            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
+                ButtonsSection()
+                SidebarFeeds()
+                Spacer(Modifier.height(8.dp))
+            }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
+        }
+    }
+    Column(
+        Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clipToBounds()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val armed = !hubScroll.canScrollForward
+                    if (!armed) return@awaitEachGesture
+                    var dy = 0f; var dx = 0f
+                    var fired = false
+                    val threshold = 90.dp.toPx()
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.count { it.pressed } > 1) break
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        val d = change.positionChange()
+                        dy += d.y; dx += d.x
+                        if (!fired && feedDrag.active.not() && !feedDrag.launchActive && -dy > threshold && -dy > kotlin.math.abs(dx) * 1.5f) {
+                            fired = true
+                            swipeView.hubHaptic(HapticFeedbackConstants.VIRTUAL_KEY)
+                            latestSwipeBack()
+                        }
+                    }
+                }
+            }
+            .verticalScroll(hubScroll)
+            .padding(bottom = 16.dp)
+    ) {
         // Livestreams is its own row in Customize Hub now (it only shows
         // while someone you follow is live).
         var scanShown = false
         com.mediaviewer.util.HubLayout.rows.filter { it.enabled }.forEach { row ->
             when (row.id) {
-                com.mediaviewer.util.HubLayout.FEEDS -> FeedsSection()
-                com.mediaviewer.util.HubLayout.BUTTONS -> ButtonsSection()
+                // (Landscape: these two are in the side list.)
+                com.mediaviewer.util.HubLayout.FEEDS -> if (!hubSidebar) FeedsSection()
+                com.mediaviewer.util.HubLayout.BUTTONS -> if (!hubSidebar) ButtonsSection()
                 com.mediaviewer.util.HubLayout.MUTUALS -> MutualsSection()
                 com.mediaviewer.util.HubLayout.LIVESTREAMS -> LiveSectionContent()
                 com.mediaviewer.util.HubLayout.BLOGS, com.mediaviewer.util.HubLayout.REVIEWS -> {
@@ -1629,6 +1682,7 @@ private fun AtProtocolPageContent(
         }
         Spacer(Modifier.height(8.dp))
     }
+    } // Row (landscape side list + the rows)
     } // fixed search bar + scrolling content
 
     // Feature: auto-subscribe — the one-time follower scan's completion
@@ -3336,6 +3390,9 @@ private fun HubFeedRow(
         }
     }
 }
+
+/** How wide the landscape Hub's side list is. */
+private val HUB_SIDEBAR_WIDTH = 400.dp
 
 /** The picked-up chip: lifted (bigger, with a shadow) and following the
  *  finger; shrinks and turns red over the Remove bubble. */

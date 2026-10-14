@@ -34,13 +34,17 @@ data class ProfileStyle(
      *  on the owner's own PDS, referenced from this same record. */
     val bannerVideo: BannerVideo? = null,
     /** A temporary status, shown in a bubble by the profile picture. */
-    val status: ProfileStatus? = null
+    val status: ProfileStatus? = null,
+    /** A short looping video shown in place of the profile picture (on the
+     *  profile page), stored the same way as [bannerVideo]. */
+    val iconVideo: BannerVideo? = null
 ) {
     val isDefault: Boolean get() = !squareIcon && effect == "none" && colorA == null && colorB == null &&
-        bannerVideo == null && status == null
+        bannerVideo == null && status == null && iconVideo == null
 }
 
-/** A video banner's blob (what the record's blob ref carries). */
+/** A profile video's blob (what the record's blob ref carries) — the
+ *  video banner and the video icon both. */
 @Serializable
 data class BannerVideo(val cid: String, val mimeType: String = "video/mp4", val size: Long = 0L)
 
@@ -125,6 +129,7 @@ object ProfileStyles {
         if (prefs != null) return
         val p = context.sharedPreferences("profile_style")
         prefs = p
+        StatusHistory.init(context)
         runCatching { loadOthers(context) }
         val did = p.getString("did", null)?.takeIf { it.isNotBlank() } ?: return
         var saved = p.getString("style", null)?.let {

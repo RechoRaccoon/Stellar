@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -55,13 +56,39 @@ object Landscape {
     @Suppress("UNUSED_PARAMETER")
     fun postLanes(portrait: Int, widthDp: Int): Int {
         val n = com.mediaviewer.util.UiToggles.landscapeColumns
-        return if (portrait >= 2) n else maxOf(3, n - 2)
+        return if (portrait >= 2) n else maxOf(1, n - 2)
     }
 
-    /** Video cards (horizontal videos): one fewer than the picture grids. */
+    /** Video cards (horizontal videos): as many across as the slider says. */
     @Suppress("UNUSED_PARAMETER")
-    fun videoCardLanes(widthDp: Int): Int = maxOf(3, com.mediaviewer.util.UiToggles.landscapeColumns - 1)
+    fun videoCardLanes(widthDp: Int): Int = com.mediaviewer.util.UiToggles.landscapeColumns
 }
+
+/**
+ * Lays the content out [reference] wide and, when its column is narrower
+ * than that, shrinks the whole thing to fit — so a text bubble or a video
+ * card in a grid of many columns keeps its shape (smaller, not taller).
+ * Wider columns lay it out normally.
+ */
+fun Modifier.shrinkToWidth(reference: Dp): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val ref = reference.roundToPx()
+        val w = constraints.maxWidth
+        if (w == androidx.compose.ui.unit.Constraints.Infinity || w >= ref) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val scale = w.toFloat() / ref
+            val p = measurable.measure(androidx.compose.ui.unit.Constraints(minWidth = ref, maxWidth = ref))
+            layout(w, kotlin.math.ceil(p.height * scale).toInt()) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
 
 /** True while the window is wider than it is tall. */
 @Composable

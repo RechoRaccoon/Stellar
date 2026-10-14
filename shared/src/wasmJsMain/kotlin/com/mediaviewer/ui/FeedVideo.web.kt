@@ -2,6 +2,7 @@ package com.mediaviewer.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import com.mediaviewer.platform.PlatformContext
 
 /** Same pooling rules as Android's FeedVideoPool and the iOS one: a few
@@ -70,7 +71,11 @@ actual object FeedVideos {
 }
 
 @Composable
-actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
+actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val key = androidx.compose.runtime.remember { Any() }
-    WebVideoSurface(player as WebVideoPlayer, modifier, backdropKey = key)
+    val web = player as WebVideoPlayer
+    androidx.compose.runtime.SideEffect { web.setLook(fill, cornerPercent) }
+    // (The page cuts a hole for the video; clipping the hole rounds it.)
+    val m = if (cornerPercent > 0) modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(cornerPercent)) else modifier
+    WebVideoSurface(web, m, backdropKey = key)
 }

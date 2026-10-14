@@ -62,7 +62,7 @@ actual object FeedVideos {
 }
 
 @Composable
-actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
+actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val exo = (player as ExoFeedVideoPlayer).exo
     AndroidView(
         factory = { ctx ->
@@ -85,6 +85,18 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
             }
         },
         modifier = modifier,
+        update = { view ->
+            view.resizeMode = if (fill) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            if (cornerPercent > 0) {
+                view.outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: android.view.View, outline: android.graphics.Outline) {
+                        outline.setRoundRect(0, 0, v.width, v.height, minOf(v.width, v.height) * cornerPercent / 100f)
+                    }
+                }
+                view.clipToOutline = true
+            } else view.clipToOutline = false
+        },
         // Detach from the pooled player when this view goes away, so
         // it can be handed to the next view cleanly.
         onRelease = { it.player = null }

@@ -4,6 +4,7 @@ import com.mediaviewer.network.RequestBody
 import com.mediaviewer.network.WebBlobStreamSource
 import com.mediaviewer.network.streamRequestBody
 import com.mediaviewer.network.toRequestBody
+import kotlinx.coroutines.await
 
 actual object MediaBridge {
     actual fun readBytes(context: PlatformContext, uri: PlatformUri): ByteArray? = uri.webPath?.let { WebFiles.read(it) }
@@ -135,6 +136,24 @@ actual object MediaBridge {
      *  converts it). */
     actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri = uri
 
+    /** (No FFmpeg in a browser: the picked video is played, the chosen part
+     *  drawn onto a canvas each frame, and that recorded — so it takes as
+     *  long as the video does.) */
+    actual suspend fun cropVideo(
+        context: PlatformContext, uri: PlatformUri,
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+    ): PlatformUri {
+        val path = uri.webPath ?: error("Couldn't read the video")
+        val url = WebBlobs.objectUrl(path) ?: error("Couldn't read the video")
+        val blob = cropVideoInBrowser(url, left.toDouble(), top.toDouble(), width.toDouble(), height.toDouble(), maxWidth, maxHeight)
+            .await<JsAny>()
+        val type = blobType(blob).ifBlank { "video/webm" }
+        val ext = if (type.contains("mp4")) "mp4" else "webm"
+        val out = WebPaths.TEMP + "/profile-video-" + currentTimeMillis() + "." + ext
+        WebBlobs.put(out, blob, "profile-video.$ext", type, blobSize(blob).toLong())
+        return WebUri(WebFiles.uriOf(out))
+    }
+
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         throw UnsupportedOperationException("Custom video thumbnails aren't available on the web")
 
@@ -142,3 +161,36 @@ actual object MediaBridge {
     actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
         throw UnsupportedOperationException("Not available on the web")
 }
+
+private fun blobType(blob: JsAny): String = js("blob.type || ''")
+private fun blobSize(blob: JsAny): Double = js("blob.size")
+
+private fun cropVideoInBrowser(url: String, l: Double, t: Double, w: Double, h: Double, maxW: Int, maxH: Int): kotlin.js.Promise<JsAny> = js("""new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    v.onerror = () => reject(new Error("Couldn't read the video"));
+    v.onloadedmetadata = () => {
+        const vw = v.videoWidth, vh = v.videoHeight;
+        if (!vw || !vh) { reject(new Error("Couldn't read the video")); return; }
+        const cx = vw * l, cy = vh * t, cw = vw * w, ch = vh * h;
+        const s = Math.min(1, maxW / cw, maxH / ch);
+        const ow = Math.max(2, Math.floor(cw * s / 2) * 2), oh = Math.max(2, Math.floor(ch * s / 2) * 2);
+        const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+        const g = c.getContext('2d');
+        const types = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+        const type = window.MediaRecorder ? types.find(x => MediaRecorder.isTypeSupported(x)) : null;
+        if (!type) { reject(new Error("This browser can't make videos")); return; }
+        const rec = new MediaRecorder(c.captureStream(30), { mimeType: type, videoBitsPerSecond: 4000000 });
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = () => resolve(new Blob(chunks, { type: type.split(';')[0] }));
+        let done = false;
+        const draw = () => {
+            if (done) return;
+            g.drawImage(v, cx, cy, cw, ch, 0, 0, ow, oh);
+            if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
+        };
+        v.onended = () => { done = true; setTimeout(() => { try { rec.stop(); } catch (e) { reject(e); } }, 120); };
+        v.play().then(() => { g.drawImage(v, cx, cy, cw, ch, 0, 0, ow, oh); rec.start(250); draw(); }).catch(reject);
+    };
+})""")

@@ -1355,7 +1355,12 @@ fun ProfileOverlay(
             }
             ProfileStatusEditor(
                 current = ownStyle.status, tint = blended, liquidGlass = liquidGlass,
-                onPost = { text, minutes -> save(ownStyle.copy(status = newProfileStatus(text, minutes))) },
+                onPost = { text, minutes ->
+                    val status = newProfileStatus(text, minutes)
+                    // Kept on this device too (Archived → Statuses), at once.
+                    com.mediaviewer.util.StatusHistory.add(author.did, status)
+                    save(ownStyle.copy(status = status))
+                },
                 onClear = { save(ownStyle.copy(status = null)) },
                 onDismiss = { editingStatus = false }
             )
@@ -2013,7 +2018,11 @@ private fun ProfileBannerOverlayLayout(
         // Avatar's height exactly spans display-name-top → username-bottom.
         val avatarSizeDp = with(this) { namesHeight.toDp() }
         val avatarPlaceable = subcompose("avatar") {
-            ProfileAvatarGlass(url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop, shape = profileIconShape(author.did))
+            ProfileAvatarGlass(
+                url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
+                shape = profileIconShape(author.did),
+                videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid
+            )
         }.first().measure(loose)
 
         val stackHeight = followPlaceable.height + gapPx + namesHeight
@@ -2023,9 +2032,15 @@ private fun ProfileBannerOverlayLayout(
         // The status bubble: up and to the right of the avatar, never as
         // far as the follow button and name pills on the other side.
         val statusRoom = (width - avatarPlaceable.width - maxOf(followPlaceable.width, displayNamePlaceable.width) - gapPx * 2).coerceAtLeast(0)
+        // Its pointer's tip sits just inside the picture's top-right edge
+        // (45° round from the top); it can grow up to the banner's top.
+        val stackYEstimate = ((constraints.maxHeight - stackHeight) / 2).coerceAtLeast(0)
+        val tipX = (avatarPlaceable.width * 0.80f).toInt()
+        val tipY = stackYEstimate + followPlaceable.height + gapPx + (avatarPlaceable.height * 0.20f).toInt()
+        val statusMaxH = (tipY + inset.roundToPx()).coerceAtLeast(0)
         val statusPlaceable = subcompose("status") {
             ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
-        }.firstOrNull()?.measure(loose.copy(maxWidth = statusRoom))
+        }.firstOrNull()?.measure(loose.copy(maxWidth = (statusRoom + avatarPlaceable.width - tipX).coerceAtLeast(0), maxHeight = statusMaxH))
 
         layout(width, height) {
             // Follow button + name pills, centered vertically as one group, far right.
@@ -2045,10 +2060,7 @@ private fun ProfileBannerOverlayLayout(
             avatarPlaceable.placeRelative(0, namesY)
 
             // Status — its pointer just over the avatar's top-right.
-            statusPlaceable?.let {
-                val overlap = 5.dp.roundToPx()
-                it.placeRelative(avatarPlaceable.width - overlap * 2, (namesY - it.height + overlap).coerceAtLeast(-inset.roundToPx()))
-            }
+            statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
     }
 }
@@ -2120,7 +2132,9 @@ private fun CloseGlassBubble(liquidGlass: Boolean, tint: Color, onClick: () -> U
 private fun ProfileAvatarGlass(
     url: String?, size: Dp, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null,
     /** Round, or a supporter's rounded square (see [profileIconShape]). */
-    shape: androidx.compose.ui.graphics.Shape = CircleShape
+    shape: androidx.compose.ui.graphics.Shape = CircleShape,
+    /** A video icon (whose, and its blob), played over the picture. */
+    videoDid: String? = null, videoCid: String? = null
 ) {
     @Composable
     fun AvatarImage() {
@@ -2128,6 +2142,12 @@ private fun ProfileAvatarGlass(
             AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
         } else {
             Box(Modifier.fillMaxSize().clip(shape).background(Color.White.copy(0.15f)))
+        }
+        if (videoDid != null && videoCid != null) {
+            ProfileBannerVideo(
+                videoDid, videoCid, Modifier.fillMaxSize().clip(shape),
+                cornerPercent = if (shape == CircleShape) 50 else 24
+            )
         }
     }
     if (liquidGlass) {
@@ -3051,7 +3071,10 @@ private fun PinterestEntryTile(
     liquidGlass: Boolean, onSeedSubImageIndex: (String, Int) -> Unit, onClick: () -> Unit
 ) {
     if (item.isTextOnly) {
-        CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = textShape, onOpen = onClick)
+        // (Shrinks with narrower columns rather than growing taller.)
+        Box(Modifier.fillMaxWidth().shrinkToWidth(COMPACT_TEXT_REFERENCE)) {
+            CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = textShape, onOpen = onClick)
+        }
     } else {
         // A quote repost: the quoter's words over the quoted post's media,
         // like the From Friends grid.
@@ -3095,7 +3118,9 @@ private fun LazyListScope.postsTextRows(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         col.forEach { (localIndex, item) ->
                             key(item.id) {
-                                TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) })
+                                Box(Modifier.fillMaxWidth().shrinkToWidth(TEXT_BUBBLE_REFERENCE)) {
+                                    TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) })
+                                }
                             }
                         }
                     }
@@ -3206,10 +3231,17 @@ private fun LazyListScope.postsHorizontalVideoRows(
 
 /** Landscape's horizontal-video card: the 16:9 picture, then the post's
  *  text as its title, who posted it, and its likes/replies. */
+/** The widths these tiles are laid out at before shrinking to their
+ *  column (see shrinkToWidth): about what each gets on a phone in portrait. */
+private val COMPACT_TEXT_REFERENCE = 170.dp
+private val TEXT_BUBBLE_REFERENCE = 260.dp
+private val VIDEO_CARD_REFERENCE = 280.dp
+
 @Composable
 private fun VideoCard(item: MediaItem, tint: Color, liquidGlass: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val tap = rememberHapticTap()
-    Column(modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onClick() }) {
+    // (Shrinks as a whole in narrow columns, picture, icon and text alike.)
+    Column(modifier.shrinkToWidth(VIDEO_CARD_REFERENCE).clip(RoundedCornerShape(12.dp)).clickable { tap(); onClick() }) {
         ThumbBox(item, tint, RoundedCornerShape(12.dp), Modifier.fillMaxWidth().aspectRatio(16f / 9f), liquidGlass,
             playIconSize = 22.dp, onClick = onClick)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -5915,6 +5947,53 @@ fun PostKindSubTabRow(
             options = visible, selected = selected, liquidGlass = liquidGlass, tint = tint,
             labelOf = { it.label() }, onSelect = onSelect
         )
+    }
+}
+
+/** The Archived page's filter row: the post types, then "Statuses" (your
+ *  status history, kept on this device). */
+@Composable
+fun PostKindSubTabRowWithStatuses(
+    items: List<MediaItem>, selected: PostKindFilter, statusesSelected: Boolean, liquidGlass: Boolean, tint: Color,
+    onSelect: (PostKindFilter) -> Unit, onSelectStatuses: () -> Unit
+) {
+    val statuses = "statuses"
+    val visible: List<Any> = remember(items, selected) {
+        PostKindFilter.entries.filter { it == selected || it == PostKindFilter.ALL || items.any { item -> it.matches(item) } }
+    } + statuses
+    ProfileSubFilterRow(
+        options = visible, selected = if (statusesSelected) statuses else selected, liquidGlass = liquidGlass, tint = tint,
+        labelOf = { (it as? PostKindFilter)?.label() ?: "Statuses" },
+        onSelect = { if (it is PostKindFilter) onSelect(it) else onSelectStatuses() }
+    )
+}
+
+/** One of your past statuses (Archived → Statuses): its words and when it
+ *  was posted. Press and hold to delete it from the history. */
+@Composable
+fun StatusHistoryTile(entry: com.mediaviewer.util.StatusHistory.Entry, tint: Color, liquidGlass: Boolean, onLongPress: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    val longTap = rememberHapticTap()
+    val posted = remember(entry.createdAt) {
+        runCatching {
+            com.mediaviewer.util.DateText.format(com.mediaviewer.platform.parseIsoInstantMillis(entry.createdAt), "MMM d, yyyy · h:mm a")
+        }.getOrNull()
+    }
+    Column(
+        Modifier.fillMaxWidth()
+            .then(
+                if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
+                else Modifier.clip(shape).background(Color.White.copy(0.06f))
+            )
+            .clip(shape)
+            .pointerInput(entry) { detectTapGestures(onLongPress = { longTap(); onLongPress() }) }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Text(entry.text, color = Color.White.copy(0.92f), fontSize = 13.sp, lineHeight = 17.sp)
+        if (posted != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(posted, color = DimGray, fontSize = 11.sp)
+        }
     }
 }
 

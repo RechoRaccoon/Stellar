@@ -157,13 +157,23 @@ actual fun CameraNotchButton(
     // Whole pixels for layout; exact centering handled by the translation below.
     val ringPx = kotlin.math.round(ringPxFloat).toInt().coerceAtLeast(1)
     val ringSize = with(density) { ringPx.toDp() }
+    // Landscape, with the cutout on a side edge: the bubble grows up and
+    // down instead (sideways it would run off the screen), its labels
+    // written one letter under another.
+    val vertical = configuration.screenWidthDp > configuration.screenHeightDp && cutoutCenterPx?.let { c ->
+        val w = view.rootView.width.toFloat()
+        w > 0f && (c.x < w * 0.25f || c.x > w * 0.75f)
+    } == true
+    val sideLength = if (vertical) 78.dp else sideWidth
     val collapsedWidth = ringSize
-    val expandedWidth = collapsedWidth + sideWidth * 2
-    val width by animateDpAsState(
+    val expandedWidth = collapsedWidth + sideLength * 2
+    val length by animateDpAsState(
         targetValue = if (expanded) expandedWidth else collapsedWidth,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
         label = "notchBubbleWidth"
     )
+    val width = if (vertical) ringSize else length
+    val height = if (vertical) length else ringSize
     // Publish the collapsed bubble's real size/position so other buttons
     // can sit level with it at the same size (the blog's back button).
     val fallbackTopPx = with(density) { 12.dp.toPx() }
@@ -177,11 +187,11 @@ actual fun CameraNotchButton(
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
 
     /** Exact (float) top-left of the bubble in THIS composable's space. */
-    fun bubbleTopLeft(widthPx: Int, fallbackCenterX: Float, fallbackTop: Float): androidx.compose.ui.geometry.Offset {
+    fun bubbleTopLeft(widthPx: Int, heightPx: Int, fallbackCenterX: Float, fallbackTop: Float): androidx.compose.ui.geometry.Offset {
         val center = cutoutCenterPx
         val cx = (center?.x ?: fallbackCenterX) - originInWindow.x
         val left = cx - widthPx / 2f
-        val top = if (center != null) center.y - originInWindow.y - ringPx / 2f else fallbackTop
+        val top = if (center != null) center.y - originInWindow.y - heightPx / 2f else fallbackTop
         return androidx.compose.ui.geometry.Offset(left, top)
     }
 
@@ -210,17 +220,17 @@ actual fun CameraNotchButton(
         Box(
             Modifier
                 .offset {
-                    val tl = bubbleTopLeft(width.roundToPx(), screenWidth.toPx() / 2f, 12.dp.toPx())
+                    val tl = bubbleTopLeft(width.roundToPx(), height.roundToPx(), screenWidth.toPx() / 2f, 12.dp.toPx())
                     androidx.compose.ui.unit.IntOffset(kotlin.math.floor(tl.x).toInt(), kotlin.math.floor(tl.y).toInt())
                 }
                 .graphicsLayer {
                     // Sub-pixel remainder, so the ring's center lands exactly
                     // on the lens center instead of up to 1px away.
-                    val tl = bubbleTopLeft(width.roundToPx(), screenWidth.toPx() / 2f, 12.dp.toPx())
+                    val tl = bubbleTopLeft(width.roundToPx(), height.roundToPx(), screenWidth.toPx() / 2f, 12.dp.toPx())
                     translationX = tl.x - kotlin.math.floor(tl.x)
                     translationY = tl.y - kotlin.math.floor(tl.y)
                 }
-                .width(width).height(ringSize).clip(shape)
+                .width(width).height(height).clip(shape)
                 .then(
                     if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
                     // Flat mode: a translucent tinted fill.
@@ -240,6 +250,32 @@ actual fun CameraNotchButton(
                 Box(
                     Modifier.matchParentSize().clickable { tap(); expanded = true }
                 )
+            } else if (expanded && vertical) {
+                androidx.compose.foundation.layout.Column(Modifier.matchParentSize()) {
+                    @Composable
+                    fun Stacked(label: String) {
+                        // One letter under another, read top to bottom.
+                        androidx.compose.material3.Text(
+                            com.mediaviewer.i18n.tr(label).toList().joinToString("\n"),
+                            color = Color.White, fontSize = 11.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                    Box(
+                        Modifier.height(sideLength).fillMaxWidth()
+                            .clickable { tap(); expanded = false; onOpenCamera() },
+                        contentAlignment = Alignment.Center
+                    ) { Stacked("Camera") }
+                    Box(
+                        Modifier.height(collapsedWidth).fillMaxWidth()
+                            .clickable { tap(); expanded = false }
+                    )
+                    Box(
+                        Modifier.height(sideLength).fillMaxWidth()
+                            .clickable { tap(); expanded = false; onOpenVrm() },
+                        contentAlignment = Alignment.Center
+                    ) { Stacked("VRM") }
+                }
             } else if (expanded) {
                 Row(Modifier.matchParentSize()) {
                     Box(

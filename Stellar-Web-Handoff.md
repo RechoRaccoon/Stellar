@@ -14,7 +14,48 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0b. Update: faster profiles, more landscape, video banners, statuses (latest)
+## 0c. Update: video icons, crop popup, landscape Hub, status history (latest)
+
+- **Status bubble:** plain triangle tail out of its square bottom-left
+  corner, tip on the picture's top-right; it grows up to 300 characters as
+  far as the banner allows.
+- **Grids:**
+  - Text bubbles and video cards lay out at a reference width and shrink
+    to fit their column, so they keep their shape (`Modifier.shrinkToWidth`
+    in `ui/Landscape.kt`).
+  - Video cards use the slider's count.
+  - The slider runs 1 to 10 (default 5).
+- **Edit Profile:**
+  - Default / Animated tabs sit on the banner's corner; Animated has slots
+    for a video icon and a video banner.
+  - A picked video opens `VideoCropDialog` (drag, pinch or corner handle).
+  - "Use This" really crops it with `MediaBridge.cropVideo`, and only the
+    cropped, silent file is uploaded:
+    - Android: Media3 `Crop`.
+    - Desktop: FFmpeg `crop`.
+    - iOS: `AVMutableVideoComposition`.
+    - Web: canvas + `MediaRecorder`; mp4 where the browser can, otherwise
+      webm, which iOS can't play.
+  - `iconVideo` is stored next to `bannerVideo` in the profile-style
+    record.
+  - `FeedVideoView` gained `fill` and `cornerPercent`, because native
+    video views ignore Compose clipping.
+- **Archived → Statuses:** status history, kept on the device
+  (`util/StatusHistory.kt`, prefs file `status_history`, included in App
+  Data export). Hold one to delete it.
+- **Landscape Hub:**
+  - A side list on the left: search, the Launchpad (swiping), feeds, Create
+    Feed, and the bottom bar. The other rows are on the right.
+  - Customize Hub → "Custom Hub Layouts per Orientation" keeps separate
+    portrait and landscape layouts (`HubLayout.separateOrientations`;
+    keys `rows_json@did#portrait` / `#landscape`, in `hub_layout`).
+- **Settings in landscape:** two columns of sections, taking turns; no gaps
+  at the top and bottom.
+- **Android notch bubble:** in landscape it opens up and down, with stacked
+  letters.
+- **Launchpad:** Saved Posts uses the bookmark icon.
+
+## 0b. Update: faster profiles, more landscape, video banners, statuses
 
 ### Speed
 - Hearts effect: each heart color is drawn once into 40 small rotated

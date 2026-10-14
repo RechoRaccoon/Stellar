@@ -234,6 +234,11 @@ actual object MediaBridge {
     actual suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri =
         com.mediaviewer.util.VideoCompressor.prepare(context, uri)
 
+    actual suspend fun cropVideo(
+        context: PlatformContext, uri: PlatformUri,
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+    ): PlatformUri = com.mediaviewer.util.VideoCropper.crop(context, uri, left, top, width, height, maxWidth, maxHeight)
+
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         com.mediaviewer.util.VideoThumbnailStitcher.stitch(context, video, thumbnail)
 

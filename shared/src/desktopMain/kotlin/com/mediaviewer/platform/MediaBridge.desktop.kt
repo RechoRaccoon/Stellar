@@ -164,6 +164,13 @@ actual object MediaBridge {
         if (out == path) uri else DesktopUri.of(File(out))
     }
 
+    actual suspend fun cropVideo(
+        context: PlatformContext, uri: PlatformUri,
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+    ): PlatformUri = withContext(Dispatchers.IO) {
+        DesktopUri.of(File(DesktopFfmpeg.crop(pathOf(uri), left, top, width, height, maxWidth, maxHeight)))
+    }
+
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         withContext(Dispatchers.IO) { DesktopUri.of(File(DesktopFfmpeg.stitchThumbnail(pathOf(video), pathOf(thumbnail)))) }
 

@@ -31,6 +31,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
@@ -110,9 +112,17 @@ fun EditProfileDialog(
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newAvatar = uri }
     val pickBanner = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newBanner = uri }
     val imagesOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-    // A video banner: picked here, uploaded to your PDS only when you Save.
+    // Video icon and banner (the "Video" tab above the banner): picked,
+    // cropped in VideoCropDialog, and only the cropped copy is uploaded
+    // to your PDS — when you Save.
+    var videoSlots by remember { mutableStateOf(false) }
+    var newIconVideo by remember { mutableStateOf<com.mediaviewer.platform.PlatformUri?>(null) }
     var newBannerVideo by remember { mutableStateOf<com.mediaviewer.platform.PlatformUri?>(null) }
-    val pickBannerVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newBannerVideo = uri }
+    /** A picked video waiting in the crop popup: (video, for the icon?). */
+    var cropping by remember { mutableStateOf<Pair<com.mediaviewer.platform.PlatformUri, Boolean>?>(null) }
+    var pickingIcon by remember { mutableStateOf(false) }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) cropping = uri to pickingIcon }
+    val videosOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
 
     val panelColor = lerp(Color(0xFF111114), tint, 0.22f)
     val fieldColor = Color.White.copy(alpha = 0.07f)
@@ -145,35 +155,106 @@ fun EditProfileDialog(
             Text("Edit Profile", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
 
-            // Row 1: avatar | banner, same height.
+            // Row 1: avatar | banner, same height. Above the banner's
+            // top-right corner, "Default" / "Video" switch which pair you're
+            // setting: the picture icon and banner, or the video ones
+            // (what the profile shows doesn't change by switching).
             val rowH = 96.dp
+            // (Square at the top right, where the tabs above meet it.)
+            val bannerSlotShape = RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // Two joined tabs: square where they meet, and the right
+                // one's right edge running straight down into the banner.
+                @Composable
+                fun SlotTab(label: String, selected: Boolean, left: Boolean, onClick: () -> Unit) {
+                    val tabShape = if (left) RoundedCornerShape(topStart = 10.dp) else RoundedCornerShape(topEnd = 10.dp)
+                    Box(
+                        Modifier.height(24.dp).clip(tabShape)
+                            .background(if (selected) tint.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f))
+                            .clickable(enabled = !saving) { tap(); onClick() }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            label, color = if (selected) Color.White else Color.White.copy(alpha = 0.7f), fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = if (!left) Modifier.supporterShine(!supporter) else Modifier
+                        )
+                    }
+                }
+                SlotTab("Default", !videoSlots, left = true) { videoSlots = false }
+                SlotTab("Animated", videoSlots, left = false) { if (supporter) videoSlots = true else { onDismiss(); com.mediaviewer.util.Supporter.openPage() } }
+            }
             Row(Modifier.fillMaxWidth().height(rowH), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // (Square straight away when the supporter option below is on.)
                 val iconShape = if (supporter && style.squareIcon) RoundedCornerShape(percent = 24) else CircleShape
-                Box(
-                    Modifier.size(rowH).clip(iconShape).background(fieldColor)
-                        .border(1.dp, tint.copy(0.5f), iconShape)
-                        .clickable(enabled = !saving) { tap(); pickAvatar.launch(imagesOnly) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = newAvatar ?: author.avatarUrl, contentDescription = "Avatar",
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
-                    )
-                    EditPictureBadge()
-                }
-                Box(
-                    Modifier.weight(1f).height(rowH).clip(RoundedCornerShape(16.dp)).background(
-                        Brush.linearGradient(listOf(tint.copy(0.55f), Color.Black))
-                    ).border(1.dp, tint.copy(0.5f), RoundedCornerShape(16.dp))
-                        .clickable(enabled = !saving) { tap(); pickBanner.launch(imagesOnly) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    val bannerModel: Any? = newBanner ?: profile?.bannerUrl
-                    if (bannerModel != null) {
-                        AsyncImage(model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                if (!videoSlots) {
+                    Box(
+                        Modifier.size(rowH).clip(iconShape).background(fieldColor)
+                            .border(1.dp, tint.copy(0.5f), iconShape)
+                            .clickable(enabled = !saving) { tap(); pickAvatar.launch(imagesOnly) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = newAvatar ?: author.avatarUrl, contentDescription = "Avatar",
+                            contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                        )
+                        EditPictureBadge()
                     }
-                    EditPictureBadge()
+                    Box(
+                        Modifier.weight(1f).height(rowH).clip(bannerSlotShape).background(
+                            Brush.linearGradient(listOf(tint.copy(0.55f), Color.Black))
+                        ).border(1.dp, tint.copy(0.5f), bannerSlotShape)
+                            .clickable(enabled = !saving) { tap(); pickBanner.launch(imagesOnly) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val bannerModel: Any? = newBanner ?: profile?.bannerUrl
+                        if (bannerModel != null) {
+                            AsyncImage(model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                        EditPictureBadge()
+                    }
+                } else {
+                    @Composable
+                    fun VideoSlot(
+                        modifier: Modifier, shape: androidx.compose.ui.graphics.Shape, cornerPercent: Int,
+                        picked: com.mediaviewer.platform.PlatformUri?, saved: com.mediaviewer.util.BannerVideo?,
+                        onPick: () -> Unit, onRemove: () -> Unit
+                    ) {
+                        Box(
+                            modifier.clip(shape).background(fieldColor).border(1.dp, tint.copy(0.5f), shape)
+                                .clickable(enabled = !saving) { tap(); onPick() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when {
+                                picked != null -> InlineVideoPlayer(picked, Modifier.fillMaxSize())
+                                saved != null -> ProfileBannerVideo(author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent)
+                            }
+                            if (picked == null && saved == null) {
+                                Icon(Icons.Default.Videocam, contentDescription = "Pick a video", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(24.dp))
+                            } else {
+                                // Take the video off.
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.6f))
+                                        .clickable(enabled = !saving) { tap(); onRemove() },
+                                    contentAlignment = Alignment.Center
+                                ) { Icon(Icons.Default.Close, contentDescription = "Remove video", tint = Color.White, modifier = Modifier.size(14.dp)) }
+                            }
+                        }
+                    }
+                    VideoSlot(
+                        Modifier.size(rowH), iconShape, if (supporter && style.squareIcon) 24 else 50,
+                        newIconVideo, style.iconVideo,
+                        onPick = { pickingIcon = true; pickVideo.launch(videosOnly) },
+                        onRemove = { newIconVideo = null; style = style.copy(iconVideo = null) }
+                    )
+                    VideoSlot(
+                        Modifier.weight(1f).height(rowH), bannerSlotShape, 0,
+                        newBannerVideo, style.bannerVideo,
+                        onPick = { pickingIcon = false; pickVideo.launch(videosOnly) },
+                        onRemove = { newBannerVideo = null; style = style.copy(bannerVideo = null) }
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -280,27 +361,6 @@ fun EditProfileDialog(
                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                     OptionRow("Reset Colors", { gate { style = style.copy(colorA = null, colorB = null) } }) {}
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                // A short looping video in place of the banner picture
-                // (muted). Kept on your own PDS, referenced from the same
-                // record as the rest of these.
-                val hasVideo = newBannerVideo != null || style.bannerVideo != null
-                OptionRow("Video Banner", {
-                    gate {
-                        if (hasVideo) { newBannerVideo = null; style = style.copy(bannerVideo = null) }
-                        else pickBannerVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
-                    }
-                }) {
-                    Text(
-                        when {
-                            newBannerVideo != null -> "Picked · Remove"
-                            style.bannerVideo != null -> "Remove"
-                            else -> "Add"
-                        },
-                        color = lerp(tint, Color.White, 0.55f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.supporterShine(!supporter)
-                    )
-                }
             }
             if (colorPicker != 0) {
                 val first = colorPicker == 1
@@ -336,7 +396,6 @@ fun EditProfileDialog(
                             tap(); saving = true; error = null
                             onSave(displayName.trim(), bio, handle, newAvatar, newBanner) { err ->
                                 val saveStyle = com.mediaviewer.util.ProfileStyles.saver
-                                val video = newBannerVideo
                                 val upload = com.mediaviewer.util.ProfileStyles.bannerUploader
                                 fun saveRecord(toSave: com.mediaviewer.util.ProfileStyle) {
                                     if (saveStyle == null || toSave == savedStyle) { saving = false; onDismiss(); return }
@@ -349,10 +408,20 @@ fun EditProfileDialog(
                                 if (err != null || !supporter) {
                                     saving = false
                                     if (err == null) onDismiss() else error = err
-                                } else if (video != null && upload != null) {
-                                    upload(video) { blob, upErr ->
+                                } else if (upload != null && (newIconVideo != null || newBannerVideo != null)) {
+                                    // The cropped videos, one after the other, then the record.
+                                    fun uploadBanner() {
+                                        val banner = newBannerVideo ?: return saveRecord(style)
+                                        upload(banner) { blob, upErr ->
+                                            if (blob == null) { saving = false; error = upErr ?: "Upload failed" }
+                                            else { newBannerVideo = null; style = style.copy(bannerVideo = blob); saveRecord(style) }
+                                        }
+                                    }
+                                    val icon = newIconVideo
+                                    if (icon == null) uploadBanner()
+                                    else upload(icon) { blob, upErr ->
                                         if (blob == null) { saving = false; error = upErr ?: "Upload failed" }
-                                        else { newBannerVideo = null; style = style.copy(bannerVideo = blob); saveRecord(style) }
+                                        else { newIconVideo = null; style = style.copy(iconVideo = blob); uploadBanner() }
                                     }
                                 } else saveRecord(style)
                             }
@@ -363,6 +432,16 @@ fun EditProfileDialog(
                     else Text("Save", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
+        }
+        cropping?.let { (video, forIcon) ->
+            VideoCropDialog(
+                uri = video, aspect = if (forIcon) 1f else BANNER_VIDEO_ASPECT, round = forIcon,
+                maxWidth = if (forIcon) ICON_VIDEO_SIDE else BANNER_VIDEO_WIDTH,
+                maxHeight = if (forIcon) ICON_VIDEO_SIDE else (BANNER_VIDEO_WIDTH / BANNER_VIDEO_ASPECT).toInt(),
+                tint = tint, liquidGlass = liquidGlass,
+                onCropped = { cropped -> if (forIcon) newIconVideo = cropped else newBannerVideo = cropped; cropping = null },
+                onDismiss = { cropping = null }
+            )
         }
     }
 }

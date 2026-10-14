@@ -37,11 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
@@ -66,7 +68,7 @@ import com.mediaviewer.util.rememberHapticTap
  */
 
 /** The longest a status can be. */
-const val STATUS_MAX_LENGTH = 100
+const val STATUS_MAX_LENGTH = 300
 
 /** The biggest video a banner can be (it's kept on your own PDS). */
 const val BANNER_VIDEO_MAX_BYTES = 50_000_000L
@@ -74,20 +76,33 @@ const val BANNER_VIDEO_MAX_BYTES = 50_000_000L
 /** How tall the bubble's little pointer is. */
 private val TAIL = 7.dp
 
-/** A rounded bubble with a small pointer out of its bottom-left corner. */
+/**
+ * A rounded bubble whose bottom-left corner is square and grows a small
+ * triangle pointing down and to the left, out of that corner (toward the
+ * profile picture). The bubble's body is inset by [tail] on the left and
+ * bottom to leave room for it.
+ */
 private class StatusBubbleShape(private val radius: Float, private val tail: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val bodyH = (size.height - tail).coerceAtLeast(1f)
         val r = radius.coerceAtMost(bodyH / 2)
-        val path = Path().apply {
-            addRoundRect(RoundRect(0f, 0f, size.width, bodyH, r, r))
-            // The pointer: from the body's bottom edge down to the corner.
-            moveTo(r * 0.6f, bodyH - 1f)
-            lineTo(r * 0.6f + tail * 1.6f, bodyH - 1f)
+        val body = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = tail, top = 0f, right = size.width, bottom = bodyH,
+                    topLeftCornerRadius = CornerRadius(r), topRightCornerRadius = CornerRadius(r),
+                    bottomRightCornerRadius = CornerRadius(r), bottomLeftCornerRadius = CornerRadius.Zero
+                )
+            )
+        }
+        val side = tail * 1.5f
+        val arrow = Path().apply {
+            moveTo(tail, bodyH - side)
+            lineTo(tail + side, bodyH)
             lineTo(0f, size.height)
             close()
         }
-        return Outline.Generic(path)
+        return Outline.Generic(Path().apply { op(body, arrow, PathOperation.Union) })
     }
 }
 
@@ -110,15 +125,17 @@ fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onC
             .background(fill, shape)
             .border(1.dp, lerp(tint, Color.White, 0.35f).copy(alpha = 0.8f), shape)
             .then(if (isOwn) Modifier.clickable { tap(); onClick() } else Modifier)
-            .padding(bottom = TAIL)
+            .padding(start = TAIL, bottom = TAIL)
     ) {
         if (status == null) {
             Icon(Icons.Default.Add, contentDescription = "Set a status", tint = Color.White, modifier = Modifier.padding(5.dp).size(14.dp))
         } else {
+            // As wide and tall as the room by the picture allows (see the
+            // banner layout), so a longer status gets a bigger bubble.
             Text(
                 status.text, color = Color.White, fontSize = 12.sp, lineHeight = 15.sp,
-                maxLines = 3, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 220.dp).padding(horizontal = 10.dp, vertical = 5.dp)
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
             )
         }
     }
@@ -279,7 +296,7 @@ fun newProfileStatus(text: String, minutes: Long): ProfileStatus {
  * from the blob on the owner's PDS.
  */
 @Composable
-fun ProfileBannerVideo(did: String, cid: String, modifier: Modifier = Modifier) {
+fun ProfileBannerVideo(did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0) {
     var url by remember(did, cid) { mutableStateOf<String?>(null) }
     LaunchedEffect(did, cid) {
         url = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
@@ -295,5 +312,5 @@ fun ProfileBannerVideo(did: String, cid: String, modifier: Modifier = Modifier) 
             FeedVideos.recycle(u, player)
         }
     }
-    FeedVideoView(player, modifier)
+    FeedVideoView(player, modifier, fill = true, cornerPercent = cornerPercent)
 }

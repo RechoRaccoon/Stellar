@@ -519,3 +519,7 @@ Couldn't load your feeds: {0}
 Couldn't load your profile: {0}
 Couldn't read the {0} answer (HTTP {1}): {2}
 cdn.bsky.app refused the page; loading pictures from each account's server instead
+crop={0}:{1}:{2}:{3}
+#portrait
+#landscape
+blob.type || ''

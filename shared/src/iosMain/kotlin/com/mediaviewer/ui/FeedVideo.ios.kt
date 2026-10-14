@@ -26,6 +26,7 @@ import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import platform.AVFoundation.AVLayerVideoGravityResizeAspect
+import platform.AVFoundation.AVLayerVideoGravityResizeAspectFill
 import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.muted
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
@@ -199,6 +200,8 @@ private class PlayerLayerView(player: AVPlayer) : UIView(frame = CGRectMake(0.0,
     val playerLayer: AVPlayerLayer = AVPlayerLayer.playerLayerWithPlayer(player).apply {
         videoGravity = AVLayerVideoGravityResizeAspect
     }
+    /** Rounding, in percent of the shorter side (see FeedVideoView). */
+    var cornerPercent: Int = 0
 
     init {
         backgroundColor = UIColor.clearColor
@@ -210,6 +213,9 @@ private class PlayerLayerView(player: AVPlayer) : UIView(frame = CGRectMake(0.0,
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         playerLayer.frame = bounds
+        val short = bounds.useContents { minOf(size.width, size.height) }
+        layer.cornerRadius = short * cornerPercent / 100.0
+        layer.masksToBounds = cornerPercent > 0
         CATransaction.commit()
     }
 }
@@ -263,7 +269,7 @@ private class VideoFrameGrabber(private val player: AVPlayer) {
 
 @OptIn(ExperimentalForeignApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
+actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val feedPlayer = player as AvFeedVideoPlayer
     val av = feedPlayer.player
     // Where the view is on screen, and a frame for the glass over it to blur.
@@ -306,7 +312,11 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier) {
             val p = it.positionInRoot()
             viewRect = Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height)
         },
-        update = { it.playerLayer.player = av },
+        update = {
+            it.playerLayer.player = av
+            it.playerLayer.videoGravity = if (fill) AVLayerVideoGravityResizeAspectFill else AVLayerVideoGravityResizeAspect
+            if (it.cornerPercent != cornerPercent) { it.cornerPercent = cornerPercent; it.setNeedsLayout() }
+        },
         onRelease = { it.playerLayer.player = null },
         // Taps go to Compose (the tap-to-show-controls gesture above it).
         properties = UIKitInteropProperties(interactionMode = null)

@@ -640,10 +640,9 @@ internal fun SettingsPageContent(
     val anyLoggedIn = bskyLoggedIn || e621LoggedIn
 
     androidx.compose.runtime.CompositionLocalProvider(LocalSettingsAccent provides headerColorFor(tint)) {
-    Column(
-        // (Landscape: a column of a comfortable reading width, centered.)
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable().padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    SettingsColumns(
+        // (Landscape: two sections side by side — see SettingsColumns.)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable(SETTINGS_LANDSCAPE_WIDTH).padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         // ── Supporter Settings ──────────────────────────────────────────
         // (Only shown to supporters.)
@@ -1497,6 +1496,45 @@ internal fun SettingsPageContent(
     }
 }
 
+/** How wide the Settings page gets in landscape (two columns of sections). */
+val SETTINGS_LANDSCAPE_WIDTH = 1240.dp
+
+/**
+ * The Settings page's sections, one under another in portrait. In
+ * landscape they go into two columns side by side, taking turns (first
+ * left, second right, …) so opening or folding one never moves the others
+ * to the other column. Sections that show nothing take no turn.
+ */
+@Composable
+private fun SettingsColumns(modifier: Modifier, content: @Composable () -> Unit) {
+    if (!rememberLandscape()) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        return
+    }
+    androidx.compose.ui.layout.Layout(content, modifier) { measurables, constraints ->
+        val gap = 8.dp.roundToPx()
+        val colGap = 20.dp.roundToPx()
+        val colW = ((constraints.maxWidth - colGap) / 2).coerceAtLeast(0)
+        val placeables = measurables.map { it.measure(androidx.compose.ui.unit.Constraints(maxWidth = colW)) }
+        val heights = IntArray(2)
+        var turn = 0
+        val spots = placeables.map { p ->
+            if (p.height == 0) return@map 0 to heights[0]
+            val col = turn % 2
+            turn++
+            val y = heights[col] + if (heights[col] > 0) gap else 0
+            heights[col] = y + p.height
+            col to y
+        }
+        layout(constraints.maxWidth, maxOf(heights[0], heights[1])) {
+            placeables.forEachIndexed { i, p ->
+                val (col, y) = spots[i]
+                p.place(if (col == 0) 0 else colW + colGap, y)
+            }
+        }
+    }
+}
+
 /** The AT Protocol accounts bubble: the active account, every other signed-in
  *  account (each with Switch To / Log out), and an "Add additional AT
  *  Protocol account" row that turns into a handle + app password + Login row
@@ -2285,6 +2323,22 @@ private fun CustomizeHubSection(
                         }
                     }
                 }
+            }
+        }
+        // One Hub layout for both ways up, or one each (see HubLayout):
+        // with it on, this section edits the one the screen is in now.
+        SettingsBubble(liquidGlass, tint, backdrop) {
+            BubbleRow {
+                Column(Modifier.weight(1f)) {
+                    RowLabel("Custom Hub Layouts per Orientation")
+                    if (hub.separateOrientations) {
+                        Text(
+                            if (hub.landscapeNow) "Editing the landscape layout" else "Editing the portrait layout",
+                            color = DimGray, fontSize = 11.sp
+                        )
+                    }
+                }
+                CompactSwitch(hub.separateOrientations) { hub.setSeparateOrientations(it) }
             }
         }
         if (urlPopupOpen) {

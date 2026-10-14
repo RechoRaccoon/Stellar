@@ -50,6 +50,12 @@ expect object FeedVideos {
     fun releaseIdle()
 }
 
-/** Draws [player]'s picture (no native controls), filling [modifier]. */
+/**
+ * Draws [player]'s picture (no native controls), filling [modifier].
+ * [fill]: crop the picture to fill the view instead of letterboxing it
+ * (profile video banners and icons). [cornerPercent]: round the view's
+ * corners by this percent of its shorter side (50 = a circle) — native
+ * video views don't follow Compose's own clipping everywhere.
+ */
 @Composable
-expect fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier)
+expect fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean = false, cornerPercent: Int = 0)

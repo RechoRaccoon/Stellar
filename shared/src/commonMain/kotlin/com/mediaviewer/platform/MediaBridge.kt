@@ -53,6 +53,18 @@ expect object MediaBridge {
      *  (1080p) or too large a file; otherwise [uri] itself. */
     suspend fun prepareVideoForUpload(context: PlatformContext, uri: PlatformUri): PlatformUri
 
+    /**
+     * The video cut down to the [left]/[top]/[width]/[height] part of its
+     * upright picture (each a fraction, 0 to 1) and scaled to fit within
+     * [maxWidth]×[maxHeight] — a profile's video icon or banner. Silent
+     * (they always play muted). An mp4; webm in a browser that can only
+     * record that. Throws if it can't be done.
+     */
+    suspend fun cropVideo(
+        context: PlatformContext, uri: PlatformUri,
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+    ): PlatformUri
+
     /** Splices [thumbnail] in as the video's first frame (so Bluesky shows
      *  it as the thumbnail); returns the new file. Throws if unsupported. */
     suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri

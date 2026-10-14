@@ -210,6 +210,59 @@ object DesktopFfmpeg {
     }
 
     /**
+     * A profile's video icon or banner (see MediaBridge.cropVideo): the
+     * [left]/[top]/[width]/[height] part (fractions) of the upright picture,
+     * scaled to fit [maxW]×[maxH], without sound.
+     */
+    fun crop(path: String, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int): String {
+        val p = probe(path) ?: error("Couldn't read the video")
+        val turned = p.rotation == 90 || p.rotation == 270
+        val uw = if (turned) p.height else p.width
+        val uh = if (turned) p.width else p.height
+        val cw = ((uw * width).toInt() / 2 * 2).coerceIn(2, uw)
+        val ch = ((uh * height).toInt() / 2 * 2).coerceIn(2, uh)
+        val cx = (uw * left).toInt().coerceIn(0, uw - cw)
+        val cy = (uh * top).toInt().coerceIn(0, uh - ch)
+        val scale = minOf(1.0, maxW.toDouble() / cw, maxH.toDouble() / ch)
+        val w = ((cw * scale).toInt() / 2 * 2).coerceAtLeast(2)
+        val h = ((ch * scale).toInt() / 2 * 2).coerceAtLeast(2)
+        val out = newCacheFile("profile-video", "mp4")
+        val g = grabber(path)
+        g.start()
+        val rec = recorder(out, w, h, g.frameRate, 4_000_000, 0, 0)
+        val filterSpec = listOfNotNull(uprightFilter(p.rotation), "crop=$cw:$ch:$cx:$cy", "scale=$w:$h", "format=yuv420p").joinToString(",")
+        val filter = FFmpegFrameFilter(filterSpec, g.imageWidth, g.imageHeight).apply {
+            pixelFormat = g.pixelFormat
+            frameRate = g.frameRate
+            start()
+        }
+        try {
+            rec.start()
+            while (true) {
+                val f: Frame = g.grabFrame(false, true, true, false) ?: break
+                if (f.image == null) continue
+                filter.push(f)
+                while (true) {
+                    val ff = filter.pull() ?: break
+                    rec.timestamp = f.timestamp
+                    rec.record(ff, avutil.AV_PIX_FMT_YUV420P)
+                }
+            }
+        } catch (t: Throwable) {
+            runCatching { filter.stop(); filter.release() }
+            runCatching { rec.stop(); rec.release() }
+            runCatching { g.stop(); g.release() }
+            out.delete()
+            throw t
+        }
+        runCatching { filter.stop(); filter.release() }
+        runCatching { rec.stop(); rec.release() }
+        runCatching { g.stop(); g.release() }
+        if (out.length() <= 0L) { out.delete(); error("Cropping the video failed") }
+        return out.absolutePath
+    }
+
+    /**
      * Custom video thumbnails (like Android's VideoThumbnailStitcher and the
      * iOS one): the picture, centre-cropped to the video's shape, becomes
      * the first second of the video — Bluesky shows a video's first frame as
