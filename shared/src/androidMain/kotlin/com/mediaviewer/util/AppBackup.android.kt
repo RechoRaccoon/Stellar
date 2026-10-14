@@ -96,7 +96,7 @@ actual object AppBackup {
         root.add("sharedPrefs", sp)
 
         // Custom font, embedded.
-        prefs[PrefKeys.CUSTOM_FONT_PATH]?.let { path ->
+        prefs[stringPreferencesKey(PrefKeys.CUSTOM_FONT_PATH.name)]?.let { path ->
             val f = File(path)
             if (f.exists() && f.length() < 30L * 1024 * 1024) {
                 val font = JsonObject()
@@ -252,7 +252,7 @@ actual object AppBackup {
                 if (excluded(name) || !el.isJsonObject) return@forEach
                 if (applyTyped(prefs, name, el.asJsonObject)) settingsCount++
             }
-            fontPath?.let { prefs[PrefKeys.CUSTOM_FONT_PATH] = it }
+            fontPath?.let { prefs[stringPreferencesKey(PrefKeys.CUSTOM_FONT_PATH.name)] = it }
         }
 
         root.getAsJsonObject("sharedPrefs")?.entrySet()?.forEach { (name, el) ->

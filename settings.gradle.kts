@@ -6,7 +6,10 @@ pluginManagement {
     }
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    // The web build (Kotlin/Wasm) adds its own download sites for Node.js,
+    // Yarn and Binaryen to the root project; every module still gets its
+    // libraries from the repositories below.
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         google()
         mavenCentral()

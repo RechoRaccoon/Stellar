@@ -19,7 +19,7 @@ plugins {
 kotlin {
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
-        moduleName = "stellar"
+        outputModuleName.set("stellar")
         browser {
             commonWebpackConfig {
                 outputFileName = "stellar.js"
