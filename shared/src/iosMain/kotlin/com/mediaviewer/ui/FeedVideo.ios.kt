@@ -27,6 +27,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import platform.AVFoundation.AVLayerVideoGravityResizeAspect
 import platform.AVFoundation.AVPlayer
+import platform.AVFoundation.muted
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
 import platform.AVFoundation.AVPlayerItemStatusReadyToPlay
 import platform.AVFoundation.AVPlayerLayer
@@ -111,6 +112,7 @@ internal class AvFeedVideoPlayer(val url: String) : FeedVideoPlayer {
 
     override fun addListener(listener: FeedVideoListener) { listeners += listener }
     override fun removeListener(listener: FeedVideoListener) { listeners -= listener }
+    override fun setVolumeMuted(muted: Boolean) { player.muted = muted }
 
     fun release() {
         player.pause()

@@ -146,9 +146,10 @@ fun GridScreen(
     val tint = rememberSelfTint(selfAvatarUrl, NeutralGlassTint)
     var kind by remember { mutableStateOf(PostKindFilter.ALL) }
     val gridScreen = "feed_grid"
-    val gridMode = resultsGridMode(gridScreen, kind)
-    // Landscape: more columns as the window widens (see Landscape).
+    // Landscape: the slider's column count, and two layouts instead of three
+    // (see Landscape and effectiveGridMode).
     val wideDp = rememberLandscapeWidthDp()
+    val gridMode = effectiveGridMode(kind, resultsGridMode(gridScreen, kind), wideDp > 0)
     val spec = resultsLayoutSpec(kind, gridMode, roundedGridTiles, wideDp)
     // Saved Posts / From Friends / History all use your own DID, so the
     // name is part of the key too — switching between them starts fresh.
@@ -261,6 +262,105 @@ fun GridScreen(
         // The feed/content-type rows are the grid's first item now, so they
         // scroll away with the posts instead of staying pinned in place.
         val topClearance = rememberTopCutoutClearance()
+        // The feed row and the post-type filters: the grid's first item in
+        // portrait; landscape's side list instead (see SideList).
+        val sideways = wideDp > 0
+        @Composable
+        fun HeaderRows() {
+            // ── Feeds (profile-style main tabs) / e621 tag search ─────────────
+            val specialFeed = authorFeedState?.author?.takeIf { appMode == AppMode.BLUESKY && it.isSpecialFeed() }
+            if (specialFeed != null) {
+                // Saved Posts / From Friends: their name, big and
+                // centered, in place of the feed selector.
+                if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                Text(
+                    specialFeed.displayName,
+                    color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                )
+                // Saved Posts (supporters): a bubble per bookmark
+                // folder, like the feed row — tap one to see just
+                // that folder; "All" is every saved post.
+                val folders = com.mediaviewer.util.LocalData.bookmarkFolders
+                if (specialFeed.displayName == "Saved Posts" && com.mediaviewer.util.Supporter.active && folders.isNotEmpty()) {
+                    val openFolder = LocalOverlays.bookmarkFolderId
+                    if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                    ProfileStyleTabRow(
+                        labels = listOf("All") + folders.map { it.name },
+                        selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
+                        liquidGlass = liquidGlass, tint = tint
+                    ) { i ->
+                        LocalOverlays.onShowBookmarkFolder?.invoke(if (i == 0) null else folders.getOrNull(i - 1)?.id)
+                    }
+                }
+            } else if (appMode == AppMode.BLUESKY) {
+                val saved = authorFeedState
+                val labels = buildList {
+                    if (saved != null) add(saved.author.displayName.ifBlank { "@" + saved.author.handle })
+                    availableFeeds.forEach { add(it.displayName) }
+                }
+                val offset = if (saved != null) 1 else 0
+                val selected = if (saved != null) 0 else availableFeeds.indexOfFirst { it.uri == selectedFeedUri }.let { if (it >= 0) it + offset else -1 }
+                if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                Box(Modifier.fillMaxWidth().tipAnchor("ex.feeds")) {
+                // Each feed's own picture before its name, like the Hub's feed row.
+                val icons = buildList {
+                    if (saved != null) add(saved.author.avatarUrl)
+                    availableFeeds.forEach { add(it.avatarUrl) }
+                }
+                ProfileStyleTabRow(labels = labels, selectedIndex = selected, liquidGlass = liquidGlass, tint = tint, icons = icons) { i ->
+                    if (i >= offset) availableFeeds.getOrNull(i - offset)?.let { onSelectFeed(it.uri) }
+                }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = localTags, onValueChange = { localTags = it },
+                        placeholder = { Text("Search tags…", color = DimGray, fontSize = 13.sp) },
+                        singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp, color = Color.White),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = tint.copy(0.6f), unfocusedBorderColor = Color.White.copy(0.1f),
+                            cursorColor = Color.White, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                            focusedTextColor = Color.White, unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.weight(1f).height(54.dp)
+                    )
+                    Button(
+                        onClick = { tap(); onSearchE621(localTags) },
+                        colors = ButtonDefaults.buttonColors(containerColor = tint.copy(0.35f), contentColor = Color.White),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(54.dp)
+                    ) { Text("Go", fontSize = 13.sp) }
+                }
+            }
+            if (LocalSideList.current) SideListDivider(tint) else HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            // ── Content-type sub-tabs ──────────────────────────────────────
+            if (items.isNotEmpty()) {
+                Box(Modifier.fillMaxWidth().tipAnchor("ex.kinds")) {
+                PostKindSubTabRow(items, kind, liquidGlass, tint) { newKind ->
+                    if (newKind != kind) {
+                        pendingAnchor = middleAnchor(gridState)
+                        kind = newKind
+                    }
+                }
+                }
+            }
+        }
+        Row(Modifier.fillMaxSize()) {
+        if (sideways) {
+            LandscapeSideList(
+                tint = tint, liquidGlass = liquidGlass, backLabel = "Back", onBack = onSwipeDown,
+                footer = { GridSizeSlider(tint) }
+            ) { HeaderRows() }
+        }
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(spec.lanes),
             state = gridState,
@@ -268,7 +368,7 @@ fun GridScreen(
             horizontalArrangement = Arrangement.spacedBy(spec.spacing),
             verticalItemSpacing = spec.spacing,
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f).fillMaxHeight()
                 // Pinch OUT (fingers spreading apart) — the opposite of
                 // the pinch-in that opened the grid — goes back to the
                 // post you were on. Watched at the Initial pass and only
@@ -351,87 +451,7 @@ fun GridScreen(
                     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
                 }) {
                     Spacer(Modifier.height(topClearance))
-                    // ── Feeds (profile-style main tabs) / e621 tag search ─────────────
-                    val specialFeed = authorFeedState?.author?.takeIf { appMode == AppMode.BLUESKY && it.isSpecialFeed() }
-                    if (specialFeed != null) {
-                        // Saved Posts / From Friends: their name, big and
-                        // centered, in place of the feed selector.
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                        Text(
-                            specialFeed.displayName,
-                            color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
-                        )
-                        // Saved Posts (supporters): a bubble per bookmark
-                        // folder, like the feed row — tap one to see just
-                        // that folder; "All" is every saved post.
-                        val folders = com.mediaviewer.util.LocalData.bookmarkFolders
-                        if (specialFeed.displayName == "Saved Posts" && com.mediaviewer.util.Supporter.active && folders.isNotEmpty()) {
-                            val openFolder = LocalOverlays.bookmarkFolderId
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                            ProfileStyleTabRow(
-                                labels = listOf("All") + folders.map { it.name },
-                                selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
-                                liquidGlass = liquidGlass, tint = tint
-                            ) { i ->
-                                LocalOverlays.onShowBookmarkFolder?.invoke(if (i == 0) null else folders.getOrNull(i - 1)?.id)
-                            }
-                        }
-                    } else if (appMode == AppMode.BLUESKY) {
-                        val saved = authorFeedState
-                        val labels = buildList {
-                            if (saved != null) add(saved.author.displayName.ifBlank { "@" + saved.author.handle })
-                            availableFeeds.forEach { add(it.displayName) }
-                        }
-                        val offset = if (saved != null) 1 else 0
-                        val selected = if (saved != null) 0 else availableFeeds.indexOfFirst { it.uri == selectedFeedUri }.let { if (it >= 0) it + offset else -1 }
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                        Box(Modifier.fillMaxWidth().tipAnchor("ex.feeds")) {
-                        ProfileStyleTabRow(labels = labels, selectedIndex = selected, liquidGlass = liquidGlass, tint = tint) { i ->
-                            if (i >= offset) availableFeeds.getOrNull(i - offset)?.let { onSelectFeed(it.uri) }
-                        }
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = localTags, onValueChange = { localTags = it },
-                                placeholder = { Text("Search tags…", color = DimGray, fontSize = 13.sp) },
-                                singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp, color = Color.White),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = tint.copy(0.6f), unfocusedBorderColor = Color.White.copy(0.1f),
-                                    cursorColor = Color.White, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
-                                    focusedTextColor = Color.White, unfocusedTextColor = Color.White
-                                ),
-                                modifier = Modifier.weight(1f).height(54.dp)
-                            )
-                            Button(
-                                onClick = { tap(); onSearchE621(localTags) },
-                                colors = ButtonDefaults.buttonColors(containerColor = tint.copy(0.35f), contentColor = Color.White),
-                                contentPadding = PaddingValues(horizontal = 14.dp),
-                                modifier = Modifier.height(54.dp)
-                            ) { Text("Go", fontSize = 13.sp) }
-                        }
-                    }
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                    // ── Content-type sub-tabs ──────────────────────────────────────
-                    if (items.isNotEmpty()) {
-                        Box(Modifier.fillMaxWidth().tipAnchor("ex.kinds")) {
-                        PostKindSubTabRow(items, kind, liquidGlass, tint) { newKind ->
-                            if (newKind != kind) {
-                                pendingAnchor = middleAnchor(gridState)
-                                kind = newKind
-                            }
-                        }
-                        }
-                    }
+                    if (!sideways) HeaderRows()
                     Spacer(Modifier.height(4.dp))
                 }
             }
@@ -487,6 +507,7 @@ fun GridScreen(
                 }
             }
         }
+        } // Row (side list + grid)
     }
         ResultsInteractionBar(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
@@ -495,15 +516,15 @@ fun GridScreen(
             filter = kind, gridMode = gridMode,
             onGrid = {
                 pendingAnchor = middleAnchor(gridState)
-                cycleResultsGridMode(gridScreen, kind)
+                cycleResultsGridMode(gridScreen, kind, landscape = wideDp > 0)
             },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) SIDE_LIST_WIDTH else 0.dp),
             refreshAnchor = "ex.refresh", gridAnchor = "ex.layout"
         )
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(
             visible = showScrollTop,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = rememberTopCutoutClearance() + 8.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = if (wideDp > 0) SIDE_LIST_WIDTH else 0.dp, top = rememberTopCutoutClearance() + 8.dp),
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f)
         ) {

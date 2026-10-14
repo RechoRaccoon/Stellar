@@ -1787,5 +1787,19 @@
 "Not available on the web": "웹에서 사용할 수 없어요",
 "Couldn't read the file to upload": "업로드할 파일을 읽을 수 없어요",
 "Network error: {0}": "네트워크 오류: {0}",
-"Choose a chat to read it here": "채팅을 선택하면 여기에서 볼 수 있어요"
+"Choose a chat to read it here": "채팅을 선택하면 여기에서 볼 수 있어요",
+"0 = never clear": "0 = 지우지 않음",
+"Clear After": "지우기까지",
+"Clear Status": "상태 지우기",
+"Days": "일",
+"Direct pixel copy failed; using the slow way: {0}": "픽셀 직접 복사에 실패해 느린 방법을 사용합니다: {0}",
+"Grid Size": "그리드 크기",
+"Hours": "시간",
+"Minutes": "분",
+"Picked · Remove": "선택됨 · 제거",
+"Post status": "상태 게시",
+"Set a status": "상태 설정",
+"That video is too big for a banner (max {0} MB). Try a shorter one.": "이 동영상은 배너로 쓰기에 너무 큽니다(최대 {0}MB). 더 짧은 동영상을 사용해 보세요.",
+"Upload failed: no blob": "업로드 실패: blob 없음",
+"Video Banner": "동영상 배너"
 }

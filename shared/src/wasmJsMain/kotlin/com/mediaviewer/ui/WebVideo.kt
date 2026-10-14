@@ -104,6 +104,7 @@ class WebVideoPlayer(val url: String, muted: Boolean = false) : FeedVideoPlayer 
     override fun seekTo(positionMs: Long) { if (!released) seekVideo(element, positionMs / 1000.0) }
 
     fun setMuted(muted: Boolean) { if (!released) setVideoMuted(element, muted) }
+    override fun setVolumeMuted(muted: Boolean) = setMuted(muted)
 
     /** A small copy of the picture showing now (at most [maxWidth] wide), for
      *  the blurred glass over the video; null while there's none to copy. */

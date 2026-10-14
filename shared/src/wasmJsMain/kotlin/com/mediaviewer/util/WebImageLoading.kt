@@ -156,9 +156,13 @@ private class WebFetcher(private val uri: String, private val options: Options) 
         val height = jsGetInt(r, "h")
         val data = jsGet(r, "data")?.unsafeCast<JsBytes>() ?: return Decoded.Failed
         if (width <= 0 || height <= 0) return Decoded.Failed
-        val bitmap = org.jetbrains.skia.Bitmap()
-        val info = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.RGBA_8888, org.jetbrains.skia.ColorAlphaType.UNPREMUL)
-        if (!bitmap.installPixels(info, data.toByteArray(), width * 4)) return Decoded.Failed
+        // (Straight into Skia's memory when possible — see SkiaPixels.)
+        val bitmap = com.mediaviewer.platform.SkiaPixels.bitmap(data, width, height) ?: run {
+            val b = org.jetbrains.skia.Bitmap()
+            val info = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.RGBA_8888, org.jetbrains.skia.ColorAlphaType.UNPREMUL)
+            if (!b.installPixels(info, data.toByteArray(), width * 4)) return Decoded.Failed
+            b
+        }
         // Immutable: drawn as is every frame, never copied again.
         bitmap.setImmutable()
         return Decoded.Image(ImageFetchResult(bitmap.asImage(), isSampled = jsGetInt(r, "scaled") == 1, dataSource = DataSource.NETWORK))
@@ -224,40 +228,72 @@ private fun videoFrame(url: String): Promise<JsBytes> = js("""new Promise((resol
 })""")
 
 /**
- * Fetches [url] and lets the browser decode it off the page's thread,
+ * Fetches [url] and lets the browser decode it off the page's thread (in a
+ * background worker where it can),
  * shrunk to fit ([fill] false) or cover ([fill] true) a [w]×[h] box (never
  * enlarged; 0 = any size, up to [maxSide]). Resolves to {w, h, data
  * (RGBA bytes), scaled}, {status} when the server said no, or null when
  * this browser can't do it.
  */
-private fun decodeInBrowser(url: String, w: Int, h: Int, fill: Boolean, maxSide: Int): Promise<JsAny?> = js("""(async () => {
-    if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return null;
-    const r = await fetch(url, { credentials: 'omit' });
-    if (!r.ok) return { status: r.status || 1 };
-    try {
-    const bmp = await createImageBitmap(await r.blob());
-    let tw = bmp.width, th = bmp.height;
-    if (w > 0 && h > 0) {
-        const s = fill ? Math.max(w / tw, h / th) : Math.min(w / tw, h / th);
-        if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
-    } else if (w > 0 || h > 0) {
-        const s = w > 0 ? w / tw : h / th;
-        if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+private fun decodeInBrowser(url: String, w: Int, h: Int, fill: Boolean, maxSide: Int): Promise<JsAny?> = js("""(() => {
+    // The whole job (download, decode, shrink, read the pixels) runs in a
+    // background worker when the browser has them, so the page's own thread
+    // only receives finished pixels; otherwise the same steps run here.
+    const job = async (url, w, h, fill, maxSide) => {
+        if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return null;
+        const r = await fetch(url, { credentials: 'omit' });
+        if (!r.ok) return { status: r.status || 1 };
+        try {
+            const bmp = await createImageBitmap(await r.blob());
+            let tw = bmp.width, th = bmp.height;
+            if (w > 0 && h > 0) {
+                const s = fill ? Math.max(w / tw, h / th) : Math.min(w / tw, h / th);
+                if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+            } else if (w > 0 || h > 0) {
+                const s = w > 0 ? w / tw : h / th;
+                if (s < 1) { tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+            }
+            const big = Math.max(tw, th);
+            if (big > maxSide) { const s = maxSide / big; tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
+            const scaled = (tw !== bmp.width || th !== bmp.height);
+            let src = bmp;
+            if (scaled) {
+                try { src = await createImageBitmap(bmp, { resizeWidth: tw, resizeHeight: th, resizeQuality: 'high' }); bmp.close(); } catch (e) { src = bmp; }
+            }
+            const c = new OffscreenCanvas(tw, th);
+            const g = c.getContext('2d');
+            if (!g) { src.close(); return null; }
+            g.imageSmoothingQuality = 'high';
+            g.drawImage(src, 0, 0, tw, th);
+            src.close();
+            const px = g.getImageData(0, 0, tw, th).data;
+            return { status: 0, w: tw, h: th, scaled: scaled ? 1 : 0, data: new Uint8Array(px.buffer, px.byteOffset, px.byteLength) };
+        } catch (e) { return null; }
+    };
+    const g = globalThis;
+    if (g.__stellarDecoder === undefined) {
+        g.__stellarDecoder = null;
+        try {
+            const code = 'const job = ' + job.toString() + ';' +
+                'onmessage = async (e) => { const m = e.data; let r; let failed = false;' +
+                ' try { r = await job(m.url, m.w, m.h, m.fill, m.maxSide); } catch (err) { failed = true; }' +
+                ' if (r && r.data) postMessage({ id: m.id, failed, r }, [r.data.buffer]); else postMessage({ id: m.id, failed, r }); };';
+            const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+            const waiting = new Map();
+            let next = 1;
+            worker.onmessage = (e) => {
+                const m = e.data, p = waiting.get(m.id);
+                if (!p) return;
+                waiting.delete(m.id);
+                if (m.failed) p.reject(new Error('fetch failed')); else p.resolve(m.r || null);
+            };
+            worker.onerror = () => { g.__stellarDecoder = null; waiting.forEach((p) => p.resolve(null)); waiting.clear(); };
+            g.__stellarDecoder = (url, w, h, fill, maxSide) => new Promise((resolve, reject) => {
+                const id = next++;
+                waiting.set(id, { resolve, reject });
+                worker.postMessage({ id, url, w, h, fill, maxSide });
+            });
+        } catch (e) { g.__stellarDecoder = null; }
     }
-    const big = Math.max(tw, th);
-    if (big > maxSide) { const s = maxSide / big; tw = Math.max(1, Math.round(tw * s)); th = Math.max(1, Math.round(th * s)); }
-    const scaled = (tw !== bmp.width || th !== bmp.height);
-    let src = bmp;
-    if (scaled) {
-        try { src = await createImageBitmap(bmp, { resizeWidth: tw, resizeHeight: th, resizeQuality: 'high' }); bmp.close(); } catch (e) { src = bmp; }
-    }
-    const c = new OffscreenCanvas(tw, th);
-    const g = c.getContext('2d');
-    if (!g) { src.close(); return null; }
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(src, 0, 0, tw, th);
-    src.close();
-    const px = g.getImageData(0, 0, tw, th).data;
-    return { status: 0, w: tw, h: th, scaled: scaled ? 1 : 0, data: new Uint8Array(px.buffer, px.byteOffset, px.byteLength) };
-    } catch (e) { return null; }
+    return g.__stellarDecoder ? g.__stellarDecoder(url, w, h, fill, maxSide) : job(url, w, h, fill, maxSide);
 })()""")

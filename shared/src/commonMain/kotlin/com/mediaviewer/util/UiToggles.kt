@@ -30,6 +30,7 @@ object UiToggles {
     private const val KEY_STARRY_BACKGROUND = "starry_background"
     private const val KEY_STAR_FRAME_RATE = "starry_background_fps"
     private const val KEY_LANDSCAPE_BAR_SCALE = "landscape_bar_scale"
+    private const val KEY_LANDSCAPE_COLUMNS = "landscape_columns"
     // Override App Colors is saved per signed-in account: these are the old
     // shared keys, now only read once to carry an existing choice over to
     // the first account that opens the app (see setAccount).
@@ -127,7 +128,7 @@ object UiToggles {
     }
 
     /** Which loading transition plays (default: Space). */
-    var loadingAnimation by mutableStateOf(LoadingAnimation.SPACE)
+    var loadingAnimation by mutableStateOf(if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE else LoadingAnimation.SPACE)
         private set
 
     /** Settings → UI Customization → "Audio Visualizer": bars above the
@@ -152,6 +153,18 @@ object UiToggles {
         private set
     // Never smaller than the standard size: pinching in all the way puts
     // it back exactly where it started.
+    /** Landscape: how many posts across the post grids are (Explore,
+     *  profiles, Search) — the slider under a profile's side list. */
+    var landscapeColumns by mutableStateOf(5)
+        private set
+    const val LANDSCAPE_MIN_COLUMNS = 5
+    const val LANDSCAPE_MAX_COLUMNS = 10
+
+    fun updateLandscapeColumns(columns: Int) {
+        landscapeColumns = columns.coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
+        prefs?.edit()?.putInt(KEY_LANDSCAPE_COLUMNS, landscapeColumns)?.apply()
+    }
+
     const val LANDSCAPE_BAR_MIN_SCALE = 1f
     const val LANDSCAPE_BAR_MAX_SCALE = 1.8f
     val starFrameRateOptions = listOf(30, 60, 90, 120)
@@ -259,11 +272,13 @@ object UiToggles {
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
-            ?: LoadingAnimation.SPACE
+            // (The web starts with none: it loads straight into the page.)
+            ?: if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE else LoadingAnimation.SPACE
         audioVisualizer = p.getBoolean(KEY_AUDIO_VISUALIZER, true)
         starryBackground = p.getBoolean(KEY_STARRY_BACKGROUND, true)
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
         landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
+        landscapeColumns = p.getInt(KEY_LANDSCAPE_COLUMNS, LANDSCAPE_MIN_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)

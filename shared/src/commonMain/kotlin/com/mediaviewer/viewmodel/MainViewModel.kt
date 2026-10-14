@@ -6186,6 +6186,16 @@ class MainViewModel(
                 }
             }
         }
+        com.mediaviewer.util.ProfileStyles.bannerUploader = { uri, onDone ->
+            if (!_bskyLoggedIn.value) onDone(null, "Not signed in")
+            else viewModelScope.launch(ioDispatcher) {
+                var result = bskyRepo.uploadBannerVideo(bskyToken, platform.context, uri)
+                if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                    result = bskyRepo.uploadBannerVideo(bskyToken, platform.context, uri)
+                }
+                withContext(Dispatchers.Main) { onDone(result.getOrNull(), result.exceptionOrNull()?.message) }
+            }
+        }
     }
 
     // ── Archive (supporters) ────────────────────────────────────────────

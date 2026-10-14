@@ -1787,5 +1787,19 @@
 "Not available on the web": "Web版では使えません",
 "Couldn't read the file to upload": "アップロードするファイルを読み込めませんでした",
 "Network error: {0}": "ネットワークエラー：{0}",
-"Choose a chat to read it here": "チャットを選ぶとここに表示されます"
+"Choose a chat to read it here": "チャットを選ぶとここに表示されます",
+"0 = never clear": "0 = 消さない",
+"Clear After": "消去までの時間",
+"Clear Status": "ステータスを消去",
+"Days": "日",
+"Direct pixel copy failed; using the slow way: {0}": "ピクセルの直接コピーに失敗したため、低速な方法を使います: {0}",
+"Grid Size": "グリッドのサイズ",
+"Hours": "時間",
+"Minutes": "分",
+"Picked · Remove": "選択済み · 削除",
+"Post status": "ステータスを投稿",
+"Set a status": "ステータスを設定",
+"That video is too big for a banner (max {0} MB). Try a shorter one.": "この動画はバナーには大きすぎます(最大 {0} MB)。もっと短い動画をお試しください。",
+"Upload failed: no blob": "アップロード失敗: blob がありません",
+"Video Banner": "動画バナー"
 }

@@ -1787,5 +1787,19 @@
 "Not available on the web": "Недоступно в веб-версии",
 "Couldn't read the file to upload": "Не удалось прочитать файл для загрузки",
 "Network error: {0}": "Ошибка сети: {0}",
-"Choose a chat to read it here": "Выберите чат, чтобы читать его здесь"
+"Choose a chat to read it here": "Выберите чат, чтобы читать его здесь",
+"0 = never clear": "0 = никогда не очищать",
+"Clear After": "Очистить через",
+"Clear Status": "Очистить статус",
+"Days": "Дни",
+"Direct pixel copy failed; using the slow way: {0}": "Прямое копирование пикселей не удалось; используется медленный способ: {0}",
+"Grid Size": "Размер сетки",
+"Hours": "Часы",
+"Minutes": "Минуты",
+"Picked · Remove": "Выбрано · Убрать",
+"Post status": "Опубликовать статус",
+"Set a status": "Указать статус",
+"That video is too big for a banner (max {0} MB). Try a shorter one.": "Это видео слишком большое для баннера (макс. {0} МБ). Попробуйте покороче.",
+"Upload failed: no blob": "Ошибка загрузки: нет blob",
+"Video Banner": "Видеобаннер"
 }

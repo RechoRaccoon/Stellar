@@ -404,6 +404,40 @@ fun SettingsSheet(
 
     val feedDrag = remember { HubFeedDragState() }
 
+    // Settings/Timeline/Explore/Post: at the bottom, or (landscape, the
+    // main page) in the top row beside the search bar.
+    val hubLandscape = rememberLandscape()
+    val hubBarAtTop = hubLandscape && hubPage == HubPage.MAIN && bskyLoggedIn
+    val hubBar: @Composable (Boolean) -> Unit = { atTop ->
+        // A profile picked in the feed selector: Timeline/Explore
+        // become one "Return to Profile" button.
+        val profileFeed = authorFeedState?.author?.takeIf { !it.isSpecialFeed() }
+        ReturnToFeedBar(
+            returnToProfile = hubPage == HubPage.MAIN && pickedFeed == null && profileFeed != null,
+            // Same as swiping up on the Hub: back into that
+            // profile's feed in whichever of Timeline/Explore was
+            // used last.
+            onReturnToProfile = { if (bskyLoggedIn) { onSwitchMode(AppMode.BLUESKY); onSwipeToFeed() } else onReturnToProfile() },
+            liquidGlass = liquidGlass, tint = dominantColor, backdrop = null,
+            uploadBackdrop = hubBackgroundBackdrop,
+            onReturnToFeed = { explore -> onReturnToFeed(explore) },
+            onOpenSettings = { goToHubPage(if (hubPage == HubPage.SETTINGS) HubPage.MAIN else HubPage.SETTINGS) },
+            // Fix (per feedback): the More popup's Refresh bubble
+            // must always appear — ReturnToFeedBar only feeds this
+            // through to HubSettingsButton, so pass it unconditionally
+            // instead of nulling it on the Settings page.
+            onRefresh = onRefreshHub,
+            showPillAndUpload = hubPage == HubPage.MAIN && bskyLoggedIn,
+            hasVisitedFeed = hasVisitedFeed,
+            onOpenComposePost = onOpenComposePost,
+            settingsOpen = (hubPage == HubPage.SETTINGS),
+            settingsTab = settingsTab,
+            onSettingsTabChange = { settingsTab = it },
+            atTop = atTop
+        )
+
+    }
+
     Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { feedDrag.rootOrigin = it.positionInRoot() }) {
         // The Hub's background: a dim wash of your profile color with the
         // starry sky over it (see SpaceSky). Recorded into
@@ -560,7 +594,8 @@ fun SettingsSheet(
                             hubLists = settingsExtras.hubLists,
                             onLoadHubList = settingsExtras.onLoadHubList,
                             onLoadMoreHubList = settingsExtras.onLoadMoreHubList,
-                            onOpenHubListPost = settingsExtras.onOpenHubListPost
+                            onOpenHubListPost = settingsExtras.onOpenHubListPost,
+                            topBar = if (hubBarAtTop) ({ hubBar(true) }) else null
                         )
                     }
                 }
@@ -594,38 +629,15 @@ fun SettingsSheet(
             }
             // The bar sits right at the bottom now (the old credit line under
             // it is gone), just clear of the system navigation bar.
-            Box(
-                // (Landscape: a bar of a sensible width, centered.)
-                Modifier.landscapeReadable(640.dp).padding(horizontal = 14.dp).padding(top = 6.dp)
+            // Landscape, on the Hub's main page: the bar moves up into the
+            // top row beside the search bar (see AtProtocolPageContent's
+            // topBar); on the Settings page it stays down here, its edges
+            // lined up with the Settings column's.
+            if (!hubBarAtTop) Box(
+                Modifier.landscapeReadable().padding(horizontal = if (hubLandscape) 16.dp else 14.dp).padding(top = 6.dp)
                     .windowInsetsPadding(WindowInsets.navBarSpace)
                     .padding(bottom = 10.dp)
-            ) {
-                // A profile picked in the feed selector: Timeline/Explore
-                // become one "Return to Profile" button.
-                val profileFeed = authorFeedState?.author?.takeIf { !it.isSpecialFeed() }
-                ReturnToFeedBar(
-                    returnToProfile = hubPage == HubPage.MAIN && pickedFeed == null && profileFeed != null,
-                    // Same as swiping up on the Hub: back into that
-                    // profile's feed in whichever of Timeline/Explore was
-                    // used last.
-                    onReturnToProfile = { if (bskyLoggedIn) { onSwitchMode(AppMode.BLUESKY); onSwipeToFeed() } else onReturnToProfile() },
-                    liquidGlass = liquidGlass, tint = dominantColor, backdrop = null,
-                    uploadBackdrop = hubBackgroundBackdrop,
-                    onReturnToFeed = { explore -> onReturnToFeed(explore) },
-                    onOpenSettings = { goToHubPage(if (hubPage == HubPage.SETTINGS) HubPage.MAIN else HubPage.SETTINGS) },
-                    // Fix (per feedback): the More popup's Refresh bubble
-                    // must always appear — ReturnToFeedBar only feeds this
-                    // through to HubSettingsButton, so pass it unconditionally
-                    // instead of nulling it on the Settings page.
-                    onRefresh = onRefreshHub,
-                    showPillAndUpload = showReturnBar,
-                    hasVisitedFeed = hasVisitedFeed,
-                    onOpenComposePost = onOpenComposePost,
-                    settingsOpen = (hubPage == HubPage.SETTINGS),
-                    settingsTab = settingsTab,
-                    onSettingsTabChange = { settingsTab = it }
-                )
-            }
+            ) { hubBar(false) }
         }
 
         // The held feed chip, popped up and following the finger.
@@ -739,7 +751,10 @@ private fun AtProtocolPageContent(
     hubLists: Map<String, MainViewModel.HubListState> = emptyMap(),
     onLoadHubList: (String) -> Unit = {},
     onLoadMoreHubList: (String) -> Unit = {},
-    onOpenHubListPost: (String, String, Int) -> Unit = { _, _, _ -> }
+    onOpenHubListPost: (String, String, Int) -> Unit = { _, _, _ -> },
+    /** Landscape: the Settings/Timeline/Explore/Post bar, sharing the top
+     *  row with the search bar (each takes half). */
+    topBar: (@Composable () -> Unit)? = null
 ) {
     // Item 8: both of the new sections' fetches are lazy — kick them off once
     // when this page first composes rather than eagerly for every Hub visit
@@ -801,11 +816,15 @@ private fun AtProtocolPageContent(
     // the same way content stops at the Return to Feed bar below.
     Column(Modifier.fillMaxSize()) {
         Row(
-            // (Landscape: a search bar of a sensible width, centered.)
-            Modifier.landscapeReadable().padding(horizontal = 16.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // (Landscape: the bar on the left half, the search bar on the right.)
+            if (topBar != null) {
+                Box(Modifier.weight(1f)) { topBar() }
+                Spacer(Modifier.width(8.dp))
+            }
             val barShape = RoundedCornerShape(22.dp)
             @Composable
             fun SearchBarContent() {
@@ -918,10 +937,8 @@ private fun AtProtocolPageContent(
         // third row once a page has two full rows. The order is kept per
         // account on this device (HubLayout.launchpad).
         val launchPager = androidx.compose.foundation.pager.rememberPagerState { com.mediaviewer.util.HubLayout.LAUNCHPAD_PAGES }
-        // Landscape: one row of buttons once they fit (about 118 dp each).
-        val lpWideRow = rememberLandscapeWidthDp().let { w ->
-            w > 0 && w >= maxOf(3, com.mediaviewer.util.HubLayout.launchpad.maxOfOrNull { it.size } ?: 3) * 118
-        }
+        // Landscape: both pages side by side, each in full (no swiping).
+        val lpSideBySide = rememberLandscape()
         val launchpad = com.mediaviewer.util.HubLayout.launchpad
         val lpDrag = remember { LaunchpadDragState() }
         val lpView = rememberPlatformView()
@@ -986,8 +1003,10 @@ private fun AtProtocolPageContent(
          *  the page showing (past the last button = at the end). */
         fun lpRetarget() {
             val id = lpDrag.id ?: return
-            val page = launchPager.currentPage
-            val hit = lpSlots.entries.firstOrNull { (k, r) -> k.first == page && r.contains(lpDrag.pointer) }?.key ?: return
+            val shownPage = launchPager.currentPage
+            // (Side by side, every page's slots are under the finger's reach.)
+            val hit = lpSlots.entries.firstOrNull { (k, r) -> (lpSideBySide || k.first == shownPage) && r.contains(lpDrag.pointer) }?.key ?: return
+            val page = hit.first
             val others = latestLaunchpad.getOrNull(page).orEmpty().filter { it != id }
             val fromPage = latestLaunchpad.indexOfFirst { id in it }
             if (page != fromPage && others.size >= com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_PAGE) return
@@ -1002,7 +1021,7 @@ private fun AtProtocolPageContent(
         val lpDensity = LocalDensity.current.density
         LaunchedEffect(lpDrag.active) {
             var edgeSince = 0L
-            while (lpDrag.active) {
+            while (lpDrag.active && !lpSideBySide) {
                 androidx.compose.runtime.withFrameMillis { }
                 val b = lpBounds ?: continue
                 val x = lpDrag.pointer.x
@@ -1035,9 +1054,10 @@ private fun AtProtocolPageContent(
                     detectDragGesturesAfterLongPress(
                         onDragStart = { off ->
                             val at = lpOrigin + off
-                            val page = launchPager.currentPage
-                            val hit = lpSlots.entries.firstOrNull { (k, r) -> k.first == page && r.contains(at) }
+                            val shownPage = launchPager.currentPage
+                            val hit = lpSlots.entries.firstOrNull { (k, r) -> (lpSideBySide || k.first == shownPage) && r.contains(at) }
                                 ?: return@detectDragGesturesAfterLongPress
+                            val page = hit.key.first
                             val id = latestLaunchpad.getOrNull(page)?.getOrNull(hit.key.second)
                                 ?: return@detectDragGesturesAfterLongPress
                             lpDrag.id = id
@@ -1068,28 +1088,13 @@ private fun AtProtocolPageContent(
                     )
                 }
         ) {
-        androidx.compose.foundation.pager.HorizontalPager(
-            state = launchPager,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            pageSpacing = 16.dp,
-            // (No swiping while a button is held: the edges turn the page.)
-            userScrollEnabled = !lpDrag.active,
-            // The badges poke out past the buttons' corners.
-            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false }.mousePager(launchPager, !lpDrag.active),
-            verticalAlignment = Alignment.Top
-        ) { page ->
+        @Composable
+        fun LaunchPage(page: Int) {
             val held = lpDrag.id.takeIf { lpDrag.active }
             val base = launchpad.getOrNull(page).orEmpty().filter { it != held }
             val shown: List<String> = if (held != null && lpDrag.targetPage == page)
                 base.toMutableList().apply { add(lpDrag.targetIndex.coerceIn(0, size), held) } else base
-            // Landscape, when the window is wide enough: each page is one
-            // row holding all of its buttons (as many slots as the fullest
-            // page, plus one while a button is held) — not three giant
-            // stretched columns.
-            val perRow = if (lpWideRow) {
-                val most = maxOf(3, launchpad.maxOfOrNull { it.size } ?: 3)
-                (if (held != null) most + 1 else most).coerceAtMost(com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_PAGE)
-            } else com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_ROW
+            val perRow = com.mediaviewer.util.HubLayout.LAUNCHPAD_PER_ROW
             // While a button is held, every page with room shows one more
             // slot (a third row appears under two full ones).
             val wanted = if (held != null) maxOf(shown.size, base.size + 1) else shown.size
@@ -1131,6 +1136,26 @@ private fun AtProtocolPageContent(
                 }
             }
         }
+        if (lpSideBySide) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).graphicsLayer { clip = false },
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                repeat(launchPager.pageCount) { page -> Box(Modifier.weight(1f)) { LaunchPage(page) } }
+            }
+        } else androidx.compose.foundation.pager.HorizontalPager(
+            state = launchPager,
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            pageSpacing = 16.dp,
+            // (No swiping while a button is held: the edges turn the page.)
+            userScrollEnabled = !lpDrag.active,
+            // The badges poke out past the buttons' corners.
+            modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false }.mousePager(launchPager, !lpDrag.active),
+            verticalAlignment = Alignment.Top
+        ) { page ->
+            LaunchPage(page)
+        }
         // The held button, lifted and following the finger.
         val ghostId = lpDrag.id
         if (lpDrag.active && ghostId != null) {
@@ -1157,7 +1182,8 @@ private fun AtProtocolPageContent(
         }
         // Two little dots for the Launchpad's page — drawn over the gap
         // below it (a zero-height anchor), so they add no space of their own.
-        Box(Modifier.fillMaxWidth().height(0.dp).zIndex(1f), contentAlignment = Alignment.TopCenter) {
+        // (Not side by side: both pages already show.)
+        if (!lpSideBySide) Box(Modifier.fillMaxWidth().height(0.dp).zIndex(1f), contentAlignment = Alignment.TopCenter) {
             Row(
                 Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true).padding(top = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -2127,7 +2153,10 @@ private fun HubSettingsButton(
     // reads as "back to Hub" (right arrow) instead of the gear, and tapping
     // it calls onOpenSettings() (which the caller wires to toggle back to
     // MAIN).
-    settingsOpen: Boolean = false
+    settingsOpen: Boolean = false,
+    /** The bar sits at the top of the page (landscape): the menu opens
+     *  downward instead of up. */
+    popDown: Boolean = false
 ) {
     val stackEnabled = HUB_REFRESH_IN_UI
     var expanded by remember { mutableStateOf(false) }
@@ -2154,7 +2183,7 @@ private fun HubSettingsButton(
             visible = expanded,
             enter = fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.8f, transformOrigin = TransformOrigin(0f, 1f)),
             exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f, transformOrigin = TransformOrigin(0f, 1f)),
-            modifier = Modifier.align(Alignment.BottomStart).offset(y = -(size * 2 + 16.dp))
+            modifier = if (popDown) Modifier.align(Alignment.TopStart).offset(y = size * 2 + 16.dp) else Modifier.align(Alignment.BottomStart).offset(y = -(size * 2 + 16.dp))
         ) {
             val settingsMod = Modifier.size(size).clickable { tap(); expanded = false; onOpenSettings() }
             if (liquidGlass) {
@@ -2174,7 +2203,7 @@ private fun HubSettingsButton(
             visible = expanded,
             enter = fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.8f, transformOrigin = TransformOrigin(0f, 1f)),
             exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f, transformOrigin = TransformOrigin(0f, 1f)),
-            modifier = Modifier.align(Alignment.BottomStart).offset(y = -(size + 8.dp))
+            modifier = if (popDown) Modifier.align(Alignment.TopStart).offset(y = size + 8.dp) else Modifier.align(Alignment.BottomStart).offset(y = -(size + 8.dp))
         ) {
             val refreshMod = Modifier.size(size).clickable {
                 tap()
@@ -2394,9 +2423,12 @@ private fun ReturnToFeedBar(
     // Settings/Credits switch shown at the right end of the bar while the
     // Settings page is open.
     settingsTab: SettingsTab = SettingsTab.SETTINGS,
-    onSettingsTabChange: (SettingsTab) -> Unit = {}
+    onSettingsTabChange: (SettingsTab) -> Unit = {},
+    /** Landscape: the bar shares the top row with the search bar (its
+     *  height, menus opening downward, no visualizer above it). */
+    atTop: Boolean = false
 ) {
-    val barHeight = 40.dp
+    val barHeight = if (atTop) 44.dp else 40.dp
     val shape = RoundedCornerShape(20.dp)
     // Item 8: haptic tap when leaving the Hub back to the feed.
     val tap = rememberHapticTap()
@@ -2442,7 +2474,7 @@ private fun ReturnToFeedBar(
         // Audio visualizer resting on top of the Timeline/Explore pills, in
         // your own color: laid out at zero height and drawn upward, so it
         // never moves the bar or anything above it.
-        if ((com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
+        if (!atTop && (com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
             AudioVisualizerBars(
                 color = tint,
                 modifier = Modifier
@@ -2508,7 +2540,8 @@ private fun ReturnToFeedBar(
             size = barHeight, modifier = Modifier.align(Alignment.CenterStart).tipAnchor("hub.settings"), backdrop = backdrop,
             // Fix (per feedback): on the Settings page the More button
             // becomes a right-arrow "back to Hub" button.
-            settingsOpen = settingsOpen
+            settingsOpen = settingsOpen,
+            popDown = atTop
         )
     }
 }

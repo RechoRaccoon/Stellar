@@ -29,9 +29,35 @@ data class ProfileStyle(
     /** The two profile colors (ARGB), or null to take them from the
      *  banner and profile picture as usual. */
     val colorA: Int? = null,
-    val colorB: Int? = null
+    val colorB: Int? = null,
+    /** A short looping video shown in place of the banner picture: a blob
+     *  on the owner's own PDS, referenced from this same record. */
+    val bannerVideo: BannerVideo? = null,
+    /** A temporary status, shown in a bubble by the profile picture. */
+    val status: ProfileStatus? = null
 ) {
-    val isDefault: Boolean get() = !squareIcon && effect == "none" && colorA == null && colorB == null
+    val isDefault: Boolean get() = !squareIcon && effect == "none" && colorA == null && colorB == null &&
+        bannerVideo == null && status == null
+}
+
+/** A video banner's blob (what the record's blob ref carries). */
+@Serializable
+data class BannerVideo(val cid: String, val mimeType: String = "video/mp4", val size: Long = 0L)
+
+/**
+ * A temporary status. [expiresAt] (ISO 8601) is when it clears itself; null
+ * means it stays until it's changed. Every app hides it once that time has
+ * passed — whether or not the owner's app has cleared the record yet.
+ */
+@Serializable
+data class ProfileStatus(val text: String, val createdAt: String = "", val expiresAt: String? = null) {
+    fun expiresAtMillis(): Long? = expiresAt?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() }
+    fun isActive(nowMillis: Long = com.mediaviewer.platform.currentTimeMillis()): Boolean {
+        if (text.isBlank()) return false
+        val end = expiresAt ?: return true
+        val endMs = expiresAtMillis() ?: return false
+        return endMs > nowMillis
+    }
 }
 
 /**
@@ -82,8 +108,11 @@ object ProfileStyles {
         FeatureFlags.ALL_FEATURES_FREE || StellarSupporters.isSupporter(did)
 
     private val styles = mutableStateMapOf<String, ProfileStyle>()
-    /** Looked up already this session (whatever the answer was). */
-    private val asked = HashSet<String>()
+    /** When each account was last looked up (whatever the answer was). */
+    private val asked = HashMap<String, Long>()
+    /** A record is read again after this long, so a status someone just
+     *  set shows up without restarting the app. */
+    private const val REREAD_MS = 10 * 60 * 1000L
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
@@ -150,7 +179,7 @@ object ProfileStyles {
             val kept = styles[did]
             if (style != null && !style.isDefault) {
                 styles[did] = style
-                if (own) persistOwn(did, style) else cacheOther(did, style)
+                if (own) { persistOwn(did, style); scheduleStatusClear(did, style) } else cacheOther(did, style)
             } else if (own && kept != null && !kept.isDefault) {
                 // Yours is saved on this device but the server has
                 // none: the device's copy stays, and is sent again.
@@ -197,7 +226,11 @@ object ProfileStyles {
         c.edit().putString("styles", text).apply()
     }
 
-    private fun synchronizedAdd(did: String): Boolean = com.mediaviewer.platform.synchronizedCompat(asked) { asked.add(did) }
+    private fun synchronizedAdd(did: String): Boolean = com.mediaviewer.platform.synchronizedCompat(asked) {
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        val last = asked[did]
+        if (last != null && now - last < REREAD_MS) false else { asked[did] = now; true }
+    }
     private fun synchronizedRemove(did: String) { com.mediaviewer.platform.synchronizedCompat(asked) { asked.remove(did) } }
 
     /** Your own style, just saved (or just edited): shown straight away. */
@@ -206,6 +239,39 @@ object ProfileStyles {
         synchronizedAdd(did)
         if (style.isDefault) styles.remove(did) else styles[did] = style
         persistOwn(did, style)
+        scheduleStatusClear(did, style)
+    }
+
+    /** Uploads a video banner to your PDS. Set by the ViewModel; the
+     *  callback gets the blob or an error. */
+    var bannerUploader: ((uri: com.mediaviewer.platform.PlatformUri, onDone: (BannerVideo?, String?) -> Unit) -> Unit)? = null
+
+    /** [did]'s status, if it hasn't run out (Compose state, like [of]). */
+    fun statusOf(did: String?): ProfileStatus? = of(did)?.status?.takeIf { it.isActive() }
+
+    /**
+     * Your status runs out: while the app is open, the record is rewritten
+     * without it the moment it does (and on the next start if it ran out
+     * while the app was closed — see [deliver]). Nothing runs in the
+     * background for it: every app already hides a status whose time has
+     * passed, so the record only needs tidying, never racing.
+     */
+    private var clearJob: kotlinx.coroutines.Job? = null
+    private fun scheduleStatusClear(did: String, style: ProfileStyle) {
+        clearJob?.cancel()
+        val status = style.status ?: return
+        val end = status.expiresAtMillis() ?: return
+        clearJob = scope.launch {
+            val wait = end - com.mediaviewer.platform.currentTimeMillis()
+            if (wait > 0) kotlinx.coroutines.delay(wait)
+            withContext(Dispatchers.Main) {
+                val now = styles[did] ?: return@withContext
+                if (now.status == status) {
+                    val cleared = now.copy(status = null)
+                    saver?.invoke(cleared) { }
+                }
+            }
+        }
     }
 
     private fun persistOwn(did: String, style: ProfileStyle?) {

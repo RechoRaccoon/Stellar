@@ -110,6 +110,9 @@ fun EditProfileDialog(
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newAvatar = uri }
     val pickBanner = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newBanner = uri }
     val imagesOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+    // A video banner: picked here, uploaded to your PDS only when you Save.
+    var newBannerVideo by remember { mutableStateOf<com.mediaviewer.platform.PlatformUri?>(null) }
+    val pickBannerVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newBannerVideo = uri }
 
     val panelColor = lerp(Color(0xFF111114), tint, 0.22f)
     val fieldColor = Color.White.copy(alpha = 0.07f)
@@ -277,6 +280,27 @@ fun EditProfileDialog(
                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                     OptionRow("Reset Colors", { gate { style = style.copy(colorA = null, colorB = null) } }) {}
                 }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                // A short looping video in place of the banner picture
+                // (muted). Kept on your own PDS, referenced from the same
+                // record as the rest of these.
+                val hasVideo = newBannerVideo != null || style.bannerVideo != null
+                OptionRow("Video Banner", {
+                    gate {
+                        if (hasVideo) { newBannerVideo = null; style = style.copy(bannerVideo = null) }
+                        else pickBannerVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                    }
+                }) {
+                    Text(
+                        when {
+                            newBannerVideo != null -> "Picked · Remove"
+                            style.bannerVideo != null -> "Remove"
+                            else -> "Add"
+                        },
+                        color = lerp(tint, Color.White, 0.55f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.supporterShine(!supporter)
+                    )
+                }
             }
             if (colorPicker != 0) {
                 val first = colorPicker == 1
@@ -312,16 +336,25 @@ fun EditProfileDialog(
                             tap(); saving = true; error = null
                             onSave(displayName.trim(), bio, handle, newAvatar, newBanner) { err ->
                                 val saveStyle = com.mediaviewer.util.ProfileStyles.saver
-                                if (err != null || !supporter || style == savedStyle || saveStyle == null) {
-                                    saving = false
-                                    if (err == null) onDismiss() else error = err
-                                } else {
+                                val video = newBannerVideo
+                                val upload = com.mediaviewer.util.ProfileStyles.bannerUploader
+                                fun saveRecord(toSave: com.mediaviewer.util.ProfileStyle) {
+                                    if (saveStyle == null || toSave == savedStyle) { saving = false; onDismiss(); return }
                                     // The customizations: one more small record.
-                                    saveStyle(style) { styleErr ->
+                                    saveStyle(toSave) { styleErr ->
                                         saving = false
                                         if (styleErr == null) onDismiss() else error = styleErr
                                     }
                                 }
+                                if (err != null || !supporter) {
+                                    saving = false
+                                    if (err == null) onDismiss() else error = err
+                                } else if (video != null && upload != null) {
+                                    upload(video) { blob, upErr ->
+                                        if (blob == null) { saving = false; error = upErr ?: "Upload failed" }
+                                        else { newBannerVideo = null; style = style.copy(bannerVideo = blob); saveRecord(style) }
+                                    }
+                                } else saveRecord(style)
                             }
                         },
                     contentAlignment = Alignment.Center

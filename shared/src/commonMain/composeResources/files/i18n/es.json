@@ -1787,5 +1787,19 @@
 "Not available on the web": "No disponible en la web",
 "Couldn't read the file to upload": "No se pudo leer el archivo para subir",
 "Network error: {0}": "Error de red: {0}",
-"Choose a chat to read it here": "Elige un chat para leerlo aquí"
+"Choose a chat to read it here": "Elige un chat para leerlo aquí",
+"0 = never clear": "0 = no borrar nunca",
+"Clear After": "Borrar después de",
+"Clear Status": "Borrar estado",
+"Days": "Días",
+"Direct pixel copy failed; using the slow way: {0}": "La copia directa de píxeles falló; usando el método lento: {0}",
+"Grid Size": "Tamaño de cuadrícula",
+"Hours": "Horas",
+"Minutes": "Minutos",
+"Picked · Remove": "Elegido · Quitar",
+"Post status": "Publicar estado",
+"Set a status": "Poner un estado",
+"That video is too big for a banner (max {0} MB). Try a shorter one.": "Ese vídeo es demasiado grande para un banner (máx. {0} MB). Prueba uno más corto.",
+"Upload failed: no blob": "Error al subir: no hay blob",
+"Video Banner": "Banner de vídeo"
 }

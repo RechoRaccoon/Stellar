@@ -82,6 +82,8 @@ import com.mediaviewer.util.rememberHapticTap
  *  those rows is still meant to extend all the way up under the cutout. */
 @Composable
 fun rememberTopCutoutClearance(minimum: Dp = 32.dp): Dp {
+    // A browser window has no camera cutout: just a small margin.
+    if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) return minOf(minimum, 10.dp)
     val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     return maxOf(cutoutTop, statusBarTop, minimum)

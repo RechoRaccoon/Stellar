@@ -48,20 +48,19 @@ object Landscape {
 
     /**
      * The column count for one of the post grids that has [portrait]
-     * columns in portrait: about 250 dp wide tiles for a 2-column grid,
-     * 170 dp for a 3-column one, 380 dp for a single column (text posts).
+     * columns in portrait: the count set with the slider under a profile's
+     * side list (5 to 10, see UiToggles.landscapeColumns) for picture
+     * grids, two fewer (at least 3) for text posts set side by side.
      */
-    fun postLanes(portrait: Int, widthDp: Int): Int = lanes(
-        portrait, widthDp,
-        when {
-            portrait >= 3 -> 170
-            portrait == 2 -> 250
-            else -> 380
-        }
-    )
+    @Suppress("UNUSED_PARAMETER")
+    fun postLanes(portrait: Int, widthDp: Int): Int {
+        val n = com.mediaviewer.util.UiToggles.landscapeColumns
+        return if (portrait >= 2) n else maxOf(3, n - 2)
+    }
 
-    /** Video cards (horizontal videos): about 320 dp each. */
-    fun videoCardLanes(widthDp: Int): Int = lanes(1, widthDp, 320)
+    /** Video cards (horizontal videos): one fewer than the picture grids. */
+    @Suppress("UNUSED_PARAMETER")
+    fun videoCardLanes(widthDp: Int): Int = maxOf(3, com.mediaviewer.util.UiToggles.landscapeColumns - 1)
 }
 
 /** True while the window is wider than it is tall. */

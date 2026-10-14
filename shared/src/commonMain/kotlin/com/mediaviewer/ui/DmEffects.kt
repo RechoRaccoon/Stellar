@@ -115,6 +115,8 @@ fun DmEffectLayer(
     var time by remember(playKey) { mutableFloatStateOf(0f) }
     var done by remember(playKey) { androidx.compose.runtime.mutableStateOf(false) }
     val seed = remember(playKey) { com.mediaviewer.platform.nanoTime() xor (playKey.toLong() shl 20) }
+    // Hearts: each color's turning heart, drawn once per angle and reused.
+    val heartSprites = remember(playKey) { HashMap<Color, HeartSprites>() }
     LaunchedEffect(playKey) {
         val start = withFrameNanos { it }
         while (time < duration) {
@@ -128,7 +130,7 @@ fun DmEffectLayer(
             DmEffect.SNOW -> drawSnow(time, seed)
             DmEffect.FIREWORKS -> drawFireworks(time, seed)
             DmEffect.BIRTHDAY -> drawBalloons(time, seed)
-            DmEffect.HEARTS -> drawHearts(time, seed, colors, duration)
+            DmEffect.HEARTS -> drawHearts(time, seed, colors, duration, heartSprites)
             DmEffect.RAIN -> drawRain(time, seed, duration)
             else -> drawBats(time, seed)
         }
@@ -211,11 +213,13 @@ private fun heartPath(): Path = Path().apply {
  *  a stack of slices from its back face to its front, so side-on it shows
  *  its rounded edge instead of vanishing. No outline; bright versions of
  *  the sender's own profile colors. */
-private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, duration: Float) {
+private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, duration: Float, sprites: HashMap<Color, HeartSprites>) {
     val rnd = Random(seed)
     val unit = size.width / 400f
     val palette = colors.filter { it.alpha > 0f }.ifEmpty { listOf(Color(0xFFFF4FA1), Color(0xFFFF7EB9)) }.map { brightHeart(it) }
-    val heart = heartPath()
+    // The sprites are drawn at the biggest heart's size (capped), and
+    // every heart is that picture scaled to its own size.
+    val spriteS = (27f * unit).coerceAtMost(64f)
     repeat(18) { i ->
         val x0 = (0.07f + rnd.nextFloat() * 0.86f) * size.width
         val delay = rnd.nextFloat() * (duration - 5.6f).coerceAtLeast(0.5f)
@@ -232,7 +236,52 @@ private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, dura
         val y = size.height + s * 1.2f - p * (size.height + s * 2.4f)
         val angle = t * spinSpeed + phase
         val fade = (p * 8f).coerceAtMost(1f) * ((1f - p) * 5f).coerceAtMost(1f)
-        drawHeartSlices(Offset(x, y), s, angle, base, fade, heart)
+        if (fade <= 0.002f) return@repeat
+        val sprite = sprites.getOrPut(base) { HeartSprites(base, spriteS) }
+        val image = sprite.frame(angle, this)
+        val drawn = (sprite.px * s / spriteS).toInt().coerceAtLeast(1)
+        drawImage(
+            image,
+            dstOffset = androidx.compose.ui.unit.IntOffset((x - drawn / 2f).toInt(), (y - drawn / 2f).toInt()),
+            dstSize = androidx.compose.ui.unit.IntSize(drawn, drawn),
+            alpha = fade,
+            filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium
+        )
+    }
+}
+
+/**
+ * The Hearts effect's turning heart in one color, as pictures: drawing one
+ * puffy heart is dozens of stacked slices, which for 18 hearts every frame
+ * was the heaviest thing on a profile. Each angle is drawn once (here,
+ * [FRAMES] steps over half a turn — a heart looks the same turned half way
+ * round) and then just placed, so the effect looks the same for a
+ * fraction of the work.
+ */
+private class HeartSprites(private val base: Color, private val s: Float) {
+    /** The picture's side: room for the heart and its edge at any angle. */
+    val px: Int = (s * 2.9f).toInt().coerceAtLeast(8)
+    private val frames = arrayOfNulls<androidx.compose.ui.graphics.ImageBitmap>(FRAMES)
+    private val heart = heartPath()
+
+    fun frame(angle: Float, scope: DrawScope): androidx.compose.ui.graphics.ImageBitmap {
+        val half = PI.toFloat()
+        var a = angle % half
+        if (a < 0f) a += half
+        val i = ((a / half) * FRAMES).toInt().coerceIn(0, FRAMES - 1)
+        frames[i]?.let { return it }
+        val image = androidx.compose.ui.graphics.ImageBitmap(px, px)
+        androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(
+            scope, scope.layoutDirection, androidx.compose.ui.graphics.Canvas(image), Size(px.toFloat(), px.toFloat())
+        ) {
+            drawHeartSlices(Offset(px / 2f, px / 2f), s, i * half / FRAMES, base, 1f, heart)
+        }
+        frames[i] = image
+        return image
+    }
+
+    companion object {
+        const val FRAMES = 40
     }
 }
 

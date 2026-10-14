@@ -299,9 +299,19 @@ fun SearchOverlay(
             // they're two separately-positioned elements.
             // Same size, spacing and position as the Hub's search bar (the
             // back button lives up in the camera row instead, see below).
-            // (Landscape: a search bar of a sensible width, centered — the
-            // same place the Hub's sits.)
-            Box(Modifier.landscapeReadable().padding(horizontal = 16.dp).height(44.dp)) {
+            val tabs = MainViewModel.SearchFilter.entries.filter { filter ->
+                // Item 14: e621 filter only shows once logged into e621.
+                !(filter == MainViewModel.SearchFilter.E621 && !e621LoggedIn) &&
+                    // The Tagged tab only exists once there's something tagged to search.
+                    !(filter == MainViewModel.SearchFilter.LIKED_TAGS && !hasTaggedDataset)
+            }
+            // Landscape: the tab buttons on the left half and the search bar
+            // on the right — the same row, and the same halves, as the
+            // Hub's bar and search bar.
+            val sideways = rememberLandscape()
+            @Composable
+            fun SearchBarBlock(m: Modifier) {
+            Box(m.height(44.dp)) {
                 val p = split.value
                 // Back: a round bubble the same size as the search button on
                 // the right, sliding out of the field's left end.
@@ -401,22 +411,9 @@ fun SearchOverlay(
             }
             }
 
-            Spacer(Modifier.height(10.dp))
-
-            // ── Filter row ────────────────────────────────────────────────
-            // Roadmap: restyled to match the Hub's "Feeds" row — rounder,
-            // compact, horizontally scrollable pills that float over the
-            // live backdrop, instead of a fixed SpaceEvenly row between two
-            // dividers.
-            // Main tabs — the same big pills as a profile's tab row, framed
-            // by the same thin dividers.
-            val tabs = MainViewModel.SearchFilter.entries.filter { filter ->
-                // Item 14: e621 filter only shows once logged into e621.
-                !(filter == MainViewModel.SearchFilter.E621 && !e621LoggedIn) &&
-                    // The Tagged tab only exists once there's something tagged to search.
-                    !(filter == MainViewModel.SearchFilter.LIKED_TAGS && !hasTaggedDataset)
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            @Composable
+            fun TabsBlock() {
             Box(Modifier.fillMaxWidth().tipAnchor("search.tabs")) {
             ProfileStyleTabRow(
                 labels = tabs.map { it.label() }, selectedIndex = tabs.indexOf(state.filter),
@@ -434,7 +431,35 @@ fun SearchOverlay(
                 }
             )
             }
+            }
+            if (sideways) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f)) { TabsBlock() }
+                    Spacer(Modifier.width(8.dp))
+                    SearchBarBlock(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(4.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            } else {
+                SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+
+            Spacer(Modifier.height(10.dp))
+
+            // ── Filter row ────────────────────────────────────────────────
+            // Roadmap: restyled to match the Hub's "Feeds" row — rounder,
+            // compact, horizontally scrollable pills that float over the
+            // live backdrop, instead of a fixed SpaceEvenly row between two
+            // dividers.
+            // Main tabs — the same big pills as a profile's tab row, framed
+            // by the same thin dividers.
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            TabsBlock()
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            }
             // Content-type sub-tabs — Posts and Tagged only.
             if (isPosts && state.posts.isNotEmpty()) {
                 PostKindSubTabRow(state.posts, postsKind, liquidGlass, profileTint, showAll = true) { postsKind = it }
@@ -645,13 +670,14 @@ fun SearchOverlay(
             )
         } else if (!isE621Filter && !(isLiked && !hasTaggedDataset)) {
             val sortTap = rememberHapticTap()
+            val sideways = rememberLandscape()
             ResultsInteractionBar(
                 liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
                 refreshing = state.loading, animateRefresh = true,
                 onRefresh = { if (state.query.isNotBlank() || isLiked) submitSearch() },
                 filter = if (isPosts || isLiked) kindForTab else null,
-                gridMode = resultsGridMode(gridScreen, kindForTab),
-                onGrid = { cycleResultsGridMode(gridScreen, kindForTab) },
+                gridMode = effectiveGridMode(kindForTab, resultsGridMode(gridScreen, kindForTab), sideways),
+                onGrid = { cycleResultsGridMode(gridScreen, kindForTab, landscape = sideways) },
                 modifier = Modifier.align(Alignment.BottomCenter),
                 // Tagged: Sort, at the right end — its choices pop up off it
                 // like the More button's.

@@ -14,7 +14,59 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0a. Update: web speed, and landscape on every version (latest)
+## 0b. Update: faster profiles, more landscape, video banners, statuses (latest)
+
+### Speed
+- Hearts effect: each heart color is drawn once into 40 small rotated
+  pictures (`HeartSprites` in `ui/DmEffects.kt`); a frame is now ~18 picture
+  draws instead of ~1000 path fills. All versions.
+- Web pictures: decoding (fetch → createImageBitmap → resize → pixels) runs
+  in a Web Worker (`util/WebImageLoading.kt`, `globalThis.__stellarDecoder`),
+  and the pixels go into Skia with one bulk copy into the wasm heap
+  (`platform/SkiaPixels.kt`) instead of Skiko's byte-by-byte copy. Both fall
+  back to the old way if they fail.
+- Loading animation defaults to None on the web.
+
+### Landscape
+- Hub: Settings/Timeline/Explore/+ on the left and search on the right, in
+  one row, each half the width. Search does the same with its tabs.
+  Launchpad shows both pages side by side.
+- Grid button: only Pinterest-style and square grid in landscape
+  (`effectiveGridMode`/`nextGridMode` in `ui/ProfileOverlay.kt`). The column
+  count (5 to 10, default 5) is `UiToggles.landscapeColumns`, set with the
+  slider at the bottom of the side list.
+- Profiles and Explore: tabs, feeds and filters are a list down the left
+  (`ui/SideList.kt`: `LandscapeSideList`, `SideListButton`). Back is its first
+  row; a line in the profile color splits tabs from filters. The tab and
+  filter rows draw themselves as side-list buttons while `LocalSideList` is
+  true, so portrait code is unchanged. Explore's feed buttons have their
+  icons on every version and orientation.
+- Text-post grids are compact. An opened text post is at most 640dp wide.
+- Fixed-width pages (Settings, reviews, titles): top and bottom rows match
+  the middle column's width. There's no notch gap on the web.
+
+### Video banners and statuses (all versions)
+Both live in the existing `com.rechoraccoon.stellar.profile/self` record
+(`util/ProfileStyles.kt`), so they cost no extra reads:
+- `bannerVideo`: an ordinary blob ref. Edit Profile → Video Banner picks a
+  video, which is uploaded to your PDS on Save (resized to 1080p and
+  scrubbed, like posts; max 50 MB). It plays muted and looping over the
+  banner picture (`ProfileBannerVideo` in `ui/ProfileStatus.kt`), using the
+  new `FeedVideoPlayer.setVolumeMuted`.
+- `status {text, createdAt, expiresAt?}`: the bubble pointing at the
+  profile picture. Tap it on your own profile to set a status; the circle on
+  the left sets how long it lasts (minutes, hours or days; default 24 hours;
+  0 = never clears).
+  Clearing works like this:
+  - Every app hides a status once `expiresAt` has passed.
+  - Your own app rewrites the record when the time runs out, or on the next
+    start if it was closed then.
+  - There is no background service; the client-side check makes one
+    unnecessary.
+  Records are now read again after 10 minutes (it used to be once a
+  session), so new statuses show up.
+
+## 0a. Update: web speed, and landscape on every version
 
 ### Web speed (web only, `LiteGlass` in `ui/GlassTheme.kt`)
 A browser draws the whole app on one canvas on one thread, so the things

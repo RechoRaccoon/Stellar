@@ -33,6 +33,8 @@ import kotlin.math.log10
  * pictures (or the wall clock, for a silent video). Loops, like the feed.
  */
 internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = false) : FeedVideoPlayer {
+    @Volatile private var silenced = false
+    override fun setVolumeMuted(muted: Boolean) { silenced = muted }
     /** The picture to draw now (Compose state). */
     var frame: ImageBitmap? by mutableStateOf(null)
         private set
@@ -213,6 +215,8 @@ internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = 
                 if (audioBytes.size < n * 2) audioBytes = ByteArray(n * 2)
                 val bb = ByteBuffer.wrap(audioBytes, 0, n * 2).order(ByteOrder.nativeOrder())
                 bb.asShortBuffer().put(buf)
+                // (Muted: silence still goes out, so the audio clock keeps time.)
+                if (silenced) java.util.Arrays.fill(audioBytes, 0, n * 2, 0.toByte())
                 if (!clockRunning) restartClock(f.timestamp)
                 if (!audioStarted) { line.start(); audioStarted = true; lineFramesAtBase = line.longFramePosition; clockBaseUs = f.timestamp }
                 DesktopVideo.applyVolume(line)

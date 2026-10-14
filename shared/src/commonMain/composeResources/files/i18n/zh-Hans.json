@@ -1787,5 +1787,19 @@
 "Not available on the web": "网页版不可用",
 "Couldn't read the file to upload": "无法读取要上传的文件",
 "Network error: {0}": "网络错误：{0}",
-"Choose a chat to read it here": "选择一个聊天，在这里阅读"
+"Choose a chat to read it here": "选择一个聊天，在这里阅读",
+"0 = never clear": "0 = 永不清除",
+"Clear After": "多久后清除",
+"Clear Status": "清除状态",
+"Days": "天",
+"Direct pixel copy failed; using the slow way: {0}": "直接复制像素失败，改用较慢的方式：{0}",
+"Grid Size": "网格大小",
+"Hours": "小时",
+"Minutes": "分钟",
+"Picked · Remove": "已选择 · 移除",
+"Post status": "发布状态",
+"Set a status": "设置状态",
+"That video is too big for a banner (max {0} MB). Try a shorter one.": "这个视频太大，不能用作横幅（最大 {0} MB）。试试短一点的。",
+"Upload failed: no blob": "上传失败：没有 blob",
+"Video Banner": "视频横幅"
 }

@@ -33,6 +33,9 @@ interface FeedVideoPlayer : VideoController {
     val isBuffering: Boolean
     fun addListener(listener: FeedVideoListener)
     fun removeListener(listener: FeedVideoListener)
+    /** Silences (or un-silences) the sound — a profile's video banner
+     *  always plays muted. */
+    fun setVolumeMuted(muted: Boolean) {}
 }
 
 /**

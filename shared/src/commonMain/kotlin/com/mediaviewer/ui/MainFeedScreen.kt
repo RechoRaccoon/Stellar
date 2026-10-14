@@ -2627,9 +2627,12 @@ private fun TextOnlyPostCard(
     emojiImageUrl: String = "",
     emojiAspectRatio: Float? = null
 ) {
+    // (Landscape: a card of a comfortable reading width, not the window's.)
+    val sideways = rememberLandscape()
     if (emojiImageUrl.isNotBlank()) {
         LiquidGlassSurface(
-            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio((emojiAspectRatio ?: 1f).coerceIn(0.66f, 2f)),
+            modifier = Modifier.then(if (sideways) Modifier.widthIn(max = 520.dp) else Modifier)
+                .fillMaxWidth(0.94f).aspectRatio((emojiAspectRatio ?: 1f).coerceIn(0.66f, 2f)),
             shape = RoundedCornerShape(28.dp),
             tint = dominantColor
         ) {
@@ -2654,7 +2657,7 @@ private fun TextOnlyPostCard(
         val density = LocalDensity.current
         val measurer = androidx.compose.ui.text.rememberTextMeasurer()
         val baseStyle = LocalTextStyle.current
-        val cardWidth = maxWidth * 0.94f
+        val cardWidth = if (sideways) minOf(maxWidth * 0.94f, 640.dp) else maxWidth * 0.94f
         val maxCardHeight = (maxHeight - topClear - bottomClear).coerceAtLeast(160.dp)
         val topClearPx = with(density) { topClear.roundToPx() }
         val bottomClearPx = with(density) { bottomClear.roundToPx() }

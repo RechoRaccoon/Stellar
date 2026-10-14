@@ -4011,12 +4011,48 @@ class BlueskyRepository {
         val effect = text("effect")
             ?.takeIf { id -> com.mediaviewer.util.ProfileStyles.EFFECTS.any { it.first == id } }
             ?.takeUnless { it == "confetti" && version < 2 } ?: "none"
+        // The video banner: an ordinary blob ref ({$type: blob, ref: {$link}}).
+        val video = (value["bannerVideo"] as? kotlinx.serialization.json.JsonObject)?.let { blob ->
+            val cid = ((blob["ref"] as? kotlinx.serialization.json.JsonObject)?.get("\$link") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val mime = (blob["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "video/mp4"
+            val size = (blob["size"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+            cid?.takeIf { it.isNotBlank() }?.let { com.mediaviewer.util.BannerVideo(it, mime, size) }
+        }
+        val status = (value["status"] as? kotlinx.serialization.json.JsonObject)?.let { st ->
+            fun field(k: String) = (st[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            field("text")?.takeIf { it.isNotBlank() }?.let {
+                com.mediaviewer.util.ProfileStatus(it.take(com.mediaviewer.ui.STATUS_MAX_LENGTH), field("createdAt").orEmpty(), field("expiresAt"))
+            }
+        }
         return com.mediaviewer.util.ProfileStyle(
             squareIcon = text("iconShape") == "square",
             effect = effect,
             colorA = hexToColor(colors.getOrNull(0)),
-            colorB = hexToColor(colors.getOrNull(1))
+            colorB = hexToColor(colors.getOrNull(1)),
+            bannerVideo = video,
+            status = status
         )
+    }
+
+    /**
+     * A video banner, uploaded straight to your own PDS (no video service:
+     * it's only ever played back from the blob, muted and looping). Resized
+     * to at most 1080p and stripped of personal metadata first, like posts.
+     * Referenced from the profile-style record, so the PDS keeps it.
+     */
+    suspend fun uploadBannerVideo(token: String, context: PlatformContext, uri: PlatformUri): Result<com.mediaviewer.util.BannerVideo> = withContext(ioDispatcher) {
+        runCatching {
+            val sized = runCatching { MediaBridge.prepareVideoForUpload(context, uri) }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrDefault(uri)
+            val clean = runCatching { MediaBridge.scrubVideoForUpload(context, sized) }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrDefault(sized)
+            val mime = if (sized != uri) "video/mp4" else (MediaBridge.mimeTypeOf(context, uri) ?: "video/mp4")
+            val resp = api.uploadBlob("Bearer $token", mime, MediaBridge.videoUploadBody(context, clean, mime))
+            if (!resp.isSuccessful) error("Upload failed (${resp.code()}): ${errorBodyText(resp).take(140)}")
+            val blob = resp.body()?.blob ?: error("Upload failed: no blob")
+            if (blob.size > com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES) error("That video is too big for a banner (max ${com.mediaviewer.ui.BANNER_VIDEO_MAX_BYTES / 1_000_000} MB). Try a shorter one.")
+            com.mediaviewer.util.BannerVideo(blob.ref.link, blob.mimeType.ifBlank { mime }, blob.size)
+        }
     }
 
     /** Writes (or, when everything is back to default, removes) your own. */
@@ -4035,6 +4071,16 @@ class BlueskyRepository {
             val a = style.colorA
             val b = style.colorB
             if (a != null && b != null) record["colors"] = listOf(colorToHex(a), colorToHex(b))
+            style.bannerVideo?.let { v ->
+                record["bannerVideo"] = mapOf("\$type" to "blob", "ref" to mapOf("\$link" to v.cid), "mimeType" to v.mimeType, "size" to v.size)
+            }
+            style.status?.let { st ->
+                record["status"] = buildMap<String, Any> {
+                    put("text", st.text)
+                    put("createdAt", st.createdAt.ifBlank { com.mediaviewer.platform.nowIsoString() })
+                    st.expiresAt?.let { put("expiresAt", it) }
+                }
+            }
             record["updatedAt"] = com.mediaviewer.platform.nowIsoString()
             val resp = api.putRecord(
                 "Bearer $token",
