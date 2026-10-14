@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Stellar — an open-source social app for the AT Protocol">
+    <title>Stellar</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            overscroll-behavior: none;
+        }
+        /* Compose's canvas sits above the video layer (see WebVideo.kt). */
+        body > canvas, body > div:not(#stellar-video-layer):not(#splash) {
+            position: relative;
+            z-index: 1;
+        }
+        #splash {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            background: #000;
+            color: #9a9aa6;
+            font: 14px system-ui, -apple-system, "Segoe UI", sans-serif;
+            transition: opacity 0.35s ease;
+        }
+        #splash img { width: 96px; height: 96px; }
+        #splash .bar { width: 140px; height: 3px; border-radius: 2px; background: #222; overflow: hidden; }
+        #splash .bar::after {
+            content: ""; display: block; width: 40%; height: 100%; border-radius: 2px;
+            background: linear-gradient(90deg, #7b5cff, #c86bff);
+            animation: slide 1.1s ease-in-out infinite;
+        }
+        @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+        #unsupported { display: none; max-width: 320px; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div id="splash">
+        <img src="icon-192.png" alt="">
+        <div class="bar"></div>
+        <div id="unsupported">
+            Stellar needs a newer browser (Chrome or Edge 119+, Firefox 120+, Safari 18.2+).
+        </div>
+    </div>
+    <!-- Bluesky's videos are HLS streams; hls.js plays them where the browser can't by itself. -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
+    <script>
+        // Kotlin/Wasm needs WebAssembly garbage collection (and exception handling).
+        (function () {
+            var ok = false;
+            try {
+                // A module using a GC struct type: only browsers with Wasm GC accept it.
+                ok = typeof WebAssembly === "object" && WebAssembly.validate(new Uint8Array([
+                    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0
+                ]));
+            } catch (e) { ok = false; }
+            if (!ok) {
+                document.querySelector('#splash .bar').style.display = 'none';
+                document.getElementById('unsupported').style.display = 'block';
+            } else {
+                var s = document.createElement('script');
+                s.src = 'stellar.js';
+                document.body.appendChild(s);
+            }
+        })();
+    </script>
+</body>
+</html>

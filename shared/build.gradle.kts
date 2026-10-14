@@ -2,12 +2,17 @@
 //
 // Targets: Android (the real app, all code in src/androidMain for now),
 // iOS (iosArm64 = iPhone, iosSimulatorArm64 = Simulator on Apple-silicon
-// Macs) and desktop (a JVM build for Windows and macOS, src/desktopMain;
-// the app shell and installers are in :desktopApp). Portable code moves
+// Macs), desktop (a JVM build for Windows and macOS, src/desktopMain;
+// the app shell and installers are in :desktopApp) and the web
+// (Kotlin/Wasm in the browser, src/wasmJsMain; the page is :webApp).
+// src/nonWebMain is shared by every version but the web (DataStore,
+// Dispatchers.IO — things a browser doesn't have). Portable code moves
 // from src/androidMain into src/commonMain package by package;
 // Android-only pieces stay in androidMain behind expect/actual
 // declarations with iOS versions in src/iosMain and desktop ones in
 // src/desktopMain.
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // The desktop build's native libraries (FFmpeg for video, JavaFX for web
@@ -57,6 +62,24 @@ kotlin {
         }
     }
 
+    // The web: Compose drawn on a <canvas> by Kotlin/Wasm.
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser()
+    }
+
+    // nonWebMain: commonMain's code for Android, desktop and iOS only.
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common {
+            group("nonWeb") {
+                withAndroidTarget()
+                withJvm()
+                group("native")
+            }
+        }
+    }
+
     sourceSets {
         all {
             languageSettings.optIn("androidx.compose.material3.ExperimentalMaterial3Api")
@@ -83,9 +106,22 @@ kotlin {
             implementation("org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
-            // Settings (PreferencesManager): same "media_viewer_prefs" file
-            // on Android as before, a file in the app sandbox on iOS.
-            implementation("androidx.datastore:datastore-preferences-core:1.1.7")
+        }
+        val nonWebMain by getting {
+            dependencies {
+                // Settings (PreferencesManager): same "media_viewer_prefs" file
+                // on Android as before, a file in the app sandbox on iOS.
+                implementation("androidx.datastore:datastore-preferences-core:1.1.7")
+            }
+        }
+        val wasmJsMain by getting {
+            dependencies {
+                // HTTP and images: the browser's fetch, through Ktor.
+                implementation("io.ktor:ktor-client-core:3.1.3")
+                implementation("io.ktor:ktor-client-js:3.1.3")
+                implementation("io.coil-kt.coil3:coil-network-ktor3:3.2.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
+            }
         }
         iosMain.dependencies {
             // HTTP on iOS (NSURLSession underneath) — see HttpEngine.ios.kt.

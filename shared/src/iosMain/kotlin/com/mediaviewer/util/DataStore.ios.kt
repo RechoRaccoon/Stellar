@@ -5,6 +5,8 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.mediaviewer.platform.IosPaths
 import com.mediaviewer.platform.PlatformContext
+import com.mediaviewer.util.settings.SettingsStore
+import com.mediaviewer.util.settings.asSettingsStore
 import okio.Path.Companion.toPath
 
 private val iosDataStore: DataStore<Preferences> by lazy {
@@ -13,7 +15,10 @@ private val iosDataStore: DataStore<Preferences> by lazy {
     )
 }
 
-actual val PlatformContext.dataStore: DataStore<Preferences> get() = iosDataStore
+val PlatformContext.dataStore: DataStore<Preferences> get() = iosDataStore
+
+/** Shared code's view of the same file (see util/settings). */
+actual val PlatformContext.appSettings: SettingsStore get() = dataStore.asSettingsStore()
 
 /**
  * The settings file's share of [IosPaths.rehome]: any saved text that

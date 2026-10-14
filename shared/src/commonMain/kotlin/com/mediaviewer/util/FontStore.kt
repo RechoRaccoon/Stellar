@@ -1,6 +1,7 @@
 package com.mediaviewer.util
 
 import androidx.compose.runtime.Composable
+import com.mediaviewer.platform.ioDispatcher
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -13,7 +14,6 @@ import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.platform.SharedPreferences
 import com.mediaviewer.platform.sharedPreferences
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 /**
@@ -94,7 +94,7 @@ object FontStore {
     /** Copies the picked file into app storage, adds it to the list and
      *  selects it. Returns an error message, or null on success. */
     suspend fun import(context: PlatformContext, uri: PlatformUri): String? {
-        val result = withContext(Dispatchers.IO) {
+        val result = withContext(ioDispatcher) {
             try { FontFiles.copyIn(context, uri) } catch (e: Exception) { FontCopied.Error("Couldn't load that font file: ${e.message}") }
         }
         return when (result) {

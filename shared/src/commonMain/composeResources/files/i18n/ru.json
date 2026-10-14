@@ -1777,5 +1777,14 @@
 "{0}'s profile": "Профиль {0}",
 "{0}K posts": "{0} тыс. постов",
 "{0}M posts": "{0} млн постов",
-"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} к/с, {3} Мбит/с."
+"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} к/с, {3} Мбит/с.",
+"NOT ON WEB": "НЕ В ВЕБЕ",
+"Open in New Tab": "Открыть в новой вкладке",
+"Opened in a new tab to save": "Открыто в новой вкладке для сохранения",
+"Saving as a GIF isn't available on the web": "Сохранение в GIF недоступно в веб-версии",
+"Custom video thumbnails aren't available on the web": "Свои обложки видео недоступны в веб-версии",
+"Live Link isn't available on the web": "Live Link недоступен в веб-версии",
+"Not available on the web": "Недоступно в веб-версии",
+"Couldn't read the file to upload": "Не удалось прочитать файл для загрузки",
+"Network error: {0}": "Ошибка сети: {0}"
 }

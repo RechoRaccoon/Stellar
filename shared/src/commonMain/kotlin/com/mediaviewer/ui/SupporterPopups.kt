@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.background
+import com.mediaviewer.platform.ioDispatcher
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.mediaviewer.ui.compat.horizontalScroll
@@ -65,7 +66,6 @@ import com.mediaviewer.util.LocalFeedSource
 import com.mediaviewer.util.PostEditVersion
 import com.mediaviewer.util.rememberHapticTap
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -170,7 +170,7 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
     LaunchedEffect(armed) { if (armed != null) { kotlinx.coroutines.delay(3000); armed = null } }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
-            cover = withContext(Dispatchers.IO) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
+            cover = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
         }
     }
     val thumb = item.thumbUrl.ifBlank { item.mediaUrl }

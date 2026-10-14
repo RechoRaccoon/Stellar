@@ -4,7 +4,6 @@ import com.mediaviewer.ui.compat.rememberPlatformView
 
 import com.mediaviewer.ui.compat.jformat
 
-import kotlinx.coroutines.IO
 
 import com.mediaviewer.ui.compat.BackHandler
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
@@ -1475,7 +1474,7 @@ internal fun SettingsPageContent(
                         RowLabel("Clear Cached Title Covers", Modifier.weight(1f))
                         PillButton("Clear", {
                             coverScope.launch {
-                                val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                val n = kotlinx.coroutines.withContext(com.mediaviewer.platform.ioDispatcher) {
                                     com.mediaviewer.repository.WikipediaRepository.clearCoverCache()
                                     com.mediaviewer.util.TitleCovers.clearCached(coverContext)
                                 }
@@ -1656,9 +1655,9 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
     var settingsOpen by remember { mutableStateOf(false) }
 
     suspend fun refresh() {
-        status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { platform.scrobblerStatus(context) }
+        status = kotlinx.coroutines.withContext(com.mediaviewer.platform.ioDispatcher) { platform.scrobblerStatus(context) }
     }
-    suspend fun signedInDid(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun signedInDid(): String = kotlinx.coroutines.withContext(com.mediaviewer.platform.ioDispatcher) {
         com.mediaviewer.util.PreferencesManager(context).bskyDid.first().orEmpty()
     }
     // The permissions are granted on system pages outside Stellar, and an

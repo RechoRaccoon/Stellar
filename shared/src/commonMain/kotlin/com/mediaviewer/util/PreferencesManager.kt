@@ -1,14 +1,14 @@
 package com.mediaviewer.util
 
 import com.mediaviewer.platform.PlatformContext
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.*
+import com.mediaviewer.util.settings.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /** The app's settings file ("media_viewer_prefs"). On Android this is the
- *  same `preferencesDataStore` it has always been, so nothing moves. */
-expect val PlatformContext.dataStore: DataStore<Preferences>
+ *  same `preferencesDataStore` it has always been, so nothing moves; the
+ *  web keeps it in the browser's storage. */
+expect val PlatformContext.appSettings: SettingsStore
 
 object PrefKeys {
     val BSKY_ACCESS_JWT      = stringPreferencesKey("bsky_access_jwt")
@@ -210,87 +210,87 @@ private data class AccountStateSnapshot(
 
 class PreferencesManager(private val context: PlatformContext) {
 
-    val bskyAccessJwt: Flow<String?>  = context.dataStore.data.map { it[PrefKeys.BSKY_ACCESS_JWT] }
-    val bskyRefreshJwt: Flow<String?> = context.dataStore.data.map { it[PrefKeys.BSKY_REFRESH_JWT] }
-    val bskyDid: Flow<String?>        = context.dataStore.data.map { it[PrefKeys.BSKY_DID] }
-    val bskyHandle: Flow<String?>     = context.dataStore.data.map { it[PrefKeys.BSKY_HANDLE] }
-    val bskyServiceUrl: Flow<String>  = context.dataStore.data.map { it[PrefKeys.BSKY_SERVICE_URL] ?: "https://bsky.social/" }
-    val e621Username: Flow<String?>   = context.dataStore.data.map { it[PrefKeys.E621_USERNAME] }
-    val e621ApiKey: Flow<String?>     = context.dataStore.data.map { it[PrefKeys.E621_API_KEY] }
-    val downloadOnLike: Flow<Boolean> = context.dataStore.data.map { it[PrefKeys.DOWNLOAD_ON_LIKE] ?: false }
-    val lastMode: Flow<String>        = context.dataStore.data.map { it[PrefKeys.LAST_MODE] ?: "BLUESKY" }
-    val reducedAnimations: Flow<Boolean> = context.dataStore.data.map { it[PrefKeys.REDUCED_ANIMATIONS] ?: false }
-    val lastFeedUri: Flow<String?>    = context.dataStore.data.map { it[PrefKeys.LAST_FEED_URI] }
-    val lastE621Tags: Flow<String?>   = context.dataStore.data.map { it[PrefKeys.LAST_E621_TAGS] }
-    val lastPickerTab: Flow<String>   = context.dataStore.data.map { it[PrefKeys.LAST_PICKER_TAB] ?: "LISTS" }
-    val e621FollowedArtists: Flow<Set<String>> = context.dataStore.data.map { it[PrefKeys.E621_FOLLOWED_ARTISTS] ?: emptySet() }
-    val combineListsAndPacks: Flow<Boolean>    = context.dataStore.data.map { it[PrefKeys.COMBINE_LISTS_PACKS] ?: false }
+    val bskyAccessJwt: Flow<String?>  = context.appSettings.data.map { it[PrefKeys.BSKY_ACCESS_JWT] }
+    val bskyRefreshJwt: Flow<String?> = context.appSettings.data.map { it[PrefKeys.BSKY_REFRESH_JWT] }
+    val bskyDid: Flow<String?>        = context.appSettings.data.map { it[PrefKeys.BSKY_DID] }
+    val bskyHandle: Flow<String?>     = context.appSettings.data.map { it[PrefKeys.BSKY_HANDLE] }
+    val bskyServiceUrl: Flow<String>  = context.appSettings.data.map { it[PrefKeys.BSKY_SERVICE_URL] ?: "https://bsky.social/" }
+    val e621Username: Flow<String?>   = context.appSettings.data.map { it[PrefKeys.E621_USERNAME] }
+    val e621ApiKey: Flow<String?>     = context.appSettings.data.map { it[PrefKeys.E621_API_KEY] }
+    val downloadOnLike: Flow<Boolean> = context.appSettings.data.map { it[PrefKeys.DOWNLOAD_ON_LIKE] ?: false }
+    val lastMode: Flow<String>        = context.appSettings.data.map { it[PrefKeys.LAST_MODE] ?: "BLUESKY" }
+    val reducedAnimations: Flow<Boolean> = context.appSettings.data.map { it[PrefKeys.REDUCED_ANIMATIONS] ?: false }
+    val lastFeedUri: Flow<String?>    = context.appSettings.data.map { it[PrefKeys.LAST_FEED_URI] }
+    val lastE621Tags: Flow<String?>   = context.appSettings.data.map { it[PrefKeys.LAST_E621_TAGS] }
+    val lastPickerTab: Flow<String>   = context.appSettings.data.map { it[PrefKeys.LAST_PICKER_TAB] ?: "LISTS" }
+    val e621FollowedArtists: Flow<Set<String>> = context.appSettings.data.map { it[PrefKeys.E621_FOLLOWED_ARTISTS] ?: emptySet() }
+    val combineListsAndPacks: Flow<Boolean>    = context.appSettings.data.map { it[PrefKeys.COMBINE_LISTS_PACKS] ?: false }
     // Defaulted OFF — the "Add To" popup no longer opens automatically after
     // following someone unless the user opts in from Settings.
-    val autoAddToOnFollow: Flow<Boolean>       = context.dataStore.data.map { it[PrefKeys.AUTO_ADD_TO_ON_FOLLOW] ?: false }
-    val liquidGlass: Flow<Boolean>             = context.dataStore.data.map { it[PrefKeys.LIQUID_GLASS] ?: true }
+    val autoAddToOnFollow: Flow<Boolean>       = context.appSettings.data.map { it[PrefKeys.AUTO_ADD_TO_ON_FOLLOW] ?: false }
+    val liquidGlass: Flow<Boolean>             = context.appSettings.data.map { it[PrefKeys.LIQUID_GLASS] ?: true }
     // Item 26: how strong the blur/magnify effect is while Glass Theme is on.
-    val liquidGlassIntensity: Flow<Float>      = context.dataStore.data.map { it[PrefKeys.LIQUID_GLASS_INTENSITY] ?: 1f }
+    val liquidGlassIntensity: Flow<Float>      = context.appSettings.data.map { it[PrefKeys.LIQUID_GLASS_INTENSITY] ?: 1f }
     // Bug fix: independent rim/outline strength dial, split out from the
     // background dial above.
-    val glassRimIntensity: Flow<Float>         = context.dataStore.data.map { it[PrefKeys.GLASS_RIM_INTENSITY] ?: 1f }
+    val glassRimIntensity: Flow<Float>         = context.appSettings.data.map { it[PrefKeys.GLASS_RIM_INTENSITY] ?: 1f }
     // Item 7: defaulted ON — every glass rim gradient blends its tint into a
     // brighter/more-saturated version of that same tint (rather than the
     // old neutral grey/white) as its middle stop. Turning this off collapses
     // the rim to a single flat reflected color with no gradient at all.
-    val glassRimVibrantSecondary: Flow<Boolean> = context.dataStore.data.map { it[PrefKeys.GLASS_RIM_VIBRANT_SECONDARY] ?: true }
+    val glassRimVibrantSecondary: Flow<Boolean> = context.appSettings.data.map { it[PrefKeys.GLASS_RIM_VIBRANT_SECONDARY] ?: true }
     // Settings Update: universally hides text-only posts (no image/video) from every feed.
-    val hideTextOnlyPosts: Flow<Boolean>       = context.dataStore.data.map { it[PrefKeys.HIDE_TEXT_ONLY_POSTS] ?: false }
+    val hideTextOnlyPosts: Flow<Boolean>       = context.appSettings.data.map { it[PrefKeys.HIDE_TEXT_ONLY_POSTS] ?: false }
     // Settings Update: raw JSON array of HistoryEntry, newest first, capped at write time.
-    val historyJson: Flow<String>              = context.dataStore.data.map { it[PrefKeys.HISTORY_JSON] ?: "[]" }
-    val hubReviewsCacheJson: Flow<String>       = context.dataStore.data.map { it[PrefKeys.HUB_REVIEWS_CACHE_JSON] ?: "[]" }
-    val hubBlogsCacheJson: Flow<String>         = context.dataStore.data.map { it[PrefKeys.HUB_BLOGS_CACHE_JSON] ?: "[]" }
-    val hubMutualsCacheJson: Flow<String>       = context.dataStore.data.map { it[PrefKeys.HUB_MUTUALS_CACHE_JSON] ?: "[]" }
-    val hubCacheHydratedAt: Flow<Long>          = context.dataStore.data.map { it[PrefKeys.HUB_CACHE_HYDRATED_AT] ?: 0L }
-    val subscribedReviewDids: Flow<Set<String>> = context.dataStore.data.map { it[PrefKeys.SUBSCRIBED_REVIEW_DIDS] ?: emptySet() }
-    val subscribedBlogDids: Flow<Set<String>>   = context.dataStore.data.map { it[PrefKeys.SUBSCRIBED_BLOG_DIDS] ?: emptySet() }
+    val historyJson: Flow<String>              = context.appSettings.data.map { it[PrefKeys.HISTORY_JSON] ?: "[]" }
+    val hubReviewsCacheJson: Flow<String>       = context.appSettings.data.map { it[PrefKeys.HUB_REVIEWS_CACHE_JSON] ?: "[]" }
+    val hubBlogsCacheJson: Flow<String>         = context.appSettings.data.map { it[PrefKeys.HUB_BLOGS_CACHE_JSON] ?: "[]" }
+    val hubMutualsCacheJson: Flow<String>       = context.appSettings.data.map { it[PrefKeys.HUB_MUTUALS_CACHE_JSON] ?: "[]" }
+    val hubCacheHydratedAt: Flow<Long>          = context.appSettings.data.map { it[PrefKeys.HUB_CACHE_HYDRATED_AT] ?: 0L }
+    val subscribedReviewDids: Flow<Set<String>> = context.appSettings.data.map { it[PrefKeys.SUBSCRIBED_REVIEW_DIDS] ?: emptySet() }
+    val subscribedBlogDids: Flow<Set<String>>   = context.appSettings.data.map { it[PrefKeys.SUBSCRIBED_BLOG_DIDS] ?: emptySet() }
     // Defaults false: the new single-row icon layout is the default profile
     // tab row; this opts back into the classic two-row text-label layout.
-    val classicProfileTabRow: Flow<Boolean>     = context.dataStore.data.map { it[PrefKeys.CLASSIC_PROFILE_TAB_ROW] ?: false }
-    val profileTabCacheJson: Flow<String>       = context.dataStore.data.map { it[PrefKeys.PROFILE_TAB_CACHE_JSON] ?: "{}" }
-    val pinterestThreeColumns: Flow<Boolean>    = context.dataStore.data.map { it[PrefKeys.PINTEREST_THREE_COLUMNS] ?: false }
-    val hateFunBlurNsfw: Flow<Boolean>          = context.dataStore.data.map { it[PrefKeys.HATE_FUN_BLUR_NSFW] ?: false }
+    val classicProfileTabRow: Flow<Boolean>     = context.appSettings.data.map { it[PrefKeys.CLASSIC_PROFILE_TAB_ROW] ?: false }
+    val profileTabCacheJson: Flow<String>       = context.appSettings.data.map { it[PrefKeys.PROFILE_TAB_CACHE_JSON] ?: "{}" }
+    val pinterestThreeColumns: Flow<Boolean>    = context.appSettings.data.map { it[PrefKeys.PINTEREST_THREE_COLUMNS] ?: false }
+    val hateFunBlurNsfw: Flow<Boolean>          = context.appSettings.data.map { it[PrefKeys.HATE_FUN_BLUR_NSFW] ?: false }
     // Fix (per feedback): default false — flat square tiles with no outline;
     // true restores the old rounded + outlined tiles.
-    val squareGridRounded: Flow<Boolean>        = context.dataStore.data.map { it[PrefKeys.SQUARE_GRID_ROUNDED] ?: false }
-    val followerScanCompleted: Flow<Boolean>     = context.dataStore.data.map { it[PrefKeys.FOLLOWER_SCAN_COMPLETED] ?: false }
-    val followerScanLastRunMs: Flow<Long>        = context.dataStore.data.map { it[PrefKeys.FOLLOWER_SCAN_LAST_RUN_MS] ?: 0L }
-    val followerScanCursor: Flow<String?>        = context.dataStore.data.map { it[PrefKeys.FOLLOWER_SCAN_CURSOR] }
-    val otherBskyAccounts: Flow<List<StoredBskyAccount>> = context.dataStore.data.map { parseAccounts(it[PrefKeys.BSKY_OTHER_ACCOUNTS_JSON]) }
-    val showSwitchAccountsRow: Flow<Boolean>     = context.dataStore.data.map { it[PrefKeys.SHOW_SWITCH_ACCOUNTS_ROW] ?: true }
+    val squareGridRounded: Flow<Boolean>        = context.appSettings.data.map { it[PrefKeys.SQUARE_GRID_ROUNDED] ?: false }
+    val followerScanCompleted: Flow<Boolean>     = context.appSettings.data.map { it[PrefKeys.FOLLOWER_SCAN_COMPLETED] ?: false }
+    val followerScanLastRunMs: Flow<Long>        = context.appSettings.data.map { it[PrefKeys.FOLLOWER_SCAN_LAST_RUN_MS] ?: 0L }
+    val followerScanCursor: Flow<String?>        = context.appSettings.data.map { it[PrefKeys.FOLLOWER_SCAN_CURSOR] }
+    val otherBskyAccounts: Flow<List<StoredBskyAccount>> = context.appSettings.data.map { parseAccounts(it[PrefKeys.BSKY_OTHER_ACCOUNTS_JSON]) }
+    val showSwitchAccountsRow: Flow<Boolean>     = context.appSettings.data.map { it[PrefKeys.SHOW_SWITCH_ACCOUNTS_ROW] ?: true }
     // Phase 4: on-device translation toggle + preferred target language (BCP-47 tag).
     // Defaults to the device's own language so a fresh install "just works" without
     // the user having to hunt for the setting first.
-    val translateEnabled: Flow<Boolean>        = context.dataStore.data.map { it[PrefKeys.TRANSLATE_ENABLED] ?: false }
-    val translateTargetLang: Flow<String>      = context.dataStore.data.map {
+    val translateEnabled: Flow<Boolean>        = context.appSettings.data.map { it[PrefKeys.TRANSLATE_ENABLED] ?: false }
+    val translateTargetLang: Flow<String>      = context.appSettings.data.map {
         it[PrefKeys.TRANSLATE_TARGET_LANG] ?: com.mediaviewer.platform.defaultLanguageCode().ifBlank { "en" }
     }
     // Phase 4: custom font pack — absolute path to the copied-in font file on
     // internal storage, plus its original display name for the Settings row.
-    val customFontPath: Flow<String?>          = context.dataStore.data.map { it[PrefKeys.CUSTOM_FONT_PATH] }
-    val customFontName: Flow<String?>          = context.dataStore.data.map { it[PrefKeys.CUSTOM_FONT_NAME] }
+    val customFontPath: Flow<String?>          = context.appSettings.data.map { it[PrefKeys.CUSTOM_FONT_PATH] }
+    val customFontName: Flow<String?>          = context.appSettings.data.map { it[PrefKeys.CUSTOM_FONT_NAME] }
     // Item 8, VRM pipeline step 5 — the user's chosen `.vrm` avatar file,
     // as a persisted-permission content:// URI (see setVrmAvatarUri's doc
     // comment for why it must be persisted-permission specifically, not
     // just any Uri string).
-    val vrmAvatarUri: Flow<String?>            = context.dataStore.data.map { it[PrefKeys.VRM_AVATAR_URI] }
-    val tagPostWhenLiked: Flow<Boolean>        = context.dataStore.data.map { it[PrefKeys.TAG_POST_WHEN_LIKED] ?: false }
-    val tagConcurrency: Flow<Int>              = context.dataStore.data.map { (it[PrefKeys.TAG_CONCURRENCY] ?: 3).coerceIn(1, 10) }
+    val vrmAvatarUri: Flow<String?>            = context.appSettings.data.map { it[PrefKeys.VRM_AVATAR_URI] }
+    val tagPostWhenLiked: Flow<Boolean>        = context.appSettings.data.map { it[PrefKeys.TAG_POST_WHEN_LIKED] ?: false }
+    val tagConcurrency: Flow<Int>              = context.appSettings.data.map { (it[PrefKeys.TAG_CONCURRENCY] ?: 3).coerceIn(1, 10) }
 
     // ── Live Link widget ─────────────────────────────────────────────────
-    val liveTwitchUrl: Flow<String?>   = context.dataStore.data.map { it[PrefKeys.LIVE_TWITCH_URL] }
-    val liveYoutubeUrl: Flow<String?>  = context.dataStore.data.map { it[PrefKeys.LIVE_YOUTUBE_URL] }
-    val selfAvatarUrlCache: Flow<String?> = context.dataStore.data.map { it[PrefKeys.SELF_AVATAR_URL_CACHE] }
+    val liveTwitchUrl: Flow<String?>   = context.appSettings.data.map { it[PrefKeys.LIVE_TWITCH_URL] }
+    val liveYoutubeUrl: Flow<String?>  = context.appSettings.data.map { it[PrefKeys.LIVE_YOUTUBE_URL] }
+    val selfAvatarUrlCache: Flow<String?> = context.appSettings.data.map { it[PrefKeys.SELF_AVATAR_URL_CACHE] }
     // Bundled into one LiveLinkState Flow (rather than three separate ones)
     // so the Hub row and widget-preview code observe one atomic snapshot —
     // never a torn read where activePlatform updated but expiresAt hasn't
     // caught up yet (or vice versa).
-    val liveLinkState: Flow<com.mediaviewer.model.LiveLinkState> = context.dataStore.data.map { prefs ->
+    val liveLinkState: Flow<com.mediaviewer.model.LiveLinkState> = context.appSettings.data.map { prefs ->
         com.mediaviewer.model.LiveLinkState(
             twitchUrl = prefs[PrefKeys.LIVE_TWITCH_URL],
             youtubeUrl = prefs[PrefKeys.LIVE_YOUTUBE_URL],
@@ -304,13 +304,13 @@ class PreferencesManager(private val context: PlatformContext) {
     }
 
     suspend fun setLiveTwitchUrl(url: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (url.isNullOrBlank()) prefs.remove(PrefKeys.LIVE_TWITCH_URL) else prefs[PrefKeys.LIVE_TWITCH_URL] = url.trim()
         }
     }
 
     suspend fun setLiveYoutubeUrl(url: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (url.isNullOrBlank()) prefs.remove(PrefKeys.LIVE_YOUTUBE_URL) else prefs[PrefKeys.LIVE_YOUTUBE_URL] = url.trim()
         }
     }
@@ -320,7 +320,7 @@ class PreferencesManager(private val context: PlatformContext) {
      *  reason setHubCache does: never a torn read of "active platform" vs.
      *  "expires at" for two different toggles. */
     suspend fun setLiveActive(platform: com.mediaviewer.model.LiveNowPlatform, expiresAtEpochMs: Long) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.LIVE_ACTIVE_PLATFORM] = platform.name
             prefs[PrefKeys.LIVE_EXPIRES_AT_MS] = expiresAtEpochMs
         }
@@ -330,36 +330,36 @@ class PreferencesManager(private val context: PlatformContext) {
      *  down on Bluesky's side (manual "End Link" tap, or the periodic worker
      *  finding the stream itself has ended). */
     suspend fun clearLiveActive() {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs.remove(PrefKeys.LIVE_ACTIVE_PLATFORM)
             prefs.remove(PrefKeys.LIVE_EXPIRES_AT_MS)
         }
     }
 
     suspend fun setSelfAvatarUrlCache(url: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (url.isNullOrBlank()) prefs.remove(PrefKeys.SELF_AVATAR_URL_CACHE) else prefs[PrefKeys.SELF_AVATAR_URL_CACHE] = url
         }
     }
 
     suspend fun setTagPostWhenLiked(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.TAG_POST_WHEN_LIKED] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.TAG_POST_WHEN_LIKED] = enabled }
     }
 
     suspend fun setTagConcurrency(value: Int) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.TAG_CONCURRENCY] = value.coerceIn(1, 10) }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.TAG_CONCURRENCY] = value.coerceIn(1, 10) }
     }
 
     suspend fun setTranslateEnabled(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.TRANSLATE_ENABLED] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.TRANSLATE_ENABLED] = enabled }
     }
 
     suspend fun setTranslateTargetLang(languageTag: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.TRANSLATE_TARGET_LANG] = languageTag }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.TRANSLATE_TARGET_LANG] = languageTag }
     }
 
     suspend fun setCustomFontPath(path: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (path == null) prefs.remove(PrefKeys.CUSTOM_FONT_PATH) else prefs[PrefKeys.CUSTOM_FONT_PATH] = path
         }
     }
@@ -370,13 +370,13 @@ class PreferencesManager(private val context: PlatformContext) {
      *  survive past this process's lifetime, so without that call the
      *  Uri stored here would fail to open the next time the app starts. */
     suspend fun setVrmAvatarUri(uri: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (uri == null) prefs.remove(PrefKeys.VRM_AVATAR_URI) else prefs[PrefKeys.VRM_AVATAR_URI] = uri
         }
     }
 
     suspend fun setCustomFontName(name: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (name == null) prefs.remove(PrefKeys.CUSTOM_FONT_NAME) else prefs[PrefKeys.CUSTOM_FONT_NAME] = name
         }
     }
@@ -384,7 +384,7 @@ class PreferencesManager(private val context: PlatformContext) {
     /** Toggles one account's Reviews-tab "Subscribe" state — added to (or
      *  removed from) the set the Hub's Reviews section reads from. */
     suspend fun toggleSubscribedReviewDid(did: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] ?: emptySet()
             prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] = if (did in current) current - did else current + did
         }
@@ -393,7 +393,7 @@ class PreferencesManager(private val context: PlatformContext) {
     /** Blogs-tab equivalent of [toggleSubscribedReviewDid] — a separate list,
      *  since subscribing to someone's Reviews doesn't imply their Blogs. */
     suspend fun toggleSubscribedBlogDid(did: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] ?: emptySet()
             prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] = if (did in current) current - did else current + did
         }
@@ -406,14 +406,14 @@ class PreferencesManager(private val context: PlatformContext) {
     // ever *add* that account, never remove one the user (or a past scan)
     // already added — removal stays a manual action if it's ever exposed.
     suspend fun addSubscribedReviewDidIfMissing(did: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] ?: emptySet()
             if (did !in current) prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] = current + did
         }
     }
 
     suspend fun addSubscribedBlogDidIfMissing(did: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] ?: emptySet()
             if (did !in current) prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] = current + did
         }
@@ -424,7 +424,7 @@ class PreferencesManager(private val context: PlatformContext) {
      *  account, since the scan can turn up thousands of candidates. */
     suspend fun addSubscribedReviewDids(dids: Collection<String>) {
         if (dids.isEmpty()) return
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] ?: emptySet()
             prefs[PrefKeys.SUBSCRIBED_REVIEW_DIDS] = current + dids
         }
@@ -432,24 +432,24 @@ class PreferencesManager(private val context: PlatformContext) {
 
     suspend fun addSubscribedBlogDids(dids: Collection<String>) {
         if (dids.isEmpty()) return
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] ?: emptySet()
             prefs[PrefKeys.SUBSCRIBED_BLOG_DIDS] = current + dids
         }
     }
 
-    suspend fun setHideTextOnlyPosts(enabled: Boolean) {        context.dataStore.edit { prefs -> prefs[PrefKeys.HIDE_TEXT_ONLY_POSTS] = enabled }
+    suspend fun setHideTextOnlyPosts(enabled: Boolean) {        context.appSettings.edit { prefs -> prefs[PrefKeys.HIDE_TEXT_ONLY_POSTS] = enabled }
     }
 
     suspend fun setHistoryJson(json: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.HISTORY_JSON] = json }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.HISTORY_JSON] = json }
     }
 
     /** See HUB_REVIEWS_CACHE_JSON's comment — one write covers both lists
      *  plus the hydration timestamp so a caller never ends up with a
      *  timestamp that's newer than the data it's supposed to describe. */
     suspend fun setHubCache(reviewsJson: String, blogsJson: String, hydratedAt: Long) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.HUB_REVIEWS_CACHE_JSON] = reviewsJson
             prefs[PrefKeys.HUB_BLOGS_CACHE_JSON] = blogsJson
             prefs[PrefKeys.HUB_CACHE_HYDRATED_AT] = hydratedAt
@@ -461,60 +461,60 @@ class PreferencesManager(private val context: PlatformContext) {
      *  Blogs (see loadDmConversationsBlocking) and shouldn't need to wait
      *  on — or block — that unrelated fetch. */
     suspend fun setHubMutualsCache(mutualsJson: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.HUB_MUTUALS_CACHE_JSON] = mutualsJson }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.HUB_MUTUALS_CACHE_JSON] = mutualsJson }
     }
 
     suspend fun setLiquidGlass(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.LIQUID_GLASS] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.LIQUID_GLASS] = enabled }
     }
 
     suspend fun setLiquidGlassIntensity(intensity: Float) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.LIQUID_GLASS_INTENSITY] = intensity.coerceIn(0f, 1f) }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.LIQUID_GLASS_INTENSITY] = intensity.coerceIn(0f, 1f) }
     }
 
     suspend fun setGlassRimIntensity(intensity: Float) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.GLASS_RIM_INTENSITY] = intensity.coerceIn(0f, 1f) }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.GLASS_RIM_INTENSITY] = intensity.coerceIn(0f, 1f) }
     }
     suspend fun setGlassRimVibrantSecondary(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.GLASS_RIM_VIBRANT_SECONDARY] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.GLASS_RIM_VIBRANT_SECONDARY] = enabled }
     }
 
     suspend fun setCombineListsAndPacks(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.COMBINE_LISTS_PACKS] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.COMBINE_LISTS_PACKS] = enabled }
     }
 
     suspend fun setAutoAddToOnFollow(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.AUTO_ADD_TO_ON_FOLLOW] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.AUTO_ADD_TO_ON_FOLLOW] = enabled }
     }
 
     suspend fun setLastPickerTab(tab: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.LAST_PICKER_TAB] = tab }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.LAST_PICKER_TAB] = tab }
     }
 
     suspend fun followE621Artist(artist: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.E621_FOLLOWED_ARTISTS] = (prefs[PrefKeys.E621_FOLLOWED_ARTISTS] ?: emptySet()) + artist
         }
     }
 
     suspend fun unfollowE621Artist(artist: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.E621_FOLLOWED_ARTISTS] = (prefs[PrefKeys.E621_FOLLOWED_ARTISTS] ?: emptySet()) - artist
         }
     }
 
     suspend fun setLastFeedUri(uri: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (uri == null) prefs.remove(PrefKeys.LAST_FEED_URI) else prefs[PrefKeys.LAST_FEED_URI] = uri
         }
     }
 
     suspend fun setLastE621Tags(tags: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.LAST_E621_TAGS] = tags }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.LAST_E621_TAGS] = tags }
     }
 
     suspend fun saveBskySession(accessJwt: String, refreshJwt: String, did: String, handle: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.BSKY_ACCESS_JWT]  = accessJwt
             prefs[PrefKeys.BSKY_REFRESH_JWT] = refreshJwt
             prefs[PrefKeys.BSKY_DID]         = did
@@ -523,7 +523,7 @@ class PreferencesManager(private val context: PlatformContext) {
     }
 
     suspend fun clearBskySession() {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs.remove(PrefKeys.BSKY_ACCESS_JWT)
             prefs.remove(PrefKeys.BSKY_REFRESH_JWT)
             prefs.remove(PrefKeys.BSKY_DID)
@@ -532,62 +532,62 @@ class PreferencesManager(private val context: PlatformContext) {
     }
 
     suspend fun saveE621Credentials(username: String, apiKey: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs[PrefKeys.E621_USERNAME] = username
             prefs[PrefKeys.E621_API_KEY]  = apiKey
         }
     }
 
     suspend fun clearE621Credentials() {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             prefs.remove(PrefKeys.E621_USERNAME)
             prefs.remove(PrefKeys.E621_API_KEY)
         }
     }
 
     suspend fun setDownloadOnLike(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.DOWNLOAD_ON_LIKE] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.DOWNLOAD_ON_LIKE] = enabled }
     }
 
     suspend fun setLastMode(mode: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.LAST_MODE] = mode }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.LAST_MODE] = mode }
     }
 
     suspend fun setReducedAnimations(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.REDUCED_ANIMATIONS] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.REDUCED_ANIMATIONS] = enabled }
     }
 
     suspend fun setClassicProfileTabRow(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.CLASSIC_PROFILE_TAB_ROW] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.CLASSIC_PROFILE_TAB_ROW] = enabled }
     }
 
     // Fix (per feedback): "Rounded grid tiles" setting.
     suspend fun setSquareGridRounded(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.SQUARE_GRID_ROUNDED] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.SQUARE_GRID_ROUNDED] = enabled }
     }
 
     suspend fun setProfileTabCacheJson(json: String) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.PROFILE_TAB_CACHE_JSON] = json }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.PROFILE_TAB_CACHE_JSON] = json }
     }
 
     suspend fun setPinterestThreeColumns(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.PINTEREST_THREE_COLUMNS] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.PINTEREST_THREE_COLUMNS] = enabled }
     }
 
     suspend fun setHateFunBlurNsfw(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.HATE_FUN_BLUR_NSFW] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.HATE_FUN_BLUR_NSFW] = enabled }
     }
 
     suspend fun setFollowerScanCompleted(completed: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.FOLLOWER_SCAN_COMPLETED] = completed }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.FOLLOWER_SCAN_COMPLETED] = completed }
     }
 
     suspend fun setFollowerScanLastRunMs(ms: Long) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.FOLLOWER_SCAN_LAST_RUN_MS] = ms }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.FOLLOWER_SCAN_LAST_RUN_MS] = ms }
     }
 
     suspend fun setFollowerScanCursor(cursor: String?) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             if (cursor == null) prefs.remove(PrefKeys.FOLLOWER_SCAN_CURSOR) else prefs[PrefKeys.FOLLOWER_SCAN_CURSOR] = cursor
         }
     }
@@ -607,13 +607,13 @@ class PreferencesManager(private val context: PlatformContext) {
     }
 
     suspend fun setShowSwitchAccountsRow(enabled: Boolean) {
-        context.dataStore.edit { prefs -> prefs[PrefKeys.SHOW_SWITCH_ACCOUNTS_ROW] = enabled }
+        context.appSettings.edit { prefs -> prefs[PrefKeys.SHOW_SWITCH_ACCOUNTS_ROW] = enabled }
     }
 
     /** Adds (or replaces, if the DID is already present) a signed-in-but-not-
      *  active account. New accounts go to the end of the list. */
     suspend fun addOtherBskyAccount(account: StoredBskyAccount) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = parseAccounts(prefs[PrefKeys.BSKY_OTHER_ACCOUNTS_JSON])
             val index = current.indexOfFirst { it.did == account.did }
             val updated = if (index >= 0) current.toMutableList().also { it[index] = account } else current + account
@@ -624,7 +624,7 @@ class PreferencesManager(private val context: PlatformContext) {
     /** Signs an inactive account out: drops it from the list and discards the
      *  local state parked for it. */
     suspend fun removeOtherBskyAccount(did: String) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             val current = parseAccounts(prefs[PrefKeys.BSKY_OTHER_ACCOUNTS_JSON])
             prefs[PrefKeys.BSKY_OTHER_ACCOUNTS_JSON] = accountJson.encodeToString<List<StoredBskyAccount>>(current.filter { it.did != did })
             prefs.remove(stateKeyFor(did))
@@ -647,7 +647,7 @@ class PreferencesManager(private val context: PlatformContext) {
      *
      *  [outgoing] is null when there was no active session to hand over. */
     suspend fun switchActiveBskyAccount(outgoing: StoredBskyAccount?, target: StoredBskyAccount, keepOutgoing: Boolean) {
-        context.dataStore.edit { prefs ->
+        context.appSettings.edit { prefs ->
             // 1 + 2: park the outgoing account's state, restore the target's.
             if (outgoing != null && keepOutgoing) {
                 prefs[stateKeyFor(outgoing.did)] = accountJson.encodeToString(AccountStateSnapshot.serializer(), snapshotAccountState(prefs))

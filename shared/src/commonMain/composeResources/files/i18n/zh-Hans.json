@@ -1777,5 +1777,14 @@
 "{0}'s profile": "{0} 的个人资料",
 "{0}K posts": "{0}K 条帖子",
 "{0}M posts": "{0}M 条帖子",
-"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}，{2} fps，{3} Mbps。"
+"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}，{2} fps，{3} Mbps。",
+"NOT ON WEB": "网页版不可用",
+"Open in New Tab": "在新标签页中打开",
+"Opened in a new tab to save": "已在新标签页中打开以便保存",
+"Saving as a GIF isn't available on the web": "网页版无法保存为 GIF",
+"Custom video thumbnails aren't available on the web": "网页版无法使用自定义视频缩略图",
+"Live Link isn't available on the web": "网页版无法使用 Live Link",
+"Not available on the web": "网页版不可用",
+"Couldn't read the file to upload": "无法读取要上传的文件",
+"Network error: {0}": "网络错误：{0}"
 }

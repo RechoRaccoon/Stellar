@@ -1,12 +1,12 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.platform.ioDispatcher
 
 import com.mediaviewer.platform.PlatformUri as Uri
 
 import com.mediaviewer.ui.compat.rememberPlatformView
 
-import kotlinx.coroutines.IO
 
 import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.ui.compat.BackHandler
@@ -748,7 +748,7 @@ fun ComposePostScreen(
 
     LaunchedEffect(videoUri) {
         val uri = videoUri ?: return@LaunchedEffect
-        val aspect = withContext(Dispatchers.IO) { probeVideoAspect(context, uri) }
+        val aspect = withContext(ioDispatcher) { probeVideoAspect(context, uri) }
         videoAspect = aspect
     }
     // The video starts uploading (and Bluesky starts processing it) as soon
@@ -1720,7 +1720,7 @@ fun ComposePostScreen(
                     if (!savingDraft) {
                         savingDraft = true
                         draftScope.launch {
-                            val entry = withContext(Dispatchers.IO) { currentDraftEntry() }
+                            val entry = withContext(ioDispatcher) { currentDraftEntry() }
                             com.mediaviewer.util.LocalData.saveDraft(entry)
                             savingDraft = false
                             confirmDraft = false
@@ -2495,7 +2495,7 @@ private fun ThreadVideoPreview(uri: Uri, onRemove: () -> Unit) {
     val tap = rememberHapticTap()
     val context = LocalContext.current
     var aspect by remember(uri) { mutableStateOf(16f / 9f) }
-    LaunchedEffect(uri) { aspect = withContext(Dispatchers.IO) { probeVideoAspect(context, uri) } }
+    LaunchedEffect(uri) { aspect = withContext(ioDispatcher) { probeVideoAspect(context, uri) } }
     Box(
         Modifier.fillMaxWidth(0.55f).aspectRatio(aspect).clip(RoundedCornerShape(10.dp))
     ) {

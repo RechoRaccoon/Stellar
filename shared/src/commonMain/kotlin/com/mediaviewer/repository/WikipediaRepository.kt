@@ -1,6 +1,7 @@
 package com.mediaviewer.repository
 
 import com.mediaviewer.platform.PlatformContext
+import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.platform.SharedPreferences
 import com.mediaviewer.platform.sharedPreferences
 import com.mediaviewer.network.PlainHttp
@@ -9,7 +10,6 @@ import com.mediaviewer.network.isSuccessful
 import com.mediaviewer.network.NetworkClient
 import com.mediaviewer.util.BlockedHosts
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -147,7 +147,7 @@ object WikipediaRepository {
         releaseDate: String?,
         creator: String? = null,
         imdbId: String? = null
-    ): WikiTitleInfo? = withContext(Dispatchers.IO) {
+    ): WikiTitleInfo? = withContext(ioDispatcher) {
         if (title.isBlank()) return@withContext null
         val ids = mergedIds(identifiersJson, imdbId)
         val k = key(title, category, ids?.toString(), releaseDate)

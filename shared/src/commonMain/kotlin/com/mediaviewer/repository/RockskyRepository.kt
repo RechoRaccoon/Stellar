@@ -1,13 +1,13 @@
 package com.mediaviewer.repository
 
 import com.mediaviewer.model.RockskyTrack
+import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.model.RockskyWrapped
 import com.mediaviewer.model.RockskyWrappedEntry
 import com.mediaviewer.network.NetworkClient
 import com.mediaviewer.network.RockskyNowPlayingDto
 import com.mediaviewer.network.RockskyScrobbleDto
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 /** Item 16: Rocksky (rocksky.app) music-scrobbling integration — powers the
@@ -52,7 +52,7 @@ class RockskyRepository {
 
     /** [did]'s scrobble history, most recent first — the Music History tab. */
     suspend fun getScrobbles(did: String, limit: Int = 30, offset: Int = 0): Result<List<RockskyTrack>> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             runCatching {
                 val resp = api.getScrobbles(did, limit, offset)
                 val dtos = resp.body()?.scrobbles ?: error("getScrobbles ${resp.code()}")
@@ -84,7 +84,7 @@ class RockskyRepository {
      * of the 5 minutes once the time since it started is taken off. A newer
      * song showing up in the history replaces it (the caller re-checks).
      */
-    suspend fun inferNowPlaying(did: String, windowMs: Long = 5 * 60_000L): InferredNowPlaying = withContext(Dispatchers.IO) {
+    suspend fun inferNowPlaying(did: String, windowMs: Long = 5 * 60_000L): InferredNowPlaying = withContext(ioDispatcher) {
         runCatching {
             val resp = api.getScrobbles(did, 1, 0)
             val dto = resp.body()?.scrobbles?.firstOrNull()
@@ -112,7 +112,7 @@ class RockskyRepository {
      *  "Listening to ..." bio line. Tries the general player endpoint
      *  first, then falls back to the Spotify-specific one, since not every
      *  scrobbler integration necessarily answers the general one. */
-    suspend fun getNowPlaying(did: String): RockskyTrack? = withContext(Dispatchers.IO) {
+    suspend fun getNowPlaying(did: String): RockskyTrack? = withContext(ioDispatcher) {
         // (This phone's own scrobbler first: it knows before any server does.)
         com.mediaviewer.util.RockskyScrobbler.localNowPlaying(did) ?: getStatus(did) ?: runCatching {
             val resp = api.getCurrentlyPlaying(did)
@@ -157,7 +157,7 @@ class RockskyRepository {
 
     /** [did]'s Rocksky year in review for [year] (Rocksky "Wrapped"), or a
      *  failure. A year with no plays comes back with totalScrobbles 0. */
-    suspend fun getWrapped(did: String, year: Int): Result<RockskyWrapped> = withContext(Dispatchers.IO) {
+    suspend fun getWrapped(did: String, year: Int): Result<RockskyWrapped> = withContext(ioDispatcher) {
         runCatching {
             val resp = api.getWrapped(did, year)
             val w = resp.body() ?: error("getWrapped ${resp.code()}")
@@ -196,7 +196,7 @@ class RockskyRepository {
      *  an offset into the (newest-first) scrobble list. If that doesn't work
      *  out, falls back to the last five years, as Rocksky's own Wrapped page
      *  does. Years are calendar years in UTC, matching getWrapped. */
-    suspend fun getCandidateYears(did: String): List<Int> = withContext(Dispatchers.IO) {
+    suspend fun getCandidateYears(did: String): List<Int> = withContext(ioDispatcher) {
         val thisYear = com.mediaviewer.platform.utcYearOf(com.mediaviewer.platform.currentTimeMillis())
         val firstYear = runCatching {
             val total = api.getStats(did).body()?.scrobbles ?: return@runCatching null

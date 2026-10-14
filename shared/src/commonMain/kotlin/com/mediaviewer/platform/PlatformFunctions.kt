@@ -71,3 +71,8 @@ expect fun <T> concurrentSetOf(): MutableSet<T>
 
 /** java.util.Locale.getDefault().language on Android ("en", "de", …). */
 expect fun defaultLanguageCode(): String
+
+/** Where blocking work (network, files) runs: Dispatchers.IO on Android,
+ *  iOS and desktop; the web has no threads, so there it is
+ *  Dispatchers.Default (the page's own event loop). */
+expect val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher

@@ -1,6 +1,7 @@
 package com.mediaviewer.viewmodel
 
 import com.mediaviewer.platform.Log
+import com.mediaviewer.platform.ioDispatcher
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediaviewer.model.*
@@ -25,7 +26,6 @@ import com.mediaviewer.util.PreferencesManager
 import com.mediaviewer.util.StoredBskyAccount
 import com.mediaviewer.worker.urlToDownloadInfo
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -226,7 +226,7 @@ class MainViewModel(
      *  silently producing a FontFamily that crashes the first time Compose
      *  actually tries to lay out text with it. */
     fun setCustomFontFromUri(uri: com.mediaviewer.platform.PlatformUri) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val oldPath = _customFontPath.value
                 when (val result = platform.importCustomFont(uri)) {
@@ -468,7 +468,7 @@ class MainViewModel(
      *  see loadProfileTab()'s success path and each of the Blogs/Reviews/
      *  Backlog/Vods probes in openProfile(). */
     private fun persistProfileTabCache(state: ProfileOverlayState) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ensureProfileTabCacheHydrated()
             profileTabCacheMutex.withLock {
                 // Fix (per feedback): merge with the previously cached
@@ -654,7 +654,7 @@ class MainViewModel(
 
     private fun loadSelfProfile() {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) { loadSelfProfileSuspend() }
+        viewModelScope.launch(ioDispatcher) { loadSelfProfileSuspend() }
     }
 
     // Bug fix (per feedback — Hub's reflective profile colors don't show
@@ -711,7 +711,7 @@ class MainViewModel(
     ) {
         if (!_bskyLoggedIn.value) { onDone("Not signed in"); return }
         val newHandle = handle.trim().removePrefix("@").takeIf { it.isNotBlank() && !it.equals(bskyHandle, ignoreCase = true) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val context = platform.context
             var result = bskyRepo.updateOwnProfile(bskyToken, context, _bskyDid.value, displayName, description, avatarUri, bannerUri, newHandle)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -813,7 +813,7 @@ class MainViewModel(
         val generation = feedLoadGeneration
         val uris = items.map { it.postUri }.filter { it.startsWith("at://") }.distinct()
         if (uris.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getPostsByUris(bskyToken, uris)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getPostsByUris(bskyToken, uris)
@@ -858,7 +858,7 @@ class MainViewModel(
         _mediaItems.value = emptyList()
         _isLoading.value = true
         _screenState.value = ScreenState.GRID
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getBookmarkedPosts(bskyToken)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getBookmarkedPosts(bskyToken)
@@ -880,7 +880,7 @@ class MainViewModel(
     private fun loadMoreSaves() {
         // A bookmark folder is loaded whole.
         if (_bookmarkFolderId.value != null) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             isLoadingMore = true
             var result = bskyRepo.getBookmarkedPosts(bskyToken, feedCursor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -967,7 +967,7 @@ class MainViewModel(
     /** Re-reads just the chat list (not mutuals/blocks/etc.) and merges it in. */
     fun refreshDmConvosQuick() {
         if (!_bskyLoggedIn.value || dmQuickRefreshJob?.isActive == true) return
-        dmQuickRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+        dmQuickRefreshJob = viewModelScope.launch(ioDispatcher) {
             bskyRepo.listConvos(bskyToken, _bskyDid.value).onSuccess { convos ->
                 val openId = _dmThread.value?.convo?.convoId
                 // (The chat list alone doesn't say who's a mutual: kept from
@@ -994,7 +994,7 @@ class MainViewModel(
         if (_dmConversations.value.any { it.convoId == convoId && it.unreadCount > 0 }) {
             _dmConversations.value = _dmConversations.value.map { if (it.convoId == convoId) it.copy(unreadCount = 0) else it }
         }
-        viewModelScope.launch(Dispatchers.IO) { bskyRepo.markConvoRead(bskyToken, _bskyDid.value, convoId) }
+        viewModelScope.launch(ioDispatcher) { bskyRepo.markConvoRead(bskyToken, _bskyDid.value, convoId) }
     }
 
     // ── Foreground tracking ──────────────────────────────────────────────────
@@ -1079,7 +1079,7 @@ class MainViewModel(
      *  the Inbox. */
     fun startInboxPolling() {
         if (inboxPollingJob?.isActive == true || !_bskyLoggedIn.value) return
-        inboxPollingJob = viewModelScope.launch(Dispatchers.IO) {
+        inboxPollingJob = viewModelScope.launch(ioDispatcher) {
             var tick = 0
             while (_bskyLoggedIn.value) {
                 if (appInForeground) {
@@ -1144,7 +1144,7 @@ class MainViewModel(
             var convo = _dmConversations.value.firstOrNull { it.convoId == convoId }
             if (convo == null) {
                 // (A cold start: the chat list isn't in memory yet.)
-                convo = withContext(Dispatchers.IO) { bskyRepo.listConvos(bskyToken, _bskyDid.value).getOrNull() }
+                convo = withContext(ioDispatcher) { bskyRepo.listConvos(bskyToken, _bskyDid.value).getOrNull() }
                     ?.also { fresh -> if (_dmConversations.value.none { it.convoId.isNotBlank() }) _dmConversations.value = fresh }
                     ?.firstOrNull { it.convoId == convoId }
             }
@@ -1153,7 +1153,7 @@ class MainViewModel(
     }
 
     private fun refreshInboxUnreadNow() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getNotificationUnreadCount(bskyToken, _bskyDid.value).onSuccess { if (!_inboxOpen.value) _inboxUnreadCount.value = it }
         }
     }
@@ -1186,7 +1186,7 @@ class MainViewModel(
         if (inboxLoadJob?.isActive == true) {
             // A refresh on open while the background prefetch is still going:
             // let it finish, then just mark everything seen.
-            if (reset && markSeen) viewModelScope.launch(Dispatchers.IO) {
+            if (reset && markSeen) viewModelScope.launch(ioDispatcher) {
                 inboxLoadJob?.join()
                 _inboxUnreadCount.value = 0
                 bskyRepo.markNotificationsSeen(bskyToken, _bskyDid.value)
@@ -1194,7 +1194,7 @@ class MainViewModel(
             return
         }
         _inboxLoading.value = true
-        inboxLoadJob = viewModelScope.launch(Dispatchers.IO) {
+        inboxLoadJob = viewModelScope.launch(ioDispatcher) {
             try {
                 // Smaller first page (30) so the list appears quickly; more
                 // pages load as you scroll.
@@ -1206,7 +1206,7 @@ class MainViewModel(
                     // Opening the Inbox is "seeing" it, same as Bluesky —
                     // sent off on its own, never holding the list up.
                     _inboxUnreadCount.value = 0
-                    viewModelScope.launch(Dispatchers.IO) { bskyRepo.markNotificationsSeen(bskyToken, _bskyDid.value) }
+                    viewModelScope.launch(ioDispatcher) { bskyRepo.markNotificationsSeen(bskyToken, _bskyDid.value) }
                 }
                 inboxCursor = page.cursor
                 inboxRaw = if (reset) page.notifications else inboxRaw + page.notifications
@@ -1267,7 +1267,7 @@ class MainViewModel(
 
     /** Opens the post an Inbox row is about. */
     fun openInboxPost(uri: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val items = bskyRepo.getPostItems(bskyToken, _bskyDid.value, listOf(uri))
             if (items.isEmpty()) { showToast("Post unavailable"); return@launch }
             _currentIndex.value = 0
@@ -1345,7 +1345,7 @@ class MainViewModel(
     fun loadMoreChatSuggestions() {
         if (chatSuggestionsJob?.isActive == true) return
         if (chatSuggestionsLoaded && chatSuggestionCursor == null) return
-        chatSuggestionsJob = viewModelScope.launch(Dispatchers.IO) {
+        chatSuggestionsJob = viewModelScope.launch(ioDispatcher) {
             if (_chatCandidates.value.isEmpty()) _chatSearching.value = true
             var added = 0
             var pages = 0
@@ -1378,7 +1378,7 @@ class MainViewModel(
             }
             return
         }
-        chatSearchJob = viewModelScope.launch(Dispatchers.IO) {
+        chatSearchJob = viewModelScope.launch(ioDispatcher) {
             delay(250) // typing debounce
             _chatSearching.value = true
             bskyRepo.searchActorsTypeahead(bskyToken, _bskyDid.value, q).onSuccess { actors ->
@@ -1416,7 +1416,7 @@ class MainViewModel(
     fun createGroupChat(name: String, members: List<AuthorInfo>) {
         if (_creatingChat.value || members.isEmpty()) return
         _creatingChat.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val groupName = name.trim().ifBlank { members.take(3).joinToString(", ") { it.displayName.substringBefore(' ') } }.take(50)
             bskyRepo.createGroup(bskyToken, _bskyDid.value, members.map { it.did }, groupName)
                 .onSuccess { convo ->
@@ -1472,7 +1472,7 @@ class MainViewModel(
     val blogEditDraft: StateFlow<Pair<BlogDraft, List<String>>?> = _blogEditDraft
 
     fun openBlogEditor(blog: LeafletBlog) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.loadBlogForEditing(bskyToken, _bskyDid.value, blog.uri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.loadBlogForEditing(bskyToken, _bskyDid.value, blog.uri)
@@ -1487,7 +1487,7 @@ class MainViewModel(
 
     /** Reader's trash button (after its "are you sure?"). */
     fun deleteBlog(blog: LeafletBlog) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.deleteBlog(bskyToken, _bskyDid.value, blog)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.deleteBlog(bskyToken, _bskyDid.value, blog)
@@ -1690,7 +1690,7 @@ class MainViewModel(
         // all funnel through this one submit function).
         tapHaptic()
         _composePostSubmitting.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = runCatchingComposePost(draft)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = runCatchingComposePost(draft)
@@ -2000,7 +2000,7 @@ class MainViewModel(
             // was already typed — rather than the live-search-on-keystroke
             // behavior the other tabs use.
             _tagSuggestions.value = emptyList()
-            viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(_searchState.value.query) }
+            viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
         } else if (filter == SearchFilter.WEB) {
             // The Web Browser tab has its own address bar text; nothing to search here.
             searchJob?.cancel()
@@ -2018,7 +2018,7 @@ class MainViewModel(
             return
         }
         val filter = _searchState.value.filter
-        searchJob = viewModelScope.launch(Dispatchers.IO) {
+        searchJob = viewModelScope.launch(ioDispatcher) {
             _searchState.value = _searchState.value.copy(loading = true)
             when (filter) {
                 SearchFilter.POSTS -> {
@@ -2073,7 +2073,7 @@ class MainViewModel(
         if (st.loading || st.loadingMorePosts || st.query.isBlank() || st.filter != SearchFilter.POSTS) return
         _searchState.value = st.copy(loadingMorePosts = true)
         val query = st.query
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.searchPosts(bskyToken, query, cursor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.searchPosts(bskyToken, query, cursor)
@@ -2097,7 +2097,7 @@ class MainViewModel(
      *  the Hub's own feed-picker list so it shows up there immediately
      *  without needing to reopen the app. */
     fun addSavedFeedFromSearch(feed: SearchFeedResult) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.addSavedFeed(bskyToken, feed.uri).onSuccess {
                 loadAvailableFeeds()
             }
@@ -2130,7 +2130,7 @@ class MainViewModel(
 
     private fun persistFeedOrder(removed: Set<String>) {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             feedPrefsMutex.withLock {
                 val order = _availableFeeds.value.map { it.uri }
                 var result = bskyRepo.saveFeedOrder(bskyToken, order, removed)
@@ -2180,7 +2180,7 @@ class MainViewModel(
             convo = convo, loading = true,
             members = if (convo.isGroup) convo.groupMembers.associateBy { it.did } else emptyMap()
         )
-        if (convo.isGroup) viewModelScope.launch(Dispatchers.IO) {
+        if (convo.isGroup) viewModelScope.launch(ioDispatcher) {
             // Group chats: the whole member list, for every sender's
             // avatar/name/color (the convo itself only lists a few).
             bskyRepo.getConvoMembers(bskyToken, _bskyDid.value, convo.convoId).onSuccess { all ->
@@ -2190,7 +2190,7 @@ class MainViewModel(
                 }
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Just the newest page first (small, so it appears quickly);
             // older messages load as the thread is scrolled up.
             bskyRepo.getConvoMessages(bskyToken, _bskyDid.value, convo.convoId, limit = 30)
@@ -2235,7 +2235,7 @@ class MainViewModel(
         val existing = _dmConversations.value.firstOrNull { it.member.did == author.did && !it.isGroup && it.convoId.isNotBlank() }
         if (existing != null) { openDmThread(existing); return }
         _dmThread.value = DmThreadState(convo = DmConversation(convoId = "", member = author, lastSentByUsAt = "", lastActivityAt = ""), loading = true)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getOrCreateConvo(bskyToken, _bskyDid.value, listOf(author.did))
                 .onSuccess { convoId ->
                     val wasMutual = _dmConversations.value.any { it.member.did == author.did && it.isMutual }
@@ -2286,7 +2286,7 @@ class MainViewModel(
         val thread = _dmThread.value ?: return
         if (thread.loadingMore || thread.loading || thread.cursor == null) return
         _dmThread.value = thread.copy(loadingMore = true)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getConvoMessages(bskyToken, _bskyDid.value, thread.convo.convoId, thread.cursor)
                 .onSuccess { (olderMessages, newCursor) ->
                     val current = _dmThread.value ?: return@onSuccess
@@ -2314,7 +2314,7 @@ class MainViewModel(
 
     fun openDmThreadSharedPostsFeed() {
         val convo = _dmThread.value?.convo ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _dmFeedLoadingOverlay.value = true
             bskyRepo.getFriendsSharedPosts(bskyToken, _bskyDid.value, listOf(convo), includeSelfSent = true, selfAuthor = _selfProfile.value?.author)
                 .onSuccess { items ->
@@ -2404,7 +2404,7 @@ class MainViewModel(
         _isLoading.value = false
         _dmHiddenBehindFeed.value = true
         _screenState.value = ScreenState.FEED
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val fresh = bskyRepo.getPostsByUris(bskyToken, shown.map { it.postUri }.filter { it.isNotBlank() }.distinct()).getOrNull() ?: return@launch
             if (fresh.isEmpty()) return@launch
             val byId = fresh.associateBy { it.id }
@@ -2468,7 +2468,7 @@ class MainViewModel(
      *  state, read from subscribedReviewDids) reflects the change right
      *  away rather than only on the next Hub visit. */
     fun toggleReviewSubscription(author: AuthorInfo) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             prefs.toggleSubscribedReviewDid(author.did)
             reviewsBlogsLoaded = false
             loadFriendsReviewsIfNeeded(force = true)
@@ -2492,7 +2492,7 @@ class MainViewModel(
 
     /** Blogs-tab equivalent of [toggleReviewSubscription]. */
     fun toggleBlogSubscription(author: AuthorInfo) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             prefs.toggleSubscribedBlogDid(author.did)
             reviewsBlogsLoaded = false
             loadFriendsReviewsIfNeeded(force = true)
@@ -2519,7 +2519,7 @@ class MainViewModel(
         author: AuthorInfo, isFollowingOrSelf: Boolean, hasReviews: Boolean, hasBlogs: Boolean
     ) {
         if (!hasReviews && !hasBlogs) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Bug fix (reviews from followed accounts never reaching the
             // Hub): the reviews/blogs probes usually finish before the full
             // profile does, and until then the profile's author is just the
@@ -2589,7 +2589,7 @@ class MainViewModel(
         if (followerScanJob?.isActive == true) return
         val myDid = _bskyDid.value
         if (myDid.isBlank()) return
-        followerScanJob = viewModelScope.launch(Dispatchers.IO) {
+        followerScanJob = viewModelScope.launch(ioDispatcher) {
             val scanned = com.mediaviewer.platform.AtomicInteger(0)
             val reviewsFound = com.mediaviewer.platform.AtomicInteger(0)
             val blogsFound = com.mediaviewer.platform.AtomicInteger(0)
@@ -2681,7 +2681,7 @@ class MainViewModel(
         // LaunchedEffect(Unit) calls this the instant AtProtocolPageContent
         // composes (on the Main thread) at essentially the same moment
         // startHubBackgroundWarmup's retry loop (this session's earlier
-        // fix) also calls it — from Dispatchers.IO, a genuinely
+        // fix) also calls it — from ioDispatcher, a genuinely
         // multi-threaded dispatcher. Both can read `_friendsReviewsLoading`
         // as false before either has had a chance to set it true, so both
         // proceed: two independent coroutines both re-run the "load cache
@@ -2707,7 +2707,7 @@ class MainViewModel(
             if (!_friendsReviewsLoading.compareAndSet(false, true)) return
             friendsReloadPending = false
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Bug fix (reviews/blogs getting stuck on "not loading"): the
             // actual network fetch below used to run un-guarded — any
             // exception from it (a real network failure, a malformed
@@ -2824,7 +2824,7 @@ class MainViewModel(
      *  short-circuit if a list is already loaded, which is exactly the
      *  "already loaded" guard this button needs to bypass. */
     fun refreshHub() {
-        viewModelScope.launch(Dispatchers.IO) { loadDmConversationsBlocking(silent = true) }
+        viewModelScope.launch(ioDispatcher) { loadDmConversationsBlocking(silent = true) }
         loadFriendsReviewsIfNeeded(force = true)
     }
 
@@ -2921,7 +2921,7 @@ class MainViewModel(
             if (uri.startsWith("profiles:")) return
             _hubLists.value = _hubLists.value + (uri to (cur ?: HubListState()).copy(loading = true))
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
@@ -2963,7 +2963,7 @@ class MainViewModel(
             _hubLists.value = _hubLists.value + (uri to cur.copy(loadingMore = true))
             cur.postsCursor to cur.members.map { it.did }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // A list feed page is 100 items, but after dropping reposts,
             // replies (and text-only posts, if that's on) a page can leave
             // only a handful — so keep reading pages until there's a useful
@@ -3088,7 +3088,7 @@ class MainViewModel(
     /** Customize Hub → Add → Other → a pasted list link. [onDone] gets null
      *  on success or an error message. */
     fun addHubListFromUrl(url: String, onDone: (String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = bskyRepo.resolveListUrl(url)
             withContext(Dispatchers.Main) {
                 result.onSuccess { (uri, name) -> addHubList(uri, name); onDone(null) }
@@ -3100,7 +3100,7 @@ class MainViewModel(
     /** Customize Hub's list picker: makes sure your own lists are loaded. */
     fun ensureUserListsLoaded() {
         if (!_bskyLoggedIn.value || _userLists.value.isNotEmpty() || _userListsLoading.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _userListsLoading.value = true
             bskyRepo.getUserLists(bskyToken, _bskyDid.value).onSuccess { _userLists.value = it }
             _userListsLoading.value = false
@@ -3160,7 +3160,7 @@ class MainViewModel(
         // dispatcher) and the Hub's own composition (Main dispatcher) at
         // essentially the same moment on a Hub-first cold start.
         if (!_liveFriendsLoading.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Bug fix + roadmap: same dmConversations-not-loaded-yet issue as
             // Reviews above, and broadened to everyone the user follows
             // rather than just DM contacts, per feedback.
@@ -3207,7 +3207,7 @@ class MainViewModel(
         // Bug fix: same check-then-act race as loadFriendsReviewsIfNeeded's
         // own compareAndSet fix above — see that function's comment.
         if (!_blueskyLiveNowLoading.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Same "don't cache a transient failure as done" principle as
             // Reviews/Streamplace above — only latch loaded on genuine success.
             val followsResult = followedDidsForLiveSections()
@@ -3241,7 +3241,7 @@ class MainViewModel(
         // Item 8: haptic tap on sending a DM.
         tapHaptic()
         _dmThread.value = thread.copy(sending = true)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.sendMessage(bskyToken, _bskyDid.value, thread.convo.convoId, text, replyToMessageId = replyToMessageId)
                 .onSuccess {
                     // Re-fetch the thread so the new message shows up in the linear history.
@@ -3281,7 +3281,7 @@ class MainViewModel(
             _dmThread.value = cur.copy(messages = cur.messages.map { if (it.id == m.id) m else it })
         }
         replace(optimistic)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.setMessageReaction(bskyToken, me, convoId, messageId, emoji, add = !mine)
                 .onSuccess { updated ->
                     // Keep whatever the message already knew it replied to if
@@ -3418,7 +3418,7 @@ class MainViewModel(
         viewModelScope.launch { prefs.liquidGlass.collect { _liquidGlass.value = it } }
         viewModelScope.launch { prefs.classicProfileTabRow.collect { _classicProfileTabRow.value = it } }
         viewModelScope.launch { prefs.squareGridRounded.collect { _squareGridRounded.value = it } }
-        viewModelScope.launch(Dispatchers.IO) { ensureProfileTabCacheHydrated() }
+        viewModelScope.launch(ioDispatcher) { ensureProfileTabCacheHydrated() }
         viewModelScope.launch { prefs.pinterestThreeColumns.collect { _pinterestThreeColumns.value = it } }
         viewModelScope.launch { prefs.hateFunBlurNsfw.collect { _hateFunBlurNsfw.value = it } }
         viewModelScope.launch { prefs.followerScanCompleted.collect { _followerScanCompletedOnce.value = it } }
@@ -3456,7 +3456,7 @@ class MainViewModel(
         // Starts on Main so it only runs once the ViewModel has finished
         // constructing (dmCacheGson is declared further down this file).
         viewModelScope.launch(Dispatchers.Main) {
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 if (_dmConversations.value.isEmpty()) {
                     runCatching {
                         val cached: List<DmConversation> = decodeDmCache(prefs.hubMutualsCacheJson.first())
@@ -3966,7 +3966,7 @@ class MainViewModel(
         val now = com.mediaviewer.platform.currentTimeMillis()
         if (!force && now - contentPrefsReadAt < 5_000L) return
         contentPrefsReadAt = now
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getAdultContentPrefs(bskyToken).onSuccess { (allowed, labels) ->
                 // What's hidden changed: the feed is loaded again so it
                 // follows (posts are filtered as they're read).
@@ -3992,7 +3992,7 @@ class MainViewModel(
         // of overwriting (or being appended to) the new feed.
         if (reset) feedLoadGeneration++
         val generation = feedLoadGeneration
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (reset) {
                 _isLoading.value = true; feedCursor = null; _currentIndex.value = 0
                 activeFeedMode = ActiveFeedMode.NORMAL; activeFeedActorDid = null
@@ -4082,7 +4082,7 @@ class MainViewModel(
         pagerSource = source
         pagerSourceFirstId = _mediaItems.value.firstOrNull()?.id
         pagerAppendJob?.cancel()
-        pagerAppendJob = viewModelScope.launch(Dispatchers.IO) {
+        pagerAppendJob = viewModelScope.launch(ioDispatcher) {
             newPosts.takeWhile { currentPagerSource() == source }.collect { list ->
                 val have = _mediaItems.value.mapTo(HashSet()) { it.id }
                 val fresh = list.filter { it.id !in have }
@@ -4119,7 +4119,7 @@ class MainViewModel(
 
     private fun loadMoreAuthorFeed() {
         val did = activeFeedActorDid ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             isLoadingMore = true
             var result = bskyRepo.getAuthorFeed(bskyToken, did, feedCursor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -4135,7 +4135,7 @@ class MainViewModel(
 
     private fun loadMoreLikes() {
         val did = activeFeedActorDid ?: _bskyDid.value
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             isLoadingMore = true
             var result = bskyRepo.getActorLikes(bskyToken, did, feedCursor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -4151,7 +4151,7 @@ class MainViewModel(
 
     fun loadAvailableFeeds() {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Adult content follows the account's own Bluesky moderation
             // settings (adult content on/off, and porn / sexual / nudity's
             // Show / Warn / Hide) — see AdultContentPolicy.
@@ -4213,7 +4213,7 @@ class MainViewModel(
         if (_appMode.value == AppMode.E621) { searchSingleTag(item.author.handle); return }
         if (!_bskyLoggedIn.value) return
         val did = item.author.did
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             var result = bskyRepo.getAuthorFeed(bskyToken, did)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -4316,7 +4316,7 @@ class MainViewModel(
         author: AuthorInfo, tab: ProfileTab,
         isRefresh: Boolean = false, onProfileFetched: () -> Unit = {}
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getFullProfile(bskyToken, author.did)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getFullProfile(bskyToken, author.did)
@@ -4337,7 +4337,7 @@ class MainViewModel(
 
         loadProfileTab(tab, reset = true)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val blogs = runCatching { bskyRepo.getLeafletBlogs(author.did, probeConcurrently = true) }.getOrDefault(emptyList())
             val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
             if (blogs.isEmpty()) {
@@ -4360,7 +4360,7 @@ class MainViewModel(
             persistProfileTabCache(updated)
             if (!isRefresh) maybeAutoSubscribeOnProfileOpen(cur.author, cur.author.isFollowing || cur.author.did == _bskyDid.value, hasReviews = false, hasBlogs = true)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val reviews = runCatching { bskyRepo.getPopfeedReviews(author.did, probeConcurrently = true) }.getOrDefault(emptyList())
             val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
             if (reviews.isEmpty()) {
@@ -4379,7 +4379,7 @@ class MainViewModel(
             persistProfileTabCache(updated)
             if (!isRefresh) maybeAutoSubscribeOnProfileOpen(cur.author, cur.author.isFollowing || cur.author.did == _bskyDid.value, hasReviews = true, hasBlogs = false)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val backlog = runCatching { bskyRepo.getPopfeedBacklog(author.did) }.getOrDefault(emptyList())
             val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
             if (backlog.isEmpty()) {
@@ -4400,7 +4400,7 @@ class MainViewModel(
         // Item 19: VODs tab, only shown once we actually find any — most
         // accounts won't have Streamplace VODs, and that's a normal empty
         // result, not an error, so we stay silent on failure/empty here.
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val vods = streamplaceRepo.getVods(author.handle).getOrNull()?.first ?: emptyList()
             val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
             if (vods.isEmpty()) {
@@ -4426,7 +4426,7 @@ class MainViewModel(
         // and that's a normal empty result, not an error. Paged the same
         // way Posts/Reposts/Likes are — this seeds just the first chunk;
         // see loadMoreMusicHistory for how scrolling pages in the rest.
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val tracks = rockskyRepo.getScrobbles(author.did, limit = MUSIC_HISTORY_PAGE_SIZE, offset = 0).getOrNull() ?: emptyList()
             val cur = _profileOverlay.value?.takeIf { it.author.did == author.did } ?: return@launch
             if (tracks.isEmpty()) {
@@ -4459,7 +4459,7 @@ class MainViewModel(
         // now-playing state, if any (most accounts have nothing playing, or
         // no Rocksky connection at all — both are a normal null result).
         nowPlayingJob?.cancel()
-        nowPlayingJob = viewModelScope.launch(Dispatchers.IO) {
+        nowPlayingJob = viewModelScope.launch(ioDispatcher) {
             // The official status first — what Rocksky's own players and
             // Stellar's built-in scrobbler publish the moment a song starts.
             // Only when there is none does the guess stand in: the latest
@@ -4507,7 +4507,7 @@ class MainViewModel(
      */
     fun deleteScrobble(track: RockskyTrack) {
         if (track.uri.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val problem = com.mediaviewer.util.RockskyScrobbler.deleteScrobble(platform.context, track.uri)
             if (problem != null) { showToast(problem); return@launch }
             val cur = _profileOverlay.value ?: return@launch
@@ -4671,7 +4671,7 @@ class MainViewModel(
             return
         }
         if (!musicYearsLoading.add(did)) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val candidates = rockskyRepo.getCandidateYears(did)
                 val gate = Semaphore(3)
@@ -4705,7 +4705,7 @@ class MainViewModel(
     /** One Top-year tab's data, if it isn't loaded yet (e.g. it failed the
      *  first time round). */
     private fun loadMusicYear(did: String, year: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val w = rockskyRepo.getWrapped(did, year).getOrNull() ?: return@launch
             withContext(Dispatchers.Main) {
                 applyMusicYears(did) { it.copy(musicWrapped = it.musicWrapped + (year to w)) }
@@ -4753,7 +4753,7 @@ class MainViewModel(
         val existing = cur.tabStates[ProfileTab.MUSIC_HISTORY] ?: return
         if (existing.loading) return
         _profileOverlay.value = cur.copy(tabStates = cur.tabStates + (ProfileTab.MUSIC_HISTORY to existing.copy(loading = true)))
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val page = rockskyRepo.getScrobbles(did, limit = MUSIC_HISTORY_PAGE_SIZE, offset = offset).getOrNull()
             val cur2 = _profileOverlay.value?.takeIf { it.author.did == did } ?: return@launch
             val existing2 = cur2.tabStates[ProfileTab.MUSIC_HISTORY] ?: return@launch
@@ -4849,7 +4849,7 @@ class MainViewModel(
         if (idx.entries.isEmpty()) idx.caughtUp = true // a read from the top gets the newest anyway
         if (idx.complete && idx.caughtUp) return null
         profileIndexJobDid = did
-        val job = viewModelScope.launch(Dispatchers.IO) {
+        val job = viewModelScope.launch(ioDispatcher) {
             fun showProgress() {
                 val o = _profileOverlay.value ?: return
                 if (o.author.did == did && o.postSort in 0..3 && o.sortProgress != null) {
@@ -4936,7 +4936,7 @@ class MainViewModel(
         // The index follows the profile that's open: opening one carries on
         // its index (if it has one); closing it — or opening another —
         // stops it, keeping what was read.
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _profileOverlay.map { it?.author?.did }.distinctUntilChanged().collect { did ->
                 if (did == null) {
                     com.mediaviewer.platform.synchronizedCompat(profileIndexes) {
@@ -4984,7 +4984,7 @@ class MainViewModel(
         val sort = cur.postSort
         _profileOverlay.value = cur.copy(tabStates = cur.tabStates + (ProfileTab.POSTS to
             (if (reset) existing.copy(items = emptyList(), cursor = null) else existing).copy(loading = true)))
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             fun still() = gen == profileSortGen.get() && _profileOverlay.value?.author?.did == did
             if (reset) {
                 // Index first (instant if it's already complete and caught
@@ -5055,7 +5055,7 @@ class MainViewModel(
         val cursorToUse = if (reset) null else existing.cursor
         _profileOverlay.value = cur.copy(tabStates = cur.tabStates + (tab to existing.copy(loading = true)))
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Profile "Posts" tab redesign: POSTS used to be two separate
             // tabs (Media/Text Posts) each filtering the same underlying
             // feed down to only the type it cared about. Now that they're
@@ -5292,7 +5292,7 @@ class MainViewModel(
      *  attribution TitleDetailOverlay's description bubble shows underneath
      *  the extract (see WikipediaRepository's class doc comment). */
     private fun fetchTitleOverviewFor(review: PopfeedReview) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = runCatching {
                 WikipediaRepository.lookup(
                     review.mediaTitle, review.mediaCategory, review.identifiersJson, review.releaseDate,
@@ -5365,7 +5365,7 @@ class MainViewModel(
         val did = _bskyDid.value
         if (did.isBlank()) return
         _reviewSocial.value = _reviewSocial.value + (review.uri to (_reviewSocial.value[review.uri] ?: ReviewSocialState()).copy(loading = true))
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val subs = _subscribedReviewDids.value.toList()
             val likes = runCatching { bskyRepo.getPopfeedLikeSummary(did, review.uri, subs) }.getOrDefault(PopfeedLikeSummary(0, false))
             val comments = runCatching { bskyRepo.getPopfeedComments(bskyToken, did, review.uri, subs) }.getOrDefault(emptyList())
@@ -5381,7 +5381,7 @@ class MainViewModel(
         // Optimistic update — feels instant, same pattern used for
         // Bluesky's own like button elsewhere in this app.
         _reviewSocial.value = _reviewSocial.value + (review.uri to cur.copy(likedByMe = nowLiked, likeCount = (cur.likeCount + if (nowLiked) 1 else -1).coerceAtLeast(0)))
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = if (nowLiked) bskyRepo.likePopfeedReview(bskyToken, did, review.uri)
                          else bskyRepo.unlikePopfeedReview(bskyToken, did, review.uri).map { review.uri }
             if (result.isFailure) {
@@ -5394,7 +5394,7 @@ class MainViewModel(
     fun postReviewComment(review: PopfeedReview, text: String) {
         val did = _bskyDid.value
         if (did.isBlank() || text.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.postPopfeedComment(bskyToken, did, review.uri, text).onSuccess {
                 loadReviewSocial(review)
             }
@@ -5416,7 +5416,7 @@ class MainViewModel(
         _profileOverlay.value = _profileOverlay.value?.let { cur ->
             if (cur.openTitlePreselectedReview?.review?.uri == review.uri) cur.copy(openTitlePreselectedReview = null) else cur
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.deleteReview(bskyToken, did, review.uri)
         }
     }
@@ -5451,7 +5451,7 @@ class MainViewModel(
                 identifiersJson = item.identifiersJson ?: item.imdbId?.let { """{"imdbId":"$it"}""" }
             )
         )
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = runCatching {
                 WikipediaRepository.lookup(
                     item.title, item.mediaCategory, item.identifiersJson, item.releaseDate,
@@ -5487,7 +5487,7 @@ class MainViewModel(
         val cur = _titleBacklog.value
         if (cur != null && cur.key == key && (cur.checking || cur.busy)) return
         _titleBacklog.value = TitleBacklogState(key, checking = true, listItemUri = cur?.takeIf { it.key == key }?.listItemUri)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val uri = runCatching { bskyRepo.findPopfeedBacklogItem(_bskyDid.value, title) }.getOrNull()
             if (_titleBacklog.value?.key == key) _titleBacklog.value = TitleBacklogState(key, checking = false, listItemUri = uri)
         }
@@ -5500,7 +5500,7 @@ class MainViewModel(
         if (cur.checking || cur.busy) return
         tapHaptic()
         _titleBacklog.value = cur.copy(busy = true)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val existing = cur.listItemUri
             if (existing != null) {
                 bskyRepo.removeBacklogListItem(bskyToken, _bskyDid.value, existing)
@@ -5552,7 +5552,7 @@ class MainViewModel(
             if (it.author.did == author.did) it.copy(author = it.author.copy(isFollowing = willFollow)) else it
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (!willFollow) {
                 val unfollowed = bskyRepo.unfollowUser(bskyToken, _bskyDid.value, author.followingUri ?: return@launch)
                     .onFailure {
@@ -5630,7 +5630,7 @@ class MainViewModel(
         // loadFeed()'s matching Log.d above.
         Log.d("Stellar-FeedState", "loadE621Posts(reset=$reset)", Exception("trace"))
         if (!_e621LoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (reset) { e621Page = 1; _isLoading.value = true; _currentIndex.value = 0 }
             try {
                 // Bug fix: guarantee this can never leave _isLoading stuck
@@ -5676,7 +5676,7 @@ class MainViewModel(
         _screenState.value = ScreenState.FEED
         _searchHiddenBehindPost.value = false
         _searchOpen.value = true
-        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(tag) }
+        viewModelScope.launch(ioDispatcher) { performLikedTagSearch(tag) }
     }
 
     fun searchSingleTag(tag: String) {
@@ -5745,7 +5745,7 @@ class MainViewModel(
 
     fun showBskyLikes() {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             _currentIndex.value = 0
             // Save current state so user can restore
@@ -5782,7 +5782,7 @@ class MainViewModel(
     private fun preloadFriendsFeed() {
         if (friendsFeedPreloadStarted) return
         friendsFeedPreloadStarted = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ensureDmConversationsLoadedSuspend(silent = true)
             val realConvos = _dmConversations.value.filter { it.convoId.isNotBlank() }
             bskyRepo.getFriendsSharedPosts(bskyToken, _bskyDid.value, realConvos)
@@ -5846,7 +5846,7 @@ class MainViewModel(
         // loading screen.
         beginFriendsFeedLoad()
         val generation = feedLoadGeneration
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ensureDmConversationsLoadedSuspend(silent = true)
             val realConvos = _dmConversations.value.filter { it.convoId.isNotBlank() }
             val result = bskyRepo.getFriendsSharedPosts(bskyToken, _bskyDid.value, realConvos)
@@ -5867,7 +5867,7 @@ class MainViewModel(
      *  appending rather than prepending/resorting so it doesn't shift the
      *  index of whatever the user is currently looking at. */
     private fun refreshFriendsFeedInBackground() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val realConvos = _dmConversations.value.filter { it.convoId.isNotBlank() }
             bskyRepo.getFriendsSharedPosts(bskyToken, _bskyDid.value, realConvos)
                 .onSuccess { fresh ->
@@ -5900,7 +5900,7 @@ class MainViewModel(
         val convo = _replyToConvo.value ?: return
         if (text.isBlank()) return
         _replyToConvo.value = null
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.sendMessage(bskyToken, _bskyDid.value, convo.convoId, text)
                 .onSuccess { showToast("Reply sent") }
                 .onFailure { _errorMessage.value = "Reply failed: ${it.message}" }
@@ -5932,7 +5932,7 @@ class MainViewModel(
      *  [com.mediaviewer.util.BlockedAccounts], which the whole app filters by. */
     fun loadBlockedAccounts() {
         if (!_bskyLoggedIn.value || blockedAccountsJob?.isActive == true) return
-        blockedAccountsJob = viewModelScope.launch(Dispatchers.IO) {
+        blockedAccountsJob = viewModelScope.launch(ioDispatcher) {
             if (_blockedAccounts.value.isEmpty()) _blockedAccountsLoading.value = true
             var result = bskyRepo.getBlockedAccounts(bskyToken)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
@@ -5961,7 +5961,7 @@ class MainViewModel(
         val entry = _blockedAccounts.value.firstOrNull { it.author.did == did } ?: return
         if (did in _unblockingDids.value) return
         _unblockingDids.value = _unblockingDids.value + did
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val uri = entry.blockUri.ifBlank { com.mediaviewer.util.BlockedAccounts.blockUriFor(did).orEmpty() }
             val result = if (uri.isNotBlank()) bskyRepo.unblockUser(bskyToken, _bskyDid.value, uri)
                 else Result.failure<Unit>(IllegalStateException("block record not found"))
@@ -5987,7 +5987,7 @@ class MainViewModel(
             _mediaItems.value = _mediaItems.value.map {
                 if (it.author.did == targetDid) it.copy(isBlocked = false, blockUri = null) else it
             }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 if (uri != null) {
                     bskyRepo.unblockUser(bskyToken, _bskyDid.value, uri)
                         .onSuccess {
@@ -6006,7 +6006,7 @@ class MainViewModel(
             }
         } else {
             // Block
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 bskyRepo.blockUser(bskyToken, _bskyDid.value, targetDid)
                     .onSuccess { uri ->
                         showToast("Blocked @${item.author.handle}")
@@ -6032,7 +6032,7 @@ class MainViewModel(
     suspend fun profileCard(actor: String): AuthorInfo? {
         if (actor.isBlank() || !_bskyLoggedIn.value) return null
         com.mediaviewer.platform.synchronizedCompat(profileCardCache) { profileCardCache[actor] }?.let { return it }
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             var result = bskyRepo.getFullProfile(bskyToken, actor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getFullProfile(bskyToken, actor)
@@ -6043,7 +6043,7 @@ class MainViewModel(
 
     fun openProfileFromLink(actor: String, postRkey: String? = null) {
         if (!_bskyLoggedIn.value || actor.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getFullProfile(bskyToken, actor)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getFullProfile(bskyToken, actor)
@@ -6109,7 +6109,7 @@ class MainViewModel(
                 _profileOverlay.value = cur.copy(profile = cur.profile?.let { p -> p.copy(blockedEitherWay = blocked || p.blocksYou) })
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (com.mediaviewer.util.BlockedAccounts.isBlocking(targetDid)) {
                 val uri = com.mediaviewer.util.BlockedAccounts.blockUriFor(targetDid) ?: run {
                     // Not known yet: the profile view carries it.
@@ -6150,7 +6150,7 @@ class MainViewModel(
         val item = currentItem.value ?: return
         if (_appMode.value != AppMode.BLUESKY) return
         if (item.postUri.isBlank() || item.author.did != _bskyDid.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.deletePost(bskyToken, _bskyDid.value, item.postUri)
                 .onSuccess {
                     showToast("Post deleted")
@@ -6175,7 +6175,7 @@ class MainViewModel(
         }
         com.mediaviewer.util.ProfileStyles.saver = { style, onDone ->
             if (!_bskyLoggedIn.value) onDone("Not signed in")
-            else viewModelScope.launch(Dispatchers.IO) {
+            else viewModelScope.launch(ioDispatcher) {
                 var result = bskyRepo.saveProfileStyle(bskyToken, _bskyDid.value, style)
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                     result = bskyRepo.saveProfileStyle(bskyToken, _bskyDid.value, style)
@@ -6202,7 +6202,7 @@ class MainViewModel(
         if (!com.mediaviewer.util.Supporter.active) { com.mediaviewer.util.Supporter.openPage(); return }
         _archiveBusy.value = true
         showToast("Archiving…")
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             com.mediaviewer.util.PostArchive.init(platform.context)
             bskyRepo.archivePost(bskyToken, _bskyDid.value, platform.context, item)
                 .onSuccess { archived ->
@@ -6261,7 +6261,7 @@ class MainViewModel(
         if (!_bskyLoggedIn.value) { showToast("Sign in to add it back"); return }
         _archiveBusy.value = true
         showToast("Adding to Profile…")
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = try {
                 bskyRepo.restoreArchivedPost(bskyToken, _bskyDid.value, platform.context, archived)
             } catch (e: Throwable) {
@@ -6313,7 +6313,7 @@ class MainViewModel(
         val item = currentItem.value ?: return
         if (_appMode.value != AppMode.BLUESKY) return
         val generatorDid = _selectedFeedUri.value?.let { _feedGeneratorDid.value[it] }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.sendFeedInteraction(bskyToken, _bskyDid.value, item.postUri, wantMore = true, feedContext = item.feedContext, generatorDid = generatorDid)
                 .onSuccess { showToast("Showing more like this") }
                 .onFailure { _errorMessage.value = "Couldn't send feedback: ${it.message}" }
@@ -6324,7 +6324,7 @@ class MainViewModel(
         val item = currentItem.value ?: return
         if (_appMode.value != AppMode.BLUESKY) return
         val generatorDid = _selectedFeedUri.value?.let { _feedGeneratorDid.value[it] }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.sendFeedInteraction(bskyToken, _bskyDid.value, item.postUri, wantMore = false, feedContext = item.feedContext, generatorDid = generatorDid)
                 .onSuccess { showToast("Showing less like this") }
                 .onFailure { _errorMessage.value = "Couldn't send feedback: ${it.message}" }
@@ -6385,7 +6385,7 @@ class MainViewModel(
         val target = _reportTarget.value ?: return
         if (_reportSubmitting.value) return
         _reportSubmitting.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             suspend fun send(): Result<Unit> =
                 if (target.postUri != null && target.postCid != null)
                     bskyRepo.reportPost(bskyToken, target.postUri, target.postCid, reason, details)
@@ -6422,7 +6422,7 @@ class MainViewModel(
     fun submitQuoteRepost(text: String) {
         val item = _quoteRepostTarget.value ?: return
         if (_quoteRepostSubmitting.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _quoteRepostSubmitting.value = true
             bskyRepo.quoteRepost(bskyToken, _bskyDid.value, text, item.postUri, item.postCid)
                 .onSuccess {
@@ -6499,7 +6499,7 @@ class MainViewModel(
 
     fun loadDmConversations(silent: Boolean = false) {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) { ensureDmConversationsLoadedSuspend(silent) }
+        viewModelScope.launch(ioDispatcher) { ensureDmConversationsLoadedSuspend(silent) }
     }
 
     /** Public, fire-and-forget entry point for the Hub's AT Protocol page to
@@ -6509,7 +6509,7 @@ class MainViewModel(
      *  to self-heal if the cold-start load happened to fail. */
     fun ensureDmConversationsLoaded() {
         if (!_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) { ensureDmConversationsLoadedSuspend(silent = true) }
+        viewModelScope.launch(ioDispatcher) { ensureDmConversationsLoadedSuspend(silent = true) }
     }
 
     // Feature (this session): Mutuals/Latest Reviews/Livestreams used to
@@ -6537,15 +6537,15 @@ class MainViewModel(
         // Blocked accounts first: everything else filters by them.
         loadBlockedAccounts()
         // The Inbox's first page, a little after launch, so it opens instantly.
-        viewModelScope.launch(Dispatchers.IO) { delay(2500); prefetchInbox() }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) { delay(2500); prefetchInbox() }
+        viewModelScope.launch(ioDispatcher) {
             // Until a real load succeeds (the saved copy shown meanwhile
             // doesn't count, or a failed launch load was never retried).
             retryWithBackoff(isDone = { dmFreshLoaded || !_bskyLoggedIn.value }) {
                 ensureDmConversationsLoadedSuspend(silent = true)
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             retryWithBackoff(isDone = { reviewsBlogsLoaded || !_bskyLoggedIn.value }) {
                 // loadFriendsReviewsIfNeeded() launches its own coroutine and
                 // returns immediately (it's the same public entry point the
@@ -6557,19 +6557,19 @@ class MainViewModel(
                 while (_friendsReviewsLoading.value) delay(300)
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             retryWithBackoff(isDone = { liveFriendsLoaded || !_bskyLoggedIn.value }) {
                 loadLiveFriendsIfNeeded()
                 while (_liveFriendsLoading.value) delay(300)
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             retryWithBackoff(isDone = { blueskyLiveNowLoaded || !_bskyLoggedIn.value }) {
                 loadBlueskyLiveNowIfNeeded()
                 while (_blueskyLiveNowLoading.value) delay(300)
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             retryWithBackoff(isDone = { _selfProfile.value != null || !_bskyLoggedIn.value }) {
                 loadSelfProfileSuspend()
             }
@@ -6589,7 +6589,7 @@ class MainViewModel(
 
     fun startDmLivePolling() {
         if (dmLivePollingJob?.isActive == true || !_bskyLoggedIn.value) return
-        dmLivePollingJob = viewModelScope.launch(Dispatchers.IO) {
+        dmLivePollingJob = viewModelScope.launch(ioDispatcher) {
             // Seed the cursor with one no-op call so the first real poll
             // only returns messages that arrive from here on, instead of
             // replaying recent history as if it just happened.
@@ -6638,7 +6638,7 @@ class MainViewModel(
                 val newIncoming = byConvo[convo.convoId].orEmpty().count {
                     it.type?.endsWith("#logCreateMessage") == true && it.message?.sender?.did != _bskyDid.value
                 }
-                if (openHere && newIncoming > 0) viewModelScope.launch(Dispatchers.IO) { bskyRepo.markConvoRead(bskyToken, _bskyDid.value, convo.convoId) }
+                if (openHere && newIncoming > 0) viewModelScope.launch(ioDispatcher) { bskyRepo.markConvoRead(bskyToken, _bskyDid.value, convo.convoId) }
                 // In-app notification (supporters, DM Notifications on):
                 // shown anywhere in the app except the DM pages themselves.
                 if (!openHere && !mine && newIncoming > 0 && !_dmInboxOpen.value && inAppNotifications(dm = true)) {
@@ -6784,7 +6784,7 @@ class MainViewModel(
         val item = _sendPopupTarget.value ?: return
         val recipients = _dmConversations.value.filter { _sendPopupSelected.value.contains(it.member.did) }
         if (recipients.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _sendPopupSending.value = true
             var failures = 0
             var lastError: String? = null
@@ -6937,7 +6937,7 @@ class MainViewModel(
      *  e621 posts keep e621's own tags. */
     private fun refreshPostTagsFromDataset(postUri: String) {
         if (postUri.isBlank() || _appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val tags = taggingRepo.tagsForPost(postUri).joinToString(" ")
             withContext(Dispatchers.Main) {
                 val list = _mediaItems.value
@@ -6973,7 +6973,7 @@ class MainViewModel(
             else -> now.map { if (it == oldTag) cleanNew else it }.distinct()
         })
         tapHaptic()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             runCatching {
                 taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, oldTag, cleanNew)
             }.onSuccess { saved -> withContext(Dispatchers.Main) { applyLocally(saved) } }
@@ -7031,14 +7031,14 @@ class MainViewModel(
             if (item.isLiked) {
                 // Optimistic unlike
                 updateCurrentItem { it.copy(isLiked = false, likeUri = null, likeCount = (it.likeCount - 1).coerceAtLeast(0)) }
-                viewModelScope.launch(Dispatchers.IO) {
+                viewModelScope.launch(ioDispatcher) {
                     bskyRepo.unlikePost(bskyToken, _bskyDid.value, item.likeUri ?: return@launch)
                         .onFailure { updateCurrentItem { it.copy(isLiked = true, likeUri = item.likeUri, likeCount = item.likeCount) } }
                 }
             } else {
                 // Optimistic like
                 updateCurrentItem { it.copy(isLiked = true, likeCount = it.likeCount + 1) }
-                viewModelScope.launch(Dispatchers.IO) {
+                viewModelScope.launch(ioDispatcher) {
                     bskyRepo.likePost(bskyToken, _bskyDid.value, item.postUri, item.postCid)
                         .onSuccess { uri ->
                             updateCurrentItem { it.copy(likeUri = uri) }
@@ -7060,13 +7060,13 @@ class MainViewModel(
         if (_appMode.value == AppMode.BLUESKY && blocksViewer(item)) { showToast("This user has you blocked"); return }
         if (item.isReposted) {
             updateCurrentItem { it.copy(isReposted = false, repostUri = null, repostCount = (it.repostCount - 1).coerceAtLeast(0)) }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 bskyRepo.unrepost(bskyToken, _bskyDid.value, item.repostUri ?: return@launch)
                     .onFailure { updateCurrentItem { it.copy(isReposted = true, repostUri = item.repostUri, repostCount = item.repostCount) } }
             }
         } else {
             updateCurrentItem { it.copy(isReposted = true, repostCount = it.repostCount + 1) }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 bskyRepo.repostPost(bskyToken, _bskyDid.value, item.postUri, item.postCid)
                     .onSuccess { uri -> updateCurrentItem { it.copy(repostUri = uri) } }
                     .onFailure { updateCurrentItem { it.copy(isReposted = false, repostCount = item.repostCount) } }
@@ -7080,13 +7080,13 @@ class MainViewModel(
             val pid = item.e621PostId ?: return
             if (item.isBookmarked) {
                 updateCurrentItem { it.copy(isBookmarked = false) }
-                viewModelScope.launch(Dispatchers.IO) {
+                viewModelScope.launch(ioDispatcher) {
                     e621Repo.removeFavorite(e621Username, e621ApiKey, pid)
                         .onFailure { updateCurrentItem { it.copy(isBookmarked = true) } }
                 }
             } else {
                 updateCurrentItem { it.copy(isBookmarked = true) }
-                viewModelScope.launch(Dispatchers.IO) {
+                viewModelScope.launch(ioDispatcher) {
                     e621Repo.addFavorite(e621Username, e621ApiKey, pid)
                         .onSuccess {
                             if (_downloadOnLike.value) {
@@ -7101,7 +7101,7 @@ class MainViewModel(
         } else {
             val wasBookmarked = item.isBookmarked
             updateCurrentItem { it.copy(isBookmarked = !wasBookmarked, bookmarkCount = (it.bookmarkCount + if (wasBookmarked) -1 else 1).coerceAtLeast(0)) }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 if (wasBookmarked) {
                     bskyRepo.removeBookmark(bskyToken, item.postUri)
                         // No longer saved: it leaves any bookmark folder too.
@@ -7120,7 +7120,7 @@ class MainViewModel(
         val pid  = item.e621PostId ?: return
         val newVote = if (item.e621UserVote == vote) 0 else vote
         updateCurrentItem { it.copy(e621UserVote = newVote) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             e621Repo.votePost(e621Username, e621ApiKey, pid, if (newVote == 0) (vote * -1) else newVote)
                 .onFailure { updateCurrentItem { it.copy(e621UserVote = item.e621UserVote) } }
         }
@@ -7133,14 +7133,14 @@ class MainViewModel(
         val author = item.author
         if (author.isFollowing) {
             updateCurrentItemAuthor { it.copy(isFollowing = false, followingUri = null) }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 val unfollowed = bskyRepo.unfollowUser(bskyToken, _bskyDid.value, author.followingUri ?: return@launch)
                     .onFailure { updateCurrentItemAuthor { it.copy(isFollowing = true, followingUri = author.followingUri) } }
                 if (unfollowed.isSuccess) unsubscribeOnUnfollow(author.did)
             }
         } else {
             updateCurrentItemAuthor { it.copy(isFollowing = true) }
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(ioDispatcher) {
                 bskyRepo.followUser(bskyToken, _bskyDid.value, author.did)
                     .onSuccess { uri ->
                         updateCurrentItemAuthor { it.copy(followingUri = uri) }
@@ -7166,7 +7166,7 @@ class MainViewModel(
      *  Called right after login so the picker opens instantly. */
     private fun prefetchUserLists() {
         if (!_bskyLoggedIn.value || _bskyDid.value.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val listJob = launch {
                 bskyRepo.getUserLists(bskyToken, _bskyDid.value)
                     .onSuccess { _userLists.value = it; prefetchListAvatars(it) }
@@ -7206,7 +7206,7 @@ class MainViewModel(
 
     private fun fetchListMemberships(did: String): Job {
         listMembershipFetches[did]?.takeIf { it.isActive }?.let { return it }
-        val job = viewModelScope.launch(Dispatchers.IO) {
+        val job = viewModelScope.launch(ioDispatcher) {
             bskyRepo.getListMemberships(bskyToken, _bskyDid.value, did).onSuccess { map ->
                 listMembershipCache[did] = com.mediaviewer.platform.currentTimeMillis() to map
                 if (_listPickerTargetDid.value == did) _listMemberships.value = map
@@ -7234,7 +7234,7 @@ class MainViewModel(
         val uris = listOfNotNull(listUri, additionalListUri)
         _listMembershipBusy.value = _listMembershipBusy.value + listUri
         tapHaptic()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Tapped before the lookup finished: let it finish first, so an
             // account that's already on the list isn't added twice.
             if (_listMembershipsLoading.value) listMembershipJob?.join()
@@ -7280,7 +7280,7 @@ class MainViewModel(
     fun renamePickerEntry(recordUris: List<String>, newName: String, onDone: (String?) -> Unit) {
         val clean = newName.trim()
         if (clean.isBlank() || recordUris.isEmpty()) { onDone(null); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var error: String? = null
             for (uri in recordUris.distinct()) {
                 bskyRepo.renameNamedRecord(bskyToken, _bskyDid.value, uri, clean).onFailure { error = it.message ?: "Couldn't rename it" }
@@ -7317,7 +7317,7 @@ class MainViewModel(
         val clean = name.trim()
         if (clean.isBlank() || _creatingPickerList.value) return
         _creatingPickerList.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val context = platform.context
             val me = _bskyDid.value
             val result = runCatching {
@@ -7358,7 +7358,7 @@ class MainViewModel(
             return
         }
         // Otherwise fetch now (first login or cleared cache)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _userListsLoading.value = true
             val listJob = launch {
                 bskyRepo.getUserLists(bskyToken, _bskyDid.value)
@@ -7381,7 +7381,7 @@ class MainViewModel(
     fun addAccountToList(listUri: String, additionalListUri: String? = null) {
         val targetDid = _listPickerTargetDid.value ?: return
         _listPickerTargetDid.value = null
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.addToList(bskyToken, _bskyDid.value, listUri, targetDid)
                 .onSuccess { com.mediaviewer.util.ListRecency.noteAdded(listUri); showToast("Added to list") }
                 .onFailure { _errorMessage.value = "Add to list failed: ${it.message}" }
@@ -7473,7 +7473,7 @@ class MainViewModel(
 
     private fun fetchComments(item: MediaItem) {
         val key = commentKey(item)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (commentsShownFor == key && _comments.value.isEmpty()) _commentsLoading.value = true
             val result: Result<List<CommentItem>>? = if (_appMode.value == AppMode.BLUESKY) {
                 if (item.postUri.isBlank()) null else bskyRepo.getPostThread(bskyToken, item.postUri)
@@ -7515,7 +7515,7 @@ class MainViewModel(
         if (media.isNotEmpty()) com.mediaviewer.util.CommentSend.sending = true
         // Item 8: haptic tap on sending a comment.
         tapHaptic()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
           // (The comment box is free again however this ends.)
           try {
             if (_appMode.value == AppMode.BLUESKY) {
@@ -7562,7 +7562,7 @@ class MainViewModel(
         if (_appMode.value != AppMode.BLUESKY) return
         val newLiked = !comment.isLiked
         updateComment(comment.id) { it.copy(isLiked = newLiked, likeCount = if (newLiked) it.likeCount + 1 else (it.likeCount - 1).coerceAtLeast(0)) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (comment.isLiked) {
                 bskyRepo.unlikeComment(bskyToken, _bskyDid.value, comment.likeUri ?: return@launch)
                     .onFailure { updateComment(comment.id) { it.copy(isLiked = comment.isLiked, likeCount = comment.likeCount) } }
@@ -7578,7 +7578,7 @@ class MainViewModel(
         if (_appMode.value != AppMode.E621) return
         val newVote = if (comment.e621UserVote == vote) 0 else vote
         updateComment(comment.id) { it.copy(e621UserVote = newVote) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val id = comment.id.toIntOrNull() ?: return@launch
             e621Repo.voteComment(e621Username, e621ApiKey, id, if (newVote == 0) vote * -1 else newVote)
                 .onFailure { updateComment(comment.id) { it.copy(e621UserVote = comment.e621UserVote) } }
@@ -7635,7 +7635,7 @@ class MainViewModel(
     }
 
     private fun downloadAllBskyLiked() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _downloadProgress.value = DownloadProgress(0, true)
             var cursor: String? = null
             var total = 0
@@ -7654,7 +7654,7 @@ class MainViewModel(
     }
 
     private fun downloadAllE621Favorites() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _downloadProgress.value = DownloadProgress(0, true)
             var page  = 1
             var total = 0
@@ -7808,7 +7808,7 @@ class MainViewModel(
             datasetBytes = _taggingUiState.value.datasetBytes,
             isRunning = true, modelState = TaggerState.Downloading(0, 0)
         )
-        modelDownloadJob = viewModelScope.launch(Dispatchers.IO) {
+        modelDownloadJob = viewModelScope.launch(ioDispatcher) {
             try {
                 taggingRepo.downloadModel { state ->
                     _taggingUiState.value = _taggingUiState.value.copy(
@@ -7831,7 +7831,7 @@ class MainViewModel(
     }
 
     private fun refreshTaggingCounts() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val (scanned, tagged) = taggingRepo.currentCounts()
             // The search page's "Tagged" tab only exists once there's at
             // least one post that actually has tags to search — a dataset
@@ -7843,7 +7843,7 @@ class MainViewModel(
     }
 
     private fun refreshImportedDatasets() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             _importedDatasets.value = taggingRepo.listImportedDatasets()
         }
     }
@@ -7865,7 +7865,7 @@ class MainViewModel(
     val likeTagPending: StateFlow<Int> = _likeTagPending
     private val likeTagQueue = kotlinx.coroutines.channels.Channel<MediaItem>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     private val likeTagQueued = com.mediaviewer.platform.concurrentSetOf<String>()
-    private val likeTagWorker = viewModelScope.launch(Dispatchers.IO) {
+    private val likeTagWorker = viewModelScope.launch(ioDispatcher) {
         for (item in likeTagQueue) {
             // Never overlap the full "Tag all liked posts" pass either.
             while (_taggingUiState.value.isRunning) delay(500)
@@ -7907,7 +7907,7 @@ class MainViewModel(
         if (_taggingUiState.value.isRunning) return
         _taggingOverlayOpen.value = true
         _taggingUiState.value = _taggingUiState.value.copy(isRunning = true, isComplete = false, errorMessage = null)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             taggingRepo.tagAllLiked(
                 isBlueskyMode = _appMode.value == AppMode.BLUESKY,
                 bskyToken = bskyToken,
@@ -7945,7 +7945,7 @@ class MainViewModel(
      *  the next unrelated refresh happened to overwrite them. */
     fun deleteTaggedDatabase() {
         if (_taggingUiState.value.isRunning) taggingRepo.cancel()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             taggingRepo.deleteDatabase()
             _hasTaggedDataset.value = false
             _taggingUiState.value = TaggingUiState()
@@ -8003,7 +8003,7 @@ class MainViewModel(
         if (_datasetExportState.value is DatasetExportState.Working) return
         datasetExportResetJob?.cancel()
         _datasetExportState.value = DatasetExportState.Working("Gathering tagged posts…")
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val posts = taggingRepo.exportAllPosts()
                 _datasetExportState.value = DatasetExportState.Working("Writing ${posts.size} posts…", posts.size)
@@ -8037,7 +8037,7 @@ class MainViewModel(
      *  separate from every other dataset already on the device (see that
      *  method's own doc comment). */
     fun importDatasetFromUri(uri: com.mediaviewer.platform.PlatformUri) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val json = platform.readTextFromUri(uri)
                     ?: throw com.mediaviewer.platform.IOException("Couldn't open the chosen file for reading")
@@ -8064,7 +8064,7 @@ class MainViewModel(
      *  comment for why every other dataset (including the local one) is
      *  untouched. */
     fun deleteImportedDataset(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             taggingRepo.deleteDataset(id)
             refreshImportedDatasets()
             refreshTaggingCounts()
@@ -8086,7 +8086,7 @@ class MainViewModel(
         // Item 2: land back on the Liked tab's default "everything, most
         // recent first" browse rather than whatever stale search results
         // (or lack thereof) were showing before tagging started.
-        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch("") }
+        viewModelScope.launch(ioDispatcher) { performLikedTagSearch("") }
     }
 
     /** Item 2: the query text field's live value updates on every
@@ -8107,7 +8107,7 @@ class MainViewModel(
             _tagSuggestions.value = emptyList()
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val vocabulary = taggingRepo.tagVocabulary()
             // "-tag" (leave out): suggest for the tag after the minus.
             val word = lastWord.removePrefix("-")
@@ -8131,7 +8131,7 @@ class MainViewModel(
 
     fun submitLikedSearch() {
         _tagSuggestions.value = emptyList()
-        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(_searchState.value.query) }
+        viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
     }
 
     /** Item 14: the search page's "e621" filter option (only shown once
@@ -8257,7 +8257,7 @@ class MainViewModel(
     fun loadMoreTagged() {
         if (_likedTagLoadingMore.value || _likedTagExhausted.value || _searchState.value.loading) return
         _likedTagLoadingMore.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try { loadTaggedPage() } finally { _likedTagLoadingMore.value = false }
             com.mediaviewer.util.TaggedStats.save()
         }
@@ -8266,7 +8266,7 @@ class MainViewModel(
     /** Search › Tagged › Sort: re-orders the results now and remembers it. */
     fun setTaggedSort(sort: Int) {
         com.mediaviewer.util.UiToggles.updateTaggedSort(sort)
-        viewModelScope.launch(Dispatchers.IO) { performLikedTagSearch(likedTagQuery) }
+        viewModelScope.launch(ioDispatcher) { performLikedTagSearch(likedTagQuery) }
     }
 
     private suspend fun hydrateLikedUris(uris: List<String>): List<MediaItem> {
@@ -8304,7 +8304,7 @@ class MainViewModel(
     fun openLikedPostFromSearch(index: Int) {
         val results = _likedTagSearchResults.value
         if (index !in results.indices) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val withTags = results.map { item ->
                 if (item.tags.isNotBlank()) item
                 else {
@@ -8356,7 +8356,7 @@ class MainViewModel(
             .map { if (it.replies.isNotEmpty()) it.copy(replies = walk(it.replies)) else it }
         _comments.value = walk(before)
         commentsShownFor?.let { key -> if (cachedComments(key) != null) putCachedComments(key, _comments.value) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.deletePost(bskyToken, _bskyDid.value, comment.uri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.deletePost(bskyToken, _bskyDid.value, comment.uri)
@@ -8449,7 +8449,7 @@ class MainViewModel(
         tapHaptic()
         // Shown in the Hub's Feeds row straight away; written in the background.
         _availableFeeds.value = _availableFeeds.value + BskyFeedInfo(entry.uri, entry.name, entry.avatarUrl)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             feedPrefsMutex.withLock {
                 var result = bskyRepo.addSavedFeed(bskyToken, entry.uri)
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
@@ -8470,7 +8470,7 @@ class MainViewModel(
         if (!_bskyLoggedIn.value || listUri.isBlank() || _availableFeeds.value.any { it.uri == listUri }) return
         tapHaptic()
         _availableFeeds.value = _availableFeeds.value + BskyFeedInfo(listUri, name.ifBlank { "List" }, avatarUrl)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             feedPrefsMutex.withLock {
                 var result = bskyRepo.addSavedFeed(bskyToken, listUri, type = "list", pinned = true)
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
@@ -8490,7 +8490,7 @@ class MainViewModel(
         val did = cur.author.did
         if (cur.lists.loading || (cur.lists.loaded && !force)) return
         _profileOverlay.value = cur.copy(lists = cur.lists.copy(loading = true, failed = false))
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getProfileLists(bskyToken, did)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getProfileLists(bskyToken, did)
@@ -8535,7 +8535,7 @@ class MainViewModel(
         tapHaptic()
         val me = _bskyDid.value
         setListAction(entry.uri, "Following…")
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var membersResult = bskyRepo.getListMembers(bskyToken, me, listUri)
             if (membersResult.isFailure && isAuthError(membersResult.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 membersResult = bskyRepo.getListMembers(bskyToken, me, listUri)
@@ -8585,7 +8585,7 @@ class MainViewModel(
         val me = _bskyDid.value
         val existing = entry.blockUri
         setListAction(entry.uri, if (existing != null) "Unblocking…" else "Blocking…")
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             if (existing != null) {
                 bskyRepo.unblockList(bskyToken, me, existing)
                     .onSuccess {
@@ -8637,7 +8637,7 @@ class MainViewModel(
         tapHaptic()
         val ownerDid = entry.uri.removePrefix("at://").substringBefore('/')
         _listMembers.value = ListMembersState(entry, isOwn = ownerDid == _bskyDid.value)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getListMembers(bskyToken, _bskyDid.value, listUri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getListMembers(bskyToken, _bskyDid.value, listUri)
@@ -8675,7 +8675,7 @@ class MainViewModel(
         if (!cur.isOwn || member.itemUri.isBlank() || member.author.did in cur.removing) return
         tapHaptic()
         _listMembers.value = cur.copy(removing = cur.removing + member.author.did)
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = bskyRepo.removeFromList(bskyToken, _bskyDid.value, member.itemUri)
             val now = _listMembers.value?.takeIf { it.entry.uri == cur.entry.uri } ?: return@launch
             result.onSuccess {
@@ -8760,7 +8760,7 @@ class MainViewModel(
         else if (isLoadingMore) return
         val generation = feedLoadGeneration
         if (!reset) isLoadingMore = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             suspend fun attempt(): Result<Pair<List<MediaItem>, String?>> =
                 if (com.mediaviewer.util.StellarOfficial.isListUri(uri)) bskyRepo.getListFeedOriginals(bskyToken, _bskyDid.value, uri, feedCursor)
                 else bskyRepo.getFeed(bskyToken, uri, feedCursor, if (reset) 30 else 50)
@@ -8834,7 +8834,7 @@ class MainViewModel(
     fun deletePickerEntry(recordUris: List<String>, onDone: (String?) -> Unit) {
         val uris = recordUris.distinct().filter { it.isNotBlank() }
         if (uris.isEmpty() || !_bskyLoggedIn.value) { onDone(null); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val me = _bskyDid.value
             var error: String? = null
             val deleted = HashSet<String>()
@@ -8868,7 +8868,7 @@ class MainViewModel(
      *  the list's cover. (Lists only — starter packs draw their own card.) */
     fun setPickerListCover(listUri: String, image: com.mediaviewer.platform.PlatformUri, onDone: (String?) -> Unit) {
         if (!_bskyLoggedIn.value || listUri.isBlank()) { onDone(null); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.setListCover(bskyToken, _bskyDid.value, platform.context, listUri, image)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.setListCover(bskyToken, _bskyDid.value, platform.context, listUri, image)
@@ -8908,7 +8908,7 @@ class MainViewModel(
             else _hubProfileSearching.value = false
             return
         }
-        hubProfileSearchJob = viewModelScope.launch(Dispatchers.IO) {
+        hubProfileSearchJob = viewModelScope.launch(ioDispatcher) {
             delay(250) // typing debounce
             _hubProfileSearching.value = true
             bskyRepo.searchActorsTypeahead(bskyToken, _bskyDid.value, q).onSuccess { actors ->
@@ -8925,7 +8925,7 @@ class MainViewModel(
     fun loadMoreHubProfileSuggestions() {
         if (hubProfileSuggestJob?.isActive == true) return
         if (hubProfileSuggestLoaded && hubProfileSuggestCursor == null) return
-        hubProfileSuggestJob = viewModelScope.launch(Dispatchers.IO) {
+        hubProfileSuggestJob = viewModelScope.launch(ioDispatcher) {
             if (hubProfileSuggestions.isEmpty()) _hubProfileSearching.value = true
             bskyRepo.getFollowsForChat(bskyToken, _bskyDid.value, hubProfileSuggestCursor).onSuccess { (page, cursor) ->
                 hubProfileSuggestLoaded = true
@@ -8965,7 +8965,7 @@ class MainViewModel(
 
     /** Re-reads the Stellar Supporters list (every app start). */
     private fun refreshSupporters() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getPublicListMemberDids(com.mediaviewer.util.StellarOfficial.SUPPORTERS_LIST_URI).onSuccess { dids ->
                 withContext(Dispatchers.Main) { com.mediaviewer.util.StellarSupporters.update(dids) }
             }
@@ -9045,7 +9045,7 @@ class MainViewModel(
                 accounts = cur.accounts.map { if (it.key == key) it.copy(imageUrl = url) else it }
             )
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             launch { setImage(welcomeFeedForYou, bskyRepo.getFeedGeneratorInfo(bskyToken, official.FOR_YOU_FEED_URI).getOrNull()?.avatar) }
             if (com.mediaviewer.util.FeatureFlags.SUPPORTERS_FEED_ENABLED) launch { setImage(welcomeFeedSupporters, bskyRepo.getListInfo(bskyToken, official.SUPPORTERS_LIST_URI).getOrNull()?.avatarUrl) }
             launch { setImage(welcomeFollowStellar, bskyRepo.getProfileBasics(bskyToken, official.STELLAR_DID).getOrNull()?.avatarUrl) }
@@ -9063,7 +9063,7 @@ class MainViewModel(
         _welcome.value = cur.copy(applying = true)
         val official = com.mediaviewer.util.StellarOfficial
         val me = _bskyDid.value
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             runCatching {
                 var feedsChanged = false
                 // One preferences write at a time (they're read-modify-write).
@@ -9131,7 +9131,7 @@ class MainViewModel(
         // changed still has something to show…
         viewModelScope.launch {
             delay(2500)
-            withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, null) } }
+            withContext(ioDispatcher) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, null) } }
         }
         // …and the DMs widget shows the chat list as the app has it, handed
         // over a moment after every change.
@@ -9140,7 +9140,7 @@ class MainViewModel(
                 delay(1500)
                 if (!_bskyLoggedIn.value) return@collectLatest
                 val chats = com.mediaviewer.platform.widgetChats(list)
-                withContext(Dispatchers.IO) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
+                withContext(ioDispatcher) { runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(platform.context, chats) } }
             }
         }
         com.mediaviewer.util.Onboarding.init(platform.context)
@@ -9167,14 +9167,14 @@ class MainViewModel(
         val item = _mediaItems.value.firstOrNull { it.postUri == postUri }
         val optionCount = item?.let { com.mediaviewer.ui.PollFormat.parse(it.text)?.second?.size } ?: com.mediaviewer.ui.PollFormat.MAX_OPTIONS
         val me = _bskyDid.value
-        val votes = withContext(Dispatchers.IO) { bskyRepo.getPollVotes(bskyToken, me, postUri, optionCount).getOrNull() } ?: return null
+        val votes = withContext(ioDispatcher) { bskyRepo.getPollVotes(bskyToken, me, postUri, optionCount).getOrNull() } ?: return null
         return com.mediaviewer.ui.PollTally(counts = votes.values.groupingBy { it }.eachCount(), myVote = votes[me])
     }
 
     /** Votes on a poll: a reply to it with just the answer's letter. */
     fun votePoll(item: MediaItem, letter: String, onDone: (Boolean) -> Unit) {
         if (!_bskyLoggedIn.value || item.postUri.isBlank()) { onDone(false); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val root = bskyRepo.threadRootOf(item.postUri)
             suspend fun send() = bskyRepo.replyToPost(
                 bskyToken, _bskyDid.value,
@@ -9253,7 +9253,7 @@ class MainViewModel(
 
     /** Feed Builder → Add list by link: resolves a bsky.app list link. */
     fun resolveListForBuilder(input: String, onDone: (com.mediaviewer.util.LocalFeedSource?, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val r = bskyRepo.resolveListUrl(input)
             withContext(Dispatchers.Main) {
                 r.onSuccess { (uri, name) -> onDone(com.mediaviewer.util.LocalFeedSource("list", uri, name), null) }
@@ -9266,7 +9266,7 @@ class MainViewModel(
     fun resolveAccountForBuilder(input: String, onDone: (com.mediaviewer.util.LocalFeedSource?, String?) -> Unit) {
         val actor = input.trim().removePrefix("@").substringAfter("bsky.app/profile/").substringBefore('/').trim()
         if (actor.isBlank()) { onDone(null, "Type a handle"); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val r = bskyRepo.getProfileBasics(bskyToken, actor)
             withContext(Dispatchers.Main) {
                 r.onSuccess { a -> onDone(com.mediaviewer.util.LocalFeedSource("account", a.did, "@" + a.handle), null) }
@@ -9278,7 +9278,7 @@ class MainViewModel(
     /** Your own lists, for the Feed Builder's picker. */
     fun loadListsForBuilder() {
         if (_userLists.value.isNotEmpty() || !_bskyLoggedIn.value) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getUserLists(bskyToken, _bskyDid.value).onSuccess { _userLists.value = it }
         }
     }
@@ -9301,7 +9301,7 @@ class MainViewModel(
         _currentIndex.value = 0
         _mediaItems.value = emptyList()
         _isLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             var result = bskyRepo.getPostsByUris(bskyToken, folder.posts)
             if (result.getOrNull().isNullOrEmpty() && folder.posts.isNotEmpty() && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getPostsByUris(bskyToken, folder.posts)
@@ -9341,7 +9341,7 @@ class MainViewModel(
     suspend fun sharedFeedCard(actor: String, kind: String, rkey: String): ProfileListEntry? {
         val key = "$actor/$kind/$rkey"
         sharedFeedCards[key]?.let { return it }
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             runCatching {
                 val did = if (actor.startsWith("did:")) actor else bskyRepo.getProfileBasics(bskyToken, actor).getOrNull()?.did ?: return@runCatching null
                 if (kind == "lists") {
@@ -9370,7 +9370,7 @@ class MainViewModel(
         val m = Regex("""profile/([^/\s?#]+)/feed/([^/\s?#]+)""").find(topic.link)
         if (m == null) { runSearch(topic.query); return }
         tapHaptic()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val actor = m.groupValues[1]
             val did = if (actor.startsWith("did:")) actor else bskyRepo.getProfileBasics(bskyToken, actor).getOrNull()?.did
             withContext(Dispatchers.Main) {
@@ -9451,7 +9451,7 @@ class MainViewModel(
      *  directly (service auth) — the PDS isn't involved. */
     fun scanDmStreak(convoId: String, onDone: () -> Unit) {
         if (convoId.isBlank() || !_bskyLoggedIn.value) { onDone(); return }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val me = _bskyDid.value
             val all = ArrayList<BskyMessageView>()
             var cursor: String? = null
@@ -9484,7 +9484,7 @@ class MainViewModel(
         val now = com.mediaviewer.platform.currentTimeMillis()
         if (_trendingTopics.value.isNotEmpty() && now - trendingLoadedAt < 10 * 60_000) return
         trendingLoadedAt = now
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             bskyRepo.getTrendingTopics(bskyToken, _bskyDid.value)
                 .onSuccess { if (it.isNotEmpty()) _trendingTopics.value = it }
                 .onFailure { trendingLoadedAt = 0L }

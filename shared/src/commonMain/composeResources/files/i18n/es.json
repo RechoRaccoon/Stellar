@@ -1777,5 +1777,14 @@
 "{0}'s profile": "Perfil de {0}",
 "{0}K posts": "{0} mil publicaciones",
 "{0}M posts": "{0} M de publicaciones",
-"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} fps, {3} Mbps."
+"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} fps, {3} Mbps.",
+"NOT ON WEB": "NO EN LA WEB",
+"Open in New Tab": "Abrir en una pestaña nueva",
+"Opened in a new tab to save": "Se abrió en una pestaña nueva para guardarlo",
+"Saving as a GIF isn't available on the web": "Guardar como GIF no está disponible en la web",
+"Custom video thumbnails aren't available on the web": "Las miniaturas de video personalizadas no están disponibles en la web",
+"Live Link isn't available on the web": "Live Link no está disponible en la web",
+"Not available on the web": "No disponible en la web",
+"Couldn't read the file to upload": "No se pudo leer el archivo para subir",
+"Network error: {0}": "Error de red: {0}"
 }

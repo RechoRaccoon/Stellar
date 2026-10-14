@@ -1777,5 +1777,14 @@
 "{0}'s profile": "{0}님의 프로필",
 "{0}K posts": "게시물 {0}K개",
 "{0}M posts": "게시물 {0}M개",
-"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} fps, {3} Mbps."
+"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}, {2} fps, {3} Mbps.",
+"NOT ON WEB": "웹 미지원",
+"Open in New Tab": "새 탭에서 열기",
+"Opened in a new tab to save": "저장할 수 있도록 새 탭에서 열었어요",
+"Saving as a GIF isn't available on the web": "GIF로 저장은 웹에서 사용할 수 없어요",
+"Custom video thumbnails aren't available on the web": "맞춤 동영상 썸네일은 웹에서 사용할 수 없어요",
+"Live Link isn't available on the web": "Live Link는 웹에서 사용할 수 없어요",
+"Not available on the web": "웹에서 사용할 수 없어요",
+"Couldn't read the file to upload": "업로드할 파일을 읽을 수 없어요",
+"Network error: {0}": "네트워크 오류: {0}"
 }

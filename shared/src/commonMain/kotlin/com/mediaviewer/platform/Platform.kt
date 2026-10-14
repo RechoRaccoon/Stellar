@@ -5,6 +5,8 @@ package com.mediaviewer.platform
  *  visualizer on iOS) — never to remove them from Android. */
 enum class PlatformKind { ANDROID, IOS,
     /** Windows and macOS (the desktop app, a JVM build of the shared code). */
-    DESKTOP }
+    DESKTOP,
+    /** A web browser (Kotlin/Wasm, the page in :webApp). */
+    WEB }
 
 expect val currentPlatform: PlatformKind

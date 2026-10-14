@@ -10,7 +10,6 @@ import kotlinx.coroutines.launch
 
 import com.mediaviewer.platform.sharedPreferences
 
-import kotlinx.coroutines.IO
 
 import com.mediaviewer.ui.compat.Build
 import androidx.compose.foundation.background
@@ -236,7 +235,7 @@ object ProfileColorStore {
         val resolver = bannerResolver ?: error("no resolver")
         val job = com.mediaviewer.platform.synchronizedCompat(inFlight) {
             inFlight.getOrPut(did) {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).async {
+                kotlinx.coroutines.CoroutineScope(com.mediaviewer.platform.ioDispatcher).async {
                     resolver(did).getOrThrow()
                 }
             }

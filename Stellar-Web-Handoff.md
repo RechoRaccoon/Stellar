@@ -14,6 +14,70 @@ from that branch, or from `main` once it's merged.
 
 ---
 
+## 0. Status (latest): the web version exists
+
+Built on `claude/blissful-shannon-dj3lzg` (from the desktop branch, with
+`main` merged in). Decisions from Recho: **GitHub Pages**, and the page
+**fills the browser window** (the window can be resized to any shape).
+
+**What was done**
+- `Dispatchers.IO` → `ioDispatcher` everywhere in commonMain
+  (`platform/PlatformFunctions.kt`; `Dispatchers.IO` on Android/iOS/desktop,
+  `Dispatchers.Default` on the web).
+- Settings: commonMain no longer touches DataStore. `util/settings/Settings.kt`
+  is a tiny interface with DataStore's names (`stringPreferencesKey`,
+  `edit { }`, …); on Android, iOS and desktop it wraps the very same
+  DataStore file (`src/nonWebMain/.../DataStoreSettings.kt`), so nothing moved.
+  `PreferencesManager` now reads `context.appSettings`.
+- New source set **`nonWebMain`** (Android + desktop + iOS; `shared/build.gradle.kts`
+  hierarchy template): DataStore, `Dispatchers.IO`.
+- `wasmJs` target + `src/wasmJsMain` (every `actual`), and the **`webApp`**
+  module (`Main.kt`, `index.html`).
+- `PlatformKind.WEB`; gray-out tag reads **"NOT ON WEB"** (translated).
+- `web.yml` (+ copy): builds on every push (artifact `Stellar-Web`); on
+  `main` it also publishes to Pages. **One-time:** Settings → Pages →
+  Source: "GitHub Actions". Fonts are downloaded by the workflow into
+  `fonts/` (Noto Sans, Noto Color Emoji, Noto Sans CJK JP/KR/SC).
+- `tools/*-typecheck/check.py` include `nonWebMain`; `extract.py` reads
+  `wasmJsMain` too.
+
+**How the web parts work** (all in `shared/src/wasmJsMain`)
+- Storage: `WebFiles` — every "file" lives in memory and is saved to
+  IndexedDB; it's all loaded before the first frame. SharedPreferences and
+  the settings file are JSON files in it. Picked files stay browser `File`s
+  (`WebBlobs`); a video upload is sent straight from the `File`.
+- Network: `HttpEngine.web.kt` on `fetch()` (no User-Agent — browsers forbid
+  it; e621 gets `_client=` instead). Failures are logged to the console.
+- Images: Coil with its own fetcher on the same `fetch` (`WebImageLoading`).
+- Video: an HTML `<video>` (hls.js for HLS, from jsDelivr) placed **behind**
+  the canvas; the post clears a see-through hole there (`WebVideo.kt`), so
+  menus and controls still draw over it.
+- Back: Esc, mouse back button, browser back (one history entry is kept
+  while something can go back) — `webApp/.../Main.kt`.
+- Downloads: browser downloads ("Save as…" paths under `/downloads/`).
+- Notifications: browser Notification API while the tab is open.
+- In-app browser / live-stream embeds: a card that opens a new tab.
+- Not on web (grayed out or a message): GIF export, custom video
+  thumbnails, re-encoding (videos upload as-is), VRM, Camera, AI tagging,
+  Translate, visualizer, scrobbling, widgets, Live Link.
+
+**Tested locally** (headless Chromium, Bluesky's API stood in for): sign-in,
+feed, images, video playback behind the canvas with controls on top, emoji
+and CJK/Cyrillic text, browser back / Esc, staying signed in after reload.
+
+**Still unknown — check in a real browser:** whether e621, Rocksky,
+Streamplace, Last.fm covers etc. allow browser requests (CORS). Anything a
+server refuses shows up in the console (F12) as `W/Http: … failed`. If some
+refuse, the choices are a small proxy (Recho hosts) or graying them out.
+
+**Local web build in the cloud sandbox:** Google's Maven is blocked there,
+and the web build needs `androidx.annotation` 1.9.1 and
+`androidx.collection` 1.5.0 for wasm. They can be built from
+JetBrains/compose-multiplatform-core sources (tag v1.8.2) into a local
+Maven folder; the rest resolves from Google's mirror of Maven Central.
+
+---
+
 ## 1. Ground rules (from Recho)
 
 - The owner is **Recho**. Never write instructions as "I" on Recho's behalf.

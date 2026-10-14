@@ -12,7 +12,7 @@ import os, re, json, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', '..', 'shared', 'src')
-ROOTS = [os.path.join(SRC, s, 'kotlin') for s in ('commonMain', 'androidMain', 'iosMain', 'desktopMain')]
+ROOTS = [os.path.join(SRC, s, 'kotlin') for s in ('commonMain', 'nonWebMain', 'androidMain', 'iosMain', 'desktopMain', 'wasmJsMain')]
 I18N = os.path.join(SRC, 'commonMain', 'composeResources', 'files', 'i18n')
 
 def kotlin_strings(src):

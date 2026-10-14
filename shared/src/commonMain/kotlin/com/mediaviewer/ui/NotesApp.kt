@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.background
+import com.mediaviewer.platform.ioDispatcher
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -74,7 +75,6 @@ import com.mediaviewer.util.LocalData
 import com.mediaviewer.util.NoteEntry
 import com.mediaviewer.util.rememberHapticTap
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -427,7 +427,7 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
-            val kept = withContext(Dispatchers.IO) { LocalPlatform.importMedia(context, uri, "notes")?.toString() } ?: return@launch
+            val kept = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "notes")?.toString() } ?: return@launch
             val t = body.text
             val caret = body.selection.max.coerceIn(0, t.length)
             val insert = (if (caret > 0 && t[caret - 1] != '\n') "\n" else "") + "![]($kept)\n"

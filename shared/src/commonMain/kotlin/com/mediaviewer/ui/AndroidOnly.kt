@@ -35,9 +35,13 @@ import com.mediaviewer.platform.PlatformFeature
 fun AndroidOnlyTag(modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(50)
     Text(
-        // (On a computer the tag says what's actually true there: some of
-        // these work on iOS too.)
-        text = if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.DESKTOP) "NOT ON DESKTOP" else "ANDROID ONLY",
+        // (On a computer and on the web the tag says what's actually true
+        // there: some of these work on iOS too.)
+        text = when (com.mediaviewer.platform.currentPlatform) {
+            com.mediaviewer.platform.PlatformKind.DESKTOP -> "NOT ON DESKTOP"
+            com.mediaviewer.platform.PlatformKind.WEB -> "NOT ON WEB"
+            else -> "ANDROID ONLY"
+        },
         color = Color.White,
         fontSize = 9.sp,
         fontWeight = FontWeight.Bold,

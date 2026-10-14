@@ -1,0 +1,153 @@
+package com.mediaviewer.web
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.platform.Font
+import androidx.compose.ui.window.ComposeViewport
+import com.mediaviewer.platform.WebAppPlatform
+import com.mediaviewer.platform.WebContext
+import com.mediaviewer.platform.WebFiles
+import com.mediaviewer.i18n.Translations
+import com.mediaviewer.platform.defaultLanguageCode
+import com.mediaviewer.ui.SharedAppHost
+import com.mediaviewer.ui.compat.WebBack
+import com.mediaviewer.util.WebFonts
+import com.mediaviewer.util.WebImageLoading
+import kotlinx.browser.document
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * Stellar in a web browser: the same shared app as Android, iOS and the
+ * desktop app, filling the browser window (drag the window to any shape;
+ * a narrow one looks like the phone app). What's saved (sign-in,
+ * settings, drafts) is read from the browser's storage before the first
+ * frame.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+fun main() {
+    WebCrashLog.install()
+    WebImageLoading.install()
+    WebBackButton.install()
+    MainScope().launch {
+        WebFiles.load()
+        val crash = WebCrashLog.read()
+        ComposeViewport(document.body!!) {
+            WebFontsLoader()
+            SharedAppHost(
+                context = WebContext,
+                createPlatform = { bsky, e621 -> WebAppPlatform(bsky, e621) },
+                crashLog = crash,
+                onCrashLogDismissed = { WebCrashLog.clear() }
+            )
+        }
+        hideSplash()
+    }
+}
+
+/**
+ * Brings in the fonts a browser doesn't have (see WebFonts): Compose then
+ * uses them for any character its own font can't draw — emoji, Japanese,
+ * Korean, Chinese.
+ */
+@Composable
+private fun WebFontsLoader() {
+    val resolver = LocalFontFamilyResolver.current
+    LaunchedEffect(Unit) {
+        suspend fun use(font: WebFonts.WebFont) {
+            val bytes = WebFonts.fetch(font) ?: return
+            runCatching { resolver.preload(FontFamily(Font(identity = font.name, data = bytes))) }
+        }
+        use(WebFonts.LATIN)
+        launch {
+            // The app in Japanese, Korean or Chinese: that font straight away.
+            snapshotFlow { Translations.language.code }.collect { code -> if (WebFonts.isCjk(code)) use(WebFonts.cjkFor(code)) }
+        }
+        use(WebFonts.EMOJI)
+        // (Everything else a little later, so the first screen isn't kept waiting.)
+        delay(4_000)
+        use(WebFonts.LATIN_BOLD)
+        use(WebFonts.cjkFor(defaultLanguageCode()))
+    }
+}
+
+/**
+ * "Back" on the web, wherever it comes from: Esc, the mouse's back button,
+ * or the browser's own back button / a phone's back gesture. While
+ * something on screen can go back (an open page, a sheet), the page keeps
+ * one extra step in the browser's history, so the browser's back closes
+ * that instead of leaving Stellar.
+ */
+private object WebBackButton {
+    private var pushed = false
+    private var ignoreNextPop = false
+
+    fun install() {
+        WebBack.onWantsBackChanged = { want -> sync(want) }
+        listenBack(
+            onEscape = { WebBack.dispatch() },
+            onPop = {
+                if (ignoreNextPop) {
+                    ignoreNextPop = false
+                } else {
+                    pushed = false
+                    WebBack.dispatch()
+                    // (What's left on screen may still want "back" next time.)
+                    com.mediaviewer.platform.setTimeoutMs(300) { sync(WebBack.wantsBack()) }
+                }
+            }
+        )
+    }
+
+    private fun sync(want: Boolean) {
+        if (want && !pushed) {
+            pushed = true
+            pushHistory()
+        } else if (!want && pushed) {
+            pushed = false
+            ignoreNextPop = true
+            historyBack()
+        }
+    }
+}
+
+private fun listenBack(onEscape: () -> Boolean, onPop: () -> Unit): Unit = js("""{
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !e.repeat) { if (onEscape()) { e.preventDefault(); } }
+    }, true);
+    window.addEventListener('mouseup', (e) => {
+        if (e.button === 3) { e.preventDefault(); onEscape(); }
+    }, true);
+    window.addEventListener('popstate', () => onPop());
+}""")
+
+private fun pushHistory(): Unit = js("history.pushState({ stellar: true }, '')")
+private fun historyBack(): Unit = js("history.back()")
+private fun hideSplash(): Unit = js("{ const s = document.getElementById('splash'); if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 400); } }")
+
+/**
+ * Like the other versions' crash screen: an error that stops Stellar is
+ * kept (in the browser's storage) and shown as copyable text the next
+ * time the page is opened.
+ */
+private object WebCrashLog {
+    fun install() = installCrashHandler()
+    fun read(): String? = runCatching { readCrash() }.getOrNull()?.takeIf { it.isNotBlank() }
+    fun clear() { runCatching { clearCrash() } }
+}
+
+private fun installCrashHandler(): Unit = js("""{
+    const save = (text) => { try { localStorage.setItem('stellar_last_crash', String(text).slice(0, 20000)); } catch (e) {} };
+    window.addEventListener('error', (e) => { if (e && e.error) save((e.error.stack || e.error.message || e.error) + ''); });
+    window.addEventListener('unhandledrejection', (e) => {
+        const r = e && e.reason;
+        if (r && r instanceof WebAssembly.RuntimeError) save((r.stack || r.message || r) + '');
+    });
+}""")
+private fun readCrash(): String? = js("localStorage.getItem('stellar_last_crash')")
+private fun clearCrash(): Unit = js("localStorage.removeItem('stellar_last_crash')")

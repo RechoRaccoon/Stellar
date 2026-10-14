@@ -1,13 +1,13 @@
 package com.mediaviewer.util
 
 import androidx.compose.runtime.mutableStateMapOf
+import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.json.StellarJson
 import com.mediaviewer.platform.PlatformContext
 import com.mediaviewer.platform.SharedPreferences
 import com.mediaviewer.platform.sharedPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,7 +85,7 @@ object ProfileStyles {
     /** Looked up already this session (whatever the answer was). */
     private val asked = HashSet<String>()
     private var prefs: SharedPreferences? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
     /** Reads one account's style record (null = it has none). Set by the ViewModel. */
     @kotlin.concurrent.Volatile var fetcher: (suspend (did: String) -> ProfileStyle?)? = null

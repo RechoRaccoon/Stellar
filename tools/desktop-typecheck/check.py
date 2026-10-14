@@ -76,6 +76,8 @@ open(GEN + '/Res.kt', 'w').write('\n'.join(g))
 appc, appd = [], []
 walk(APP + '/shared/src/commonMain/kotlin', appc)
 walk(APP + '/shared/src/desktopMain/kotlin', appd)
+# (nonWebMain: shared by every version but the web — DataStore, Dispatchers.IO.)
+walk(APP + '/shared/src/nonWebMain/kotlin', appd)
 walk(APP + '/desktopApp/src', appd)
 alltext = '\n'.join(open(f, encoding='utf8').read() for f in appc + appd)
 styles = ['Filled', 'Outlined', 'Rounded', 'Sharp', 'TwoTone']

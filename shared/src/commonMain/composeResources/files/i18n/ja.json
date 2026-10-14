@@ -1777,5 +1777,14 @@
 "{0}'s profile": "{0}のプロフィール",
 "{0}K posts": "{0}K件の投稿",
 "{0}M posts": "{0}M件の投稿",
-"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}、{2} fps、{3} Mbps。"
+"{0}×{1}, {2} fps, {3} Mbps. ": "{0}×{1}、{2} fps、{3} Mbps。",
+"NOT ON WEB": "Web版非対応",
+"Open in New Tab": "新しいタブで開く",
+"Opened in a new tab to save": "保存するために新しいタブで開きました",
+"Saving as a GIF isn't available on the web": "GIFとして保存はWeb版では使えません",
+"Custom video thumbnails aren't available on the web": "動画のカスタムサムネイルはWeb版では使えません",
+"Live Link isn't available on the web": "Live LinkはWeb版では使えません",
+"Not available on the web": "Web版では使えません",
+"Couldn't read the file to upload": "アップロードするファイルを読み込めませんでした",
+"Network error: {0}": "ネットワークエラー：{0}"
 }

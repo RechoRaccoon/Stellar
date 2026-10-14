@@ -1,10 +1,10 @@
 package com.mediaviewer.util
 
 import com.mediaviewer.platform.MediaBridge
+import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.platform.PlatformContext
 import com.mediaviewer.platform.PlatformUri
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 /**
@@ -24,7 +24,7 @@ object GifPick {
     /** True when [uri] is a video made here from a GIF. */
     fun wasGif(uri: PlatformUri): Boolean = uri.toString() in fromGifs
 
-    suspend fun prepare(context: PlatformContext, uri: PlatformUri): Picked = withContext(Dispatchers.IO) {
+    suspend fun prepare(context: PlatformContext, uri: PlatformUri): Picked = withContext(ioDispatcher) {
         val type = MediaBridge.mimeTypeOf(context, uri)?.lowercase().orEmpty()
         if (type.startsWith("video/")) return@withContext Picked(uri, true)
         val bytes = runCatching { MediaBridge.readBytes(context, uri) }.getOrNull()

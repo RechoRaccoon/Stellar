@@ -1,13 +1,13 @@
 package com.mediaviewer.repository
 
 import com.mediaviewer.ui.matches
+import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.platform.Log
 import com.mediaviewer.model.*
 import com.mediaviewer.network.BlueskyApi
 import com.mediaviewer.network.NetworkClient
 import com.mediaviewer.worker.BlueskyBlobResolver
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -286,7 +286,7 @@ class BlueskyRepository {
      * sign-ins) use bsky.social. Only HTTPS servers are ever used — the
      * password is sent to the account's own server and nowhere else.
      */
-    suspend fun resolveLoginService(identifier: String): String = withContext(Dispatchers.IO) {
+    suspend fun resolveLoginService(identifier: String): String = withContext(ioDispatcher) {
         val id = identifier.trim().removePrefix("@").lowercase()
         val default = com.mediaviewer.util.BskyServices.DEFAULT
         // An email address, or a Bluesky-hosted handle: nothing to look up.
@@ -344,7 +344,7 @@ class BlueskyRepository {
 
     /** Whether Bluesky wants its "are you human" check before an account
      *  can be made (it does, as a rule). */
-    suspend fun signupNeedsVerification(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun signupNeedsVerification(): Boolean = withContext(ioDispatcher) {
         runCatching {
             val body = signupApi.describeServer().body()
             body?.get("phoneVerificationRequired")?.takeIf { it.isJsonPrimitive }?.asBoolean
@@ -352,7 +352,7 @@ class BlueskyRepository {
     }
 
     /** True = free, false = taken, null = couldn't tell. */
-    suspend fun isHandleAvailable(handle: String): Boolean? = withContext(Dispatchers.IO) {
+    suspend fun isHandleAvailable(handle: String): Boolean? = withContext(ioDispatcher) {
         runCatching {
             val resp = signupApi.resolveHandle(handle)
             when {
@@ -363,7 +363,7 @@ class BlueskyRepository {
         }.getOrNull()
     }
 
-    suspend fun createAccount(email: String, handle: String, password: String, verificationCode: String?): Result<BskySession> = withContext(Dispatchers.IO) {
+    suspend fun createAccount(email: String, handle: String, password: String, verificationCode: String?): Result<BskySession> = withContext(ioDispatcher) {
         runCatching {
             val body = LinkedHashMap<String, String>()
             body["email"] = email.trim()
@@ -376,14 +376,14 @@ class BlueskyRepository {
     }
 
     /** Asks Bluesky to email the confirmation code for a new account. */
-    suspend fun requestEmailConfirmation(accessJwt: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun requestEmailConfirmation(accessJwt: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val resp = signupApi.requestEmailConfirmation("Bearer $accessJwt")
             if (!resp.isSuccessful) error(serverMessage(resp, "Couldn't send the email").second)
         }
     }
 
-    suspend fun confirmEmail(accessJwt: String, email: String, code: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun confirmEmail(accessJwt: String, email: String, code: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val resp = signupApi.confirmEmail("Bearer $accessJwt", mapOf("email" to email.trim(), "token" to code.trim()))
             if (!resp.isSuccessful) {
@@ -395,7 +395,7 @@ class BlueskyRepository {
 
     /** Stores a new account's date of birth where Bluesky keeps it (its
      *  own preferences), as the official app does at sign-up. */
-    suspend fun setBirthDate(accessJwt: String, isoDate: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun setBirthDate(accessJwt: String, isoDate: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val getResp = signupApi.getPreferences("Bearer $accessJwt")
             val preferences = (getResp.body()?.preferences ?: emptyList()).filterNot {
@@ -1548,7 +1548,7 @@ class BlueskyRepository {
 
     /** Uploads [bytes] as a blob to the signed-in account's repo (a cover
      *  picture for app.rocksky.* records). Failures read like putRepoRecord's. */
-    suspend fun uploadRawBlob(token: String, bytes: ByteArray, mimeType: String): Result<BskyBlob> = withContext(Dispatchers.IO) {
+    suspend fun uploadRawBlob(token: String, bytes: ByteArray, mimeType: String): Result<BskyBlob> = withContext(ioDispatcher) {
         runCatching {
             val resp = api.uploadBlob("Bearer $token", mimeType, bytes.toRequestBody(mimeType.toMediaType()))
             resp.body()?.blob?.takeIf { resp.isSuccessful } ?: error("uploadBlob failed: ${resp.code()} ${errorBodyText(resp).take(200)}")
@@ -1558,7 +1558,7 @@ class BlueskyRepository {
     /** One page (100) of [collection] in [did]'s own repo, read through the
      *  signed-in server. */
     suspend fun listRepoRecordsPage(token: String, did: String, collection: String, cursor: String?): Result<BskyListRecordsResponse> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             runCatching {
                 val resp = api.listRecords("Bearer $token", did, collection, 100, cursor)
                 if (!resp.isSuccessful) error("listRecords failed: ${resp.code()} ${errorBodyText(resp).take(200)}")
@@ -1658,7 +1658,7 @@ class BlueskyRepository {
                     )
                 }
                 if (!cid.isNullOrBlank()) {
-                    val resolved = runCatching { withContext(Dispatchers.IO) { BlueskyBlobResolver.resolveBlobUrl(ownerDid, cid) } }.getOrNull()
+                    val resolved = runCatching { withContext(ioDispatcher) { BlueskyBlobResolver.resolveBlobUrl(ownerDid, cid) } }.getOrNull()
                     if (resolved != null) return resolved
                 }
             }
@@ -3048,7 +3048,7 @@ class BlueskyRepository {
         text: String, media: List<PlatformUri>,
         /** Content warnings on the media — the same self-labels a post gets. */
         selfLabels: List<String> = emptyList()
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(ioDispatcher) {
         runCatching {
             // A video, or an animated GIF (which goes up as a looping video,
             // never as a still picture), is posted on its own.
@@ -3641,7 +3641,7 @@ class BlueskyRepository {
      *  the final uploaded dimensions for embed aspect-ratio metadata. */
     suspend fun uploadImageBlob(
         token: String, context: com.mediaviewer.platform.PlatformContext, uri: com.mediaviewer.platform.PlatformUri
-    ): Result<UploadedImage> = withContext(Dispatchers.IO) {
+    ): Result<UploadedImage> = withContext(ioDispatcher) {
         runCatching {
             // One picture decoded at a time (several big photos decoded at
             // once could run the phone out of memory); uploads overlap.
@@ -3675,7 +3675,7 @@ class BlueskyRepository {
         displayName: String, description: String,
         avatarUri: com.mediaviewer.platform.PlatformUri?, bannerUri: com.mediaviewer.platform.PlatformUri?,
         newHandle: String?
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val existing = api.getRecord("Bearer $token", did, "app.bsky.actor.profile", "self")
             val record = LinkedHashMap<String, Any>()
@@ -3784,7 +3784,7 @@ class BlueskyRepository {
         imageAlts: List<String> = emptyList(),
         // Bluesky self-labels (content warnings) — see selfLabelsField.
         selfLabels: List<String> = emptyList()
-    ): Result<BskyRef> = withContext(Dispatchers.IO) {
+    ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
         val record = mutableMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
@@ -3835,7 +3835,7 @@ class BlueskyRepository {
         postUri: String, newText: String,
         images: List<com.mediaviewer.platform.PlatformUri>, existingImageUrls: List<String>,
         imagesEditable: Boolean, selfLabels: List<String>
-    ): Result<BskyRef> = withContext(Dispatchers.IO) {
+    ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val rkey = postUri.substringAfterLast('/')
             val existing = api.getRecord("Bearer $token", did, "app.bsky.feed.post", rkey)
@@ -3948,7 +3948,7 @@ class BlueskyRepository {
      * PDS, without signing in (records are public). Null = they have none.
      * Throws when the PDS can't be reached, so the caller can try again.
      */
-    suspend fun getProfileStyle(did: String): com.mediaviewer.util.ProfileStyle? = withContext(Dispatchers.IO) {
+    suspend fun getProfileStyle(did: String): com.mediaviewer.util.ProfileStyle? = withContext(ioDispatcher) {
         // Straight from their PDS first; if that route fails (DID lookup,
         // a PDS that refuses the call, a network hiccup) read the same
         // record through Bluesky's entryway — the route reviews and blogs
@@ -3987,7 +3987,7 @@ class BlueskyRepository {
     }
 
     /** Your own record, read through your own signed-in server. */
-    suspend fun getOwnProfileStyle(token: String, did: String): com.mediaviewer.util.ProfileStyle? = withContext(Dispatchers.IO) {
+    suspend fun getOwnProfileStyle(token: String, did: String): com.mediaviewer.util.ProfileStyle? = withContext(ioDispatcher) {
         val resp = api.getRecord("Bearer $token", did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY)
         if (!resp.isSuccessful) {
             val text = errorBodyText(resp)
@@ -4020,7 +4020,7 @@ class BlueskyRepository {
     }
 
     /** Writes (or, when everything is back to default, removes) your own. */
-    suspend fun saveProfileStyle(token: String, did: String, style: com.mediaviewer.util.ProfileStyle): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun saveProfileStyle(token: String, did: String, style: com.mediaviewer.util.ProfileStyle): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             if (style.isDefault) {
                 // Nothing customized: no record needed at all.
@@ -4107,7 +4107,7 @@ class BlueskyRepository {
      */
     suspend fun archivePost(
         token: String, did: String, context: PlatformContext, item: MediaItem
-    ): Result<com.mediaviewer.util.ArchivedPost> = withContext(Dispatchers.IO) {
+    ): Result<com.mediaviewer.util.ArchivedPost> = withContext(ioDispatcher) {
         runCatching {
             val rkey = item.postUri.substringAfterLast('/')
             val existing = api.getRecord("Bearer $token", did, "app.bsky.feed.post", rkey)
@@ -4178,7 +4178,7 @@ class BlueskyRepository {
      */
     suspend fun restoreArchivedPost(
         token: String, did: String, context: PlatformContext, post: com.mediaviewer.util.ArchivedPost
-    ): Result<BskyRef> = withContext(Dispatchers.IO) {
+    ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val record = StellarJson.default.parseToJsonElement(post.record) as? kotlinx.serialization.json.JsonObject
                 ?: error("This archived post can't be read")
@@ -4234,7 +4234,7 @@ class BlueskyRepository {
         token: String, did: String, context: com.mediaviewer.platform.PlatformContext,
         posts: List<ThreadPostToSend>,
         selfLabels: List<String> = emptyList()
-    ): Result<List<BskyRef>> = withContext(Dispatchers.IO) {
+    ): Result<List<BskyRef>> = withContext(ioDispatcher) {
         runCatching {
         val created = mutableListOf<BskyRef>()
         var root: BskyRef? = null
@@ -4263,7 +4263,7 @@ class BlueskyRepository {
      *  profile, and show it in the Text Post tab instead of Images — see
      *  isTextshotAltText/textshotTextFromAlt below. */
     suspend fun createTextshotPost(token: String, did: String, textshotBitmap: com.mediaviewer.platform.PlatformBitmap, textshotText: String, selfLabels: List<String> = emptyList(), hasEmoji: Boolean = false, postText: String = ""): Result<BskyRef> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             runCatching {
                 val bytes = MediaBridge.encodePng(textshotBitmap)
                 val body = bytes.toRequestBody("image/png".toMediaType())
@@ -4291,7 +4291,7 @@ class BlueskyRepository {
      *  (looping, silent, no controls). */
     private class UploadedVideo(val blob: BskyBlob, val width: Int, val height: Int, val isGif: Boolean = false)
 
-    private val videoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val videoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + ioDispatcher)
     @kotlin.concurrent.Volatile private var pendingVideo: PendingVideo? = null
 
     private fun videoKey(did: String, video: PlatformUri, thumbnail: PlatformUri?): String = "$did|$video|${thumbnail ?: ""}"
@@ -4393,7 +4393,7 @@ class BlueskyRepository {
 
     /** The file's bytes when it's an animated GIF (going by its contents,
      *  not its name or reported type); null otherwise. */
-    private suspend fun animatedGif(context: PlatformContext, uri: PlatformUri): ByteArray? = withContext(Dispatchers.IO) {
+    private suspend fun animatedGif(context: PlatformContext, uri: PlatformUri): ByteArray? = withContext(ioDispatcher) {
         val type = MediaBridge.mimeTypeOf(context, uri)?.lowercase().orEmpty()
         if (type.startsWith("video/")) return@withContext null
         val bytes = runCatching { MediaBridge.readBytes(context, uri) }.getOrNull() ?: return@withContext null
@@ -4505,7 +4505,7 @@ class BlueskyRepository {
         videoUri: com.mediaviewer.platform.PlatformUri, thumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
         title: String, description: String,
         selfLabels: List<String> = emptyList()
-    ): Result<BskyRef> = withContext(Dispatchers.IO) {
+    ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val key = videoKey(did, videoUri, thumbnailUri)
             val prepared = pendingVideo?.takeIf { it.key == key && !it.failed }
@@ -5043,7 +5043,7 @@ class BlueskyRepository {
     suspend fun publishBlog(
         token: String, did: String, handle: String, displayName: String,
         context: com.mediaviewer.platform.PlatformContext, draft: BlogDraft, selfLabels: List<String>
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(ioDispatcher) {
         runCatching {
             // Existing record (editing): keep everything we don't manage.
             val editing = draft.editingUri
@@ -5168,7 +5168,7 @@ class BlueskyRepository {
     /** Reads one blog record straight from the author's repo (no AppView
      *  involved, so a blog that was published a moment ago is already
      *  there) and parses it like the Blogs tab does. Null if it can't. */
-    suspend fun getBlogByUri(token: String, did: String, uri: String): LeafletBlog? = withContext(Dispatchers.IO) {
+    suspend fun getBlogByUri(token: String, did: String, uri: String): LeafletBlog? = withContext(ioDispatcher) {
         runCatching {
             val obj = api.getRecord("Bearer $token", did, blogCollection(uri), blogRkey(uri)).body()?.value
                 ?.takeIf { it.isJsonObject }?.asJsonObject ?: return@runCatching null
@@ -5177,7 +5177,7 @@ class BlueskyRepository {
     }
 
     /** Same idea for a Popfeed review just posted. */
-    suspend fun getReviewByUri(token: String, did: String, uri: String): PopfeedReview? = withContext(Dispatchers.IO) {
+    suspend fun getReviewByUri(token: String, did: String, uri: String): PopfeedReview? = withContext(ioDispatcher) {
         runCatching {
             val collection = uri.removePrefix("at://").split('/').getOrNull(1) ?: return@runCatching null
             val obj = api.getRecord("Bearer $token", did, collection, uri.substringAfterLast('/')).body()?.value
@@ -5188,7 +5188,7 @@ class BlueskyRepository {
 
     /** Item 12: reads one of your blogs back into editor rows (pen icon in
      *  the reader). Works for Stellar and Leaflet blogs alike. */
-    suspend fun loadBlogForEditing(token: String, did: String, uri: String): Result<Pair<BlogDraft, List<String>>> = withContext(Dispatchers.IO) {
+    suspend fun loadBlogForEditing(token: String, did: String, uri: String): Result<Pair<BlogDraft, List<String>>> = withContext(ioDispatcher) {
         runCatching {
             val collection = blogCollection(uri)
             val obj = api.getRecord("Bearer $token", did, collection, blogRkey(uri)).body()?.value
@@ -5261,7 +5261,7 @@ class BlueskyRepository {
      * matching record under the other collection (same key, same title)
      * goes too, otherwise the "deleted" blog would reappear from it.
      */
-    suspend fun deleteBlog(token: String, did: String, blog: LeafletBlog): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteBlog(token: String, did: String, blog: LeafletBlog): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val collection = blogCollection(blog.uri)
             val rkey = blogRkey(blog.uri)

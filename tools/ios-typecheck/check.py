@@ -96,6 +96,8 @@ open(GEN + '/Res.kt', 'w').write('\n'.join(g))
 appc, appi = [], []
 walk(APP + '/shared/src/commonMain/kotlin', appc)
 walk(APP + '/shared/src/iosMain/kotlin', appi)
+# (nonWebMain: shared by every version but the web — DataStore, Dispatchers.IO.)
+walk(APP + '/shared/src/nonWebMain/kotlin', appi)
 alltext = '\n'.join(open(f, encoding='utf8').read() for f in appc + appi)
 styles = ['Filled', 'Outlined', 'Rounded', 'Sharp', 'TwoTone']
 icons = set()

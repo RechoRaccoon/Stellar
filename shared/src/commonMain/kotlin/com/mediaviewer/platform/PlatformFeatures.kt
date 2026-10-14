@@ -1,7 +1,7 @@
 package com.mediaviewer.platform
 
 /**
- * Features that only exist on Android. On iOS and the desktop app they stay
+ * Features that only exist on Android. On iOS, the desktop app and the web they stay
  * visible in the UI but dimmed, not clickable, and marked with an "Android
  * only" tag (see
  * ui/AndroidOnly.kt) — never hidden, never removed from Android.
@@ -27,7 +27,8 @@ enum class PlatformFeature(val label: String) {
         (this == AI_TAGGING && IosCapabilities.aiTagging) ||
         // iOS: GIFs made with Apple's own image and video frameworks.
         (this == GIF_EXPORT && IosCapabilities.gifExport) ||
-        // iOS: fonts imported from the Files app; desktop: from any folder.
+        // iOS: fonts imported from the Files app; desktop: from any folder;
+        // web: picked with the browser's file picker.
         this == CUSTOM_FONT ||
         // iOS: through a share-sheet shortcut (Settings explains how).
         (this == OPEN_BY_DEFAULT_LINKS && currentPlatform == PlatformKind.IOS) ||

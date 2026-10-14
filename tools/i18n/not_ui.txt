@@ -436,3 +436,81 @@ vrm file: {0} — {1} bones, {2} expressions\n
 {0}Foot
 {0}Hand
 {0}{1} (pss {2} MB)
+
+# The web version (wasmJsMain): browser code, HTTP status names, font names, log lines.
+!!o[key]
+(() => { const a = new Audio(url); a.loop = true; a.play().catch(() => {}); return a; })()
+(+o[key] || 0)
+(e && (e.message || String(e))) || 'failed'
+(isFinite(v.duration) ? v.duration : 0)
+(navigator.language || 'en')
+(new Intl.DisplayNames(['en'], { type: 'language' })).of(tag) || ''
+(o[key] == null ? null : String(o[key]))
+(o[key] | 0)
+(v.currentTime || 0)
+-new Date(epochMillis).getTimezoneOffset()
+.json,{0}
+.ttf,.otf,.ttc,{0}
+Accepted
+Bad Gateway
+Bad Request
+Bad URL encoding
+Conflict
+Couldn't load fonts/{0}
+Couldn't read saved data: {0}
+Created
+Date.now()
+File not found: {0}
+Font not found
+Forbidden
+Found
+Gateway Timeout
+Internal Server Error
+Malformed URL: {0}
+Moved Permanently
+No Content
+Not Found
+Not Modified
+Noto Color Emoji
+Noto Sans
+Noto Sans Bold
+Noto Sans CJK JP
+Noto Sans CJK KR
+Noto Sans CJK SC
+Payload Too Large
+Service Unavailable
+Text '{0}' could not be parsed
+Text '{0}' has an offset
+Text '{0}' has no offset
+Text '{0}' is out of range
+Too Many Requests
+Too large to clean in the browser
+URL.createObjectURL(blob)
+URL.revokeObjectURL(url)
+Unauthorized
+a.push(v)
+a.subarray(from, to)
+blob.arrayBuffer().then(b => new Uint8Array(b))
+c.abort()
+decodeURIComponent(s)
+document.visibilityState === 'visible'
+dst.set(src, at)
+encodeURIComponent(s)
+image/*,video/*
+n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+new AbortController()
+new Blob([bytes], { type: type })
+new Date(Date.UTC(2020, 7, 2 + weekday)).toLocaleString(undefined, { weekday: long ? 'long' : 'short', timeZone: 'UTC' })
+new Date(Date.UTC(2020, month, 15)).toLocaleString(undefined, { month: long ? 'long' : 'short', timeZone: 'UTC' })
+new URLSearchParams(location.search).has('debug')
+new Uint8Array(size)
+new Uint8Array(wasmExports.memory.buffer, dstAddr, size).set(src)
+new Uint8Array(wasmExports.memory.buffer, srcAddr, size).slice()
+o[key]
+o[key] = value
+performance.now()
+setTimeout(() => block(), ms)
+v.pause()
+v.videoHeight | 0
+v.videoWidth | 0
+yyyy-MM-dd HH:mm:ss

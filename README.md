@@ -26,6 +26,13 @@ Download these builds in [Releases](https://github.com/RechoRaccoon/Stellar/rele
 Android --> apk
 Windows --> exe/msi
 Mac --> dmg
+# Use Stellar in your browser
+Open **https://rechoraccoon.github.io/Stellar/** — nothing to install. Works in Chrome or Edge 119+, Firefox 120+ and Safari 18.2+.
+- Make the window any size or shape you like: a narrow window looks like the phone app.
+- **Esc**, the mouse's back button, or the browser's back button goes back.
+- Your sign-in and settings stay in that browser (clearing the site's data signs you out).
+- VRM mode, the Camera page, AI Tagging, Translate, the audio visualizer, music scrobbling and saving as a GIF show as "Not on Web".
+
 # Install on iOS
 - Download Stellar.ipa from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
 - On Windows, install **iTunes** and **iCloud** from **apple.com** (not the Microsoft Store) (Mac can skip this)

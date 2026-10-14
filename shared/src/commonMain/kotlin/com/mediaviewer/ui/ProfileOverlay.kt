@@ -157,7 +157,6 @@ import com.mediaviewer.util.formatRelativeTime
 import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.IO
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
 import com.mediaviewer.ui.compat.PickVisualMediaRequest
 import com.mediaviewer.ui.compat.ActivityResultContracts
@@ -728,7 +727,7 @@ fun ProfileOverlay(
         coverTarget = null
         if (uri != null && track != null) coverScope.launch {
             com.mediaviewer.ui.compat.Toast.makeText(coverContext, "Updating the cover…", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
-            val problem = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val problem = kotlinx.coroutines.withContext(com.mediaviewer.platform.ioDispatcher) {
                 val jpeg = runCatching { com.mediaviewer.platform.MediaBridge.squareJpeg(coverContext, uri, 600) }.getOrNull()
                 if (jpeg == null) "That picture couldn't be read."
                 else com.mediaviewer.util.RockskyScrobbler.setSongCover(coverContext, author.did, track.title, track.artist, jpeg)
