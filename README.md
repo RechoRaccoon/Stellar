@@ -23,6 +23,9 @@ Every feature in Stellar is free for everyone!! If you'd like to help Recho affo
 
 # Install on Android, Windows, and Mac
 Download these builds in [Releases](https://github.com/RechoRaccoon/Stellar/releases)
+Android --> apk
+Windows --> exe/msi
+Mac --> dmg
 # Install on iOS
 - Download Stellar.ipa from the [latest release](https://github.com/RechoRaccoon/Stellar/releases)
 - On Windows, install **iTunes** and **iCloud** from **apple.com** (not the Microsoft Store) (Mac can skip this)
