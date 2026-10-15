@@ -14,7 +14,23 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0h. Update: landscape comments as a side list, UI size (latest)
+## 0i. Update: web fonts, wheel, text posts, double-tap (latest)
+
+- Web: when a font finishes loading (`WebFontsLoader` in webApp Main.kt),
+  every text is laid out again (the font scale is nudged by 1e-6), so text
+  laid out before its font arrived — a Japanese feed name — shows without
+  needing a tap.
+- Web/desktop: the mouse wheel no longer scrolls sideways rows
+  (`SidewaysScroll.*` `mouseSideways`); it's left to the page. Rows scroll by
+  mouse drag (or a trackpad's sideways swipe / Shift + wheel).
+- Landscape grids: text posts are laid out `textLengthFactor(text)` wider
+  (1–1.7 by length) before shrinking to their column, and cut off after
+  `TEXT_TILE_MAX_LINES` (18) with "…".
+- Web: the page blocks the browser's own drag-and-drop (index.html) — a
+  slightly moved double tap in Firefox could drag the canvas as an image
+  and open it in a new tab.
+
+## 0h. Update: landscape comments as a side list, UI size
 
 - Timeline, landscape: the comments open as the left side list (shared
   `rememberSideListWidth()`, `SideListEdge` drag pill, content laid out at

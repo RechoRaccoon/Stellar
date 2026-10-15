@@ -47,7 +47,17 @@
         }
         @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
         #unsupported { display: none; max-width: 320px; text-align: center; line-height: 1.5; }
+        /* The app is drawn on a canvas: never let the browser pick it (or a
+           video) up as a picture to drag — a slightly moved double tap would
+           otherwise start one, and dropping it opens the image in a new tab. */
+        canvas, video { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
     </style>
+    <script>
+        // (The same, for browsers that ignore the style: Stellar does its own dragging.)
+        document.addEventListener('dragstart', (e) => e.preventDefault(), true);
+        document.addEventListener('drop', (e) => e.preventDefault(), true);
+        document.addEventListener('dragover', (e) => e.preventDefault(), true);
+    </script>
 </head>
 <body>
     <div id="splash">
