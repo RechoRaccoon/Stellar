@@ -172,16 +172,18 @@ private fun CenteredCard(
     backdrop: GlassBackdrop?,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
         val cardShape = RoundedCornerShape(24.dp)
+        // A phone's width at most, so a wide window doesn't stretch it.
+        val cardWidth = minOf(maxWidth * 0.82f, 420.dp)
         @Composable
         fun CardContent() {
-            Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, content = content)
+            Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, content = content)
         }
         if (liquidGlass) {
-            LiquidGlassSurface(Modifier.fillMaxWidth(0.82f), shape = cardShape, tint = tint, backdrop = backdrop) { CardContent() }
+            LiquidGlassSurface(Modifier.width(cardWidth), shape = cardShape, tint = tint, backdrop = backdrop) { CardContent() }
         } else {
-            Box(Modifier.fillMaxWidth(0.82f).clip(cardShape).background(Color.White.copy(0.06f))) { CardContent() }
+            Box(Modifier.width(cardWidth).clip(cardShape).background(Color.White.copy(0.06f))) { CardContent() }
         }
     }
 }
