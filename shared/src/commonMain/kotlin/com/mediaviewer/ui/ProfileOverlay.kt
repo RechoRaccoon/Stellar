@@ -726,6 +726,8 @@ fun ProfileOverlay(
     LaunchedEffect(backdrop, blended) { onBackdropChanged(backdrop, blended) }
 
     var editingProfile by remember { mutableStateOf(false) }
+    // The profile picture opened full screen (tapped in the header).
+    var viewingAvatar by remember(author.did) { mutableStateOf(false) }
     // Your own profile: the status box (see ProfileStatusEditor).
     var editingStatus by remember { mutableStateOf(false) }
     // Lists/Feeds: the starter pack / moderation list waiting on a
@@ -757,7 +759,7 @@ fun ProfileOverlay(
     CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
     Box(Modifier.fillMaxSize()) {
     // Item 19: the whole page blurs behind the edit popup.
-    Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else 0.dp)) {
+    Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else if (viewingAvatar) 26.dp else 0.dp)) {
         // Bug fix: this recording box must wrap *only* the scrollable
         // content (the LazyColumn) — not the interaction bar or anything
         // else on this page that itself reads [backdrop] to render. The
@@ -1019,7 +1021,8 @@ fun ProfileOverlay(
                     onOpenSupportPage = onOpenSupportPage,
                     onOpenMention = onOpenMention,
                     onResolveActor = onResolveActor,
-                    onOpenStatus = { editingStatus = true }
+                    onOpenStatus = { editingStatus = true },
+                    onOpenAvatar = { if (author.avatarUrl != null) viewingAvatar = true }
                 )
             }
 
@@ -1338,6 +1341,19 @@ fun ProfileOverlay(
                 preview = track.albumArtUrl
             )
         }
+        val avatarFull = author.avatarUrl
+        if (viewingAvatar && avatarFull != null) {
+            // Like a comment's picture: full screen, the page blurred behind.
+            CommentMediaViewer(
+                media = listOf(com.mediaviewer.model.CommentMedia(
+                    thumbUrl = avatarFull,
+                    // Bluesky's full-size avatar rather than the small one.
+                    fullUrl = avatarFull.replace("/avatar_thumbnail/", "/avatar/")
+                )),
+                startIndex = 0, tint = blended, liquidGlass = liquidGlass, backdrop = null,
+                onClose = { viewingAvatar = false }
+            )
+        }
         if (editingProfile) {
             EditProfileDialog(
                 author = author, profile = profile, tint = blended, liquidGlass = liquidGlass,
@@ -1355,6 +1371,7 @@ fun ProfileOverlay(
                 }
             }
             ProfileStatusEditor(
+                did = author.did,
                 current = ownStyle.status, tint = blended, liquidGlass = liquidGlass,
                 onPost = { text, minutes ->
                     val status = newProfileStatus(text, minutes)
@@ -1621,7 +1638,9 @@ private fun ProfileHeaderSection(
     onOpenMention: (String) -> Unit = {},
     onResolveActor: suspend (String) -> String? = { null },
     /** Your own profile: the status bubble opens the status box. */
-    onOpenStatus: () -> Unit = {}
+    onOpenStatus: () -> Unit = {},
+    /** The profile picture was tapped: show it full screen. */
+    onOpenAvatar: () -> Unit = {}
 ) {
     Column(Modifier.fillMaxWidth()) {
         // ── Banner ──
@@ -1700,7 +1719,8 @@ private fun ProfileHeaderSection(
                 onClose = onClose,
                 onEditProfile = onEditProfile,
                 status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
-                onOpenStatus = onOpenStatus
+                onOpenStatus = onOpenStatus,
+                onOpenAvatar = onOpenAvatar
             )
         }
 
@@ -1984,7 +2004,8 @@ private fun ProfileBannerOverlayLayout(
     onClose: () -> Unit,
     onEditProfile: () -> Unit = {},
     status: com.mediaviewer.util.ProfileStatus? = null,
-    onOpenStatus: () -> Unit = {}
+    onOpenStatus: () -> Unit = {},
+    onOpenAvatar: () -> Unit = {}
 ) {
     // Landscape: Back is the first row of the side list instead.
     val showClose = !rememberLandscape()
@@ -2031,7 +2052,8 @@ private fun ProfileBannerOverlayLayout(
             ProfileAvatarGlass(
                 url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
                 shape = profileIconShape(author.did),
-                videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid
+                videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
+                onClick = onOpenAvatar
             )
         }.first().measure(loose)
 
@@ -2144,8 +2166,10 @@ private fun ProfileAvatarGlass(
     /** Round, or a supporter's rounded square (see [profileIconShape]). */
     shape: androidx.compose.ui.graphics.Shape = CircleShape,
     /** A video icon (whose, and its blob), played over the picture. */
-    videoDid: String? = null, videoCid: String? = null
+    videoDid: String? = null, videoCid: String? = null,
+    onClick: (() -> Unit)? = null
 ) {
+    val tapMod = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
     @Composable
     fun AvatarImage() {
         if (url != null) {
@@ -2166,11 +2190,11 @@ private fun ProfileAvatarGlass(
         }
     }
     if (liquidGlass) {
-        LiquidGlassSurface(modifier = Modifier.size(size), shape = shape, tint = tint, backdrop = backdrop) {
+        LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
             Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
         }
     } else {
-        Box(Modifier.size(size).clip(shape).background(Color.Black.copy(0.5f)).padding(5.dp)) { AvatarImage() }
+        Box(Modifier.size(size).then(tapMod).clip(shape).background(Color.Black.copy(0.5f)).padding(5.dp)) { AvatarImage() }
     }
 }
 
@@ -6006,28 +6030,15 @@ fun PostKindSubTabRow(
     }
 }
 
-/** The Archived page's filter row: the post types, then "Statuses" (your
- *  status history, kept on this device). */
+/** One of your past statuses (the status box's history): its words and
+ *  when it was posted. Tap to use it again; press and hold to delete it
+ *  from the history. */
 @Composable
-fun PostKindSubTabRowWithStatuses(
-    items: List<MediaItem>, selected: PostKindFilter, statusesSelected: Boolean, liquidGlass: Boolean, tint: Color,
-    onSelect: (PostKindFilter) -> Unit, onSelectStatuses: () -> Unit
+fun StatusHistoryTile(
+    entry: com.mediaviewer.util.StatusHistory.Entry, tint: Color, liquidGlass: Boolean,
+    onClick: () -> Unit = {}, onLongPress: () -> Unit
 ) {
-    val statuses = "statuses"
-    val visible: List<Any> = remember(items, selected) {
-        PostKindFilter.entries.filter { it == selected || it == PostKindFilter.ALL || items.any { item -> it.matches(item) } }
-    } + statuses
-    ProfileSubFilterRow(
-        options = visible, selected = if (statusesSelected) statuses else selected, liquidGlass = liquidGlass, tint = tint,
-        labelOf = { (it as? PostKindFilter)?.label() ?: "Statuses" },
-        onSelect = { if (it is PostKindFilter) onSelect(it) else onSelectStatuses() }
-    )
-}
-
-/** One of your past statuses (Archived → Statuses): its words and when it
- *  was posted. Press and hold to delete it from the history. */
-@Composable
-fun StatusHistoryTile(entry: com.mediaviewer.util.StatusHistory.Entry, tint: Color, liquidGlass: Boolean, onLongPress: () -> Unit) {
+    val tap = rememberHapticTap()
     val shape = RoundedCornerShape(12.dp)
     val longTap = rememberHapticTap()
     val posted = remember(entry.createdAt) {
@@ -6042,7 +6053,7 @@ fun StatusHistoryTile(entry: com.mediaviewer.util.StatusHistory.Entry, tint: Col
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
             )
             .clip(shape)
-            .pointerInput(entry) { detectTapGestures(onLongPress = { longTap(); onLongPress() }) }
+            .pointerInput(entry) { detectTapGestures(onTap = { tap(); onClick() }, onLongPress = { longTap(); onLongPress() }) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Text(entry.text, color = Color.White.copy(0.92f), fontSize = 13.sp, lineHeight = 17.sp)

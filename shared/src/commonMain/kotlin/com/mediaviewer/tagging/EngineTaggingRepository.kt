@@ -349,10 +349,13 @@ class EngineTaggingRepository(
         return out.sortedByDescending { it.second }
     }
 
-    private suspend fun tagAndStore(item: MediaItem) {
-        if (item.isTextOnly) { store.storeTags(item.postUri, item.postCid, "", emptyList()); return }
+    /** The tags stored for [item] (best first). */
+    private suspend fun tagAndStore(item: MediaItem): List<Pair<String, Float>> {
+        if (item.isTextOnly) { store.storeTags(item.postUri, item.postCid, "", emptyList()); return emptyList() }
         val (picture, recordUrl) = pictureOf(item)
-        store.storeTags(item.postUri, item.postCid, recordUrl, infer(picture).orEmpty())
+        val tags = infer(picture).orEmpty()
+        store.storeTags(item.postUri, item.postCid, recordUrl, tags)
+        return tags
     }
 
     override suspend fun tagAllLiked(
@@ -367,8 +370,10 @@ class EngineTaggingRepository(
         cancelRequested = false
         val parallelism = concurrency.coerceIn(1, 10)
         withContext(ioDispatcher) {
+            var last: MediaItem? = null
+            var lastTags: List<String> = emptyList()
             fun snapshot(running: Boolean, complete: Boolean, state: TaggerState = TaggerState.Ready, current: MediaItem? = null) =
-                TaggingProgress(store.scannedCount(), store.taggedCount(), store.sizeBytes(), running, complete, state, current)
+                TaggingProgress(store.scannedCount(), store.taggedCount(), store.sizeBytes(), running, complete, state, current, last, lastTags)
 
             onProgress(snapshot(running = true, complete = false, state = TaggerState.Downloading(0, 0)))
             try {
@@ -398,7 +403,8 @@ class EngineTaggingRepository(
                             for (item in queue) {
                                 if (cancelRequested) break
                                 if (!item.isTextOnly) { current = item; report() }
-                                tagAndStore(item)
+                                val tags = tagAndStore(item)
+                                if (!item.isTextOnly) { last = item; lastTags = tags.map { it.first } }
                                 report()
                             }
                         }

@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "下载失败（HTTP {0}）",
 "Download was cut off": "下载中断了",
 "The tagger model was removed by the browser. Download it again in Settings.": "浏览器已删除标签模型。请在设置中重新下载。",
-"This browser can't store the model": "此浏览器无法存储模型"
+"This browser can't store the model": "此浏览器无法存储模型",
+"Alt Text": "替代文本",
+"Clear status": "清除状态",
+"Describe this image…": "描述这张图片…",
+"Describe this video…": "描述这个视频…",
+"No tags found": "未找到标签",
+"Save alt text": "保存替代文本",
+"Status History": "状态历史",
+"Status history": "状态历史",
+"{0} Posts · {1}": "{0} 条帖子 · {1}"
 }

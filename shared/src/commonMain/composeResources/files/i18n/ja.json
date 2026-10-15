@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "ダウンロードに失敗しました（HTTP {0}）",
 "Download was cut off": "ダウンロードが途中で切れました",
 "The tagger model was removed by the browser. Download it again in Settings.": "ブラウザがタグ付けモデルを削除しました。設定からもう一度ダウンロードしてください。",
-"This browser can't store the model": "このブラウザではモデルを保存できません"
+"This browser can't store the model": "このブラウザではモデルを保存できません",
+"Alt Text": "代替テキスト",
+"Clear status": "ステータスを消去",
+"Describe this image…": "この画像を説明…",
+"Describe this video…": "この動画を説明…",
+"No tags found": "タグが見つかりません",
+"Save alt text": "代替テキストを保存",
+"Status History": "ステータス履歴",
+"Status history": "ステータス履歴",
+"{0} Posts · {1}": "{0} 件の投稿 · {1}"
 }

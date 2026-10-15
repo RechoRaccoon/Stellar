@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "Échec du téléchargement (HTTP {0})",
 "Download was cut off": "Le téléchargement a été interrompu",
 "The tagger model was removed by the browser. Download it again in Settings.": "Le navigateur a supprimé le modèle d'étiquetage. Téléchargez-le à nouveau dans les Réglages.",
-"This browser can't store the model": "Ce navigateur ne peut pas stocker le modèle"
+"This browser can't store the model": "Ce navigateur ne peut pas stocker le modèle",
+"Alt Text": "Texte alternatif",
+"Clear status": "Effacer le statut",
+"Describe this image…": "Décrivez cette image…",
+"Describe this video…": "Décrivez cette vidéo…",
+"No tags found": "Aucun tag trouvé",
+"Save alt text": "Enregistrer le texte alternatif",
+"Status History": "Historique des statuts",
+"Status history": "Historique des statuts",
+"{0} Posts · {1}": "{0} publications · {1}"
 }

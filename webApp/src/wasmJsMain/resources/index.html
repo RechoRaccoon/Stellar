@@ -27,8 +27,8 @@
         /* The start-up screen, in the look of the app's own loading
            animation: deep space tinted Stellar pink (#FF4FA1 — the color
            Override App Colors starts on), soft stars, and the Stellar logo
-           ("Created by Recho Raccoon") big and a little above centre, with
-           a slow glow. */
+           ("Created by Recho Raccoon") big and a little above centre, its
+           letters glowing softly. */
         #splash {
             position: fixed;
             inset: 0;
@@ -39,10 +39,9 @@
             justify-content: center;
             gap: 34px;
             padding-bottom: 12vh;
-            background:
-                radial-gradient(ellipse at 50% 38%, rgba(255, 79, 161, 0.20), rgba(255, 79, 161, 0) 62%),
-                radial-gradient(ellipse at 50% 110%, rgba(255, 79, 161, 0.12), rgba(255, 79, 161, 0) 55%),
-                #0a0509;
+            /* (No window-sized ellipse glow: on a tall phone it stretched
+               into a pink column. The only glow is the logo's own.) */
+            background: #0a0509;
             color: #c9a3b8;
             font: 14px system-ui, -apple-system, "Segoe UI", sans-serif;
             transition: opacity 0.35s ease;
@@ -70,12 +69,12 @@
         #splash .logo {
             position: relative;
             width: min(74vw, 400px);
-            filter: drop-shadow(0 0 18px rgba(255, 79, 161, 0.45));
+            filter: drop-shadow(0 0 10px rgba(255, 79, 161, 0.5));
             animation: breathe 4.5s ease-in-out infinite;
         }
         @keyframes breathe {
-            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px rgba(255, 79, 161, 0.35)); }
-            50% { transform: scale(1.015); filter: drop-shadow(0 0 24px rgba(255, 79, 161, 0.6)); }
+            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(255, 79, 161, 0.4)); }
+            50% { transform: scale(1.015); filter: drop-shadow(0 0 14px rgba(255, 79, 161, 0.65)); }
         }
         #splash .bar { position: relative; width: 180px; height: 3px; border-radius: 2px; background: rgba(255, 79, 161, 0.18); overflow: hidden; }
         #splash .bar::after {

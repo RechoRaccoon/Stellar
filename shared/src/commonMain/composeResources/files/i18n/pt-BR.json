@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "Falha no download (HTTP {0})",
 "Download was cut off": "O download foi interrompido",
 "The tagger model was removed by the browser. Download it again in Settings.": "O navegador removeu o modelo de marcação. Baixe-o novamente em Configurações.",
-"This browser can't store the model": "Este navegador não consegue armazenar o modelo"
+"This browser can't store the model": "Este navegador não consegue armazenar o modelo",
+"Alt Text": "Texto alternativo",
+"Clear status": "Limpar status",
+"Describe this image…": "Descreva esta imagem…",
+"Describe this video…": "Descreva este vídeo…",
+"No tags found": "Nenhuma tag encontrada",
+"Save alt text": "Salvar texto alternativo",
+"Status History": "Histórico de status",
+"Status history": "Histórico de status",
+"{0} Posts · {1}": "{0} posts · {1}"
 }

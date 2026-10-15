@@ -37,6 +37,9 @@ import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.Star
@@ -158,6 +161,8 @@ private const val POST_CHAR_LIMIT = 300
 /** A video post's text is "title, blank line, description": that gap is
  *  part of the post, so it counts toward the limit. */
 private const val VIDEO_TEXT_GAP = 2
+/** A video's alt text, as long as Bluesky's video embed allows. */
+private const val VIDEO_ALT_TEXT_LIMIT = 1000
 private fun videoPostLength(title: String, description: String): Int =
     title.length + description.length + if (description.isBlank()) 0 else VIDEO_TEXT_GAP
 private const val MAX_IMAGES = 10
@@ -290,6 +295,12 @@ fun ComposePostScreen(
     // An attached image being held: the "Remove" bubble shows above the
     // button bar while it is, and dropping it there takes it off.
     val imageDrag = remember { ImageDragState() }
+    // Alt text for attached pictures (Bluesky's own, sent with each one),
+    // and the picture whose alt text is being written.
+    var imageAlts by remember { mutableStateOf(mapOf<Uri, String>()) }
+    var editingAltFor by remember { mutableStateOf<Uri?>(null) }
+    // A video's alt text (the row under the video).
+    var videoAlt by remember { mutableStateOf(TextFieldValue("")) }
     // Item 8: pre-seeded straight from the camera-notch button's "Camera"
     // action, if that's how this composer was opened.
     var images by remember {
@@ -812,7 +823,8 @@ fun ComposePostScreen(
         val draft = when (mode) {
             ComposeMode.VIDEO -> ComposePostDraft(
                 mode = ComposeMode.VIDEO, videoUri = videoUri, videoThumbnailUri = videoThumbUri,
-                videoTitle = videoTitle.text, videoDescription = videoDescription.text
+                videoTitle = videoTitle.text, videoDescription = videoDescription.text,
+                videoAlt = videoAlt.text.trim()
             )
             ComposeMode.THREAD -> ComposePostDraft(
                 mode = ComposeMode.THREAD,
@@ -821,7 +833,10 @@ fun ComposePostScreen(
                 // since the lossless chunker (see computeThreadPosts) can
                 // leave a trailing space right at a post's own break point.
                 posts = threadPosts.map { post ->
-                    ThreadPostDraft(text = post.text.text.trimEnd(), images = post.images, video = post.video)
+                    ThreadPostDraft(
+                        text = post.text.text.trimEnd(), images = post.images, video = post.video,
+                        imageAlts = post.images.map { imageAlts[it].orEmpty() }
+                    )
                 }
             )
             ComposeMode.TEXTSHOT -> ComposePostDraft(
@@ -836,7 +851,10 @@ fun ComposePostScreen(
             )
             ComposeMode.SINGLE -> ComposePostDraft(
                 mode = ComposeMode.SINGLE,
-                posts = listOf(ThreadPostDraft(text = singleText.text, images = if (pollOn) emptyList() else images, video = null)),
+                posts = listOf(ThreadPostDraft(
+                    text = singleText.text, images = if (pollOn) emptyList() else images, video = null,
+                    imageAlts = if (pollOn) emptyList() else images.map { imageAlts[it].orEmpty() }
+                )),
                 editingPost = editPost,
                 pollOptions = if (pollOn) pollOptions.map { it.text.trim() } else emptyList()
             )
@@ -1033,6 +1051,16 @@ fun ComposePostScreen(
                             videoUri = videoUri, thumbnailUri = videoThumbUri, aspect = videoAspect,
                             onTapThumbnail = { thumbnailPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                         )
+                        // The video's alt text (Bluesky's own, on the video).
+                        if (videoUri != null) {
+                            Spacer(Modifier.height(10.dp))
+                            HubDivider("Alt Text")
+                            GrowingTextField(
+                                value = videoAlt,
+                                onValueChange = { videoAlt = capBudget(it, VIDEO_ALT_TEXT_LIMIT) },
+                                placeholder = "Describe this video…"
+                            )
+                        }
                         // How the upload that started on attach is going.
                         val upload = com.mediaviewer.util.VideoUpload
                         if (videoUri != null && upload.stage != com.mediaviewer.util.VideoUpload.Stage.IDLE) {
@@ -1164,7 +1192,9 @@ fun ComposePostScreen(
                                         threadPosts = threadPosts.toMutableList().also { list ->
                                             list.getOrNull(index)?.let { list[index] = it.copy(images = it.images.moved(from, to)) }
                                         }
-                                    }
+                                    },
+                                    alts = imageAlts,
+                                    onAltText = { uri -> editingAltFor = uri }
                                 )
                             }
                             Spacer(Modifier.height(10.dp))
@@ -1278,7 +1308,9 @@ fun ComposePostScreen(
                                 onOpen = { uri -> viewingImages = images to images.indexOf(uri).coerceAtLeast(0) },
                                 drag = imageDrag,
                                 onRemove = { uri -> images = images - uri },
-                                onMove = { from, to -> images = images.moved(from, to) }
+                                onMove = { from, to -> images = images.moved(from, to) },
+                                alts = imageAlts,
+                                onAltText = { uri -> editingAltFor = uri }
                             )
                         }
                     }
@@ -1472,11 +1504,20 @@ fun ComposePostScreen(
                     // never hangs over the buttons and nothing moves).
                     if (imageDrag.held != null) {
                         Box(Modifier.matchParentSize().zIndex(3f), contentAlignment = Alignment.BottomCenter) {
-                            HubRemoveBubble(
-                                hovered = imageDrag.hovered, liquidGlass = liquidGlass, tint = dominantColor,
-                                modifier = Modifier.wrapContentHeight(align = Alignment.Bottom, unbounded = true)
-                                    .onGloballyPositioned { imageDrag.removeBounds = it.boundsInRoot() }
-                            )
+                            Row(
+                                Modifier.wrapContentHeight(align = Alignment.Bottom, unbounded = true),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                HubRemoveBubble(
+                                    hovered = imageDrag.hovered, liquidGlass = liquidGlass, tint = dominantColor,
+                                    modifier = Modifier.onGloballyPositioned { imageDrag.removeBounds = it.boundsInRoot() }
+                                )
+                                // Drop a picture here to give it alt text.
+                                HubDropBubble(
+                                    Icons.Default.TextFields, "Alt Text", imageDrag.altHovered, liquidGlass, dominantColor,
+                                    Modifier.onGloballyPositioned { imageDrag.altBounds = it.boundsInRoot() }
+                                )
+                            }
                         }
                     }
                     }
@@ -1658,6 +1699,17 @@ fun ComposePostScreen(
                 media = list.map { u -> com.mediaviewer.model.CommentMedia(kind = com.mediaviewer.model.CommentMedia.Kind.IMAGE, thumbUrl = u.toString(), fullUrl = u.toString()) },
                 startIndex = start, tint = dominantColor, liquidGlass = liquidGlass, backdrop = backdrop,
                 showClose = false, onClose = { viewingImages = null }
+            )
+        }
+        editingAltFor?.let { uri ->
+            AltTextDialog(
+                image = uri, initial = imageAlts[uri].orEmpty(),
+                liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = backdrop,
+                onSave = { text ->
+                    imageAlts = if (text.isBlank()) imageAlts - uri else imageAlts + (uri to text)
+                    editingAltFor = null
+                },
+                onDismiss = { editingAltFor = null }
             )
         }
         confirmRemoval?.let { request ->
@@ -2306,53 +2358,80 @@ private fun emojiVisualTransformation(store: EmojiStore) = VisualTransformation 
     TransformedText(shown, OffsetMapping.Identity)
 }
 
-/** Up to 10 attached images as square tiles: one stretched row while
- *  there are 5 or fewer; past 5, a fixed 5-column grid, so the 6th–10th are
- *  exactly the same size as the first five instead of stretching to fill
- *  their row.
+/** Up to 10 attached images. One picture shows whole, at its own aspect
+ *  ratio; two or more are square tiles: one stretched row while there are
+ *  5 or fewer; past 5, a fixed 5-column grid, so the 6th–10th are exactly
+ *  the same size as the first five instead of stretching to fill their row.
+ *  A picture with alt text shows it over the picture, shrunk to fit.
  *
  *  Tap a tile to see it full screen. Press and hold one to pick it up:
  *  drag it to a new spot (the others slide out of the way, with a haptic
- *  tick each time it takes a new place), or onto the "Remove" bubble that
- *  appears above the button bar to take it off the post. */
+ *  tick each time it takes a new place), onto the "Remove" bubble that
+ *  appears above the button bar to take it off the post, or onto "Alt Text"
+ *  beside it to describe it. Letting go of a held picture never opens it. */
 @Composable
-private fun ImageGrid(images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -> Unit, onMove: (from: Int, to: Int) -> Unit, onOpen: (Uri) -> Unit = {}) {
+private fun ImageGrid(
+    images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -> Unit, onMove: (from: Int, to: Int) -> Unit,
+    onOpen: (Uri) -> Unit = {},
+    alts: Map<Uri, String> = emptyMap(),
+    onAltText: (Uri) -> Unit = {}
+) {
     val tap = rememberHapticTap()
     val view = com.mediaviewer.ui.compat.rememberPlatformView()
     val columns = if (images.size > 5) 5 else images.size.coerceAtLeast(1)
     val rows = (images.size + columns - 1) / columns
     val latestImages by rememberUpdatedState(images)
     val latestOnMove by rememberUpdatedState(onMove)
+    // One picture: its own shape (from the file once it's loaded).
+    val single = images.size == 1
+    var singleAspect by remember(images.firstOrNull()) { mutableStateOf(1f) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cellPx = constraints.maxWidth / columns.toFloat()
         val cellDp = maxWidth / columns
+        // The single picture fits the width, and never gets taller than this.
+        val singleMaxHeight = 460.dp
+        val singleHeight = minOf(maxWidth / singleAspect, singleMaxHeight)
+        val singleWidth = singleHeight * singleAspect
         // Read by the (long-lived) drag gesture, so it always has the current size.
         val latestCell by rememberUpdatedState(cellPx)
         var dragging by remember { mutableStateOf<Uri?>(null) }
         var dragPos by remember { mutableStateOf(Offset.Zero) }
+        // A picture that was just picked up: the tap that ends that press
+        // mustn't open it (set on pick-up, cleared on the next press).
+        var pickedUp by remember { mutableStateOf<Uri?>(null) }
         // Where the grid is on screen, to tell when the finger is over "Remove".
         var gridOrigin by remember { mutableStateOf(Offset.Zero) }
         fun slotOf(i: Int) = Offset((i % columns) * cellPx, (i / columns) * cellPx)
-        Box(Modifier.fillMaxWidth().height(cellDp * rows).onGloballyPositioned { gridOrigin = it.positionInRoot() }) {
+        Box(
+            Modifier.fillMaxWidth().height(if (single) singleHeight else cellDp * rows)
+                .onGloballyPositioned { gridOrigin = it.positionInRoot() }
+        ) {
             images.forEachIndexed { index, uri ->
                 key(uri) {
                     val isDragged = dragging == uri
                     val slot by androidx.compose.animation.core.animateOffsetAsState(slotOf(index), label = "imageSlot")
                     val lift by androidx.compose.animation.core.animateFloatAsState(if (isDragged) 1f else 0f, label = "imageLift")
+                    val overTarget = isDragged && (drag.hovered || drag.altHovered)
                     Box(
                         Modifier
                             .offset {
                                 val p = if (isDragged) dragPos else slot
                                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
                             }
-                            .size(cellDp)
+                            .then(if (single) Modifier.size(singleWidth, singleHeight) else Modifier.size(cellDp))
                             .zIndex(if (isDragged) 2f else if (lift > 0f) 1f else 0f)
                             .graphicsLayer {
                                 val sc = 1f + 0.08f * lift
                                 scaleX = sc; scaleY = sc
                                 shadowElevation = 14f * lift
                                 shape = RoundedCornerShape(6.dp)
-                                clip = lift > 0f
+                                clip = lift > 0f || single
+                            }
+                            .pointerInput(uri) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    pickedUp = null
+                                }
                             }
                             .pointerInput(uri) {
                                 detectDragGesturesAfterLongPress(
@@ -2362,22 +2441,26 @@ private fun ImageGrid(images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -
                                             val cols = if (latestImages.size > 5) 5 else latestImages.size.coerceAtLeast(1)
                                             dragPos = Offset((from % cols) * latestCell, (from / cols) * latestCell)
                                             dragging = uri
+                                            pickedUp = uri
                                             drag.held = uri
                                             drag.hovered = false
+                                            drag.altHovered = false
                                             view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
                                         }
                                     },
                                     onDragEnd = {
                                         val held = dragging == uri
                                         val remove = held && drag.hovered
+                                        val alt = held && drag.altHovered
                                         if (held) view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.VIRTUAL_KEY)
                                         dragging = null
                                         drag.held = null
                                         drag.hovered = false
-                                        // Dropped on "Remove": take it off.
-                                        if (remove) onRemove(uri)
+                                        drag.altHovered = false
+                                        // Dropped on "Remove": take it off; on "Alt Text": describe it.
+                                        if (remove) onRemove(uri) else if (alt) onAltText(uri)
                                     },
-                                    onDragCancel = { dragging = null; drag.held = null; drag.hovered = false }
+                                    onDragCancel = { dragging = null; drag.held = null; drag.hovered = false; drag.altHovered = false }
                                 ) { change, amount ->
                                     if (dragging != uri) return@detectDragGesturesAfterLongPress
                                     change.consume()
@@ -2386,15 +2469,18 @@ private fun ImageGrid(images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -
                                     val rowCount = (list.size + cols - 1) / cols
                                     val maxX = (cols - 1) * latestCell
                                     val maxY = (rowCount - 1) * latestCell
-                                    // (It follows the finger anywhere, so it can reach "Remove".)
+                                    // (It follows the finger anywhere, so it can reach the bubbles.)
                                     dragPos += amount
                                     val finger = gridOrigin + dragPos + change.position
-                                    val over = drag.removeBounds.let { r -> r.width > 0f && r.inflate(12.dp.toPx()).contains(finger) }
-                                    if (over != drag.hovered) {
+                                    fun near(r: androidx.compose.ui.geometry.Rect) = r.width > 0f && r.inflate(12.dp.toPx()).contains(finger)
+                                    val over = near(drag.removeBounds)
+                                    val overAlt = !over && near(drag.altBounds)
+                                    if (over != drag.hovered || overAlt != drag.altHovered) {
                                         drag.hovered = over
-                                        if (over) view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
+                                        drag.altHovered = overAlt
+                                        if (over || overAlt) view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
                                     }
-                                    if (over) return@detectDragGesturesAfterLongPress
+                                    if (over || overAlt) return@detectDragGesturesAfterLongPress
                                     val px = dragPos.x.coerceIn(-latestCell * 0.3f, maxX + latestCell * 0.3f)
                                     val py = dragPos.y.coerceIn(-latestCell * 0.3f, maxY + latestCell * 0.3f)
                                     val col = ((px + latestCell / 2f) / latestCell).toInt().coerceIn(0, cols - 1)
@@ -2407,12 +2493,28 @@ private fun ImageGrid(images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -
                                     }
                                 }
                             }
-                            .clickable { tap(); onOpen(uri) }
+                            .clickable {
+                                // (The press that picked it up isn't a tap.)
+                                if (pickedUp == uri) { pickedUp = null; return@clickable }
+                                tap(); onOpen(uri)
+                            }
                     ) {
                         AsyncImage(
-                            model = uri, contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (isDragged && drag.hovered) 0.55f else 1f }
+                            model = uri, contentDescription = alts[uri]?.ifBlank { null }, contentScale = ContentScale.Crop,
+                            onSuccess = { st ->
+                                val d = st.result.image
+                                if (single && d.width > 0 && d.height > 0) singleAspect = (d.width.toFloat() / d.height).coerceIn(0.25f, 4f)
+                            },
+                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (overTarget) 0.55f else 1f }
                         )
+                        val alt = alts[uri].orEmpty()
+                        if (alt.isNotBlank()) {
+                            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
+                            FitText(
+                                alt, Modifier.matchParentSize().padding(if (single) 14.dp else 4.dp),
+                                maxSize = if (single) 16.sp else 11.sp, minSize = 5.sp, fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -2424,8 +2526,12 @@ private fun ImageGrid(images: List<Uri>, drag: ImageDragState, onRemove: (Uri) -
  *  the "Remove" bubble above the button bar. */
 private class ImageDragState {
     var held by mutableStateOf<Uri?>(null)
+    /** Over "Remove". */
     var hovered by mutableStateOf(false)
     var removeBounds by mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
+    /** Over "Alt Text". */
+    var altHovered by mutableStateOf(false)
+    var altBounds by mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
 }
 
 /** A thread divider with its remove-post X at the right end. */

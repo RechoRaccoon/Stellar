@@ -269,14 +269,29 @@ object ProfileStyles {
         clearJob = scope.launch {
             val wait = end - com.mediaviewer.platform.currentTimeMillis()
             if (wait > 0) kotlinx.coroutines.delay(wait)
-            withContext(Dispatchers.Main) {
-                val now = styles[did] ?: return@withContext
-                if (now.status == status) {
-                    val cleared = now.copy(status = null)
-                    saver?.invoke(cleared) { }
-                }
+            // Tried again (a minute apart) while it fails — offline, not
+            // signed in yet at startup — so the record never keeps it.
+            repeat(30) {
+                val error = withContext(Dispatchers.Main) {
+                    val now = styles[did] ?: return@withContext null
+                    if (now.status != status) return@withContext null
+                    val save = saver ?: return@withContext "No saver yet"
+                    kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
+                        save(now.copy(status = null)) { err -> if (cont.isActive) cont.resumeWith(Result.success(err)) }
+                    }
+                } ?: return@launch
+                kotlinx.coroutines.delay(if (error == "No saver yet") 5_000L else 60_000L)
             }
         }
+    }
+
+    /** At startup: your saved status gets its clear-up scheduled at once
+     *  (cleared straight away if it ran out while the app was closed),
+     *  without waiting for your own profile to be opened. */
+    fun resumeOwnStatusClear() {
+        val did = Supporter.selfDid.takeIf { it.isNotBlank() } ?: prefs?.getString("did", null) ?: return
+        val style = styles[did] ?: return
+        scheduleStatusClear(did, style)
     }
 
     private fun persistOwn(did: String, style: ProfileStyle?) {

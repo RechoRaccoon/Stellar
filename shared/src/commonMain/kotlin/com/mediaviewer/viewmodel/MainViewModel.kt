@@ -1863,7 +1863,8 @@ class MainViewModel(
                     val edit = draft.editingPost!!
                     bskyRepo.editPost(
                         bskyToken, did, context, edit.postUri, post.text, post.images,
-                        edit.imageUrls, edit.imagesEditable, draft.selfLabels
+                        edit.imageUrls, edit.imagesEditable, draft.selfLabels,
+                        imageAlts = post.imageAlts.map { it.ifBlank { null } }
                     )
                 }
                 else if (draft.pollOptions.isNotEmpty()) {
@@ -1871,11 +1872,11 @@ class MainViewModel(
                 }
                 else runCatching {
                     val images = bskyRepo.uploadImageBlobs(bskyToken, context, post.images)
-                    bskyRepo.createPost(bskyToken, did, post.text, images, selfLabels = draft.selfLabels).getOrElse { throw it }
+                    bskyRepo.createPost(bskyToken, did, post.text, images, imageAlts = post.imageAlts, selfLabels = draft.selfLabels).getOrElse { throw it }
                 }
             }
             com.mediaviewer.ui.ComposeMode.THREAD -> runCatching {
-                val posts = draft.posts.map { com.mediaviewer.repository.BlueskyRepository.ThreadPostToSend(it.text, it.images) }
+                val posts = draft.posts.map { com.mediaviewer.repository.BlueskyRepository.ThreadPostToSend(it.text, it.images, it.imageAlts) }
                 bskyRepo.createThread(bskyToken, did, context, posts, draft.selfLabels).getOrElse { throw it }
             }
             com.mediaviewer.ui.ComposeMode.TEXTSHOT -> runCatching {
@@ -1888,7 +1889,7 @@ class MainViewModel(
                 val uri = draft.videoUri
                 if (uri == null) Result.failure(IllegalStateException("No video attached"))
                 else runCatching {
-                    bskyRepo.createVideoPost(bskyToken, did, context, uri, draft.videoThumbnailUri, draft.videoTitle, draft.videoDescription, draft.selfLabels).getOrElse { throw it }
+                    bskyRepo.createVideoPost(bskyToken, did, context, uri, draft.videoThumbnailUri, draft.videoTitle, draft.videoDescription, draft.selfLabels, alt = draft.videoAlt).getOrElse { throw it }
                 }
             }
             // Item 10: posts a real social.popfeed.feed.review record (not
@@ -6215,6 +6216,7 @@ class MainViewModel(
                 }
             }
         }
+        com.mediaviewer.util.ProfileStyles.resumeOwnStatusClear()
         com.mediaviewer.util.ProfileStyles.bannerUploader = { uri, onDone ->
             if (!_bskyLoggedIn.value) onDone(null, "Not signed in")
             else viewModelScope.launch(ioDispatcher) {
@@ -7798,7 +7800,9 @@ class MainViewModel(
         // Tagging page redesign (item 3): the post currently being fetched/
         // tagged, straight from TaggingRepository.Progress — drives the
         // overlay's full-screen "now tagging" view.
-        val currentItem: MediaItem? = null
+        val currentItem: MediaItem? = null,
+        val lastTaggedItem: MediaItem? = null,
+        val lastTags: List<String> = emptyList()
     )
 
     private val _taggingOverlayOpen = MutableStateFlow(false)
@@ -8001,7 +8005,9 @@ class MainViewModel(
                     isComplete = progress.isComplete,
                     modelState = progress.modelState,
                     errorMessage = (progress.modelState as? TaggerState.Failed)?.message,
-                    currentItem = progress.currentItem
+                    currentItem = progress.currentItem,
+                    lastTaggedItem = progress.lastTaggedItem,
+                    lastTags = progress.lastTags
                 )
                 if (progress.tagged > 0) _hasTaggedDataset.value = true
                 if (progress.modelState is TaggerState.Ready) _taggerModelReady.value = true

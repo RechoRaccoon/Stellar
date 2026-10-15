@@ -3794,6 +3794,10 @@ class BlueskyRepository {
     data class UploadedImage(val blob: BskyBlob, val width: Int, val height: Int)
 
     private val IMAGE_MAX_BLOB_BYTES = 2_000_000
+    /** Alt text lengths, as Bluesky's own app allows (a video's is capped
+     *  by its lexicon at 1000 graphemes). */
+    private val IMAGE_ALT_MAX = 2000
+    private val VIDEO_ALT_MAX = 1000
     private val IMAGE_MAX_DIMENSION = 4000
 
     private fun prepareImageForUpload(context: com.mediaviewer.platform.PlatformContext, uri: com.mediaviewer.platform.PlatformUri): Pair<ByteArray, String> =
@@ -3806,7 +3810,7 @@ class BlueskyRepository {
     private fun buildImagesEmbed(images: List<UploadedImage>, alts: List<String> = emptyList()): Map<String, Any> {
         return if (images.size <= 4) {
             val imageObjs = images.mapIndexed { i, img ->
-                val obj = mutableMapOf<String, Any>("image" to img.blob, "alt" to (alts.getOrNull(i) ?: ""))
+                val obj = mutableMapOf<String, Any>("image" to img.blob, "alt" to (alts.getOrNull(i)?.take(IMAGE_ALT_MAX) ?: ""))
                 // app.bsky.embed.images#image aspectRatio — without this,
                 // feed previews render square until the post is opened.
                 if (img.width > 0 && img.height > 0) {
@@ -3822,7 +3826,7 @@ class BlueskyRepository {
                 // the post was refused, which is why 5+ pictures failed.)
                 "items" to images.mapIndexed { i, img ->
                     mapOf(
-                        "\$type" to "app.bsky.embed.gallery#image", "image" to img.blob, "alt" to (alts.getOrNull(i) ?: ""),
+                        "\$type" to "app.bsky.embed.gallery#image", "image" to img.blob, "alt" to (alts.getOrNull(i)?.take(IMAGE_ALT_MAX) ?: ""),
                         "aspectRatio" to (if (img.width > 0 && img.height > 0) mapOf("width" to img.width, "height" to img.height)
                             else mapOf("width" to 1, "height" to 1))
                     )
@@ -3905,7 +3909,9 @@ class BlueskyRepository {
         token: String, did: String, context: com.mediaviewer.platform.PlatformContext,
         postUri: String, newText: String,
         images: List<com.mediaviewer.platform.PlatformUri>, existingImageUrls: List<String>,
-        imagesEditable: Boolean, selfLabels: List<String>
+        imagesEditable: Boolean, selfLabels: List<String>,
+        /** Alt text per picture (by index); null keeps what it had. */
+        imageAlts: List<String?> = emptyList()
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val rkey = postUri.substringAfterLast('/')
@@ -3927,20 +3933,21 @@ class BlueskyRepository {
             // ── Pictures ──
             if (imagesEditable && (oldEmbed == null || oldEmbedType.contains("embed.images") || oldEmbedType.contains("embed.gallery"))) {
                 val entries = ArrayList<Map<String, Any>>()
-                for (uri in images) {
+                for ((index, uri) in images.withIndex()) {
                     val text = uri.toString()
+                    val newAlt = imageAlts.getOrNull(index)?.take(IMAGE_ALT_MAX)
                     if (text.startsWith("http://") || text.startsWith("https://")) {
                         val src = oldImages.getOrNull(existingImageUrls.indexOf(text)) ?: continue
                         val e = LinkedHashMap<String, Any>()
                         src.get("image")?.let { e["image"] = it }
-                        e["alt"] = runCatching { src.get("alt")?.asString }.getOrNull().orEmpty()
+                        e["alt"] = newAlt ?: runCatching { src.get("alt")?.asString }.getOrNull().orEmpty()
                         src.get("aspectRatio")?.takeIf { !it.isJsonNull }?.let { e["aspectRatio"] = it }
                         if (e.containsKey("image")) entries += e
                     } else {
                         val up = uploadImageBlob(token, context, uri).getOrElse { throw it }
                         val e = LinkedHashMap<String, Any>()
                         e["image"] = up.blob
-                        e["alt"] = ""
+                        e["alt"] = newAlt.orEmpty()
                         if (up.width > 0 && up.height > 0) e["aspectRatio"] = mapOf("width" to up.width, "height" to up.height)
                         entries += e
                     }
@@ -4371,7 +4378,7 @@ class BlueskyRepository {
         for (post in posts) {
             val images = uploadImageBlobs(token, context, post.images)
             val reply = root?.let { r -> BskyReplyRef(root = r, parent = created.last()) }
-            val ref = createPost(token, did, post.text, images, reply, selfLabels = selfLabels).getOrElse { throw it }
+            val ref = createPost(token, did, post.text, images, reply, imageAlts = post.imageAlts, selfLabels = selfLabels).getOrElse { throw it }
             if (root == null) root = ref
             created += ref
         }
@@ -4382,7 +4389,11 @@ class BlueskyRepository {
     /** One post's worth of content + already-resolved local media, ready to
      *  send — the network-layer counterpart of ComposePostScreen's
      *  ThreadPostDraft (which carries raw content:// Uris instead). */
-    data class ThreadPostToSend(val text: String, val images: List<com.mediaviewer.platform.PlatformUri> = emptyList())
+    data class ThreadPostToSend(
+        val text: String, val images: List<com.mediaviewer.platform.PlatformUri> = emptyList(),
+        /** Alt text per picture, by index. */
+        val imageAlts: List<String> = emptyList()
+    )
 
     /** Renders [text] to a transparent-background/white-text square PNG
      *  (same fit-to-frame layout ComposePostScreen's live preview uses),
@@ -4634,7 +4645,9 @@ class BlueskyRepository {
         token: String, did: String, context: com.mediaviewer.platform.PlatformContext,
         videoUri: com.mediaviewer.platform.PlatformUri, thumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
         title: String, description: String,
-        selfLabels: List<String> = emptyList()
+        selfLabels: List<String> = emptyList(),
+        /** The video's alt text (Bluesky's own, on the video embed). */
+        alt: String = ""
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val key = videoKey(did, videoUri, thumbnailUri)
@@ -4652,6 +4665,7 @@ class BlueskyRepository {
                 videoEmbed["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
             }
             if (uploaded.isGif) videoEmbed["presentation"] = "gif"
+            alt.trim().take(VIDEO_ALT_MAX).takeIf { it.isNotEmpty() }?.let { videoEmbed["alt"] = it }
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
                 "text" to text,

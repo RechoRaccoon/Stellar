@@ -3489,12 +3489,11 @@ private fun HubFeedRow(
 }
 
 /** The picked-up chip: lifted (bigger, with a shadow) and following the
- *  finger; shrinks and turns red over the Remove bubble. */
+ *  finger; shrinks over the Remove bubble. */
 @Composable
 private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint: Color) {
     val feed = drag.feed ?: return
     if (!drag.active) return
-    val red = Color(0xFFFF453A)
     val lift = remember(feed.uri) { Animatable(1f) }
     LaunchedEffect(feed.uri) { lift.animateTo(1.14f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 600f)) }
     val overScale by animateFloatAsState(if (drag.overRemove || drag.overDm) 0.78f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f), label = "ghostOver")
@@ -3516,16 +3515,17 @@ private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint:
                 shadowElevation = 14.dp.toPx()
                 shape = RoundedCornerShape(20.dp)
                 clip = false
-                alpha = if (drag.overRemove) 0.85f else 1f
             }
     ) {
+        // Solid: the page's own background color under it, so it looks
+        // exactly as it does in the feed row (never see-through over the
+        // Remove / Pin bubbles).
+        val pageColor = if (liquidGlass) dimSpaceColor(tint) else OledBlack
         FeedChip(
             feed.displayName, feed.avatarUrl, isSelected = true,
-            liquidGlass = liquidGlass, dominantColor = if (drag.overRemove) red else tint,
+            liquidGlass = liquidGlass, dominantColor = tint,
             pinned = feed.pinned,
-            modifier = if (liquidGlass) Modifier else Modifier.background(
-                if (drag.overRemove) red.copy(alpha = 0.55f) else Color(0xFF2A2A2A), RoundedCornerShape(20.dp)
-            ),
+            modifier = Modifier.background(pageColor, RoundedCornerShape(20.dp)),
             onClick = null
         )
     }

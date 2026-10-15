@@ -98,7 +98,7 @@ fun TaggingOverlay(
         when {
             state.errorMessage != null -> {
                 CenteredCard(liquidGlass, profileTint, backdrop) {
-                    Text("Model Download Failed", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    CardTitle("Model Download Failed", 19.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(state.errorMessage, color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center)
                 }
@@ -109,7 +109,7 @@ fun TaggingOverlay(
                         Icon(Icons.Default.Check, contentDescription = null, tint = VoteGreen, modifier = Modifier.size(30.dp))
                     }
                     Spacer(Modifier.height(14.dp))
-                    Text("Tagging Complete", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    CardTitle("Tagging Complete", 19.sp)
                     Spacer(Modifier.height(6.dp))
                     Text("${state.tagged} of ${state.scanned} liked posts tagged · ${formatBytes(state.datasetBytes)}", color = DimGray, fontSize = 12.sp, textAlign = TextAlign.Center)
                     if (state.tagged > 0) {
@@ -122,7 +122,7 @@ fun TaggingOverlay(
                 CenteredCard(liquidGlass, profileTint, backdrop) {
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
                     Spacer(Modifier.height(14.dp))
-                    Text("Downloading Tagging Model", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    CardTitle("Downloading Tagging Model", 17.sp)
                     Spacer(Modifier.height(6.dp))
                     val total = modelState.totalBytes
                     val subtitle = if (total > 0) "${formatBytes(modelState.bytesDownloaded)} of ${formatBytes(total)}" else "Starting…"
@@ -131,8 +131,14 @@ fun TaggingOverlay(
                     Text("One-time download — the model stays on your device from now on", color = DimGray, fontSize = 11.sp, textAlign = TextAlign.Center)
                 }
             }
-            state.isRunning && currentItem != null -> {
-                ActiveTaggingView(item = currentItem, state = state, liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop)
+            state.isRunning && (state.lastTaggedItem != null || currentItem != null) -> {
+                val shown = state.lastTaggedItem
+                ActiveTaggingView(
+                    item = shown ?: currentItem!!,
+                    tags = if (shown != null) state.lastTags else null,
+                    state = state, liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop,
+                    onBack = onDismiss
+                )
             }
             else -> {
                 // Running, but the very first post hasn't come back from the
@@ -142,7 +148,7 @@ fun TaggingOverlay(
                 CenteredCard(liquidGlass, profileTint, backdrop) {
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
                     Spacer(Modifier.height(12.dp))
-                    Text("Tagging Liked Posts…", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                    CardTitle("Tagging Liked Posts…", 17.sp)
                 }
             }
         }
@@ -153,7 +159,10 @@ fun TaggingOverlay(
         // the page similar to profile and search pages"). Drawn last/on top
         // so it's reachable in every state above, including the full-screen
         // post view.
-        Box(
+        // (The tagging view has its own, in its header row.)
+        val activeView = state.isRunning && modelState !is TaggerState.Downloading && state.errorMessage == null &&
+            !state.isComplete && (state.lastTaggedItem != null || currentItem != null)
+        if (!activeView) Box(
             Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance()).padding(16.dp),
             contentAlignment = Alignment.TopStart
         ) {
@@ -188,78 +197,114 @@ private fun CenteredCard(
     }
 }
 
-/** The redesigned "actively tagging" view (item 3): [item] fullscreened in
- *  the center inside one continuous rounded glass outline that matches the
- *  person's own profile color. The outline expands upward from the image to
- *  make room for a two-line header — "Tagging" (+ a small spinner) and
- *  "Tagged N Posts (dataset size)" — rather than being a separate element
- *  floating above the image, per the request ("the top of the image
- *  outline should expand… the expanded outline with the text is
- *  additional").
- *
- *  No per-post scrollable tag list: ImageTagger.tag() runs one synchronous
- *  ONNX forward pass per image and returns every tag for that post at once,
- *  it doesn't stream tags in one at a time — exactly the case the request
- *  called out as *not* needing this feature ("if it does it all at once at
- *  the end then this last feature wouldn't make sense because it would
- *  instantly be on the next image before the user could see the tags"). */
+/** The "actively tagging" view: one glass outline, centred, holding a
+ *  single header row (back button, "Tagging" + spinner, the running count
+ *  and dataset size) and under it the post at its own aspect ratio — never
+ *  cropped. It shows the post that most recently *finished* tagging, with
+ *  every tag it got laid over the picture (shrunk to fit inside the
+ *  picture's own bounds), rather than the one still being worked on; before
+ *  the first post finishes it shows the one in progress, without tags. */
 @Composable
 private fun ActiveTaggingView(
     item: com.mediaviewer.model.MediaItem,
+    tags: List<String>?,
     state: MainViewModel.TaggingUiState,
     liquidGlass: Boolean,
     tint: Color,
-    backdrop: GlassBackdrop?
+    backdrop: GlassBackdrop?,
+    onBack: () -> Unit
 ) {
-    Box(
+    // Pictures without reported dimensions take theirs from the loaded image.
+    var loadedAspect by remember(item.id) { mutableStateOf<Float?>(null) }
+    val aspect = (item.aspectRatio?.takeIf { it > 0f } ?: loadedAspect ?: 1f).coerceIn(0.2f, 5f)
+    androidx.compose.foundation.layout.BoxWithConstraints(
         Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())
-            .padding(horizontal = 18.dp)
-            .padding(top = 64.dp, bottom = 24.dp),
+            .padding(horizontal = 18.dp, vertical = 24.dp),
         contentAlignment = Alignment.Center
     ) {
+        val headerHeight = 58.dp
+        val maxFrameWidth = minOf(maxWidth, 520.dp)
+        val maxImageHeight = (maxHeight - headerHeight).coerceAtLeast(80.dp)
+        // Fit the picture's aspect ratio into the space left under the header.
+        var imageWidth = maxFrameWidth
+        var imageHeight = imageWidth / aspect
+        if (imageHeight > maxImageHeight) { imageHeight = maxImageHeight; imageWidth = imageHeight * aspect }
+        // The header row needs some width even for a very tall, thin post.
+        val frameWidth = maxOf(imageWidth, minOf(maxFrameWidth, 300.dp))
         val outlineShape = RoundedCornerShape(28.dp)
         @Composable
         fun FrameContent() {
-            Column(Modifier.fillMaxSize()) {
-                // Expanded header — two rows, never wrapping (maxLines = 1
-                // on both, per the request: "make sure the text never
-                // collapses into extra rows").
-                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Tagging", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, softWrap = false
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        CircularProgressIndicator(Modifier.size(12.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
-                    }
-                    Spacer(Modifier.height(2.dp))
+            Column(Modifier.width(frameWidth)) {
+                Row(
+                    Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TaggingCloseBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack)
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        "Tagged ${state.tagged} Posts (${formatBytes(state.datasetBytes)})",
-                        color = DimGray, fontSize = 12.sp, maxLines = 1, softWrap = false
+                        "Tagging", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 1, softWrap = false
                     )
+                    Spacer(Modifier.width(7.dp))
+                    CircularProgressIndicator(Modifier.size(11.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
+                    Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
+                    Box(
+                        Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.08f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            "${groupDigits(state.tagged)} Posts · ${formatBytes(state.datasetBytes)}",
+                            color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                // The post itself fills the rest of the same outline — the
-                // outline never breaks between header and image, it's one
-                // shape the whole way down (see how FrameContent as a whole
-                // is what's wrapped in the glass surface below, not just
-                // this Box).
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    AsyncImage(
-                        model = item.thumbUrl.ifBlank { item.mediaUrl },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                Box(Modifier.fillMaxWidth().height(imageHeight), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(imageWidth, imageHeight)) {
+                        AsyncImage(
+                            model = item.thumbUrl.ifBlank { item.mediaUrl },
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            onSuccess = { st ->
+                                val d = st.result.image
+                                if (d.width > 0 && d.height > 0) loadedAspect = d.width.toFloat() / d.height
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (tags != null) {
+                            val text = if (tags.isEmpty()) "No tags found" else tags.joinToString("  ·  ") { it.replace('_', ' ') }
+                            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
+                            FitText(
+                                if (tags.isEmpty()) com.mediaviewer.i18n.tr(text) else text,
+                                Modifier.matchParentSize().padding(14.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
         if (liquidGlass) {
-            LiquidGlassSurface(Modifier.fillMaxSize(), shape = outlineShape, tint = tint, backdrop = backdrop) { FrameContent() }
+            LiquidGlassSurface(Modifier.width(frameWidth), shape = outlineShape, tint = tint, backdrop = backdrop) { FrameContent() }
         } else {
-            Box(Modifier.fillMaxSize().clip(outlineShape).background(Color.White.copy(0.06f))) { FrameContent() }
+            Box(Modifier.width(frameWidth).clip(outlineShape).background(Color.White.copy(0.06f))) { FrameContent() }
         }
     }
+}
+
+/** A card's heading: always one line, made smaller when it wouldn't fit. */
+@Composable
+private fun CardTitle(text: String, size: androidx.compose.ui.unit.TextUnit) {
+    FitText(
+        com.mediaviewer.i18n.tr(text), Modifier.fillMaxWidth(),
+        maxSize = size, minSize = 9.sp, fontWeight = FontWeight.Bold, singleLine = true, shadow = false
+    )
+}
+
+/** 9252 → "9,252". */
+private fun groupDigits(n: Int): String {
+    val digits = kotlin.math.abs(n).toString()
+    val grouped = digits.reversed().chunked(3).joinToString(",").reversed()
+    return if (n < 0) "-$grouped" else grouped
 }
 
 /** Matches ProfileOverlay's CloseGlassBubble / SearchOverlay's

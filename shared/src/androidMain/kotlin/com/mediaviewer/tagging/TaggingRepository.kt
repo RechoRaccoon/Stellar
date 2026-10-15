@@ -186,8 +186,12 @@ class TaggingRepository(
             // coroutines that also call reportProgress() (for text-only
             // items) can run on different Dispatchers.IO threads.
             val currentItemRef = java.util.concurrent.atomic.AtomicReference<MediaItem?>(null)
+            // The post that last finished, with its tags, shown by the overlay.
+            val lastTaggedRef = java.util.concurrent.atomic.AtomicReference<Pair<MediaItem, List<String>>?>(null)
             fun reportProgress() {
-                onProgress(TaggingProgress(scanned.get(), tagged.get(), db.datasetSizeBytes(), isRunning = true, isComplete = false, currentItem = currentItemRef.get()))
+                val last = lastTaggedRef.get()
+                onProgress(TaggingProgress(scanned.get(), tagged.get(), db.datasetSizeBytes(), isRunning = true, isComplete = false,
+                    currentItem = currentItemRef.get(), lastTaggedItem = last?.first, lastTags = last?.second.orEmpty()))
             }
 
             /** Tags a batch of not-yet-indexed items.
@@ -277,9 +281,10 @@ class TaggingRepository(
                         // instantaneous.
                         currentItemRef.set(prepared.item)
                         reportProgress()
-                        val newlyTagged = inferAndStore(loadedTagger, prepared.item, prepared.media)
+                        val tags = inferAndStore(loadedTagger, prepared.item, prepared.media)
                         scanned.incrementAndGet()
-                        if (newlyTagged) tagged.incrementAndGet()
+                        if (tags.isNotEmpty()) tagged.incrementAndGet()
+                        lastTaggedRef.set(prepared.item to tags.map { it.first })
                         reportProgress()
                     }
                 }
@@ -428,11 +433,11 @@ class TaggingRepository(
      *  counted), while tagOnLike re-tags unconditionally (a like can only
      *  fire once for a given post in normal use, but re-tagging on repeat
      *  calls is harmless either way). */
-    private fun inferAndStore(imageTagger: ImageTagger, item: MediaItem, prepared: PreparedMedia): Boolean {
+    private fun inferAndStore(imageTagger: ImageTagger, item: MediaItem, prepared: PreparedMedia): List<Pair<String, Float>> {
         val finalBitmap = prepared.bitmap
         if (finalBitmap == null) {
             db.storeTags(item.postUri, item.postCid, prepared.sourceUrlForRecord, emptyList())
-            return false
+            return emptyList()
         }
         val tags = try { imageTagger.tag(finalBitmap) } finally { if (prepared.ownsBitmap) finalBitmap.recycle() }
         // Bitmaps/decode buffers we own are eligible for GC/release the
@@ -440,7 +445,7 @@ class TaggingRepository(
         // disk, and Coil-owned bitmaps are left untouched for Coil's own
         // cache to manage.
         db.storeTags(item.postUri, item.postCid, prepared.sourceUrlForRecord, tags)
-        return tags.isNotEmpty()
+        return tags
     }
 
     /** Realtime single-post path (see [tagOnLike]) — just runs prepare then
@@ -451,7 +456,7 @@ class TaggingRepository(
             db.storeTags(item.postUri, item.postCid, "", emptyList())
             return false
         }
-        return inferAndStore(imageTagger, item, prepareMedia(item))
+        return inferAndStore(imageTagger, item, prepareMedia(item)).isNotEmpty()
     }
 
     /** Pulls the single frame at the video's halfway point. Uses

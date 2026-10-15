@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "Ошибка загрузки (HTTP {0})",
 "Download was cut off": "Загрузка прервалась",
 "The tagger model was removed by the browser. Download it again in Settings.": "Браузер удалил модель тегов. Скачайте её снова в настройках.",
-"This browser can't store the model": "Этот браузер не может хранить модель"
+"This browser can't store the model": "Этот браузер не может хранить модель",
+"Alt Text": "Альтернативный текст",
+"Clear status": "Очистить статус",
+"Describe this image…": "Опишите это изображение…",
+"Describe this video…": "Опишите это видео…",
+"No tags found": "Теги не найдены",
+"Save alt text": "Сохранить альтернативный текст",
+"Status History": "История статусов",
+"Status history": "История статусов",
+"{0} Posts · {1}": "Публикаций: {0} · {1}"
 }

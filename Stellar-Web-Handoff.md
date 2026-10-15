@@ -14,7 +14,46 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0j. Update: AI Tagging on desktop and web, small fixes (latest)
+## 0k. Update: tagging page, status history, alt text, composer fixes (latest)
+
+- Tagging page (`TaggingOverlay.kt`): one header row — Back, "Tagging"
+  + spinner, and a "N Posts · size" pill — over the post at its own
+  aspect ratio (never cropped), the whole frame centred. It shows the post
+  that last *finished* (`TaggingProgress.lastTaggedItem` / `lastTags`, set
+  by `EngineTaggingRepository` and Android's `TaggingRepository`) with all
+  its tags laid over the picture, shrunk to fit (`ui/FitText.kt`). Card
+  titles ("Downloading Tagging Model", …) are always one line.
+- Profiles: tapping the profile picture opens it full screen
+  (`CommentMediaViewer`, Bluesky's full-size avatar), the page blurred.
+- Status box (`ProfileStatus.kt`): a history button left of the duration
+  button opens Status History (2-wide grid, up to just under the camera);
+  tap one to put its words in the box, hold to delete. "Clear Status" is
+  gone: while the box holds the status that's up now, send becomes an X
+  that clears it. The Archived page no longer has a Statuses tab.
+- Status expiry: `ProfileStyles.resumeOwnStatusClear()` (called when the
+  ViewModel sets the saver) schedules the clear at startup, so a status
+  that ran out while the app was closed is removed from the PDS at once,
+  not only after your own profile is opened. A failed clear is retried
+  once a minute (30 tries).
+- Hub: a dragged feed chip is solid (the page's own sky color under it)
+  and looks just as it does in the row; it no longer turns red/see-through
+  over Remove.
+- Composer: dragging a picture shows "Alt Text" beside "Remove"; dropping
+  it there opens `AltTextDialog` (Quote Repost's popup, a check to save).
+  Alt text is sent with each picture (`ThreadPostDraft.imageAlts` →
+  `createPost`/`createThread`/`editPost`), shown over its tile. A video
+  has an Alt Text row under the video (`ComposePostDraft.videoAlt` → the
+  video embed's `alt`). Alt text isn't kept in saved drafts yet.
+  A picture that was held and let go doesn't open full screen. One picture
+  shows at its own aspect ratio (up to 460 dp tall); two or more are
+  squares.
+- Popups' message box (`PopupMessageBox`): the character counter sits above
+  the send button, right-aligned with the field, so the text has the full
+  width and doesn't re-wrap as the count grows.
+- Web splash (`index.html`): the window-sized ellipse glow (a pink column
+  on phones) is gone; only the logo's letters glow.
+
+## 0j. Update: AI Tagging on desktop and web, small fixes
 
 - AI Tagging now works on desktop and the web, with the same model,
   thresholds, dataset format and import/export as Android. The service is

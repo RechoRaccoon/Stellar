@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "Download fehlgeschlagen (HTTP {0})",
 "Download was cut off": "Der Download wurde abgebrochen",
 "The tagger model was removed by the browser. Download it again in Settings.": "Der Browser hat das Tagging-Modell entfernt. Lade es in den Einstellungen erneut herunter.",
-"This browser can't store the model": "Dieser Browser kann das Modell nicht speichern"
+"This browser can't store the model": "Dieser Browser kann das Modell nicht speichern",
+"Alt Text": "Alternativtext",
+"Clear status": "Status löschen",
+"Describe this image…": "Beschreibe dieses Bild…",
+"Describe this video…": "Beschreibe dieses Video…",
+"No tags found": "Keine Tags gefunden",
+"Save alt text": "Alternativtext speichern",
+"Status History": "Statusverlauf",
+"Status history": "Statusverlauf",
+"{0} Posts · {1}": "{0} Beiträge · {1}"
 }

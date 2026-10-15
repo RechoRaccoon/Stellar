@@ -1838,5 +1838,14 @@
 "Download failed (HTTP {0})": "다운로드 실패 (HTTP {0})",
 "Download was cut off": "다운로드가 중간에 끊겼어요",
 "The tagger model was removed by the browser. Download it again in Settings.": "브라우저가 태그 모델을 삭제했어요. 설정에서 다시 다운로드하세요.",
-"This browser can't store the model": "이 브라우저는 모델을 저장할 수 없어요"
+"This browser can't store the model": "이 브라우저는 모델을 저장할 수 없어요",
+"Alt Text": "대체 텍스트",
+"Clear status": "상태 지우기",
+"Describe this image…": "이 이미지를 설명하세요…",
+"Describe this video…": "이 동영상을 설명하세요…",
+"No tags found": "태그를 찾지 못했습니다",
+"Save alt text": "대체 텍스트 저장",
+"Status History": "상태 기록",
+"Status history": "상태 기록",
+"{0} Posts · {1}": "게시물 {0}개 · {1}"
 }

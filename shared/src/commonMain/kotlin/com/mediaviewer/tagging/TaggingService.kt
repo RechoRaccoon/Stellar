@@ -40,7 +40,12 @@ data class TaggingProgress(
     // time instead of a generic loading box. Null before the first item
     // starts (still downloading the model, or between pages of the
     // liked-posts pagination) and while nothing is running.
-    val currentItem: MediaItem? = null
+    val currentItem: MediaItem? = null,
+    // The post that most recently finished tagging and the tags it got
+    // (best first), so the overlay can show a finished post with its tags
+    // laid over it instead of one that's still being worked on.
+    val lastTaggedItem: MediaItem? = null,
+    val lastTags: List<String> = emptyList()
 )
 
 interface TaggingService {

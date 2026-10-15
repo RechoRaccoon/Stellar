@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -182,20 +183,35 @@ fun PopupMessageBox(
     counter: String? = null,
     counterOver: Boolean = false,
     maxLines: Int = 5,
-    focusRequester: androidx.compose.ui.focus.FocusRequester? = null
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
+    /** A picture to show instead of [thumbUrl] (e.g. a local file). */
+    thumbModel: Any? = null,
+    sendIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Send,
+    sendDescription: String = "Send"
 ) {
     val tap = rememberHapticTap()
+    // The counter sits above the send button, its right edge level with the
+    // field's, so the text gets the whole width and never re-wraps as the
+    // count grows a digit.
+    Column(modifier.fillMaxWidth()) {
+    if (counter != null) {
+        Text(
+            counter, color = if (counterOver) Color(0xFFFF6B8A) else Color.White.copy(alpha = 0.55f),
+            fontSize = 11.sp, maxLines = 1,
+            modifier = Modifier.align(Alignment.End).padding(end = 12.dp, bottom = 4.dp)
+        )
+    }
     Row(
-        modifier
+        Modifier
             .fillMaxWidth()
             .heightIn(min = 50.dp)
             .popupFieldWell(tint, RoundedCornerShape(25.dp))
             .padding(start = 7.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        if (thumbUrl.isNotBlank()) {
+        if (thumbModel != null || thumbUrl.isNotBlank()) {
             coil3.compose.AsyncImage(
-                model = thumbUrl, contentDescription = null,
+                model = thumbModel ?: thumbUrl, contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
             )
@@ -218,12 +234,7 @@ fun PopupMessageBox(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
-        if (counter != null) {
-            Text(
-                counter, color = if (counterOver) Color(0xFFFF6B8A) else Color.White.copy(alpha = 0.55f),
-                fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 12.dp)
-            )
-        } else Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -233,8 +244,9 @@ fun PopupMessageBox(
             contentAlignment = Alignment.Center
         ) {
             if (sending) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-            else Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White.copy(alpha = if (canSend) 1f else 0.5f), modifier = Modifier.size(19.dp))
+            else Icon(sendIcon, contentDescription = sendDescription, tint = Color.White.copy(alpha = if (canSend) 1f else 0.5f), modifier = Modifier.size(19.dp))
         }
+    }
     }
 }
 

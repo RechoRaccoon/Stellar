@@ -17,7 +17,9 @@ enum class ComposeMode { SINGLE, THREAD, TEXTSHOT, VIDEO, REVIEW, BLOG }
 data class ThreadPostDraft(
     val text: String,
     val images: List<com.mediaviewer.platform.PlatformUri> = emptyList(),
-    val video: com.mediaviewer.platform.PlatformUri? = null
+    val video: com.mediaviewer.platform.PlatformUri? = null,
+    /** Alt text per picture, by index ("" = none). */
+    val imageAlts: List<String> = emptyList()
 )
 
 
@@ -32,6 +34,8 @@ data class ComposePostDraft(
     val videoThumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
     val videoTitle: String = "",
     val videoDescription: String = "",
+    /** The video's alt text. */
+    val videoAlt: String = "",
     val textshotText: String = "",
     /** Textshot mode: the post's own (regular Bluesky) text, separate from
      *  the text rendered into the image — for hashtags, a caption… */

@@ -145,13 +145,6 @@ fun GridScreen(
     var localTags  by remember(e621SearchTags) { mutableStateOf(e621SearchTags) }
     val tint = rememberSelfTint(selfAvatarUrl, NeutralGlassTint)
     var kind by remember { mutableStateOf(PostKindFilter.ALL) }
-    // The Archived page also has "Statuses": your status history, kept on
-    // this device (see StatusHistory); press and hold one to delete it.
-    val isArchive = authorFeedState?.author?.handle?.endsWith("stellar-archive://posts") == true
-    var showStatuses by remember(isArchive) { mutableStateOf(false) }
-    var pendingStatusDelete by remember { mutableStateOf<com.mediaviewer.util.StatusHistory.Entry?>(null) }
-    val archiveDid = authorFeedState?.author?.did.orEmpty()
-    LaunchedEffect(isArchive, archiveDid) { if (isArchive) com.mediaviewer.util.StatusHistory.load(archiveDid) }
     val gridScreen = "feed_grid"
     // Landscape: the slider's column count, and two layouts instead of three
     // (see Landscape and effectiveGridMode).
@@ -350,19 +343,7 @@ fun GridScreen(
             }
             if (LocalSideList.current) SideListDivider(tint) else HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
             // ── Content-type sub-tabs ──────────────────────────────────────
-            if (isArchive) {
-                PostKindSubTabRowWithStatuses(
-                    items, kind, showStatuses, liquidGlass, tint,
-                    onSelect = { newKind ->
-                        if (newKind != kind || showStatuses) {
-                            if (!showStatuses) pendingAnchor = middleAnchor(gridState)
-                            showStatuses = false
-                            kind = newKind
-                        }
-                    },
-                    onSelectStatuses = { showStatuses = true }
-                )
-            } else if (items.isNotEmpty()) {
+            if (items.isNotEmpty()) {
                 Box(Modifier.fillMaxWidth().tipAnchor("ex.kinds")) {
                 PostKindSubTabRow(items, kind, liquidGlass, tint) { newKind ->
                     if (newKind != kind) {
@@ -475,21 +456,6 @@ fun GridScreen(
                     Spacer(Modifier.height(4.dp))
                 }
             }
-            if (showStatuses) {
-                val history = com.mediaviewer.util.StatusHistory.entries
-                if (history.isEmpty()) {
-                    item(key = "statuses_empty", span = StaggeredGridItemSpan.FullLine) {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 160.dp), contentAlignment = Alignment.Center) {
-                            Text("No statuses yet", color = DimGray, fontSize = 13.sp)
-                        }
-                    }
-                }
-                items(count = history.size, key = { i -> "status_" + history[i].createdAt + "_" + i }, contentType = { "status" }) { i ->
-                    val entry = history[i]
-                    StatusHistoryTile(entry, tint, liquidGlass) { pendingStatusDelete = entry }
-                }
-                return@LazyVerticalStaggeredGrid
-            }
             if (items.isEmpty()) {
                 if (isLoading) {
                     // A feed that's still loading (e.g. one just switched to)
@@ -556,17 +522,6 @@ fun GridScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),
             refreshAnchor = "ex.refresh", gridAnchor = "ex.layout"
         )
-        pendingStatusDelete?.let { entry ->
-            ConfirmPopup(
-                title = "Delete this status?",
-                message = "\"${entry.text.take(80)}\" will be removed from your status history on this device.",
-                confirmLabel = "Delete",
-                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                onConfirm = { pendingStatusDelete = null; com.mediaviewer.util.StatusHistory.delete(archiveDid, entry) },
-                onDismiss = { pendingStatusDelete = null },
-                modifier = Modifier
-            )
-        }
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(
             visible = showScrollTop,

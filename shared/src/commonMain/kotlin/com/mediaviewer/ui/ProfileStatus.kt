@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,6 +26,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -150,10 +153,14 @@ private enum class StatusUnit(val minutes: Long, val short: String, val label: S
 /**
  * Setting your status: a box like the comment box, with how long it lasts
  * on the left where the comment box has its media button: Minutes, Hours,
- * Days (each remembering its own number) or Never.
+ * Days (each remembering its own number) or Never. Left of that, your
+ * status history (kept on this device only): tap one to put its words in
+ * the box, press and hold to delete it. While the box holds the status
+ * that's up now, the send button clears it instead.
  */
 @Composable
 fun ProfileStatusEditor(
+    did: String,
     current: ProfileStatus?, tint: Color, liquidGlass: Boolean,
     onPost: (text: String, minutes: Long) -> Unit,
     onClear: () -> Unit,
@@ -165,6 +172,9 @@ fun ProfileStatusEditor(
     fun savedAmount(u: StatusUnit) = if (u == StatusUnit.NEVER) "0" else com.mediaviewer.util.UiToggles.statusAmount(u.name, u.default).toString()
     var amount by remember { mutableStateOf(savedAmount(unit)) }
     var durationOpen by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<com.mediaviewer.util.StatusHistory.Entry?>(null) }
+    LaunchedEffect(did) { com.mediaviewer.util.StatusHistory.load(did) }
     val amountValue = amount.toLongOrNull()?.coerceAtLeast(0) ?: 0L
     val minutes = amountValue * unit.minutes
     val accent = lerp(tint, Color.White, 0.35f)
@@ -175,23 +185,48 @@ fun ProfileStatusEditor(
             .imePadding(),
         contentAlignment = Alignment.BottomCenter
     ) {
+        // Full height so the history can grow up to just under the camera;
+        // taps between the parts still reach the dimmed background.
         Column(
-            Modifier.landscapeReadable().fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp)
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            Modifier.landscapeReadable().fillMaxWidth().fillMaxHeight()
+                .padding(top = rememberTopCutoutClearance()).padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
         ) {
+            val swallow = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
             val panelShape = RoundedCornerShape(18.dp)
             @Composable
             fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
                 Box(
                     modifier.then(
                         Modifier.opaqueFill(panelShape, tint, liquidGlass)
-                    )
+                    ).then(swallow)
                 ) { content() }
             }
-            if (current != null && current.isActive()) {
-                Panel(Modifier.clickable { tap(); onClear() }) {
-                    Text("Clear Status", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+            if (historyOpen) {
+                Panel(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Status History", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        val history = com.mediaviewer.util.StatusHistory.entries
+                        if (history.isEmpty()) {
+                            Text("No statuses yet", color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp).align(Alignment.CenterHorizontally))
+                        } else {
+                            androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid(
+                                columns = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells.Fixed(2),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalItemSpacing = 8.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(count = history.size, key = { i -> "status_" + history[i].createdAt + "_" + i }) { i ->
+                                    val entry = history[i]
+                                    StatusHistoryTile(
+                                        entry, tint, liquidGlass = false,
+                                        onClick = { text = entry.text.take(STATUS_MAX_LENGTH); historyOpen = false },
+                                        onLongPress = { pendingDelete = entry }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (durationOpen) {
@@ -235,10 +270,12 @@ fun ProfileStatusEditor(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().then(swallow), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The box holds the status that's up now: send clears it.
+                val isCurrent = current != null && current.isActive() && text.trim() == current.text
                 fun post() {
                     val t = text.trim()
-                    if (t.isNotEmpty()) onPost(t, minutes)
+                    if (isCurrent) onClear() else if (t.isNotEmpty()) onPost(t, minutes)
                 }
                 // How long it lasts — where the comment box has its media button.
                 @Composable
@@ -250,7 +287,13 @@ fun ProfileStatusEditor(
                         contentAlignment = Alignment.Center
                     ) { content() }
                 }
-                Circle(Modifier.clickable { tap(); durationOpen = !durationOpen }) {
+                Circle(Modifier.clickable { tap(); historyOpen = !historyOpen; durationOpen = false }) {
+                    Icon(
+                        Icons.Default.History, contentDescription = "Status history",
+                        tint = if (historyOpen) Color.White else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(20.dp)
+                    )
+                }
+                Circle(Modifier.clickable { tap(); durationOpen = !durationOpen; historyOpen = false }) {
                     Text(
                         if (minutes == 0L) "∞" else "$amountValue${unit.short}",
                         color = Color.White, fontSize = if (minutes == 0L) 18.sp else 12.sp, fontWeight = FontWeight.Bold, maxLines = 1
@@ -276,10 +319,24 @@ fun ProfileStatusEditor(
                     )
                     if (text.isEmpty()) Text("What's on your mind?", color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp)
                 }
-                Circle(Modifier.clickable(enabled = text.isNotBlank()) { tap(); post() }) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Post status", tint = if (text.isNotBlank()) Color.White else Color.White.copy(0.4f), modifier = Modifier.size(18.dp))
+                Circle(Modifier.clickable(enabled = isCurrent || text.isNotBlank()) { tap(); post() }) {
+                    if (isCurrent) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear status", tint = Color.White, modifier = Modifier.size(20.dp))
+                    } else {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Post status", tint = if (text.isNotBlank()) Color.White else Color.White.copy(0.4f), modifier = Modifier.size(18.dp))
+                    }
                 }
             }
+        }
+        pendingDelete?.let { entry ->
+            ConfirmPopup(
+                title = "Delete this status?",
+                message = "\"${entry.text.take(80)}\" will be removed from your status history on this device.",
+                confirmLabel = "Delete",
+                liquidGlass = liquidGlass, tint = tint, backdrop = null,
+                onConfirm = { pendingDelete = null; com.mediaviewer.util.StatusHistory.delete(did, entry) },
+                onDismiss = { pendingDelete = null }
+            )
         }
     }
 }
