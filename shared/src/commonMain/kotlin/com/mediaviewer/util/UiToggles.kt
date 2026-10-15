@@ -154,8 +154,8 @@ object UiToggles {
      *  drawn, as set by pinching on the bar (1 = the standard size). */
     var landscapeBarScale by mutableStateOf(1f)
         private set
-    // Never smaller than the standard size: pinching in all the way puts
-    // it back exactly where it started.
+    // Pinching can make it smaller than the standard size too; near the
+    // standard size it locks onto it (with a haptic tick).
     /** Landscape: how many posts across the post grids are (Explore,
      *  profiles, Search) — the slider under a profile's side list. */
     var landscapeColumns by mutableStateOf(LANDSCAPE_DEFAULT_COLUMNS)
@@ -196,7 +196,7 @@ object UiToggles {
         prefs?.edit()?.putInt(KEY_LANDSCAPE_COLUMNS, landscapeColumns)?.apply()
     }
 
-    const val LANDSCAPE_BAR_MIN_SCALE = 1f
+    const val LANDSCAPE_BAR_MIN_SCALE = 0.7f
     const val LANDSCAPE_BAR_MAX_SCALE = 1.8f
     val starFrameRateOptions = listOf(30, 60, 90, 120)
 

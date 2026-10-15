@@ -23,6 +23,13 @@ from that branch, or from `main` once it's merged.
   amount (`commentsSideWidth * commentsFraction`), so the picture refits in
   the space left. Closing works as before. (`Landscape.SIDE_PANEL_WIDTH`,
   the old right-hand panel, is gone.)
+- One landscape UI scale for the post and its comments:
+  `landscapeUiBaseScale(height)` (0.76 on a phone on its side, up to 1.15 on
+  tablets / tall desktop windows) times the bar pinch
+  (`UiToggles.landscapeBarScale`, now 0.7–1.8). The comments side list
+  draws at `rememberLandscapeUiScale()`. The pinch locks onto 1 within
+  ±0.06 with a haptic tick (`landscapeBarPinch(onSnap)`).
+- Composer: the Remove bubble's bottom lines up with the Drafts/counter row.
 - Video icons/banners (`ProfileBannerVideo`) take a `poster`: the regular
   picture is drawn over the video until its first frame (listener, or
   playback past 150ms), so they never show black while loading.

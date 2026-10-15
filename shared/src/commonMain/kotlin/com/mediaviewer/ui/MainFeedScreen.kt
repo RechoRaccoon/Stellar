@@ -764,7 +764,15 @@ fun MainFeedScreen(
                             .background(dimSpaceColor(lastDominantColor, 0.18f))
                             .drawBehind { drawLine(lastDominantColor.copy(alpha = 0.55f), Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
                     ) {
-                        Box(Modifier.fillMaxSize().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) { Comments() }
+                        // (At the same size as the post's UI beside it — the
+                        // pinch on the interaction bar resizes these too.)
+                        val uiScale = rememberLandscapeUiScale()
+                        val d = androidx.compose.ui.platform.LocalDensity.current
+                        Box(Modifier.fillMaxSize().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * uiScale, d.fontScale)
+                            ) { Comments() }
+                        }
                     }
                     SideListEdge(lastDominantColor)
                 }
@@ -1396,10 +1404,12 @@ private fun PostContent(
         }
     }
 
+    // (A tick when a pinch on the bar locks onto the standard size.)
+    val barSnapTap = rememberHapticTap()
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { postBoxRootOrigin = it.positionInRoot() }
-            .landscapeBarPinch(landscape, item.id) {
+            .landscapeBarPinch(landscape, item.id, onSnap = { barSnapTap() }) {
                 // The interaction bar, in this box's coordinates.
                 actionBarOrigin?.takeIf { actionBarSize != IntSize.Zero }?.let { o ->
                     androidx.compose.ui.geometry.Rect(o - postBoxRootOrigin, actionBarSize.toSize())
@@ -4263,15 +4273,29 @@ private fun LandscapeBarScale(landscape: Boolean, content: @Composable () -> Uni
 
 /**
  * Landscape: pinching with two fingers that starts on the interaction bar
- * resizes the bar and the text bubble above it, from the standard size
- * up (remembered — see UiToggles.landscapeBarScale). Watched before the post's own gestures and
+ * resizes the post's UI and the comments beside it, smaller or bigger than
+ * the standard size — locking onto the standard size, with a haptic tick,
+ * as it passes (remembered — see UiToggles.landscapeBarScale). Watched before the post's own gestures and
  * only claimed then, so swipes, taps and zooming the picture are
  * unaffected. With a mouse: Ctrl + wheel over the bar (Windows touchpads
  * send their pinches that way too).
  */
-private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds: () -> androidx.compose.ui.geometry.Rect?): Modifier =
+private fun Modifier.landscapeBarPinch(
+    landscape: Boolean, key: Any?, onSnap: () -> Unit = {}, barBounds: () -> androidx.compose.ui.geometry.Rect?
+): Modifier =
     if (!landscape) this else this.pointerInput(key) {
         val util = com.mediaviewer.util.UiToggles
+        // The size as pinched, before locking onto the standard size: near
+        // 1 it shows exactly 1 (one haptic tick on the way in), and keeps
+        // following the fingers once they've moved clear of it again.
+        var raw = util.landscapeBarScale
+        fun show(save: Boolean) {
+            raw = raw.coerceIn(util.LANDSCAPE_BAR_MIN_SCALE, util.LANDSCAPE_BAR_MAX_SCALE)
+            val locked = kotlin.math.abs(raw - 1f) < 0.06f
+            val wasLocked = util.landscapeBarScale == 1f
+            util.setLandscapeBarScale(if (locked) 1f else raw, save)
+            if (locked && !wasLocked) onSnap()
+        }
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -4280,23 +4304,23 @@ private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds:
                 when {
                     event.type == PointerEventType.Scroll -> {
                         if (onBar && event.keyboardModifiers.isCtrlPressed && change.scrollDelta.y != 0f) {
-                            util.setLandscapeBarScale(util.landscapeBarScale * (1f - change.scrollDelta.y * 0.08f), save = true)
+                            raw *= (1f - change.scrollDelta.y * 0.08f)
+                            show(save = true)
                             change.consume()
                         }
                     }
                     event.type == PointerEventType.Press && onBar && event.changes.count { it.pressed } == 1 -> {
                         // A finger on the bar: if a second joins, it's a pinch.
                         var pinching = false
+                        raw = util.landscapeBarScale
                         while (true) {
                             val e = awaitPointerEvent(PointerEventPass.Initial)
                             val down = e.changes.count { it.pressed }
                             if (down == 0) break
                             if (down >= 2) {
                                 pinching = true
-                                // Step by step from the current size, so after
-                                // pinching in to the standard size (the
-                                // smallest), pinching out grows it straight away.
-                                util.setLandscapeBarScale(util.landscapeBarScale * e.calculateZoom(), save = false)
+                                raw *= e.calculateZoom()
+                                show(save = false)
                             }
                             if (pinching) e.changes.forEach { it.consume() }
                         }
@@ -4315,8 +4339,7 @@ private fun Modifier.landscapeBarPinch(landscape: Boolean, key: Any?, barBounds:
 private fun LandscapeChromeScale(landscape: Boolean, content: @Composable () -> Unit) {
     if (!landscape) { content(); return }
     val d = androidx.compose.ui.platform.LocalDensity.current
-    val heightDp = com.mediaviewer.ui.compat.rememberScreenSizeDp().height
-    val base = (heightDp / 560f).coerceIn(0.76f, 1f)
+    val base = landscapeUiBaseScale(com.mediaviewer.ui.compat.rememberScreenSizeDp().height)
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * base, d.fontScale),
         LocalCompactActionRow provides true,

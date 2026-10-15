@@ -1467,12 +1467,14 @@ fun ComposePostScreen(
                         )
                     }
                     // While an attached image is held: "Remove", centred
-                    // over this row (overflowing it, so nothing moves).
+                    // across this row, its bottom level with the Drafts and
+                    // counter text's (rising into the room above, so it
+                    // never hangs over the buttons and nothing moves).
                     if (imageDrag.held != null) {
-                        Box(Modifier.matchParentSize().zIndex(3f), contentAlignment = Alignment.Center) {
+                        Box(Modifier.matchParentSize().zIndex(3f), contentAlignment = Alignment.BottomCenter) {
                             HubRemoveBubble(
                                 hovered = imageDrag.hovered, liquidGlass = liquidGlass,
-                                modifier = Modifier.wrapContentHeight(unbounded = true)
+                                modifier = Modifier.wrapContentHeight(align = Alignment.Bottom, unbounded = true)
                                     .onGloballyPositioned { imageDrag.removeBounds = it.boundsInRoot() }
                             )
                         }

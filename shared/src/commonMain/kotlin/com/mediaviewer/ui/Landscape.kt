@@ -62,6 +62,19 @@ object Landscape {
 }
 
 /**
+ * Landscape: how big the post UI (and the comments beside it) is drawn,
+ * before the pinch on the interaction bar: by the screen's height, so a
+ * phone on its side gets a compact UI and a tablet or a tall desktop window
+ * a roomier one.
+ */
+fun landscapeUiBaseScale(heightDp: Int): Float = (heightDp / 560f).coerceIn(0.76f, 1.15f)
+
+/** [landscapeUiBaseScale] times the pinch on the interaction bar. */
+@androidx.compose.runtime.Composable
+fun rememberLandscapeUiScale(): Float =
+    landscapeUiBaseScale(com.mediaviewer.ui.compat.rememberScreenSizeDp().height) * com.mediaviewer.util.UiToggles.landscapeBarScale
+
+/**
  * Lays the content out [reference] wide and, when its column is narrower
  * than that, shrinks the whole thing to fit — so a text bubble or a video
  * card in a grid of many columns keeps its shape (smaller, not taller).
