@@ -5,19 +5,18 @@ on:
   # Every push, on any branch: Android, iOS, Windows and macOS are all
   # built from the same commit.
   push:
-  # Run by hand (Actions › Build Stellar iOS › Run workflow) to try the
-  # other kind of Mac GitHub offers. The usual one (macos-15) has 7 GB of
-  # memory, which the Kotlin build fills; macos-15-intel has 14 GB and
-  # four processors. If it builds faster there, change the default below.
+  # Run by hand (Actions › Build Stellar iOS › Run workflow) to pick the
+  # Mac. The build runs on macos-15-intel (14 GB of memory): on macos-15
+  # (7 GB) the release framework's link ran out of memory.
   workflow_dispatch:
     inputs:
       runner:
         description: Which Mac to build on
         type: choice
-        default: macos-15
+        default: macos-15-intel
         options:
-          - macos-15
           - macos-15-intel
+          - macos-15
 
 # One iOS build at a time: a newer push stops the build of the one before
 # it. (They take about an hour each, and two at once only slow each other.)
@@ -28,7 +27,7 @@ concurrency:
 jobs:
   ios:
     name: Build unsigned iOS app
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
 
     steps:
       - name: Checkout repository
@@ -61,8 +60,12 @@ jobs:
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.gradle.kts', 'shared/build.gradle.kts', 'gradle.properties') }}
           restore-keys: konan-${{ runner.os }}-${{ runner.arch }}-
 
+      # The release link needs a big heap: 10 GB of the Intel Mac's 14
+      # (6 GB, the gradle.properties default, on a 7 GB macos-15).
       - name: Build Kotlin framework (iPhone)
-        run: gradle :shared:linkReleaseFrameworkIosArm64 --stacktrace
+        run: |
+          if [ "$(uname -m)" = "x86_64" ]; then HEAP=10g; else HEAP=6g; fi
+          gradle :shared:linkReleaseFrameworkIosArm64 --stacktrace "-Dorg.gradle.jvmargs=-Xmx$HEAP -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC -Dfile.encoding=UTF-8"
 
       # Compose Multiplatform reads fonts/images from the app bundle's
       # compose-resources folder (Res.font.audiowide, the Stellar logo…).

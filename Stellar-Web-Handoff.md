@@ -48,6 +48,9 @@ from that branch, or from `main` once it's merged.
   when opened (Reposts/Likes used to need a manual refresh). Tapping the
   name or handle pill copies it ("Copied").
 - Title page: Review and Remove/Backlog split the bar evenly.
+- iOS CI: the release framework link ran out of memory on macos-15 (7 GB,
+  6 GB heap). ios.yml now builds on macos-15-intel (14 GB) with a 10 GB
+  heap; macos-15 can still be picked by hand.
 
 ## 0i. Update: web fonts, wheel, text posts, double-tap
 
