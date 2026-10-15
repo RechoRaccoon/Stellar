@@ -92,23 +92,25 @@ fun rememberTopCutoutClearance(minimum: Dp = 32.dp): Dp {
     return maxOf(cutoutTop, statusBarTop, minimum)
 }
 
-/** Landscape: the room a page leaves on its left and right — the camera
- *  cutout's and the navigation (gesture) bar's, whichever is biggest on
- *  either side, used on BOTH sides so the page sits evenly. (The web has
- *  neither: 0.) */
+/** Landscape: the room a page leaves on its left and right — just the
+ *  camera cutout's depth (whichever side it's on), used on BOTH sides so
+ *  the page sits evenly. (No cutout, or the web: 0.) */
 @Composable
 fun rememberLandscapeSideInset(): Dp {
     if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) return 0.dp
     val density = androidx.compose.ui.platform.LocalDensity.current
     val dir = androidx.compose.ui.platform.LocalLayoutDirection.current
     val cutout = WindowInsets.displayCutout
-    val nav = WindowInsets.navigationBars
-    val px = maxOf(
-        cutout.getLeft(density, dir), cutout.getRight(density, dir),
-        nav.getLeft(density, dir), nav.getRight(density, dir)
-    )
-    // (Nothing reported, e.g. with the bars hidden: still a fair margin.)
-    return with(density) { px.toDp() }.coerceAtLeast(24.dp)
+    val px = maxOf(cutout.getLeft(density, dir), cutout.getRight(density, dir))
+    return with(density) { px.toDp() }
+}
+
+/** [rememberLandscapeSideInset] on both sides, in landscape only. */
+@Composable
+fun Modifier.landscapeSideGaps(): Modifier {
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    if (screen.width <= screen.height) return this
+    return this.padding(horizontal = rememberLandscapeSideInset())
 }
 
 /** The actual color-sampling work behind [rememberDominantColor], factored

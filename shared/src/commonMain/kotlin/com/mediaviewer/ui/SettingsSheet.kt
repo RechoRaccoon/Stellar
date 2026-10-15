@@ -1529,7 +1529,7 @@ private fun AtProtocolPageContent(
             }
         }
     }
-    Row(Modifier.fillMaxWidth().weight(1f)) {
+    Row(Modifier.fillMaxWidth().weight(1f).then(if (hubSidebar) Modifier.landscapeSideGaps() else Modifier)) {
     if (hubSidebar) {
         Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))

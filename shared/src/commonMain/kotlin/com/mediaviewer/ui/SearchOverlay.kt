@@ -313,8 +313,6 @@ fun SearchOverlay(
             @Composable
             fun SearchBarBlock(m: Modifier, showBack: Boolean = true) {
             Box(m.height(44.dp)) {
-                // (Landscape's side list has its own Back row, so the bar is
-                // exactly the Hub's: field and search button.)
                 val p = if (showBack) split.value else 0f
                 // Back: a round bubble the same size as the search button on
                 // the right, sliding out of the field's left end.
@@ -640,23 +638,19 @@ fun SearchOverlay(
             }
             if (sideways) {
                 // Landscape: a side list like the Hub's — the very same
-                // search bar at the top, Back and the tabs as a list of
+                // search bar at the top (Back splitting out of it), the tabs as a list of
                 // buttons, the post-type filters, the grid size slider at
                 // the bottom — and the results beside it.
-                Row(Modifier.weight(1f).fillMaxWidth()) {
+                Row(Modifier.weight(1f).fillMaxWidth().landscapeSideGaps()) {
                     Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
-                        SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp), showBack = false)
+                        // (Back slides out of the bar's left end, as in portrait.)
+                        SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
                         Spacer(Modifier.height(10.dp))
                         Column(
                             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             androidx.compose.runtime.CompositionLocalProvider(LocalSideList provides true) {
-                                SideListButton(
-                                    "Back", selected = false, liquidGlass = liquidGlass, tint = profileTint,
-                                    icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = closeWithMerge
-                                )
-                                Spacer(Modifier.height(4.dp))
                                 TabsBlock()
                                 if ((isPosts && state.posts.isNotEmpty()) || (isLiked && hasTaggedDataset && likedTagResults.isNotEmpty())) {
                                     SideListDivider(profileTint)

@@ -528,4 +528,3 @@ RechoRaccoon/Stellar
 Stellar-{0}
 Stellar {0}
 application/vnd.github+json
-Ag
