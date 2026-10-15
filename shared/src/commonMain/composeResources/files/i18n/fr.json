@@ -1851,5 +1851,19 @@
 "\"{0}\" will be deleted from your status history.": "« {0} » sera supprimé de ton historique des statuts.",
 "Got It": "Compris",
 "These Are Public": "C'est public",
-"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Ton statut, ton historique des statuts et tes emojis personnalisés sont enregistrés sur ton compte Bluesky, où tout le monde peut les voir. Ne publie ou n'envoie rien que tu ne voudrais pas montrer."
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Ton statut, ton historique des statuts et tes emojis personnalisés sont enregistrés sur ton compte Bluesky, où tout le monde peut les voir. Ne publie ou n'envoie rien que tu ne voudrais pas montrer.",
+"Adding it to your tags…": "Ajout à tes tags…",
+"Download Shared Tags?": "Télécharger les tags partagés ?",
+"Downloading Shared Tags": "Téléchargement des tags partagés",
+"Not Now": "Pas maintenant",
+"Nothing tagged yet": "Rien n'est encore tagué",
+"Search {0} posts that have already been tagged. It's a {1} download.": "Cherche parmi {0} publications déjà taguées. Le téléchargement fait {1}.",
+"Tagging isn't available": "Le tagging n'est pas disponible",
+"The download didn't finish": "Le téléchargement n'a pas abouti",
+"The download stopped ({0})": "Le téléchargement s'est arrêté ({0})",
+"There's a newer version of the shared tags, with {0} posts. It's a {1} download.": "Une version plus récente des tags partagés est disponible, avec {0} publications. Le téléchargement fait {1}.",
+"Try Again": "Réessayer",
+"Unreadable dataset part": "Partie du jeu de données illisible",
+"Unreadable manifest": "Informations du jeu de données illisibles",
+"Update Shared Tags?": "Mettre à jour les tags partagés ?"
 }

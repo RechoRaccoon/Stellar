@@ -1851,5 +1851,19 @@
 "\"{0}\" will be deleted from your status history.": "\"{0}\" verrà eliminato dalla cronologia degli stati.",
 "Got It": "Ho capito",
 "These Are Public": "Questi dati sono pubblici",
-"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Il tuo stato, la cronologia degli stati e le tue emoji personalizzate vengono salvati nel tuo account Bluesky, dove chiunque può vederli. Non pubblicare né caricare nulla che non vuoi far vedere ad altri."
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Il tuo stato, la cronologia degli stati e le tue emoji personalizzate vengono salvati nel tuo account Bluesky, dove chiunque può vederli. Non pubblicare né caricare nulla che non vuoi far vedere ad altri.",
+"Adding it to your tags…": "Aggiunta ai tuoi tag…",
+"Download Shared Tags?": "Scaricare i tag condivisi?",
+"Downloading Shared Tags": "Download dei tag condivisi",
+"Not Now": "Non ora",
+"Nothing tagged yet": "Ancora nulla di taggato",
+"Search {0} posts that have already been tagged. It's a {1} download.": "Cerca tra {0} post già taggati. Il download è di {1}.",
+"Tagging isn't available": "Il tagging non è disponibile",
+"The download didn't finish": "Il download non è stato completato",
+"The download stopped ({0})": "Il download si è interrotto ({0})",
+"There's a newer version of the shared tags, with {0} posts. It's a {1} download.": "C'è una versione più recente dei tag condivisi, con {0} post. Il download è di {1}.",
+"Try Again": "Riprova",
+"Unreadable dataset part": "Parte del dataset illeggibile",
+"Unreadable manifest": "Informazioni del dataset illeggibili",
+"Update Shared Tags?": "Aggiornare i tag condivisi?"
 }

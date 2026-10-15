@@ -1851,5 +1851,19 @@
 "\"{0}\" will be deleted from your status history.": "“{0}”将从你的状态历史中删除。",
 "Got It": "知道了",
 "These Are Public": "这些是公开的",
-"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "你的状态、状态历史和自定义表情都保存在你的 Bluesky 账号中，任何人都能看到。不要发布或上传任何你不想让别人看到的内容。"
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "你的状态、状态历史和自定义表情都保存在你的 Bluesky 账号中，任何人都能看到。不要发布或上传任何你不想让别人看到的内容。",
+"Adding it to your tags…": "正在添加到你的标签…",
+"Download Shared Tags?": "下载共享标签？",
+"Downloading Shared Tags": "正在下载共享标签",
+"Not Now": "以后再说",
+"Nothing tagged yet": "还没有已标记的内容",
+"Search {0} posts that have already been tagged. It's a {1} download.": "搜索 {0} 条已标记的帖子。下载大小为 {1}。",
+"Tagging isn't available": "标记功能不可用",
+"The download didn't finish": "下载未完成",
+"The download stopped ({0})": "下载已中断（{0}）",
+"There's a newer version of the shared tags, with {0} posts. It's a {1} download.": "共享标签有新版本，包含 {0} 条帖子。下载大小为 {1}。",
+"Try Again": "重试",
+"Unreadable dataset part": "无法读取数据集的一部分",
+"Unreadable manifest": "无法读取数据集信息",
+"Update Shared Tags?": "更新共享标签？"
 }

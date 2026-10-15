@@ -6217,6 +6217,16 @@ class MainViewModel(
             }
         }
         com.mediaviewer.util.ProfileStyles.resumeOwnStatusClear()
+        // The shared tag dataset: downloaded into the tagging service as
+        // one more imported dataset (see tagging/SharedTagDataset).
+        com.mediaviewer.tagging.SharedTagDataset.init(platform.context)
+        com.mediaviewer.tagging.SharedTagDataset.service = taggingRepo
+        com.mediaviewer.tagging.SharedTagDataset.onInstalled = {
+            refreshImportedDatasets()
+            refreshTaggingCounts()
+            _hasTaggedDataset.value = true
+            viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
+        }
         // Status history lives on your own PDS (one record per status).
         com.mediaviewer.util.StatusHistory.remote = object : com.mediaviewer.util.StatusHistory.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {
@@ -8101,7 +8111,9 @@ class MainViewModel(
         _datasetExportState.value = DatasetExportState.Working("Gathering tagged posts…")
         viewModelScope.launch(ioDispatcher) {
             try {
-                val posts = taggingRepo.exportAllPosts()
+                // (The shared dataset is left out: it's published already, and
+                // sending it back in would keep a removed dataset's tags alive.)
+                val posts = taggingRepo.exportAllPosts(setOfNotNull(com.mediaviewer.tagging.SharedTagDataset.installedDatasetId()))
                 _datasetExportState.value = DatasetExportState.Working("Writing ${posts.size} posts…", posts.size)
                 val file = DatasetFile(
                     name = name.ifBlank { "Untitled Dataset" },

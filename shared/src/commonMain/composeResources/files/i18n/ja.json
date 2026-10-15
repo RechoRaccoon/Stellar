@@ -1851,5 +1851,19 @@
 "\"{0}\" will be deleted from your status history.": "「{0}」をステータス履歴から削除します。",
 "Got It": "OK",
 "These Are Public": "公開されています",
-"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "ステータス、ステータス履歴、カスタム絵文字はBlueskyアカウントに保存され、誰でも見ることができます。他の人に見られたくないものは投稿・アップロードしないでください。"
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "ステータス、ステータス履歴、カスタム絵文字はBlueskyアカウントに保存され、誰でも見ることができます。他の人に見られたくないものは投稿・アップロードしないでください。",
+"Adding it to your tags…": "タグに追加中…",
+"Download Shared Tags?": "共有タグをダウンロードしますか？",
+"Downloading Shared Tags": "共有タグをダウンロード中",
+"Not Now": "後で",
+"Nothing tagged yet": "まだタグ付けされたものはありません",
+"Search {0} posts that have already been tagged. It's a {1} download.": "タグ付け済みの {0} 件の投稿を検索できます。ダウンロードサイズは {1} です。",
+"Tagging isn't available": "タグ付けは利用できません",
+"The download didn't finish": "ダウンロードが完了しませんでした",
+"The download stopped ({0})": "ダウンロードが止まりました（{0}）",
+"There's a newer version of the shared tags, with {0} posts. It's a {1} download.": "共有タグの新しいバージョン（{0} 件の投稿）があります。ダウンロードサイズは {1} です。",
+"Try Again": "再試行",
+"Unreadable dataset part": "データセットの一部を読み取れません",
+"Unreadable manifest": "データセット情報を読み取れません",
+"Update Shared Tags?": "共有タグを更新しますか？"
 }

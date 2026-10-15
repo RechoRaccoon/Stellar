@@ -1,0 +1,74 @@
+name: Shared Tag Dataset
+
+# Builds Stellar's shared tag dataset from the dataset exports attached to
+# the "tag-datasets" release, and publishes it to the `tag-dataset` branch,
+# which every Stellar app reads (raw.githubusercontent.com) when someone
+# opens Tagged search.
+#
+# To add or update a dataset: Releases → "Shared Tag Datasets" (tag
+# `tag-datasets`) → Edit → drop in the export file(s) (.json, or .json.gz
+# to save space; up to 2 GB each) → Update release.
+# To remove one: Edit → delete its file → Update release.
+# Replacing a file with a newer export of the same dataset is the normal way
+# to update it. The dataset is rebuilt from the files present each time, so
+# a removed file takes away exactly what only it contributed.
+#
+# Runs when that release is edited, once a day as a safety net, or by hand
+# (Actions → Shared Tag Dataset → Run workflow).
+on:
+  release:
+    types: [published, edited, created, deleted, released]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-dataset
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Merge and publish
+    if: github.event_name != 'release' || github.event.release.tag_name == 'tag-datasets'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download the dataset exports
+        run: |
+          mkdir -p exports
+          if gh release view tag-datasets --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release download tag-datasets --repo "$GITHUB_REPOSITORY" --dir exports --pattern '*.json' --pattern '*.json.gz' || true
+          else
+            echo "::notice::No tag-datasets release yet — publishing an empty dataset."
+          fi
+          ls -la exports
+
+      - name: Merge
+        run: python3 tools/tag-dataset/merge.py exports out
+
+      - name: Publish to the tag-dataset branch
+        run: |
+          new=$(python3 -c "import json;print(json.load(open('out/manifest.json'))['version'])")
+          old=$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/tag-dataset/manifest.json" 2>/dev/null \
+            | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])" 2>/dev/null || echo none)
+          if [ "$new" = "$old" ]; then
+            echo "Unchanged (version $new) — nothing to publish."
+            exit 0
+          fi
+          cd out
+          git init -q
+          git checkout -q -b tag-dataset
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Shared tag dataset $new"
+          # One commit, replaced each time, so the branch never grows.
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" tag-dataset
+          echo "Published version $new"

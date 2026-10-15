@@ -542,3 +542,8 @@ NOT EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri
 ORDER BY t.confidence DESC
 Status history {0}: {1}
 dataset_id = COALESCE((SELECT p.dataset_id FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ? LIMIT 1), ?) 
+(SELECT 1 FROM tag_sources s WHERE s.post_uri = t.post_uri AND s.tag_name = t.tag_name AND s.dataset_id NOT IN ({0})) 
+EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.manual = 1)
+EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id NOT IN ({0})) OR 
+No shared dataset yet ({0})
+Stellar Shared Tags

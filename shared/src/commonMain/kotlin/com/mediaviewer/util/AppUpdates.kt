@@ -29,6 +29,8 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object AppUpdates {
     const val REPO = "RechoRaccoon/Stellar"
+    /** The release the shared tag dataset's exports are attached to (never an app release). */
+    const val TAG_DATASETS_RELEASE = "tag-datasets"
     private const val CHECK_EVERY_MS = 12 * 60 * 60 * 1000L
 
     data class Release(val version: String, val title: String, val notes: String, val pageUrl: String, val assets: Map<String, String>)
@@ -116,9 +118,17 @@ object AppUpdates {
     }
 
     private suspend fun latest(): Release? {
-        val resp = PlainHttp.get("https://api.github.com/repos/$REPO/releases/latest", listOf("Accept" to "application/vnd.github+json"))
+        // The newest published app release. (Not /releases/latest: the
+        // shared tag dataset's "tag-datasets" release could be that one.)
+        val resp = PlainHttp.get("https://api.github.com/repos/$REPO/releases?per_page=15", listOf("Accept" to "application/vnd.github+json"))
         if (!resp.isSuccessful) error("GitHub answered ${resp.code}")
-        val o = StellarJson.default.parseToJsonElement(resp.bodyString()) as? JsonObject ?: return null
+        val list = StellarJson.default.parseToJsonElement(resp.bodyString()) as? JsonArray ?: return null
+        val o = list.firstOrNull { r ->
+            val ro = r as? JsonObject ?: return@firstOrNull false
+            fun flag(k: String) = (ro[k] as? JsonPrimitive)?.content == "true"
+            val t = (ro["tag_name"] as? JsonPrimitive)?.content.orEmpty()
+            !flag("draft") && !flag("prerelease") && t != TAG_DATASETS_RELEASE
+        } as? JsonObject ?: return null
         fun text(k: String) = (o[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val tag = text("tag_name") ?: return null
         val assets = (o["assets"] as? JsonArray).orEmpty().mapNotNull { a ->

@@ -126,7 +126,7 @@ class TaggingRepository(
 
     /** Everything currently tagged, across every dataset — the source data
      *  for Settings' "Export" button. */
-    override suspend fun exportAllPosts(): List<TagExportedPost> = withContext(Dispatchers.IO) { db.allPostsForExport() }
+    override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = withContext(Dispatchers.IO) { db.allPostsForExport(exclude) }
 
     /** Settings' "Import" button, once a file's been picked and parsed. */
     override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =

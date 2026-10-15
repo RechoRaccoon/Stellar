@@ -392,7 +392,8 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
 
     /** Every post currently in the database, across every dataset — the
      *  source data for an Export. */
-    fun allPostsForExport(): List<TagExportedPost> {
+    fun allPostsForExport(exclude: Set<String> = emptySet()): List<TagExportedPost> {
+        if (exclude.isNotEmpty()) return postsForExportExcluding(exclude)
         val posts = LinkedHashMap<String, TagExportedPost>()
         readableDatabase.rawQuery("SELECT post_uri, cid, media_url FROM liked_media", null).use { cursor ->
             while (cursor.moveToNext()) {
@@ -402,6 +403,38 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         }
         val tagsByPost = HashMap<String, MutableList<Pair<String, Float>>>()
         readableDatabase.rawQuery("SELECT post_uri, tag_name, confidence FROM media_tags ORDER BY confidence DESC", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                tagsByPost.getOrPut(cursor.getString(0)) { mutableListOf() }.add(cursor.getString(1) to cursor.getFloat(2))
+            }
+        }
+        return posts.values.map { it.copy(tags = tagsByPost[it.postUri] ?: emptyList()) }
+    }
+
+    /** [allPostsForExport] leaving out what only the datasets in [exclude]
+     *  gave: their posts (unless another source or hand tags have them)
+     *  and their tags (unless another source has them, or added by hand). */
+    private fun postsForExportExcluding(exclude: Set<String>): List<TagExportedPost> {
+        val marks = exclude.joinToString(",") { "?" }
+        val args = exclude.toTypedArray()
+        val posts = LinkedHashMap<String, TagExportedPost>()
+        readableDatabase.rawQuery(
+            "SELECT m.post_uri, m.cid, m.media_url FROM liked_media m WHERE " +
+                "EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id NOT IN ($marks)) OR " +
+                "EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.manual = 1)",
+            args
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val uri = cursor.getString(0)
+                posts[uri] = TagExportedPost(uri, cursor.getString(1), cursor.getString(2), emptyList())
+            }
+        }
+        val tagsByPost = HashMap<String, MutableList<Pair<String, Float>>>()
+        readableDatabase.rawQuery(
+            "SELECT t.post_uri, t.tag_name, t.confidence FROM media_tags t WHERE t.manual = 1 OR EXISTS " +
+                "(SELECT 1 FROM tag_sources s WHERE s.post_uri = t.post_uri AND s.tag_name = t.tag_name AND s.dataset_id NOT IN ($marks)) " +
+                "ORDER BY t.confidence DESC",
+            args
+        ).use { cursor ->
             while (cursor.moveToNext()) {
                 tagsByPost.getOrPut(cursor.getString(0)) { mutableListOf() }.add(cursor.getString(1) to cursor.getFloat(2))
             }

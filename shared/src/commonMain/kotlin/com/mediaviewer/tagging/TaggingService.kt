@@ -59,7 +59,8 @@ interface TaggingService {
     fun cancel()
     suspend fun downloadModel(onState: (TaggerState) -> Unit)
     suspend fun deleteDatabase()
-    suspend fun exportAllPosts(): List<TagExportedPost>
+    /** Every tagged post, leaving out what only the datasets in [exclude] gave. */
+    suspend fun exportAllPosts(exclude: Set<String> = emptySet()): List<TagExportedPost>
     suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo
     suspend fun listImportedDatasets(): List<TagDatasetInfo>
     suspend fun deleteDataset(id: String)
@@ -107,7 +108,7 @@ object UnavailableTaggingService : TaggingService {
         onState(TaggerState.Failed("AI Tagging isn't available on this device yet"))
     }
     override suspend fun deleteDatabase() {}
-    override suspend fun exportAllPosts(): List<TagExportedPost> = emptyList()
+    override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = emptyList()
     override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =
         throw UnsupportedOperationException("AI Tagging isn't available on this device yet")
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = emptyList()

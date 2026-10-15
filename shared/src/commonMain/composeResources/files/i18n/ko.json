@@ -1851,5 +1851,19 @@
 "\"{0}\" will be deleted from your status history.": "\"{0}\"이(가) 상태 기록에서 삭제됩니다.",
 "Got It": "확인",
 "These Are Public": "공개 정보입니다",
-"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "상태, 상태 기록, 사용자 지정 이모지는 Bluesky 계정에 저장되며 누구나 볼 수 있습니다. 다른 사람이 보지 않았으면 하는 내용은 올리지 마세요."
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "상태, 상태 기록, 사용자 지정 이모지는 Bluesky 계정에 저장되며 누구나 볼 수 있습니다. 다른 사람이 보지 않았으면 하는 내용은 올리지 마세요.",
+"Adding it to your tags…": "태그에 추가하는 중…",
+"Download Shared Tags?": "공유 태그를 다운로드할까요?",
+"Downloading Shared Tags": "공유 태그 다운로드 중",
+"Not Now": "나중에",
+"Nothing tagged yet": "아직 태그된 항목이 없습니다",
+"Search {0} posts that have already been tagged. It's a {1} download.": "이미 태그된 게시물 {0}개를 검색하세요. 다운로드 크기는 {1}입니다.",
+"Tagging isn't available": "태그 지정을 사용할 수 없습니다",
+"The download didn't finish": "다운로드가 완료되지 않았습니다",
+"The download stopped ({0})": "다운로드가 중단되었습니다({0})",
+"There's a newer version of the shared tags, with {0} posts. It's a {1} download.": "게시물 {0}개가 담긴 새 공유 태그 버전이 있습니다. 다운로드 크기는 {1}입니다.",
+"Try Again": "다시 시도",
+"Unreadable dataset part": "데이터셋 일부를 읽을 수 없습니다",
+"Unreadable manifest": "데이터셋 정보를 읽을 수 없습니다",
+"Update Shared Tags?": "공유 태그를 업데이트할까요?"
 }

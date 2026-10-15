@@ -166,13 +166,10 @@ fun SearchOverlay(
     val focusRequester = remember { FocusRequester() }
     // (Coming back to results from a feed doesn't pop the keyboard up again.)
     LaunchedEffect(Unit) { if (state.query.isBlank() && state.filter != MainViewModel.SearchFilter.WEB) focusRequester.requestFocus() }
-    // If the Tagged tab disappears while it's selected (its dataset was just
-    // deleted), fall back to the first tab instead of showing an empty page
-    // under a tab that no longer exists.
-    LaunchedEffect(hasTaggedDataset, state.filter) {
-        if (!hasTaggedDataset && state.filter == MainViewModel.SearchFilter.LIKED_TAGS) {
-            onSelectFilter(MainViewModel.SearchFilter.ACCOUNTS)
-        }
+    // Opening Tagged checks for the shared tag dataset (once a day); a new
+    // one (or the first) is offered in a popup over the page.
+    LaunchedEffect(state.filter) {
+        if (state.filter == MainViewModel.SearchFilter.LIKED_TAGS) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
     }
 
     // Item 8: same profile-color pattern as the Hub/DM inbox — falls back
@@ -302,9 +299,8 @@ fun SearchOverlay(
             // back button lives up in the camera row instead, see below).
             val tabs = MainViewModel.SearchFilter.entries.filter { filter ->
                 // Item 14: e621 filter only shows once logged into e621.
-                !(filter == MainViewModel.SearchFilter.E621 && !e621LoggedIn) &&
-                    // The Tagged tab only exists once there's something tagged to search.
-                    !(filter == MainViewModel.SearchFilter.LIKED_TAGS && !hasTaggedDataset)
+                // (Tagged is always there: opening it offers the shared tags.)
+                !(filter == MainViewModel.SearchFilter.E621 && !e621LoggedIn)
             }
             // Landscape: the tab buttons on the left half and the search bar
             // on the right — the same row, and the same halves, as the
@@ -476,7 +472,7 @@ fun SearchOverlay(
                     // fallback fixes it.
                     state.filter == MainViewModel.SearchFilter.LIKED_TAGS -> {
                         if (!hasTaggedDataset) {
-                            EmptyResultsText()
+                            EmptyResultsText("Nothing tagged yet")
                         } else if (state.loading) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -806,6 +802,53 @@ fun SearchOverlay(
                 destructive = false
             )
         }
+        if (state.filter == MainViewModel.SearchFilter.LIKED_TAGS) {
+            SharedTagDatasetPopup(liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop)
+        }
+    }
+}
+
+/** The shared tag dataset's popup over Tagged search: the offer (first
+ *  time, or an update), the download's progress, or what went wrong. */
+@Composable
+private fun SharedTagDatasetPopup(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val shared = com.mediaviewer.tagging.SharedTagDataset
+    when (val p = shared.prompt) {
+        null -> {}
+        is com.mediaviewer.tagging.SharedTagDataset.Prompt.Offer -> ConfirmPopup(
+            title = if (p.isUpdate) "Update Shared Tags?" else "Download Shared Tags?",
+            message = if (p.isUpdate) "There's a newer version of the shared tags, with ${p.posts} posts. It's a ${shared.mb(p.bytes)} download."
+                else "Search ${p.posts} posts that have already been tagged. It's a ${shared.mb(p.bytes)} download.",
+            confirmLabel = if (p.isUpdate) "Update" else "Download",
+            cancelLabel = "Not Now",
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+            onConfirm = { shared.download() },
+            onDismiss = { shared.dismiss() },
+            destructive = false
+        )
+        is com.mediaviewer.tagging.SharedTagDataset.Prompt.Downloading -> ConfirmPopup(
+            title = "Downloading Shared Tags",
+            message = "",
+            confirmLabel = "Cancel",
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+            onConfirm = { shared.dismiss() },
+            onDismiss = { shared.dismiss() },
+            destructive = false,
+            showCancel = false,
+            progress = p.progress,
+            progressLabel = p.label,
+            dismissOnOutsideTap = false
+        )
+        is com.mediaviewer.tagging.SharedTagDataset.Prompt.Failed -> ConfirmPopup(
+            title = "Download Failed",
+            message = p.message,
+            confirmLabel = "Try Again",
+            cancelLabel = "Close",
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+            onConfirm = { shared.download() },
+            onDismiss = { shared.dismiss() },
+            destructive = false
+        )
     }
 }
 
@@ -824,9 +867,9 @@ internal object TaggedSearchPlace {
 }
 
 @Composable
-private fun EmptyResultsText() {
+private fun EmptyResultsText(text: String = "No results") {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("No results", color = DimGray, fontSize = 13.sp)
+        Text(text, color = DimGray, fontSize = 13.sp)
     }
 }
 

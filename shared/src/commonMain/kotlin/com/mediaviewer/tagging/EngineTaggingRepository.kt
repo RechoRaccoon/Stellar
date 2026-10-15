@@ -238,8 +238,13 @@ private class TagStore(private val engine: TaggerEngine) {
 
     fun tagsFor(uri: String): List<String> = locked { posts[uri]?.tags?.sortedByDescending { it.c }?.map { it.n }.orEmpty() }
 
-    fun export(): List<TagExportedPost> = locked {
-        posts.values.map { p -> TagExportedPost(p.uri, p.cid, p.url, p.tags.sortedByDescending { it.c }.map { it.n to it.c }) }
+    fun export(exclude: Set<String> = emptySet()): List<TagExportedPost> = locked {
+        posts.values.mapNotNull { raw ->
+            val p = raw.normalized()
+            val tags = p.tags.filter { t -> t.m || p.sourcesOf(t).any { it !in exclude } }
+            if (p.sources.none { it !in exclude } && tags.isEmpty()) return@mapNotNull null
+            TagExportedPost(p.uri, p.cid, p.url, tags.sortedByDescending { it.c }.map { it.n to it.c })
+        }
     }
 
     /** Added as its own dataset. A post this device already has (from its
@@ -373,7 +378,7 @@ class EngineTaggingRepository(
     }
 
     override suspend fun deleteDatabase() = withContext(ioDispatcher) { store.clear() }
-    override suspend fun exportAllPosts(): List<TagExportedPost> = withContext(ioDispatcher) { store.export() }
+    override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = withContext(ioDispatcher) { store.export(exclude) }
     override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =
         withContext(ioDispatcher) { store.import(name, posts) }
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = withContext(ioDispatcher) { store.listDatasets() }
