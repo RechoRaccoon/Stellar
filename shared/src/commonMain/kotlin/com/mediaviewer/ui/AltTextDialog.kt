@@ -72,7 +72,11 @@ fun AltTextDialog(
                 PopupSheetHeader(
                     title = "Alt Text",
                     liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                    onClose = onDismiss
+                    onClose = onDismiss,
+                    // (In the header's free right end, so it takes no room
+                    // of its own.)
+                    counter = "${text.length}/$IMAGE_ALT_TEXT_LIMIT",
+                    counterOver = overLimit
                 )
                 PopupMessageBox(
                     thumbUrl = "", thumbModel = image,
@@ -82,8 +86,6 @@ fun AltTextDialog(
                     canSend = !overLimit,
                     sending = false,
                     onSend = { if (!overLimit) onSave(text.trim()) },
-                    counter = "${text.length}/$IMAGE_ALT_TEXT_LIMIT",
-                    counterOver = overLimit,
                     maxLines = 8,
                     focusRequester = focus,
                     sendIcon = Icons.Default.Check,

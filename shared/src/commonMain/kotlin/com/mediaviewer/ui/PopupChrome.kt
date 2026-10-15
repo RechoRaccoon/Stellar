@@ -121,9 +121,19 @@ fun PopupSheetHeader(
     backdrop: GlassBackdrop?,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    subtitle: String? = null
+    subtitle: String? = null,
+    /** A character counter at the right end of the row (e.g. "12/300"),
+     *  over the message field's right edge. */
+    counter: String? = null,
+    counterOver: Boolean = false
 ) {
     Box(modifier.fillMaxWidth().padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)) {
+        if (counter != null) {
+            Text(
+                counter, color = if (counterOver) Color(0xFFFF6B8A) else Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp, maxLines = 1, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp)
+            )
+        }
         Row(
             Modifier.align(Alignment.Center).padding(horizontal = 44.dp)
                 .popupTextShadow().padding(horizontal = 14.dp, vertical = 5.dp),

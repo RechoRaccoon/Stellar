@@ -890,17 +890,21 @@ private fun DmThreadView(
                     var fieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                     val emojiState = emojiStore.state
                     val transformation = remember(emojiStore, emojiState) { emojiVisualTransformation(emojiStore) }
-                    BasicTextField(
-                        value = field, onValueChange = { field = it },
-                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
-                        cursorBrush = SolidColor(Color.White),
-                        visualTransformation = transformation,
-                        onTextLayout = { fieldLayout = it },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { send() }),
-                        modifier = Modifier.fillMaxWidth().focusRequester(inputFocus)
-                    )
-                    EmojiFieldOverlay(text, fieldLayout, emojiStore)
+                    // (The pictures are placed from the field's own top-left,
+                    // so they line up on every row.)
+                    Box(Modifier.fillMaxWidth()) {
+                        BasicTextField(
+                            value = field, onValueChange = { field = it },
+                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+                            cursorBrush = SolidColor(Color.White),
+                            visualTransformation = transformation,
+                            onTextLayout = { fieldLayout = it },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { send() }),
+                            modifier = Modifier.fillMaxWidth().focusRequester(inputFocus)
+                        )
+                        EmojiFieldOverlay(text, fieldLayout, emojiStore)
+                    }
                     if (text.isEmpty()) Text(if (replyTarget != null) "Reply…" else "Message…", color = DimGray, fontSize = 14.sp)
                 }
             }

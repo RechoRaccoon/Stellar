@@ -97,7 +97,11 @@ fun QuoteRepostDialog(
                 PopupSheetHeader(
                     title = "Quote Repost",
                     liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                    onClose = onDismiss
+                    onClose = onDismiss,
+                    // (In the header's free right end, so it takes no room
+                    // of its own.)
+                    counter = "${text.length}/$BSKY_POST_LIMIT",
+                    counterOver = overLimit
                 )
                 PopupMessageBox(
                     thumbUrl = target.thumbUrl.ifBlank { target.mediaUrl },
@@ -107,8 +111,6 @@ fun QuoteRepostDialog(
                     canSend = !overLimit && !submitting,
                     sending = submitting,
                     onSend = { if (!overLimit && !submitting) onSubmit(text.trim()) },
-                    counter = "${text.length}/$BSKY_POST_LIMIT",
-                    counterOver = overLimit,
                     maxLines = 8,
                     focusRequester = focus,
                     modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 4.dp)
