@@ -1,0 +1,27 @@
+{
+ "format": 1,
+ "version": "d6271748de7c2606",
+ "updatedAt": "2026-10-15T16:25:02Z",
+ "posts": 9437,
+ "tags": 450874,
+ "bytes": 11887768,
+ "parts": [
+  {
+   "file": "part-000.json",
+   "bytes": 7999366,
+   "sha256": "3899363f6f1d1f8cb83648e1d67e7e942fda395edca4e34331ce67023300467b"
+  },
+  {
+   "file": "part-001.json",
+   "bytes": 3888402,
+   "sha256": "76662ce97f5d01ed78a674b42c389360a8aa290f55ae0619ec881729aa1e9be7"
+  }
+ ],
+ "sources": [
+  {
+   "file": "Rechos.Tag.Dataset.9k.json",
+   "name": "Recho's Tag Dataset 9k",
+   "posts": 9437
+  }
+ ]
+}
