@@ -52,6 +52,10 @@ from that branch, or from `main` once it's merged.
   width and doesn't re-wrap as the count grows.
 - Web splash (`index.html`): the window-sized ellipse glow (a pink column
   on phones) is gone; only the logo's letters glow.
+- Web downloads (`WebDownloads.save`): a Bluesky picture is downloaded
+  from the poster's PDS (getBlob, the original upload), then the CDN; the
+  new-tab fallback only happens if neither lets the page read it (it used
+  to happen for every Bluesky picture, as cdn.bsky.app refuses the page).
 
 ## 0j. Update: AI Tagging on desktop and web, small fixes
 

@@ -10,8 +10,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Saving media on the web: the browser downloads the file (to its
- * Downloads folder, or wherever it asks). If a server won't let the page
- * read the file itself, it's opened in a new tab instead, to save from
+ * Downloads folder, or wherever it asks). Bluesky pictures come from the
+ * poster's PDS (the CDN won't let the page read them). Only if no source
+ * lets the page read the file is it opened in a new tab, to save from
  * there.
  */
 object WebDownloads {
@@ -27,12 +28,24 @@ object WebDownloads {
     fun save(url: String, filename: String, mimeType: String, postId: String = "") {
         scope.launch {
             val result = runCatching {
-                val resp = PlainHttp.get(url)
-                if (!resp.isSuccessful || resp.body.isEmpty()) error("HTTP ${resp.code}")
+                // A Bluesky picture: cdn.bsky.app won't let the page read it,
+                // so its original file comes from the poster's PDS (getBlob)
+                // first — the full-quality upload — and the CDN after.
+                val pds = com.mediaviewer.util.BskyCdn.parse(url)?.let { (did, cid) ->
+                    runCatching { BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
+                }
+                var lastError: Throwable? = null
+                val body = listOfNotNull(pds, url).firstNotNullOfOrNull { candidate ->
+                    runCatching {
+                        val resp = PlainHttp.get(candidate)
+                        if (!resp.isSuccessful || resp.body.isEmpty()) error("HTTP ${resp.code}")
+                        resp.body
+                    }.onFailure { lastError = it }.getOrNull()
+                } ?: throw (lastError ?: IllegalStateException("Download failed"))
                 // What the file really is decides its name: a server's
                 // "image/jpeg" is sometimes a PNG or WebP.
-                val actual = sniffType(resp.body) ?: mimeType
-                saveBytes(resp.body, safeName(filename, actual), actual)
+                val actual = sniffType(body) ?: mimeType
+                saveBytes(body, safeName(filename, actual), actual)
             }
             PostDownloads.jobDone(postId, result.isSuccess)
             if (result.isSuccess) {
