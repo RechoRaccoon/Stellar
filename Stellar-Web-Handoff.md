@@ -24,8 +24,10 @@ from that branch, or from `main` once it's merged.
   (`TipAnchors.onScreen`), in slightly smaller text. Portrait is unchanged
   except a clipped row's band now stops at the row's own far side.
 - Profile name pills are back to the original sizes; landscape Search's bar
-  splits out its back button; landscape side gaps are just the camera
-  cutout (`landscapeSideGaps`, on the Hub, profiles, Search, DMs, grids).
+  splits out its back button. Landscape side gaps: only Settings and the
+  composer have them — `rememberLandscapeEdgePadding()` (the camera
+  cutout's depth, at least 12dp), with no extra inner padding; every other
+  page goes edge to edge.
 
 ## 0f. Update: status durations, banner pills, composer Remove bubble, landscape fit
 

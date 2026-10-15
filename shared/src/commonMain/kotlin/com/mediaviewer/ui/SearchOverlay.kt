@@ -641,7 +641,7 @@ fun SearchOverlay(
                 // search bar at the top (Back splitting out of it), the tabs as a list of
                 // buttons, the post-type filters, the grid size slider at
                 // the bottom — and the results beside it.
-                Row(Modifier.weight(1f).fillMaxWidth().landscapeSideGaps()) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
                     Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
                         // (Back slides out of the bar's left end, as in portrait.)
                         SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))

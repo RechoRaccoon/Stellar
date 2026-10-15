@@ -469,7 +469,7 @@ fun SettingsSheet(
                 .padding(top = if (hubLandscape && hubPage == HubPage.SETTINGS) 0.dp else rememberTopCutoutClearance())
                 // (…and the camera cutout and gesture bar's room on the left
                 // and right instead, the same on both sides.)
-                .then(if (hubLandscape && hubPage == HubPage.SETTINGS) Modifier.padding(horizontal = rememberLandscapeSideInset()) else Modifier),
+                .then(if (hubLandscape && hubPage == HubPage.SETTINGS) Modifier.padding(horizontal = rememberLandscapeEdgePadding()) else Modifier),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // The main page's search bar sits right under the camera cutout
@@ -642,7 +642,7 @@ fun SettingsSheet(
             // lined up with the Settings column's.
             if (!hubBarAtTop) Box(
                 Modifier.landscapeReadable(if (hubPage == HubPage.SETTINGS && settingsTab == SettingsTab.SETTINGS) SETTINGS_LANDSCAPE_WIDTH else Landscape.READABLE_WIDTH)
-                    .padding(horizontal = if (hubLandscape) 16.dp else 14.dp).padding(top = if (hubLandscape) 2.dp else 6.dp)
+                    .padding(horizontal = if (hubLandscape && hubPage == HubPage.SETTINGS) 0.dp else if (hubLandscape) 16.dp else 14.dp).padding(top = if (hubLandscape) 2.dp else 6.dp)
                     // (Landscape Settings: no gap for the navigation bar — its
                     // handle sits between the bar's two ends.)
                     .then(if (hubLandscape && hubPage == HubPage.SETTINGS) Modifier else Modifier.windowInsetsPadding(WindowInsets.navBarSpace))
@@ -1529,7 +1529,7 @@ private fun AtProtocolPageContent(
             }
         }
     }
-    Row(Modifier.fillMaxWidth().weight(1f).then(if (hubSidebar) Modifier.landscapeSideGaps() else Modifier)) {
+    Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
         Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))

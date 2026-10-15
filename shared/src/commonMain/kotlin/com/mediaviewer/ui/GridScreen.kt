@@ -373,7 +373,7 @@ fun GridScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxSize().landscapeSideGaps()) {
+        Row(Modifier.fillMaxSize()) {
         if (sideways) {
             LandscapeSideList(
                 tint = tint, liquidGlass = liquidGlass, backLabel = "Back", onBack = onSwipeDown,

@@ -304,7 +304,7 @@ fun DmInboxOverlay(
                 if (thread == null) PickerPane() else ThreadPane(thread)
             }
         } else {
-            Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance()).landscapeSideGaps()) {
+            Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
                 Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
                     Header(null, profileTint) { onClose() }
                     HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)

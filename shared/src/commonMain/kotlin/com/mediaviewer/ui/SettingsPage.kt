@@ -675,7 +675,8 @@ internal fun SettingsPageContent(
     SettingsColumns(
         // (Landscape: two sections side by side — see SettingsColumns.)
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).landscapeReadable(SETTINGS_LANDSCAPE_WIDTH)
-            .padding(horizontal = 16.dp).padding(top = if (rememberLandscape()) 4.dp else 10.dp, bottom = 10.dp)
+            // (Landscape: the page itself keeps it just clear of the camera.)
+            .padding(horizontal = if (rememberLandscape()) 0.dp else 16.dp).padding(top = if (rememberLandscape()) 4.dp else 10.dp, bottom = 10.dp)
     ) {
         // ── Supporter Settings ──────────────────────────────────────────
         // (Only shown to supporters.)

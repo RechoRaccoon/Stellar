@@ -974,7 +974,7 @@ fun ProfileOverlay(
                 )
             }
         }
-        Row(Modifier.fillMaxSize().landscapeSideGaps()) {
+        Row(Modifier.fillMaxSize()) {
         if (sideways) LandscapeSideList(
             tint = blended, liquidGlass = liquidGlass, backLabel = "Back", onBack = onClose,
             footer = { GridSizeSlider(blended) }

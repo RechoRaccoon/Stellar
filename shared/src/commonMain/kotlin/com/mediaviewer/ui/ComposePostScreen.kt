@@ -907,6 +907,7 @@ fun ComposePostScreen(
         // matching room at the end of the content and to keep the caret
         // above the bar while typing.
         var bottomBarHeight by remember { mutableStateOf(84.dp) }
+        val composeSide = if (rememberLandscape()) rememberLandscapeEdgePadding() else 14.dp
         val barDensity = LocalDensity.current
         // Live glass backdrop for the bottom bar's buttons — same "record what's
         // drawn, read it back through a blurred glass panel" system the rest of
@@ -944,8 +945,9 @@ fun ComposePostScreen(
                 Modifier.fillMaxSize().then(bottomInsetModifier)
                     .verticalScroll(rememberScrollState())
                     // (Landscape: the draft in a column of a comfortable width.)
-                    .landscapeReadable()
-                    .padding(horizontal = 14.dp)
+                    .landscapeReadable(SETTINGS_LANDSCAPE_WIDTH)
+                    // (Landscape: as wide as Settings, just clear of the camera.)
+                    .padding(horizontal = composeSide)
             ) {
                 Spacer(Modifier.height(rememberTopCutoutClearance()))
                 Spacer(Modifier.height(6.dp))
@@ -1380,8 +1382,8 @@ fun ComposePostScreen(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(bottomInsetModifier)
                     .onSizeChanged { bottomBarHeight = with(barDensity) { it.height.toDp() } }
                     // (Landscape: lined up with the draft's column above.)
-                    .landscapeReadable()
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .landscapeReadable(SETTINGS_LANDSCAPE_WIDTH)
+                    .padding(horizontal = composeSide, vertical = 8.dp)
             ) {
                 // Item 12: Review mode has no attach-image/Blog/Textshot/
                 // new-thread row at all (none of those apply to a review),

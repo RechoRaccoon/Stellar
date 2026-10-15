@@ -105,13 +105,11 @@ fun rememberLandscapeSideInset(): Dp {
     return with(density) { px.toDp() }
 }
 
-/** [rememberLandscapeSideInset] on both sides, in landscape only. */
+/** Landscape Settings and the composer: how far their content sits from
+ *  the screen's left and right edges — just clear of the camera cutout
+ *  (a small margin when there's none). */
 @Composable
-fun Modifier.landscapeSideGaps(): Modifier {
-    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
-    if (screen.width <= screen.height) return this
-    return this.padding(horizontal = rememberLandscapeSideInset())
-}
+fun rememberLandscapeEdgePadding(): Dp = maxOf(rememberLandscapeSideInset(), 12.dp)
 
 /** The actual color-sampling work behind [rememberDominantColor], factored
  *  out as a plain suspend function so non-composable call sites (the
