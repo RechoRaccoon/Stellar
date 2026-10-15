@@ -1847,5 +1847,9 @@
 "Save alt text": "Alternativtext speichern",
 "Status History": "Statusverlauf",
 "Status history": "Statusverlauf",
-"{0} Posts · {1}": "{0} Beiträge · {1}"
+"{0} Posts · {1}": "{0} Beiträge · {1}",
+"\"{0}\" will be deleted from your status history.": "„{0}“ wird aus deinem Statusverlauf gelöscht.",
+"Got It": "Verstanden",
+"These Are Public": "Das ist öffentlich",
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Dein Status, dein Statusverlauf und deine eigenen Emojis werden in deinem Bluesky-Konto gespeichert, wo alle sie sehen können. Poste oder lade nichts hoch, das andere nicht sehen sollen."
 }

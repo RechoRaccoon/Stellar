@@ -533,3 +533,12 @@ application/vnd.github+json
 (window.__stellarTaggerProgress ? window.__stellarTaggerProgress.total : 0)
 Error: 
 No saver yet
+(SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?)) LIMIT 1
+(SELECT 1 FROM tag_sources s WHERE s.post_uri = media_tags.post_uri AND s.tag_name = media_tags.tag_name)
+(SELECT 1 FROM tag_sources s WHERE s.post_uri = t.post_uri AND s.tag_name = t.tag_name AND s.dataset_id = ?) 
+(manual = 1 OR NOT EXISTS (SELECT 1 FROM tag_sources s WHERE s.post_uri = media_tags.post_uri AND s.tag_name = media_tags.tag_name))
+NOT EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = liked_media.post_uri)
+NOT EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?) AND 
+ORDER BY t.confidence DESC
+Status history {0}: {1}
+dataset_id = COALESCE((SELECT p.dataset_id FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ? LIMIT 1), ?) 

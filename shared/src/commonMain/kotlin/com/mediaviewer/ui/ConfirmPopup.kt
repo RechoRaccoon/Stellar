@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -72,7 +74,15 @@ fun ConfirmPopup(
      *  rename …), focused straight away; Done on the keyboard confirms. */
     input: String? = null,
     onInputChange: (String) -> Unit = {},
-    inputPlaceholder: String = ""
+    inputPlaceholder: String = "",
+    /** False: only the confirm button (a notice with one "Got It"). */
+    showCancel: Boolean = true,
+    /** Non-null: a progress bar under the message (0–1; below 0 = still
+     *  starting), with [progressLabel] under it. */
+    progress: Float? = null,
+    progressLabel: String? = null,
+    /** False: tapping outside does nothing (only the buttons close it). */
+    dismissOnOutsideTap: Boolean = true
 ) {
     BackHandler(onBack = { if (!busy) onDismiss() })
     val tap = rememberHapticTap()
@@ -89,7 +99,7 @@ fun ConfirmPopup(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
             .background(Color.Black.copy(alpha = 0.45f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy) onDismiss() }
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy && dismissOnOutsideTap) onDismiss() }
             .then(if (input != null) Modifier.imePadding() else Modifier),
         contentAlignment = Alignment.Center
     ) {
@@ -138,6 +148,21 @@ fun ConfirmPopup(
                         }
                     )
                 }
+                if (progress != null) {
+                    Spacer(Modifier.height(14.dp))
+                    val barShape = RoundedCornerShape(3.dp)
+                    val fill by androidx.compose.animation.core.animateFloatAsState(progress.coerceIn(0f, 1f), label = "popupProgress")
+                    Box(Modifier.fillMaxWidth().height(6.dp).clip(barShape).background(Color.White.copy(alpha = 0.12f))) {
+                        Box(
+                            Modifier.fillMaxHeight().fillMaxWidth(if (progress < 0f) 0f else fill).clip(barShape)
+                                .background(androidx.compose.ui.graphics.lerp(tint, Color.White, 0.35f))
+                        )
+                    }
+                    if (progressLabel != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(progressLabel, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, textAlign = TextAlign.Center)
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     val pill = RoundedCornerShape(19.dp)
@@ -151,12 +176,12 @@ fun ConfirmPopup(
                         else Text(confirmLabel, color = confirmText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                     if (liquidGlass) {
-                        LiquidGlassSurface(cancelMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
+                        if (showCancel) LiquidGlassSurface(cancelMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
                             Text(cancelLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         LiquidGlassSurface(confirmMod, shape = pill, tint = confirmColor, contentAlignment = Alignment.Center) { confirmContent() }
                     } else {
-                        Box(cancelMod.background(Color.White.copy(0.10f)).border(1.dp, Color.White.copy(0.18f), pill), contentAlignment = Alignment.Center) {
+                        if (showCancel) Box(cancelMod.background(Color.White.copy(0.10f)).border(1.dp, Color.White.copy(0.18f), pill), contentAlignment = Alignment.Center) {
                             Text(cancelLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Box(confirmMod.background(confirmColor.copy(0.22f)).border(1.dp, confirmColor.copy(0.6f), pill), contentAlignment = Alignment.Center) { confirmContent() }

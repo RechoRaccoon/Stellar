@@ -4072,6 +4072,50 @@ class BlueskyRepository {
     }
 
     /** Your own record, read through your own signed-in server. */
+    // ── Status history: one record per status posted, on your own PDS ──
+
+    /** Every status in [did]'s history (newest first), with each record's key. */
+    suspend fun listStatusHistory(token: String, did: String): List<com.mediaviewer.util.StatusHistory.Entry> = withContext(ioDispatcher) {
+        val out = ArrayList<com.mediaviewer.util.StatusHistory.Entry>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            val resp = api.listRecords("Bearer $token", did, com.mediaviewer.util.StatusHistory.COLLECTION, 100, cursor)
+            if (!resp.isSuccessful) error("Status history ${resp.code()}: ${errorBodyText(resp).take(120)}")
+            val body = resp.body() ?: break
+            for (rec in body.records) {
+                val value = rec.value?.takeIf { it.isJsonObject }?.toKx() as? kotlinx.serialization.json.JsonObject ?: continue
+                fun text(key: String) = (value[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+                val words = text("text")?.takeIf { it.isNotBlank() } ?: continue
+                out += com.mediaviewer.util.StatusHistory.Entry(
+                    text = words, createdAt = text("createdAt").orEmpty(), expiresAt = text("expiresAt"),
+                    rkey = rec.uri.substringAfterLast('/')
+                )
+            }
+            cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
+        } while (cursor != null && ++pages < 50)
+        out.sortedByDescending { it.createdAt }
+    }
+
+    /** Saves one status to [did]'s history; returns its record key. */
+    suspend fun addStatusHistory(token: String, did: String, entry: com.mediaviewer.util.StatusHistory.Entry): String = withContext(ioDispatcher) {
+        val record = linkedMapOf<String, Any>(
+            "\$type" to com.mediaviewer.util.StatusHistory.COLLECTION,
+            "text" to entry.text,
+            "createdAt" to entry.createdAt.ifBlank { com.mediaviewer.platform.nowIsoString() }
+        )
+        entry.expiresAt?.let { record["expiresAt"] = it }
+        val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, com.mediaviewer.util.StatusHistory.COLLECTION, record))
+        val body = resp.body() ?: error("Status history ${resp.code()}: ${errorBodyText(resp).take(120)}")
+        body.uri.substringAfterLast('/')
+    }
+
+    /** Deletes one status from [did]'s history (gone already counts as done). */
+    suspend fun deleteStatusHistory(token: String, did: String, rkey: String) = withContext(ioDispatcher) {
+        val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, com.mediaviewer.util.StatusHistory.COLLECTION, rkey))
+        if (!resp.isSuccessful && resp.code() != 404) error("Status history ${resp.code()}: ${errorBodyText(resp).take(120)}")
+    }
+
     suspend fun getOwnProfileStyle(token: String, did: String): com.mediaviewer.util.ProfileStyle? = withContext(ioDispatcher) {
         val resp = api.getRecord("Bearer $token", did, com.mediaviewer.util.ProfileStyles.COLLECTION, com.mediaviewer.util.ProfileStyles.RKEY)
         if (!resp.isSuccessful) {

@@ -331,13 +331,15 @@ fun ProfileStatusEditor(
         pendingDelete?.let { entry ->
             ConfirmPopup(
                 title = "Delete this status?",
-                message = "\"${entry.text.take(80)}\" will be removed from your status history on this device.",
+                message = "\"${entry.text.take(80)}\" will be deleted from your status history.",
                 confirmLabel = "Delete",
                 liquidGlass = liquidGlass, tint = tint, backdrop = null,
                 onConfirm = { pendingDelete = null; com.mediaviewer.util.StatusHistory.delete(did, entry) },
                 onDismiss = { pendingDelete = null }
             )
         }
+        // (The first time: statuses are public.)
+        PublicDataNotice(liquidGlass = liquidGlass, tint = tint)
     }
 }
 

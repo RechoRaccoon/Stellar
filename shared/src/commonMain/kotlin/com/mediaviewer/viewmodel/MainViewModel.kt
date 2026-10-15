@@ -6217,6 +6217,19 @@ class MainViewModel(
             }
         }
         com.mediaviewer.util.ProfileStyles.resumeOwnStatusClear()
+        // Status history lives on your own PDS (one record per status).
+        com.mediaviewer.util.StatusHistory.remote = object : com.mediaviewer.util.StatusHistory.Remote {
+            private suspend fun <T> signedIn(call: suspend () -> T): T {
+                if (!_bskyLoggedIn.value) error("Not signed in")
+                return try { call() } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (isAuthError(e.message) && refreshBskyTokenIfPossible()) call() else throw e
+                }
+            }
+            override suspend fun list(did: String) = signedIn { bskyRepo.listStatusHistory(bskyToken, did) }
+            override suspend fun add(did: String, entry: com.mediaviewer.util.StatusHistory.Entry) = signedIn { bskyRepo.addStatusHistory(bskyToken, did, entry) }
+            override suspend fun delete(did: String, rkey: String) = signedIn { bskyRepo.deleteStatusHistory(bskyToken, did, rkey) }
+        }
         com.mediaviewer.util.ProfileStyles.bannerUploader = { uri, onDone ->
             if (!_bskyLoggedIn.value) onDone(null, "Not signed in")
             else viewModelScope.launch(ioDispatcher) {

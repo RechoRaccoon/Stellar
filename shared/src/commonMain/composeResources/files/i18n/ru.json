@@ -1847,5 +1847,9 @@
 "Save alt text": "Сохранить альтернативный текст",
 "Status History": "История статусов",
 "Status history": "История статусов",
-"{0} Posts · {1}": "Публикаций: {0} · {1}"
+"{0} Posts · {1}": "Публикаций: {0} · {1}",
+"\"{0}\" will be deleted from your status history.": "«{0}» будет удалён из истории статусов.",
+"Got It": "Понятно",
+"These Are Public": "Это публично",
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Ваш статус, история статусов и собственные эмодзи сохраняются в вашем аккаунте Bluesky, где их может увидеть любой. Не публикуйте и не загружайте то, что не хотите показывать другим."
 }

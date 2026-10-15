@@ -1847,5 +1847,9 @@
 "Save alt text": "Salva testo alternativo",
 "Status History": "Cronologia degli stati",
 "Status history": "Cronologia degli stati",
-"{0} Posts · {1}": "{0} post · {1}"
+"{0} Posts · {1}": "{0} post · {1}",
+"\"{0}\" will be deleted from your status history.": "\"{0}\" verrà eliminato dalla cronologia degli stati.",
+"Got It": "Ho capito",
+"These Are Public": "Questi dati sono pubblici",
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "Il tuo stato, la cronologia degli stati e le tue emoji personalizzate vengono salvati nel tuo account Bluesky, dove chiunque può vederli. Non pubblicare né caricare nulla che non vuoi far vedere ad altri."
 }

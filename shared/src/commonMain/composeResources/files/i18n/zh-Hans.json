@@ -1847,5 +1847,9 @@
 "Save alt text": "保存替代文本",
 "Status History": "状态历史",
 "Status history": "状态历史",
-"{0} Posts · {1}": "{0} 条帖子 · {1}"
+"{0} Posts · {1}": "{0} 条帖子 · {1}",
+"\"{0}\" will be deleted from your status history.": "“{0}”将从你的状态历史中删除。",
+"Got It": "知道了",
+"These Are Public": "这些是公开的",
+"Your status, your status history and your custom emoji are saved to your Bluesky account, where anyone can see them. Don't post or upload anything you wouldn't want others to see.": "你的状态、状态历史和自定义表情都保存在你的 Bluesky 账号中，任何人都能看到。不要发布或上传任何你不想让别人看到的内容。"
 }

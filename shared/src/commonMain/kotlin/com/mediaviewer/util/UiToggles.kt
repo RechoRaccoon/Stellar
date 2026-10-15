@@ -45,6 +45,7 @@ object UiToggles {
     private const val KEY_DEV_TOOLS_UNLOCKED = "dev_tools_unlocked"
     private const val KEY_DEV_FORCE_SCAN_BUBBLE = "dev_force_scan_bubble"
     private const val KEY_SCAN_BUBBLE_DISMISSED = "scan_bubble_dismissed"
+    private const val KEY_PUBLIC_DATA_NOTICE_SEEN = "public_data_notice_seen"
     private const val KEY_CUSTOMIZE_HUB_COLLAPSED = "customize_hub_collapsed"
     private const val KEY_COLLAPSED_SETTINGS_SECTIONS = "collapsed_settings_sections"
 
@@ -277,6 +278,16 @@ object UiToggles {
         prefs?.edit()?.putStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, next)?.apply()
     }
 
+    /** The one-time notice that statuses, status history and custom emoji
+     *  are public has been seen (and closed). */
+    var publicDataNoticeSeen by mutableStateOf(false)
+        private set
+
+    fun markPublicDataNoticeSeen() {
+        publicDataNoticeSeen = true
+        prefs?.edit()?.putBoolean(KEY_PUBLIC_DATA_NOTICE_SEEN, true)?.apply()
+    }
+
     /** Whether any loading transition/screen plays at all. */
     val loadingScreens: Boolean get() = loadingAnimation != LoadingAnimation.NONE
 
@@ -317,6 +328,7 @@ object UiToggles {
         devForceScanBubble = p.getBoolean(KEY_DEV_FORCE_SCAN_BUBBLE, false)
         scanBubbleDismissed = p.getBoolean(KEY_SCAN_BUBBLE_DISMISSED, false)
         customizeHubCollapsed = p.getBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, false)
+        publicDataNoticeSeen = p.getBoolean(KEY_PUBLIC_DATA_NOTICE_SEEN, false)
         collapsedSettingsSections = p.getStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, null)?.toSet()
             ?: if (customizeHubCollapsed) setOf("Customize Hub") else emptySet()
         visualizerCallMode = p.getString(KEY_VISUALIZER_CALL_MODE, null)
