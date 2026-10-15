@@ -289,7 +289,9 @@ fun <T> ReorderableSideColumn(
                             shape = RoundedCornerShape(10.dp)
                         }
                         .onGloballyPositioned { coords[k] = it }
-                        .pointerInput(k) {
+                        // (Restarted when the list itself changes — a feed pinned,
+                        // say — so the gesture works on the new order.)
+                        .pointerInput(k, items) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     held = k; offsetY = 0f
