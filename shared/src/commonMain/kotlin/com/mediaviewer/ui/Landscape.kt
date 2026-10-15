@@ -62,17 +62,48 @@ object Landscape {
 }
 
 /**
- * Landscape: how big the post UI (and the comments beside it) is drawn,
- * before the pinch on the interaction bar: by the screen's height, so a
- * phone on its side gets a compact UI and a tablet or a tall desktop window
- * a roomier one.
+ * Landscape: how big the post UI (and the comments beside it) is drawn by
+ * default, before any pinch on the interaction bar. Worked out from the
+ * screen's height (in dp, so already independent of pixel density), through
+ * these points, straight lines between them:
+ *
+ *  - up to 430 dp — phones on their side (about 360–430 dp tall): 0.85.
+ *    The bar's buttons stay about 31 × 39 dp, big enough to hit with a
+ *    thumb, while the text bubble and bar together take under a fifth of
+ *    the height, leaving the picture the room.
+ *  - 640 dp — unfolded foldables, small laptops: 1.0, the size it's drawn at.
+ *  - 820 dp — tablets on their side (about 744–1024 dp tall): 1.1, so it
+ *    doesn't look lost on the bigger screen and is easy to reach.
+ *  - 1000 dp and up — tall desktop windows and big tablets: 1.15, the most;
+ *    any bigger only covers more of the picture.
+ *
+ * It's also never so big that the bottom-left cluster (about 364 dp wide at
+ * 1.0) takes more than 40% of the width — which only matters for unusually
+ * narrow landscape windows — nor smaller than 0.72.
  */
-fun landscapeUiBaseScale(heightDp: Int): Float = (heightDp / 560f).coerceIn(0.76f, 1.15f)
+fun landscapeUiBaseScale(heightDp: Int, widthDp: Int = Int.MAX_VALUE): Float {
+    val points = listOf(430f to 0.85f, 640f to 1.0f, 820f to 1.1f, 1000f to 1.15f)
+    val h = heightDp.toFloat()
+    val byHeight = when {
+        h <= points.first().first -> points.first().second
+        h >= points.last().first -> points.last().second
+        else -> {
+            val i = points.indexOfFirst { it.first >= h }
+            val (h0, s0) = points[i - 1]
+            val (h1, s1) = points[i]
+            s0 + (s1 - s0) * (h - h0) / (h1 - h0)
+        }
+    }
+    val byWidth = if (widthDp == Int.MAX_VALUE) byHeight else widthDp * 0.40f / 364f
+    return minOf(byHeight, byWidth).coerceAtLeast(0.72f)
+}
 
 /** [landscapeUiBaseScale] times the pinch on the interaction bar. */
 @androidx.compose.runtime.Composable
-fun rememberLandscapeUiScale(): Float =
-    landscapeUiBaseScale(com.mediaviewer.ui.compat.rememberScreenSizeDp().height) * com.mediaviewer.util.UiToggles.landscapeBarScale
+fun rememberLandscapeUiScale(): Float {
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    return landscapeUiBaseScale(screen.height, screen.width) * com.mediaviewer.util.UiToggles.landscapeBarScale
+}
 
 /**
  * Lays the content out [reference] wide and, when its column is narrower

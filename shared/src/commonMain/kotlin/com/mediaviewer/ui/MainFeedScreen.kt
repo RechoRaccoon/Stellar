@@ -4331,15 +4331,15 @@ private fun Modifier.landscapeBarPinch(
         }
     }
 
-/** Landscape: the post's UI drawn smaller (everything scaled by the same
- *  factor, so it stays proportional) to leave the picture more room — by
- *  how short the screen is: a phone on its side gets the most compact UI,
- *  a tablet or a desktop window (with room to spare) the standard size. */
+/** Landscape: the post's UI drawn at the size that suits the screen
+ *  (everything scaled by the same factor, so it stays proportional) — see
+ *  [landscapeUiBaseScale] for how it's chosen. */
 @Composable
 private fun LandscapeChromeScale(landscape: Boolean, content: @Composable () -> Unit) {
     if (!landscape) { content(); return }
     val d = androidx.compose.ui.platform.LocalDensity.current
-    val base = landscapeUiBaseScale(com.mediaviewer.ui.compat.rememberScreenSizeDp().height)
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    val base = landscapeUiBaseScale(screen.height, screen.width)
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * base, d.fontScale),
         LocalCompactActionRow provides true,
