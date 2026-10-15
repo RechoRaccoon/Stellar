@@ -38,6 +38,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
@@ -632,7 +634,7 @@ fun SettingsSheet(
             // page instead of pushing the bar down). Drop the chip on it to
             // unsave that feed.
             Box(Modifier.fillMaxWidth().height(0.dp).zIndex(2f), contentAlignment = Alignment.BottomCenter) {
-                HubRemoveDropTarget(feedDrag, liquidGlass)
+                HubRemoveDropTarget(feedDrag, liquidGlass, tint = dominantColor)
             }
             // The bar sits right at the bottom now (the old credit line under
             // it is gone), just clear of the system navigation bar.
@@ -766,6 +768,21 @@ private fun AtProtocolPageContent(
      *  row with the search bar (each takes half). */
     topBar: (@Composable () -> Unit)? = null
 ) {
+    // Pinned feeds first (see HubLayout.pinnedFeeds) — in the feed chips
+    // and the landscape side list alike. A move in this order is turned
+    // back into one in the saved order.
+    val savedFeeds = availableFeeds
+    val onMoveSavedFeed = onMoveFeed
+    @Suppress("NAME_SHADOWING")
+    val availableFeeds = remember(savedFeeds, com.mediaviewer.util.HubLayout.pinnedFeeds) {
+        com.mediaviewer.util.HubLayout.pinnedFirst(savedFeeds) { it.uri }
+    }
+    @Suppress("NAME_SHADOWING")
+    val onMoveFeed: (Int, Int) -> Unit = { from, to ->
+        val a = availableFeeds.getOrNull(from)
+        val b = availableFeeds.getOrNull(to)
+        if (a != null && b != null) onMoveSavedFeed(savedFeeds.indexOf(a), savedFeeds.indexOf(b))
+    }
     // Item 8: both of the new sections' fetches are lazy — kick them off once
     // when this page first composes rather than eagerly for every Hub visit
     // (they only matter once the person actually scrolls down to them, and
@@ -1512,11 +1529,57 @@ private fun AtProtocolPageContent(
         }
         Spacer(Modifier.height(6.dp))
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            availableFeeds.forEach { feed ->
-                SideListButton(
-                    feed.displayName, selected = feed.uri == highlightedFeedUri && !authorChipSelected,
-                    liquidGlass = liquidGlass, tint = dominantColor, iconUrl = feed.avatarUrl, small = true
-                ) { onSelectFeed(feed.uri) }
+            // Press and hold a feed to drag it to a new place (as the row of
+            // feed chips does in portrait).
+            // Dragged onto the Remove / Pin bubbles above the bottom bar, it's
+            // removed or (un)pinned instead.
+            val sideView = rememberPlatformView()
+            ReorderableSideColumn(
+                items = availableFeeds, key = { it.uri }, onMove = onMoveFeed,
+                modifier = Modifier.fillMaxWidth(),
+                onHeld = { f ->
+                    if (f != null) { feedDrag.feed = f; feedDrag.sideActive = true } else feedDrag.reset()
+                },
+                onPointer = { p ->
+                    feedDrag.pointer = p
+                    fun near(r: Rect?) = r?.let { Rect(r.left - 16f, r.top - 20f, r.right + 16f, r.bottom + 20f).contains(p) } == true
+                    val overRemove = near(feedDrag.removeBounds)
+                    val overPin = !overRemove && near(feedDrag.pinBounds)
+                    if (overRemove != feedDrag.overRemove || overPin != feedDrag.overPin) {
+                        sideView.hubHaptic(if (overRemove || overPin) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    feedDrag.overRemove = overRemove
+                    feedDrag.overPin = overPin
+                },
+                onDropOutside = { f ->
+                    when {
+                        feedDrag.overRemove -> { onRemoveFeed(f.uri); true }
+                        feedDrag.overPin -> { com.mediaviewer.util.HubLayout.togglePinnedFeed(f.uri); true }
+                        else -> false
+                    }
+                }
+            ) { feed ->
+                Box(Modifier.fillMaxWidth()) {
+                    SideListButton(
+                        feed.displayName, selected = feed.uri == highlightedFeedUri && !authorChipSelected,
+                        liquidGlass = liquidGlass, tint = dominantColor, iconUrl = feed.avatarUrl, small = true
+                    ) { onSelectFeed(feed.uri) }
+                    // Pin / unpin, at the far right.
+                    val pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds
+                    val pinTap = rememberHapticTap()
+                    Box(
+                        Modifier.align(Alignment.CenterEnd).padding(end = 4.dp).size(30.dp).clip(CircleShape)
+                            .clickable { pinTap(); com.mediaviewer.util.HubLayout.togglePinnedFeed(feed.uri) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (pinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = if (pinned) "Unpin" else "Pin",
+                            tint = if (pinned) Color.White else Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
             }
             // Create Feed (the Feed Builder; supporters).
             val supporter = com.mediaviewer.util.Supporter.active
@@ -1537,6 +1600,10 @@ private fun AtProtocolPageContent(
                 ButtonsSection()
                 SidebarFeeds()
                 Spacer(Modifier.height(8.dp))
+            }
+            // (While a feed is held: Remove and Pin just above this bar.)
+            Box(Modifier.fillMaxWidth().height(0.dp).zIndex(3f), contentAlignment = Alignment.BottomCenter) {
+                HubRemoveDropTarget(feedDrag, liquidGlass, visible = feedDrag.sideActive, tint = dominantColor)
             }
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
         }
@@ -2989,7 +3056,7 @@ fun AuthorChip(
 }
 
 @Composable
-fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass: Boolean = false, dominantColor: Color = NeutralGlassTint, modifier: Modifier = Modifier, onClick: (() -> Unit)?) {
+fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass: Boolean = false, dominantColor: Color = NeutralGlassTint, modifier: Modifier = Modifier, pinned: Boolean = false, onClick: (() -> Unit)?) {
     Row(
         modifier = modifier
             .then(
@@ -3012,6 +3079,8 @@ fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass:
         }
         Text(name, color = if (isSelected) Color.White else DimGray, fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+        // A pinned feed (see HubLayout.pinnedFeeds): a small pin at its right.
+        if (pinned) Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = Color.White.copy(alpha = if (isSelected) 0.9f else 0.6f), modifier = Modifier.size(12.dp))
     }
 }
 
@@ -3156,13 +3225,19 @@ class HubFeedDragState {
     var chipWidthPx by mutableIntStateOf(0)
     var overRemove by mutableStateOf(false)
     var removeBounds: Rect? = null
+    /** The "Pin" / "Unpin" bubble beside Remove: dropping a feed there pins or unpins it. */
+    var overPin by mutableStateOf(false)
+    var pinBounds: Rect? = null
+    /** Landscape: a feed held in the side list (it follows the finger itself,
+     *  so there's no floating copy — just the Remove / Pin bubbles). */
+    var sideActive by mutableStateOf(false)
     var rootOrigin: Offset = Offset.Zero
     /** The Launchpad's DMs button: dropping a feed on it shares the feed. */
     var dmBounds: Rect? = null
     var overDm by mutableStateOf(false)
 
     fun reset() {
-        active = false; feed = null; fromIndex = -1; targetIndex = -1; overRemove = false; overDm = false
+        active = false; feed = null; fromIndex = -1; targetIndex = -1; overRemove = false; overDm = false; overPin = false; sideActive = false
     }
 }
 
@@ -3214,7 +3289,14 @@ private fun HubFeedRow(
             view.hubHaptic(if (over) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.CLOCK_TICK)
             drag.overRemove = over
         }
-        val overDm = !over && drag.dmBounds?.let { r ->
+        val overPin = !over && drag.pinBounds?.let { r ->
+            Rect(r.left - 24f, r.top - 32f, r.right + 24f, r.bottom + 32f).contains(drag.pointer)
+        } == true
+        if (overPin != drag.overPin) {
+            view.hubHaptic(if (overPin) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.CLOCK_TICK)
+            drag.overPin = overPin
+        }
+        val overDm = !over && !overPin && drag.dmBounds?.let { r ->
             Rect(r.left - 10f, r.top - 14f, r.right + 10f, r.bottom + 14f).contains(drag.pointer)
         } == true
         if (overDm != drag.overDm) {
@@ -3232,6 +3314,10 @@ private fun HubFeedRow(
                 order = latestOrder.filterNot { it.uri == f.uri }
                 view.hubHaptic(if (com.mediaviewer.ui.compat.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS)
                 onRemoveFeed(f.uri)
+            } else if (drag.overPin) {
+                // Dropped on Pin / Unpin.
+                view.hubHaptic(HapticFeedbackConstants.LONG_PRESS)
+                com.mediaviewer.util.HubLayout.togglePinnedFeed(f.uri)
             } else if (drag.overDm) {
                 // Dropped on the DMs button: share this feed in a chat.
                 view.hubHaptic(HapticFeedbackConstants.LONG_PRESS)
@@ -3341,6 +3427,7 @@ private fun HubFeedRow(
                         feed.displayName, feed.avatarUrl,
                         highlightedFeedUri == feed.uri && !authorChipSelected,
                         liquidGlass = liquidGlass, dominantColor = dominantColor,
+                        pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds,
                         modifier = Modifier.graphicsLayer {
                             translationX = shift
                             alpha = if (isHeld) 0f else 1f
@@ -3431,6 +3518,7 @@ private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint:
         FeedChip(
             feed.displayName, feed.avatarUrl, isSelected = true,
             liquidGlass = liquidGlass, dominantColor = if (drag.overRemove) red else tint,
+            pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds,
             modifier = if (liquidGlass) Modifier else Modifier.background(
                 if (drag.overRemove) red.copy(alpha = 0.55f) else Color(0xFF2A2A2A), RoundedCornerShape(20.dp)
             ),
@@ -3442,38 +3530,65 @@ private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint:
 /** Pops the Remove bubble in/out while a feed is held. (Its own function so
  *  the plain AnimatedVisibility is used, not a parent Column's scoped one.) */
 @Composable
-private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean) {
+private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean, visible: Boolean = feedDrag.active, tint: Color = NeutralGlassTint) {
     AnimatedVisibility(
-        visible = feedDrag.active,
+        visible = visible,
         enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.6f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f)),
         exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.7f, animationSpec = tween(140)),
         modifier = Modifier.wrapContentHeight(align = Alignment.Bottom, unbounded = true).padding(bottom = 10.dp)
     ) {
-        HubRemoveBubble(hovered = feedDrag.overRemove, liquidGlass = liquidGlass,
-            modifier = Modifier.onGloballyPositioned { feedDrag.removeBounds = it.boundsInRoot() })
+        // Remove and Pin / Unpin, centred together as one group.
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            HubRemoveBubble(hovered = feedDrag.overRemove, liquidGlass = liquidGlass, tint = tint,
+                modifier = Modifier.onGloballyPositioned { feedDrag.removeBounds = it.boundsInRoot() })
+            HubPinBubble(
+                hovered = feedDrag.overPin, liquidGlass = liquidGlass, tint = tint,
+                pinned = feedDrag.feed?.uri?.let { it in com.mediaviewer.util.HubLayout.pinnedFeeds } == true,
+                modifier = Modifier.onGloballyPositioned { feedDrag.pinBounds = it.boundsInRoot() }
+            )
+        }
     }
+}
+
+/** "Pin" (or "Unpin", for a pinned feed) — beside Remove while a feed is held. */
+@Composable
+internal fun HubPinBubble(hovered: Boolean, liquidGlass: Boolean, pinned: Boolean, modifier: Modifier = Modifier, tint: Color = NeutralGlassTint) {
+    HubDropBubble(Icons.Default.PushPin, if (pinned) "Unpin" else "Pin", hovered, liquidGlass, tint, modifier)
 }
 
 /** "Remove" drop target shown above Return to Feed while a feed is held. */
 @Composable
-internal fun HubRemoveBubble(hovered: Boolean, liquidGlass: Boolean, modifier: Modifier = Modifier) {
-    val red = Color(0xFFFF453A)
+internal fun HubRemoveBubble(hovered: Boolean, liquidGlass: Boolean, modifier: Modifier = Modifier, tint: Color = NeutralGlassTint) {
+    HubDropBubble(Icons.Default.Delete, "Remove", hovered, liquidGlass, tint, modifier)
+}
+
+/** A drop target that appears while something is held (Remove, Pin):
+ *  all the same size and shape, in the profile color, brighter while the
+ *  held thing is over it; a dark base dims whatever's behind it. */
+@Composable
+internal fun HubDropBubble(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
+    hovered: Boolean, liquidGlass: Boolean, tint: Color, modifier: Modifier = Modifier
+) {
     val shape = RoundedCornerShape(22.dp)
-    val scale by animateFloatAsState(if (hovered) 1.15f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "removeScale")
+    val scale by animateFloatAsState(if (hovered) 1.12f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "dropScale")
+    val color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.12f)
     Row(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
+            .width(126.dp).height(44.dp)
+            .clip(shape).background(Color(0xFF0E0E12).copy(alpha = 0.82f), shape)
             .then(
-                if (liquidGlass) Modifier.glassPanel(true, tint = if (hovered) red else red.copy(alpha = 0.55f), shape = shape)
-                    .background(red.copy(alpha = if (hovered) 0.35f else 0.12f), shape)
-                else Modifier.clip(shape).background(red.copy(alpha = if (hovered) 0.6f else 0.3f))
-            )
-            .padding(horizontal = 22.dp, vertical = 10.dp),
+                if (liquidGlass) Modifier.glassPanel(true, tint = if (hovered) color else color.copy(alpha = 0.55f), shape = shape)
+                    .background(color.copy(alpha = if (hovered) 0.42f else 0.16f), shape)
+                else Modifier.background(color.copy(alpha = if (hovered) 0.65f else 0.32f))
+                    .border(1.dp, color.copy(alpha = if (hovered) 0.95f else 0.6f), shape)
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
     ) {
-        Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-        Text("Remove", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 

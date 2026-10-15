@@ -32,8 +32,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -228,5 +232,110 @@ fun GridSizeSlider(tint: Color) {
             ),
             modifier = Modifier.fillMaxWidth().height(28.dp)
         )
+    }
+}
+
+/**
+ * A side list's rows that can be put in a new order: press and hold one,
+ * drag it up or down (the others make way, with a haptic tick each time it
+ * takes a new place) and let go. [onMove] gets where it was and where it
+ * went, as indexes of [items]. Rows keep their own taps.
+ *
+ * [onHeld] hears which row is held (null when let go), [onPointer] where
+ * the finger is (root coordinates) while it is, and [onDropOutside] gets a
+ * last say when it's let go: true means it was dropped on something else
+ * (a Remove bubble, say), so it isn't moved.
+ */
+@Composable
+fun <T> ReorderableSideColumn(
+    items: List<T>,
+    key: (T) -> Any,
+    onMove: (from: Int, to: Int) -> Unit,
+    modifier: Modifier = Modifier,
+    spacing: Dp = 5.dp,
+    onHeld: (T?) -> Unit = {},
+    onPointer: (androidx.compose.ui.geometry.Offset) -> Unit = {},
+    onDropOutside: (T) -> Boolean = { false },
+    row: @Composable (T) -> Unit
+) {
+    // Its own copy of the order, so the rows move as the held one passes
+    // them and a drop doesn't jump while the saved order catches up.
+    var order by remember(items) { mutableStateOf(items) }
+    val latestOrder by androidx.compose.runtime.rememberUpdatedState(order)
+    var held by remember { mutableStateOf<Any?>(null) }
+    var heldFrom by remember { mutableStateOf(-1) }
+    var offsetY by remember { mutableStateOf(0f) }
+    val heights = remember { HashMap<Any, Int>() }
+    val coords = remember { HashMap<Any, androidx.compose.ui.layout.LayoutCoordinates>() }
+    val view = com.mediaviewer.ui.compat.rememberPlatformView()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val gapPx = with(density) { spacing.toPx() }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(spacing)) {
+        order.forEach { item ->
+            val k = key(item)
+            androidx.compose.runtime.key(k) {
+                val isHeld = held == k
+                val lift by androidx.compose.animation.core.animateFloatAsState(if (isHeld) 1f else 0f, label = "rowLift")
+                Box(
+                    Modifier.fillMaxWidth()
+                        .onSizeChanged { heights[k] = it.height }
+                        .zIndex(if (isHeld) 2f else 0f)
+                        // (The held row follows the finger, lifted a little.)
+                        .graphicsLayer {
+                            translationY = if (isHeld) offsetY else 0f
+                            val sc = 1f + 0.03f * lift
+                            scaleX = sc; scaleY = sc
+                            shadowElevation = 12f * lift
+                            shape = RoundedCornerShape(10.dp)
+                        }
+                        .onGloballyPositioned { coords[k] = it }
+                        .pointerInput(k) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    held = k; offsetY = 0f
+                                    heldFrom = latestOrder.indexOfFirst { key(it) == k }
+                                    onHeld(item)
+                                    view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
+                                },
+                                onDragEnd = {
+                                    val to = latestOrder.indexOfFirst { key(it) == k }
+                                    val from = heldFrom
+                                    held = null; offsetY = 0f; heldFrom = -1
+                                    view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.VIRTUAL_KEY)
+                                    val handled = onDropOutside(item)
+                                    onHeld(null)
+                                    if (handled) order = items
+                                    else if (from >= 0 && to >= 0 && from != to) {
+                                        val original = items.indexOfFirst { key(it) == k }
+                                        val target = to.coerceIn(0, items.lastIndex)
+                                        if (original >= 0) onMove(original, target)
+                                    }
+                                },
+                                onDragCancel = { order = items; held = null; offsetY = 0f; heldFrom = -1; onHeld(null) }
+                            ) { change, amount ->
+                                change.consume()
+                                offsetY += amount.y
+                                coords[k]?.takeIf { it.isAttached }?.let { onPointer(it.localToRoot(change.position)) }
+                                // Past half of a neighbour: swap with it, keeping the
+                                // row under the finger.
+                                val list = latestOrder
+                                val i = list.indexOfFirst { key(it) == k }
+                                if (i < 0) return@detectDragGesturesAfterLongPress
+                                val below = list.getOrNull(i + 1)
+                                val above = list.getOrNull(i - 1)
+                                if (below != null && offsetY > (heights[key(below)] ?: 0) / 2f + gapPx) {
+                                    order = list.toMutableList().apply { add(i + 1, removeAt(i)) }
+                                    offsetY -= (heights[key(below)] ?: 0) + gapPx
+                                    view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
+                                } else if (above != null && offsetY < -((heights[key(above)] ?: 0) / 2f + gapPx)) {
+                                    order = list.toMutableList().apply { add(i - 1, removeAt(i)) }
+                                    offsetY += (heights[key(above)] ?: 0) + gapPx
+                                    view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            }
+                        }
+                ) { row(item) }
+            }
+        }
     }
 }

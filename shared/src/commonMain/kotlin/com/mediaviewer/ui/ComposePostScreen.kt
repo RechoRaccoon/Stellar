@@ -1473,7 +1473,7 @@ fun ComposePostScreen(
                     if (imageDrag.held != null) {
                         Box(Modifier.matchParentSize().zIndex(3f), contentAlignment = Alignment.BottomCenter) {
                             HubRemoveBubble(
-                                hovered = imageDrag.hovered, liquidGlass = liquidGlass,
+                                hovered = imageDrag.hovered, liquidGlass = liquidGlass, tint = dominantColor,
                                 modifier = Modifier.wrapContentHeight(align = Alignment.Bottom, unbounded = true)
                                     .onGloballyPositioned { imageDrag.removeBounds = it.boundsInRoot() }
                             )

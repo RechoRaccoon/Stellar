@@ -34,6 +34,15 @@ from that branch, or from `main` once it's merged.
   button. The comments side list can't be pulled down (`CommentsSheet`
   `sideList`), the post is pushed by exactly its width, and a comment's
   media opens over the whole screen (`onOpenMedia`), the rest blurred.
+- Feeds: pinning (Stellar's own, `HubLayout.pinnedFeeds`, per account in
+  hub_layout so it's exported — not Bluesky's "pinned"). Pinned feeds come
+  first (`pinnedFirst`; moves are mapped back to the saved order).
+  Portrait: a pinned chip shows a pin; while a chip is held, Remove and
+  Pin/Unpin bubbles (`HubDropBubble`, same size, profile colored, dark
+  base) show centred together. Landscape: the side list's feeds reorder by
+  press-and-drag (`ReorderableSideColumn` in SideList.kt), each has a pin
+  button at its right, and while one is held the same two bubbles show just
+  above the bottom bar (`HubFeedDragState.sideActive`).
 - Web: the page blocks the browser's own drag-and-drop (index.html) — a
   slightly moved double tap in Firefox could drag the canvas as an image
   and open it in a new tab.
