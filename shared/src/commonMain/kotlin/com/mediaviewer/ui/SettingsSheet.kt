@@ -307,6 +307,8 @@ fun SettingsSheet(
     // Hub feed row: drag a feed chip to reorder it / drop it on "Remove".
     onMoveFeed: (Int, Int) -> Unit = { _, _ -> },
     onRemoveFeed: (String) -> Unit = {},
+    /** Pins / unpins a feed (Bluesky's own pinned feeds). */
+    onTogglePinFeed: (String) -> Unit = {},
     // Reworked Settings page: multiple accounts, tagging-model download and
     // the e621 download button — see SettingsExtras.
     settingsExtras: SettingsExtras = SettingsExtras()
@@ -581,7 +583,7 @@ fun SettingsSheet(
                             liveTwitchUrl = liveTwitchUrl, liveYoutubeUrl = liveYoutubeUrl,
                             liveActivePlatform = liveActivePlatform,
                             onToggleLiveLink = onToggleLiveLink, onEndLiveLink = onEndLiveLink,
-                            feedDrag = feedDrag, onMoveFeed = onMoveFeed, onRemoveFeed = onRemoveFeed,
+                            feedDrag = feedDrag, onMoveFeed = onMoveFeed, onRemoveFeed = onRemoveFeed, onTogglePinFeed = onTogglePinFeed,
                             // Item 14: e621's Hot/Favorites/Following quick
                             // buttons folded in here (were the standalone
                             // e621 page's whole reason to exist) — shown
@@ -737,6 +739,7 @@ private fun AtProtocolPageContent(
     feedDrag: HubFeedDragState = remember { HubFeedDragState() },
     onMoveFeed: (Int, Int) -> Unit = { _, _ -> },
     onRemoveFeed: (String) -> Unit = {},
+    onTogglePinFeed: (String) -> Unit = {},
     // Live Link widget feature: mirrors the widget's own toggle as the very
     // bottom row of this page, per the feature request — only rendered once
     // at least one channel URL is saved (see the bottom of this function).
@@ -768,14 +771,14 @@ private fun AtProtocolPageContent(
      *  row with the search bar (each takes half). */
     topBar: (@Composable () -> Unit)? = null
 ) {
-    // Pinned feeds first (see HubLayout.pinnedFeeds) — in the feed chips
+    // Pinned feeds first (Bluesky's pinned feeds) — in the feed chips
     // and the landscape side list alike. A move in this order is turned
     // back into one in the saved order.
     val savedFeeds = availableFeeds
     val onMoveSavedFeed = onMoveFeed
     @Suppress("NAME_SHADOWING")
-    val availableFeeds = remember(savedFeeds, com.mediaviewer.util.HubLayout.pinnedFeeds) {
-        com.mediaviewer.util.HubLayout.pinnedFirst(savedFeeds) { it.uri }
+    val availableFeeds = remember(savedFeeds) {
+        savedFeeds.filter { it.pinned } + savedFeeds.filterNot { it.pinned }
     }
     @Suppress("NAME_SHADOWING")
     val onMoveFeed: (Int, Int) -> Unit = { from, to ->
@@ -913,7 +916,7 @@ private fun AtProtocolPageContent(
         HubFeedRow(
             availableFeeds = availableFeeds, selectedFeedUri = selectedFeedUri, authorFeedState = authorFeedState,
             liquidGlass = liquidGlass, dominantColor = dominantColor, drag = feedDrag,
-            onSelectFeed = onSelectFeed, onMoveFeed = onMoveFeed, onRemoveFeed = onRemoveFeed,
+            onSelectFeed = onSelectFeed, onMoveFeed = onMoveFeed, onRemoveFeed = onRemoveFeed, onTogglePinFeed = onTogglePinFeed,
             highlightedFeedUri = highlightedFeedUri, authorChipSelected = authorChipSelected,
             onTapAuthorChip = onTapAuthorChip
         )
@@ -1554,7 +1557,7 @@ private fun AtProtocolPageContent(
                 onDropOutside = { f ->
                     when {
                         feedDrag.overRemove -> { onRemoveFeed(f.uri); true }
-                        feedDrag.overPin -> { com.mediaviewer.util.HubLayout.togglePinnedFeed(f.uri); true }
+                        feedDrag.overPin -> { onTogglePinFeed(f.uri); true }
                         else -> false
                     }
                 }
@@ -1565,11 +1568,11 @@ private fun AtProtocolPageContent(
                         liquidGlass = liquidGlass, tint = dominantColor, iconUrl = feed.avatarUrl, small = true
                     ) { onSelectFeed(feed.uri) }
                     // Pin / unpin, at the far right.
-                    val pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds
+                    val pinned = feed.pinned
                     val pinTap = rememberHapticTap()
                     Box(
                         Modifier.align(Alignment.CenterEnd).padding(end = 4.dp).size(30.dp).clip(CircleShape)
-                            .clickable { pinTap(); com.mediaviewer.util.HubLayout.togglePinnedFeed(feed.uri) },
+                            .clickable { pinTap(); onTogglePinFeed(feed.uri) },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -3079,7 +3082,7 @@ fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass:
         }
         Text(name, color = if (isSelected) Color.White else DimGray, fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
-        // A pinned feed (see HubLayout.pinnedFeeds): a small pin at its right.
+        // A pinned feed (Bluesky's pinned feeds): a small pin at its right.
         if (pinned) Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = Color.White.copy(alpha = if (isSelected) 0.9f else 0.6f), modifier = Modifier.size(12.dp))
     }
 }
@@ -3254,6 +3257,7 @@ private fun HubFeedRow(
     onSelectFeed: (String?) -> Unit,
     onMoveFeed: (Int, Int) -> Unit,
     onRemoveFeed: (String) -> Unit,
+    onTogglePinFeed: (String) -> Unit = {},
     highlightedFeedUri: String? = selectedFeedUri,
     authorChipSelected: Boolean = authorFeedState != null,
     onTapAuthorChip: () -> Unit = {}
@@ -3317,7 +3321,7 @@ private fun HubFeedRow(
             } else if (drag.overPin) {
                 // Dropped on Pin / Unpin.
                 view.hubHaptic(HapticFeedbackConstants.LONG_PRESS)
-                com.mediaviewer.util.HubLayout.togglePinnedFeed(f.uri)
+                onTogglePinFeed(f.uri)
             } else if (drag.overDm) {
                 // Dropped on the DMs button: share this feed in a chat.
                 view.hubHaptic(HapticFeedbackConstants.LONG_PRESS)
@@ -3427,7 +3431,7 @@ private fun HubFeedRow(
                         feed.displayName, feed.avatarUrl,
                         highlightedFeedUri == feed.uri && !authorChipSelected,
                         liquidGlass = liquidGlass, dominantColor = dominantColor,
-                        pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds,
+                        pinned = feed.pinned,
                         modifier = Modifier.graphicsLayer {
                             translationX = shift
                             alpha = if (isHeld) 0f else 1f
@@ -3518,7 +3522,7 @@ private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint:
         FeedChip(
             feed.displayName, feed.avatarUrl, isSelected = true,
             liquidGlass = liquidGlass, dominantColor = if (drag.overRemove) red else tint,
-            pinned = feed.uri in com.mediaviewer.util.HubLayout.pinnedFeeds,
+            pinned = feed.pinned,
             modifier = if (liquidGlass) Modifier else Modifier.background(
                 if (drag.overRemove) red.copy(alpha = 0.55f) else Color(0xFF2A2A2A), RoundedCornerShape(20.dp)
             ),
@@ -3543,7 +3547,7 @@ private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean
                 modifier = Modifier.onGloballyPositioned { feedDrag.removeBounds = it.boundsInRoot() })
             HubPinBubble(
                 hovered = feedDrag.overPin, liquidGlass = liquidGlass, tint = tint,
-                pinned = feedDrag.feed?.uri?.let { it in com.mediaviewer.util.HubLayout.pinnedFeeds } == true,
+                pinned = feedDrag.feed?.pinned == true,
                 modifier = Modifier.onGloballyPositioned { feedDrag.pinBounds = it.boundsInRoot() }
             )
         }

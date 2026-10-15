@@ -728,7 +728,10 @@ data class BskyFeedInfo(
     // getFeedGenerators, same call already used to resolve
     // acceptsInteractions) is the correct value to proxy to — see
     // BlueskyRepository.sendFeedInteraction.
-    val generatorDid: String? = null
+    val generatorDid: String? = null,
+    /** Pinned in the account's Bluesky saved feeds (savedFeedsPrefV2's
+     *  "pinned"; v1's "pinned" list) — Stellar keeps pinned feeds first. */
+    val pinned: Boolean = false
 )
 
 // ── e621 ─────────────────────────────────────────────────────────────────────

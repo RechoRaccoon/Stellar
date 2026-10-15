@@ -504,7 +504,7 @@ class BlueskyRepository {
     // list can be reassembled in the order the user actually arranged them —
     // including the "Following" timeline, which isn't a feed generator at all
     // and so can't be resolved through getFeedGenerators.
-    private data class PrefSlot(val isTimeline: Boolean, val uri: String, val isList: Boolean = false)
+    private data class PrefSlot(val isTimeline: Boolean, val uri: String, val isList: Boolean = false, val pinned: Boolean = false)
 
     /** The account's "Enable adult content" setting (app.bsky.actor.defs#
      *  adultContentPref) — off unless it was turned on at bsky.app. */
@@ -563,16 +563,17 @@ class BlueskyRepository {
                     // feed is a "timeline" slot with value "following", not an
                     // at:// feed generator URI, so it needs separate handling or it
                     // silently disappears from the saved-feeds list.
+                    val pinned = runCatching { itemObj.get("pinned")?.asBoolean }.getOrNull() == true
                     when (itemObj.get("type")?.asString) {
                         "feed" -> itemObj.get("value")?.asString?.let { v ->
-                            if (v.startsWith("at://")) slots.add(PrefSlot(isTimeline = false, uri = v))
+                            if (v.startsWith("at://")) slots.add(PrefSlot(isTimeline = false, uri = v, pinned = pinned))
                         }
-                        "timeline" -> slots.add(PrefSlot(isTimeline = true, uri = FOLLOWING_FEED_URI))
+                        "timeline" -> slots.add(PrefSlot(isTimeline = true, uri = FOLLOWING_FEED_URI, pinned = pinned))
                         // "list": a List pinned as a feed (Bluesky's own app
                         // does this too). Not a feed generator — its name and
                         // cover come from the list itself, see below.
                         "list" -> itemObj.get("value")?.asString?.let { v ->
-                            if (v.startsWith("at://")) slots.add(PrefSlot(isTimeline = false, uri = v, isList = true))
+                            if (v.startsWith("at://")) slots.add(PrefSlot(isTimeline = false, uri = v, isList = true, pinned = pinned))
                         }
                     }
                 }
@@ -585,7 +586,7 @@ class BlueskyRepository {
                     val pinned = obj.getAsJsonArray("pinned")?.mapNotNull { it.asString } ?: emptyList()
                     val saved  = obj.getAsJsonArray("saved")?.mapNotNull { it.asString }  ?: emptyList()
                     (pinned + saved).filter { it.startsWith("at://") }.distinct().forEach {
-                        slots.add(PrefSlot(isTimeline = false, uri = it))
+                        slots.add(PrefSlot(isTimeline = false, uri = it, pinned = it in pinned))
                     }
                 }
             }
@@ -624,7 +625,7 @@ class BlueskyRepository {
         val seen = mutableSetOf<String>()
         slots.forEach { slot ->
             val info = if (slot.isTimeline) BskyFeedInfo(FOLLOWING_FEED_URI, "Following", null) else infoByUri[slot.uri]
-            if (info != null && seen.add(info.uri)) allFeeds.add(info)
+            if (info != null && seen.add(info.uri)) allFeeds.add(info.copy(pinned = slot.pinned))
         }
 
         // Fallback: feeds the user created themself (only if they have no saved feeds at all)
@@ -2326,6 +2327,54 @@ class BlueskyRepository {
      * doesn't show (pinned lists, etc.) keep their exact positions: the
      * shown ones are re-dealt into the slots shown ones already occupied.
      */
+    /** Pins or unpins a saved feed in the account's Bluesky preferences —
+     *  the same "pinned" Bluesky's own app uses. (v2: the item's "pinned";
+     *  v1: in or out of the "pinned" list, staying in "saved".) */
+    suspend fun setFeedPinned(token: String, feedUri: String, pinned: Boolean): Result<Unit> = runCatching {
+        val getResp = api.getPreferences("Bearer $token")
+        val body = getResp.body() ?: error("Prefs ${getResp.code()}")
+        val preferences = body.preferences.toMutableList()
+        val v2Index = preferences.indexOfFirst {
+            it.isJsonObject && it.asJsonObject.get("\$type")?.asString?.endsWith("savedFeedsPrefV2") == true
+        }
+        if (v2Index >= 0) {
+            val v2Obj = preferences[v2Index].asJsonObject.deepCopy()
+            val items = v2Obj.getAsJsonArray("items") ?: com.mediaviewer.json.JsonArray()
+            val out = com.mediaviewer.json.JsonArray()
+            items.forEach { e ->
+                if (e.isJsonObject) {
+                    val o = e.asJsonObject
+                    val key = when (o.get("type")?.asString) {
+                        "timeline" -> FOLLOWING_FEED_URI
+                        "feed", "list" -> o.get("value")?.asString
+                        else -> null
+                    }
+                    if (key == feedUri) {
+                        val copy = o.deepCopy()
+                        copy.addProperty("pinned", pinned)
+                        out.add(copy)
+                        return@forEach
+                    }
+                }
+                out.add(e)
+            }
+            v2Obj.add("items", out)
+            preferences[v2Index] = v2Obj
+        } else {
+            val v1Index = preferences.indexOfFirst {
+                it.isJsonObject && it.asJsonObject.get("\$type")?.asString?.endsWith("savedFeedsPref") == true
+            }
+            if (v1Index < 0) return@runCatching
+            val v1Obj = preferences[v1Index].asJsonObject.deepCopy()
+            val pins = (v1Obj.getAsJsonArray("pinned")?.mapNotNull { runCatching { it.asString }.getOrNull() } ?: emptyList()).toMutableList()
+            if (pinned && feedUri !in pins) pins.add(feedUri) else if (!pinned) pins.remove(feedUri)
+            v1Obj.add("pinned", com.mediaviewer.json.JsonArray().apply { pins.forEach { add(it) } })
+            preferences[v1Index] = v1Obj
+        }
+        val putResp = api.putPreferences("Bearer $token", BskyPreferencesResponse(preferences))
+        if (!putResp.isSuccessful) error("Put prefs ${putResp.code()}: ${errorBodyText(putResp)}")
+    }
+
     suspend fun saveFeedOrder(token: String, orderedUris: List<String>, removedUris: Set<String>): Result<Unit> = runCatching {
         val getResp = api.getPreferences("Bearer $token")
         val body = getResp.body() ?: error("Prefs ${getResp.code()}")

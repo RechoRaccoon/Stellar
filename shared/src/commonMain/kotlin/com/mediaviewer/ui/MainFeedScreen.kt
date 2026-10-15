@@ -226,6 +226,7 @@ fun MainFeedScreen(
     onEndLiveLink: () -> Unit = {},
     onMoveFeed: (Int, Int) -> Unit = { _, _ -> },
     onRemoveFeed: (String) -> Unit = {},
+    onTogglePinFeed: (String) -> Unit = {},
     /** Explore mode pinched in (back to the profile a feed was opened from). */
     onGridPinchIn: () -> Unit = {},
     /** Nothing's open over the timeline / Explore, so the keyboard
@@ -723,7 +724,8 @@ fun MainFeedScreen(
                     onToggleLiveLink          = onToggleLiveLink,
                     onEndLiveLink             = onEndLiveLink,
                     onMoveFeed                = onMoveFeed,
-                    onRemoveFeed              = onRemoveFeed
+                    onRemoveFeed              = onRemoveFeed,
+                    onTogglePinFeed           = onTogglePinFeed
                 )
                 ScreenState.GRID -> GridScreen(
                     items           = mediaItems,

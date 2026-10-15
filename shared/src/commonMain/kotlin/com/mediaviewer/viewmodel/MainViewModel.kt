@@ -2122,6 +2122,28 @@ class MainViewModel(
         persistFeedOrder(emptySet())
     }
 
+    /** Pins / unpins a feed in the account's Bluesky saved feeds (shown at
+     *  once; put back if saving fails). */
+    fun toggleFeedPinned(uri: String) {
+        val before = _availableFeeds.value
+        val feed = before.firstOrNull { it.uri == uri } ?: return
+        val pinned = !feed.pinned
+        _availableFeeds.value = before.map { if (it.uri == uri) it.copy(pinned = pinned) else it }
+        if (!_bskyLoggedIn.value) return
+        viewModelScope.launch(ioDispatcher) {
+            feedPrefsMutex.withLock {
+                var result = bskyRepo.setFeedPinned(bskyToken, uri, pinned)
+                if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
+                    if (refreshBskyTokenIfPossible()) result = bskyRepo.setFeedPinned(bskyToken, uri, pinned)
+                }
+                result.onFailure {
+                    _errorMessage.value = "Couldn't update your feeds: ${it.message}"
+                    loadAvailableFeeds()
+                }
+            }
+        }
+    }
+
     fun removeFeed(uri: String) {
         val list = _availableFeeds.value
         if (list.none { it.uri == uri }) return
@@ -6997,6 +7019,7 @@ class MainViewModel(
         if (next < _mediaItems.value.size) {
             _navDirection.value = 1
             _currentIndex.value = next
+            commentsFollowPost()
             // Fetch the next page well before the end is reached.
             if (next >= _mediaItems.value.size - 15) loadMore()
         } else {
@@ -7010,6 +7033,21 @@ class MainViewModel(
         if (prev >= 0) {
             _navDirection.value = -1
             _currentIndex.value = prev
+            commentsFollowPost()
+        }
+    }
+
+    /** With the comments open beside the post (landscape), moving to another
+     *  post shows that post's comments. */
+    private fun commentsFollowPost() {
+        if (_screenState.value != ScreenState.COMMENTS) return
+        val id = _mediaItems.value.getOrNull(_currentIndex.value)?.id ?: return
+        viewModelScope.launch {
+            // (currentItem catches up with the new index a moment later.)
+            kotlinx.coroutines.withTimeoutOrNull(2_000) { currentItem.first { it?.id == id } } ?: return@launch
+            if (_screenState.value != ScreenState.COMMENTS) return@launch
+            loadComments()
+            attachAiTagsToCurrentItem()
         }
     }
 

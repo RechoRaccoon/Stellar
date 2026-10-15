@@ -176,7 +176,6 @@ object HubLayout {
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
         launchpad = readLaunchpad(p, accountDid)
-        pinnedFeeds = readPinned(p, accountDid)
     }
 
     // ── Launchpad order ──────────────────────────────────────────────────
@@ -269,33 +268,9 @@ object HubLayout {
         removedDefaults = readRemoved(p, did)
         rows = normalize(parse(readFor(p, did)))
         launchpad = readLaunchpad(p, did)
-        pinnedFeeds = readPinned(p, did)
     }
 
-    // ── Pinned feeds ─────────────────────────────────────────────────────
-    // Feeds pinned in the Hub (by dragging one onto "Pin", or the pin on a
-    // landscape feed row) stay at the top of the feed list. Stellar's own
-    // pins — not Bluesky's "pinned" (which is about the Bluesky app's tabs)
-    // — kept per account in this same file, so App Data Export has them.
-    private fun pinnedKeyFor(did: String) = "pinned_feeds@" + did.ifBlank { "signed_out" }
-    private fun readPinned(p: SharedPreferences, did: String): Set<String> =
-        p.getString(pinnedKeyFor(did), null)?.split('\n')?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
 
-    /** The pinned feeds' URIs. */
-    var pinnedFeeds by mutableStateOf<Set<String>>(emptySet())
-        private set
-
-    fun togglePinnedFeed(uri: String) {
-        pinnedFeeds = if (uri in pinnedFeeds) pinnedFeeds - uri else pinnedFeeds + uri
-        prefs?.edit()?.putString(pinnedKeyFor(accountDid), pinnedFeeds.joinToString("\n"))?.apply()
-    }
-
-    /** [feeds] with the pinned ones first (each group keeping its order). */
-    fun <T> pinnedFirst(feeds: List<T>, uri: (T) -> String): List<T> {
-        val pins = pinnedFeeds
-        if (pins.isEmpty()) return feeds
-        return feeds.filter { uri(it) in pins } + feeds.filterNot { uri(it) in pins }
-    }
 
     private fun readRemoved(p: SharedPreferences, did: String): Set<String> =
         (p.getString(removedKey(did), null) ?: p.getString(removedKeyFor(did), null))
@@ -430,7 +405,6 @@ object HubLayout {
         removedDefaults = readRemoved(p, accountDid)
         rows = normalize(parse(readFor(p, accountDid)))
         launchpad = readLaunchpad(p, accountDid)
-        pinnedFeeds = readPinned(p, accountDid)
     }
 
     private fun update(newRows: List<Row>) {

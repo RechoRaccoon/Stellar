@@ -34,11 +34,12 @@ from that branch, or from `main` once it's merged.
   button. The comments side list can't be pulled down (`CommentsSheet`
   `sideList`), the post is pushed by exactly its width, and a comment's
   media opens over the whole screen (`onOpenMedia`), the rest blurred.
-- Feeds: pinning (Stellar's own, `HubLayout.pinnedFeeds`, per account in
-  hub_layout so it's exported — not Bluesky's "pinned"). Pinned feeds come
-  first (`pinnedFirst`; moves are mapped back to the saved order).
-  Portrait: a pinned chip shows a pin; while a chip is held, Remove and
-  Pin/Unpin bubbles (`HubDropBubble`, same size, profile colored, dark
+- Feeds: pinning uses Bluesky's own pinned feeds (`BskyFeedInfo.pinned`,
+  read from savedFeedsPrefV2 items' "pinned" / v1's "pinned" list;
+  `BlueskyRepository.setFeedPinned`, `MainViewModel.toggleFeedPinned`).
+  Pinned feeds come first in the Hub (moves are mapped back to the saved
+  order). Portrait: a pinned chip shows a pin; while a chip is held, Remove
+  and Pin/Unpin bubbles (`HubDropBubble`, same size, profile colored, dark
   base) show centred together. Landscape: the side list's feeds reorder by
   press-and-drag (`ReorderableSideColumn` in SideList.kt), each has a pin
   button at its right, and while one is held the same two bubbles show just
@@ -81,7 +82,9 @@ from that branch, or from `main` once it's merged.
   (`TipAnchors.onScreen`), in slightly smaller text. Portrait is unchanged
   except a clipped row's band now stops at the row's own far side.
 - Profile name pills are back to the original sizes; landscape Search's bar
-  splits out its back button. Landscape side gaps: only Settings and the
+  splits out its back button. (Landscape timeline: moving to another post
+  with the comments open loads that post's comments — `commentsFollowPost`.)
+  Landscape side gaps: only Settings and the
   composer have them — `rememberLandscapeEdgePadding()` (the camera
   cutout's depth, at least 12dp), with no extra inner padding; every other
   page goes edge to edge.

@@ -695,6 +695,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             onEndLiveLink             = viewModel::endLiveLink,
             onMoveFeed                = viewModel::moveFeed,
             onRemoveFeed              = viewModel::removeFeed,
+            onTogglePinFeed           = viewModel::toggleFeedPinned,
             onGridPinchIn             = viewModel::pinchInFromGrid,
             // (Keyboard shortcuts only while nothing's open over the timeline.)
             shortcutsEnabled          = (profileOverlay == null || profileOverlay?.hidden == true) && !searchOpen &&
