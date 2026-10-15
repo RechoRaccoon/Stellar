@@ -62,7 +62,7 @@ object Landscape {
 }
 
 /**
- * Landscape: how big the post UI (and the comments beside it) is drawn by
+ * Landscape: how big the post UI is drawn by
  * default, before any pinch on the interaction bar. Worked out from the
  * screen's height (in dp, so already independent of pixel density), through
  * these points, straight lines between them:
@@ -98,12 +98,6 @@ fun landscapeUiBaseScale(heightDp: Int, widthDp: Int = Int.MAX_VALUE): Float {
     return minOf(byHeight, byWidth).coerceAtLeast(0.72f)
 }
 
-/** [landscapeUiBaseScale] times the pinch on the interaction bar. */
-@androidx.compose.runtime.Composable
-fun rememberLandscapeUiScale(): Float {
-    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
-    return landscapeUiBaseScale(screen.height, screen.width) * com.mediaviewer.util.UiToggles.landscapeBarScale
-}
 
 /**
  * Lays the content out [reference] wide and, when its column is narrower

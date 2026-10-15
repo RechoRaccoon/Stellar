@@ -422,6 +422,8 @@ fun MainFeedScreen(
     // faded) rather than replacing it. commentsOpenAnim drives the blur/fade;
     // the sheet's own drag-to-close eases it back off as it's pulled down.
     val commentsOpen = screenState == ScreenState.COMMENTS
+    // (Read by the post's long-lived swipe gesture, so it's always current.)
+    val latestScreenState by rememberUpdatedState(screenState)
     val commentsOpenAnim by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (commentsOpen) 1f else 0f,
         animationSpec = if (reducedAnimations) androidx.compose.animation.core.snap() else tween(320, easing = FastOutSlowInEasing),
@@ -484,7 +486,8 @@ fun MainFeedScreen(
                     onSwipeLeft       = onNavigateNext,
                     onSwipeRight      = onNavigatePrev,
                     onSwipeUp         = { onSetScreen(ScreenState.COMMENTS) },
-                    onSwipeDown       = { onSetScreen(ScreenState.SETTINGS) },
+                    // (With the comments open, a swipe down closes them first.)
+                    onSwipeDown       = { onSetScreen(if (latestScreenState == ScreenState.COMMENTS) ScreenState.FEED else ScreenState.SETTINGS) },
                     onPinchToGrid     = onPinchIn,
                     externallyPaused  = externallyPaused,
                     onDoubleTap       = {
@@ -764,15 +767,10 @@ fun MainFeedScreen(
                             .background(dimSpaceColor(lastDominantColor, 0.18f))
                             .drawBehind { drawLine(lastDominantColor.copy(alpha = 0.55f), Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
                     ) {
-                        // (At the same size as the post's UI beside it — the
-                        // pinch on the interaction bar resizes these too.)
-                        val uiScale = rememberLandscapeUiScale()
-                        val d = androidx.compose.ui.platform.LocalDensity.current
-                        Box(Modifier.fillMaxSize().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
-                            androidx.compose.runtime.CompositionLocalProvider(
-                                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * uiScale, d.fontScale)
-                            ) { Comments() }
-                        }
+                        // (Its own size, like every other page's side list —
+                        // the pinch on the interaction bar only resizes the
+                        // post's UI; dragging the handle resizes this.)
+                        Box(Modifier.fillMaxSize().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) { Comments() }
                     }
                     SideListEdge(lastDominantColor)
                 }
@@ -4273,7 +4271,7 @@ private fun LandscapeBarScale(landscape: Boolean, content: @Composable () -> Uni
 
 /**
  * Landscape: pinching with two fingers that starts on the interaction bar
- * resizes the post's UI and the comments beside it, smaller or bigger than
+ * resizes the post's UI (not the comments beside it), smaller or bigger than
  * the standard size — locking onto the standard size, with a haptic tick,
  * as it passes (remembered — see UiToggles.landscapeBarScale). Watched before the post's own gestures and
  * only claimed then, so swipes, taps and zooming the picture are

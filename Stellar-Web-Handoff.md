@@ -14,7 +14,7 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0h. Update: landscape comments as a side list (latest)
+## 0h. Update: landscape comments as a side list, UI size (latest)
 
 - Timeline, landscape: the comments open as the left side list (shared
   `rememberSideListWidth()`, `SideListEdge` drag pill, content laid out at
@@ -28,9 +28,11 @@ from that branch, or from `main` once it's merged.
   (≤430dp tall), 1.0 at 640dp, 1.1 at 820dp (tablets), 1.15 from 1000dp
   (desktop), linear between, capped so the bottom-left cluster stays under
   40% of the width (see its doc for the reasoning) — times the bar pinch
-  (`UiToggles.landscapeBarScale`, now 0.7–1.8). The comments side list
-  draws at `rememberLandscapeUiScale()`. The pinch locks onto 1 within
-  ±0.06 with a haptic tick (`landscapeBarPinch(onSnap)`).
+  (`UiToggles.landscapeBarScale`, now 0.7–1.8). The pinch locks onto 1
+  within ±0.06 with a haptic tick (`landscapeBarPinch(onSnap)`). It does
+  NOT touch the comments: they're sized like every other side list (its
+  drag handle resizes them). With the comments open, a swipe down on the
+  post closes them (instead of opening the Hub).
 - Composer: the Remove bubble's bottom lines up with the Drafts/counter row.
 - Video icons/banners (`ProfileBannerVideo`) take a `poster`: the regular
   picture is drawn over the video until its first frame (listener, or
