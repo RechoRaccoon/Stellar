@@ -1865,5 +1865,11 @@
 "Try Again": "Erneut versuchen",
 "Unreadable dataset part": "Teil des Datensatzes unlesbar",
 "Unreadable manifest": "Datensatz-Infos unlesbar",
-"Update Shared Tags?": "Geteilte Tags aktualisieren?"
+"Update Shared Tags?": "Geteilte Tags aktualisieren?",
+"Live blur and the other effects come back. Stellar restarts to switch.": "Live-Unschärfe und die anderen Effekte kommen zurück. Stellar startet zum Umschalten neu.",
+"Performance Mode": "Leistungsmodus",
+"Restart": "Neu starten",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar läuft schneller, weil Live-Unschärfe und andere aufwendige Effekte wegfallen. Glas wird zu einer einfarbigen Fläche und der Hintergrund steht still. Stellar startet zum Umschalten neu.",
+"Turn Off Performance Mode?": "Leistungsmodus ausschalten?",
+"Turn On Performance Mode?": "Leistungsmodus einschalten?"
 }

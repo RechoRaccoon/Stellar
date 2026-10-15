@@ -1865,5 +1865,11 @@
 "Try Again": "Повторить",
 "Unreadable dataset part": "Не удалось прочитать часть набора",
 "Unreadable manifest": "Не удалось прочитать сведения о наборе",
-"Update Shared Tags?": "Обновить общие теги?"
+"Update Shared Tags?": "Обновить общие теги?",
+"Live blur and the other effects come back. Stellar restarts to switch.": "Живое размытие и другие эффекты вернутся. Для переключения Stellar перезапустится.",
+"Performance Mode": "Режим производительности",
+"Restart": "Перезапустить",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar будет работать быстрее без живого размытия и других тяжёлых эффектов. Стекло станет сплошным цветом, а фон замрёт. Для переключения Stellar перезапустится.",
+"Turn Off Performance Mode?": "Выключить режим производительности?",
+"Turn On Performance Mode?": "Включить режим производительности?"
 }

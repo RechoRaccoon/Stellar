@@ -786,6 +786,31 @@ internal fun SettingsPageContent(
                 }
             }
 
+            // The web version's lighter drawing, on the other versions too
+            // (the web always has it). Switching restarts the app.
+            if (com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB) {
+                var pendingPerformanceMode by remember { mutableStateOf<Boolean?>(null) }
+                ToggleBubble("Performance Mode", com.mediaviewer.util.UiToggles.performanceMode, { pendingPerformanceMode = it }, liquidGlass, tint, backdrop)
+                pendingPerformanceMode?.let { on ->
+                    val context = com.mediaviewer.ui.compat.LocalContext.current
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { pendingPerformanceMode = null },
+                        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
+                    ) {
+                        ConfirmPopup(
+                            title = if (on) "Turn On Performance Mode?" else "Turn Off Performance Mode?",
+                            message = if (on) "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch."
+                                else "Live blur and the other effects come back. Stellar restarts to switch.",
+                            confirmLabel = "Restart",
+                            liquidGlass = liquidGlass, tint = tint, backdrop = null,
+                            onConfirm = { pendingPerformanceMode = null; com.mediaviewer.util.UiToggles.applyPerformanceMode(context, on) },
+                            onDismiss = { pendingPerformanceMode = null },
+                            destructive = false
+                        )
+                    }
+                }
+            }
+
             ToggleBubble("Hide Text Only Posts", hideTextOnlyPosts, onToggleHideTextOnlyPosts, liquidGlass, tint, backdrop)
 
             if (bskyLoggedIn) {

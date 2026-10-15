@@ -1865,5 +1865,11 @@
 "Try Again": "다시 시도",
 "Unreadable dataset part": "데이터셋 일부를 읽을 수 없습니다",
 "Unreadable manifest": "데이터셋 정보를 읽을 수 없습니다",
-"Update Shared Tags?": "공유 태그를 업데이트할까요?"
+"Update Shared Tags?": "공유 태그를 업데이트할까요?",
+"Live blur and the other effects come back. Stellar restarts to switch.": "실시간 흐림과 다른 효과가 돌아옵니다. 전환하려면 Stellar가 다시 시작됩니다.",
+"Performance Mode": "성능 모드",
+"Restart": "다시 시작",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "실시간 흐림 등 무거운 효과를 건너뛰어 Stellar가 더 빨라집니다. 유리 효과는 단색이 되고 배경은 멈춥니다. 전환하려면 Stellar가 다시 시작됩니다.",
+"Turn Off Performance Mode?": "성능 모드를 끌까요?",
+"Turn On Performance Mode?": "성능 모드를 켤까요?"
 }

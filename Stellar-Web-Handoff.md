@@ -57,6 +57,14 @@ from that branch, or from `main` once it's merged.
     `DmMessageText` draws them inline (bigger when a message is only
     emoji). Other apps show ":name:".
 - Media posts with no text show the "Stats" bubble.
+- **Performance Mode** (Settings → App Functionality, under translation;
+  not shown on the web, which always has it): `UiToggles.performanceMode`.
+  `LiteGlass.LIVE` (and `CAN_BLUR`) now also go false when it was on at
+  startup (`performanceModeAtStart`), so every web lightening applies:
+  no backdrop recording or blur, frosted fills, page dims instead of
+  blurs, still starry sky, no video frame copies (iOS/desktop players
+  check `LiteGlass.LIVE` too), and the loading animation set to None.
+  Switching asks, then restarts (Android relaunches; iOS/desktop rebuild).
 - `ConfirmPopup`: `showCancel`, `progress`/`progressLabel`,
   `dismissOnOutsideTap`.
 

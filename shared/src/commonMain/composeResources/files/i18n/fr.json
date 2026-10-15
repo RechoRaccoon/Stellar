@@ -1865,5 +1865,11 @@
 "Try Again": "Réessayer",
 "Unreadable dataset part": "Partie du jeu de données illisible",
 "Unreadable manifest": "Informations du jeu de données illisibles",
-"Update Shared Tags?": "Mettre à jour les tags partagés ?"
+"Update Shared Tags?": "Mettre à jour les tags partagés ?",
+"Live blur and the other effects come back. Stellar restarts to switch.": "Le flou en direct et les autres effets reviennent. Stellar redémarre pour basculer.",
+"Performance Mode": "Mode performance",
+"Restart": "Redémarrer",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar sera plus rapide en se passant du flou en direct et d'autres effets lourds. Le verre devient une couleur unie et l'arrière-plan reste immobile. Stellar redémarre pour basculer.",
+"Turn Off Performance Mode?": "Désactiver le mode performance ?",
+"Turn On Performance Mode?": "Activer le mode performance ?"
 }

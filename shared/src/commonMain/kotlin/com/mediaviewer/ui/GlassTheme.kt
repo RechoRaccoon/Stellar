@@ -485,10 +485,10 @@ val NeutralGlassTint = Color(0xFF7A7AA6)
  *  fall back to a plain tinted glass look on older devices instead of showing
  *  an unblurred capture poking through. */
 // Item: Hub "Profile" button now also uses this to gate its own blur.
-internal val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && LiteGlass.LIVE
+internal val CAN_BLUR: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && LiteGlass.LIVE
 
 /**
- * The web version's lighter glass. A browser draws the whole app on one
+ * The web version's lighter glass (also Performance Mode's, everywhere). A browser draws the whole app on one
  * canvas, on one thread: re-recording a page into a layer every frame and
  * blurring crops of it (what the other versions' glass does) is the
  * slowest thing it can be asked to do. So on the web nothing is recorded
@@ -497,8 +497,10 @@ internal val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && LiteGl
  * profile/post color; Android, iOS and desktop are unchanged.
  */
 object LiteGlass {
-    /** False on the web: no live backdrops, no backdrop blur. */
-    val LIVE: Boolean = com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB
+    /** False on the web, and everywhere with Performance Mode on (as it
+     *  was when the app started): no live backdrops, no backdrop blur. */
+    val LIVE: Boolean get() = com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB &&
+        !com.mediaviewer.util.UiToggles.performanceModeAtStart
 
     /** The solid "frosted" fill a glass panel gets instead of a blurred
      *  backdrop: the panel's color, deepened, nearly opaque. */

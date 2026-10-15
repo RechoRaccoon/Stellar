@@ -277,6 +277,8 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Bool
     val backdropKey = remember { Any() }
     DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
     LaunchedEffect(feedPlayer) {
+        // (Nothing blurs it without live glass: Performance Mode.)
+        if (!com.mediaviewer.ui.LiteGlass.LIVE) return@LaunchedEffect
         val grabber = VideoFrameGrabber(av)
         try {
             var frame = 0

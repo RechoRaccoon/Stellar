@@ -1865,5 +1865,11 @@
 "Try Again": "重试",
 "Unreadable dataset part": "无法读取数据集的一部分",
 "Unreadable manifest": "无法读取数据集信息",
-"Update Shared Tags?": "更新共享标签？"
+"Update Shared Tags?": "更新共享标签？",
+"Live blur and the other effects come back. Stellar restarts to switch.": "实时模糊等效果将恢复。Stellar 会重新启动以切换。",
+"Performance Mode": "性能模式",
+"Restart": "重新启动",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "跳过实时模糊等耗费资源的效果，让 Stellar 运行更快。玻璃效果变为纯色，背景保持静止。Stellar 会重新启动以切换。",
+"Turn Off Performance Mode?": "关闭性能模式？",
+"Turn On Performance Mode?": "开启性能模式？"
 }

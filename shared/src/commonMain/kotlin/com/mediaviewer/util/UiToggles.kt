@@ -46,6 +46,7 @@ object UiToggles {
     private const val KEY_DEV_FORCE_SCAN_BUBBLE = "dev_force_scan_bubble"
     private const val KEY_SCAN_BUBBLE_DISMISSED = "scan_bubble_dismissed"
     private const val KEY_PUBLIC_DATA_NOTICE_SEEN = "public_data_notice_seen"
+    private const val KEY_PERFORMANCE_MODE = "performance_mode"
     private const val KEY_CUSTOMIZE_HUB_COLLAPSED = "customize_hub_collapsed"
     private const val KEY_COLLAPSED_SETTINGS_SECTIONS = "collapsed_settings_sections"
 
@@ -278,6 +279,36 @@ object UiToggles {
         prefs?.edit()?.putStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, next)?.apply()
     }
 
+    /**
+     * Settings → App Functionality → Performance Mode: the web version's
+     * lighter drawing on every version (see LiteGlass) — no live glass blur,
+     * no page re-recording every frame, popups dim instead of blurring the
+     * page, a still starry sky, no video frame copies for blurred controls,
+     * and no loading animation. Always on for the web.
+     */
+    var performanceMode by mutableStateOf(false)
+        private set
+
+    /** What [performanceMode] was when this run of the app started: what
+     *  everything actually draws with (switching needs a restart). */
+    var performanceModeAtStart: Boolean = false
+        private set
+
+    /** Switches Performance Mode and restarts the app to apply it. */
+    fun applyPerformanceMode(context: PlatformContext, enabled: Boolean) {
+        performanceMode = enabled
+        // (Written at once: Android's restart ends the process right after.)
+        val edit = prefs?.edit()?.putBoolean(KEY_PERFORMANCE_MODE, enabled)
+        if (enabled) {
+            loadingAnimation = LoadingAnimation.NONE
+            edit?.putString(KEY_LOADING_ANIMATION, LoadingAnimation.NONE.name)
+        }
+        edit?.commit()
+        // (iOS and desktop rebuild the app in place; Android relaunches.)
+        performanceModeAtStart = enabled
+        com.mediaviewer.ui.compat.restartApp(context)
+    }
+
     /** The one-time notice that statuses, status history and custom emoji
      *  are public has been seen (and closed). */
     var publicDataNoticeSeen by mutableStateOf(false)
@@ -329,6 +360,8 @@ object UiToggles {
         scanBubbleDismissed = p.getBoolean(KEY_SCAN_BUBBLE_DISMISSED, false)
         customizeHubCollapsed = p.getBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, false)
         publicDataNoticeSeen = p.getBoolean(KEY_PUBLIC_DATA_NOTICE_SEEN, false)
+        performanceMode = p.getBoolean(KEY_PERFORMANCE_MODE, false)
+        performanceModeAtStart = performanceMode
         collapsedSettingsSections = p.getStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, null)?.toSet()
             ?: if (customizeHubCollapsed) setOf("Customize Hub") else emptySet()
         visualizerCallMode = p.getString(KEY_VISUALIZER_CALL_MODE, null)

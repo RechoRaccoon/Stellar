@@ -1865,5 +1865,11 @@
 "Try Again": "Reintentar",
 "Unreadable dataset part": "Parte del conjunto ilegible",
 "Unreadable manifest": "Información del conjunto ilegible",
-"Update Shared Tags?": "¿Actualizar etiquetas compartidas?"
+"Update Shared Tags?": "¿Actualizar etiquetas compartidas?",
+"Live blur and the other effects come back. Stellar restarts to switch.": "Vuelven el desenfoque en vivo y los demás efectos. Stellar se reinicia para cambiar.",
+"Performance Mode": "Modo rendimiento",
+"Restart": "Reiniciar",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar irá más rápido al omitir el desenfoque en vivo y otros efectos pesados. El cristal pasa a ser un color sólido y el fondo se queda quieto. Stellar se reinicia para cambiar.",
+"Turn Off Performance Mode?": "¿Desactivar el modo rendimiento?",
+"Turn On Performance Mode?": "¿Activar el modo rendimiento?"
 }

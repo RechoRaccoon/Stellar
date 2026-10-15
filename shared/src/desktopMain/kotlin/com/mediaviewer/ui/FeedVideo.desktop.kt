@@ -92,7 +92,7 @@ actual object FeedVideos {
 @Composable
 internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier, backdropKey: Any? = null, fill: Boolean = false) {
     var viewRect by remember { mutableStateOf(Rect.Zero) }
-    if (backdropKey != null) {
+    if (backdropKey != null && com.mediaviewer.ui.LiteGlass.LIVE) {
         DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
         // The frame under the glass controls, for their blur.
         LaunchedEffect(player, backdropKey) {

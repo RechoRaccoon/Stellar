@@ -1865,5 +1865,11 @@
 "Try Again": "再試行",
 "Unreadable dataset part": "データセットの一部を読み取れません",
 "Unreadable manifest": "データセット情報を読み取れません",
-"Update Shared Tags?": "共有タグを更新しますか？"
+"Update Shared Tags?": "共有タグを更新しますか？",
+"Live blur and the other effects come back. Stellar restarts to switch.": "ライブぼかしなどのエフェクトが戻ります。切り替えのためStellarを再起動します。",
+"Performance Mode": "パフォーマンスモード",
+"Restart": "再起動",
+"Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "ライブぼかしなどの重いエフェクトを省いて、Stellarが速く動きます。ガラスは単色になり、背景は動かなくなります。切り替えのためStellarを再起動します。",
+"Turn Off Performance Mode?": "パフォーマンスモードをオフにしますか？",
+"Turn On Performance Mode?": "パフォーマンスモードをオンにしますか？"
 }
