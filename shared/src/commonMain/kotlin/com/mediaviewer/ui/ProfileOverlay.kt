@@ -3084,9 +3084,14 @@ private fun PinterestEntryTile(
     liquidGlass: Boolean, onSeedSubImageIndex: (String, Int) -> Unit, onClick: () -> Unit
 ) {
     if (item.isTextOnly) {
-        // (Shrinks with narrower columns rather than growing taller.)
-        Box(Modifier.fillMaxWidth().shrinkToWidth(COMPACT_TEXT_REFERENCE)) {
-            CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = textShape, onOpen = onClick)
+        // (Shrinks with narrower columns rather than growing taller — and,
+        // in landscape, the longer the post the smaller, see textLengthFactor.)
+        val sideways = rememberLandscape()
+        val factor = if (sideways) textLengthFactor(item.text) else 1f
+        Box(Modifier.fillMaxWidth().shrinkToWidth(COMPACT_TEXT_REFERENCE * factor)) {
+            // (A very long one is cut off with "…": tap it to read it all.)
+            CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = textShape, onOpen = onClick,
+                maxLines = if (sideways) TEXT_TILE_MAX_LINES else Int.MAX_VALUE)
         }
     } else {
         // A quote repost: the quoter's words over the quoted post's media,
@@ -3120,8 +3125,10 @@ private fun LazyListScope.postsTextRows(
                     var shortest = 0
                     for (k in 1 until columns) if (heights[k] < heights[shortest]) shortest = k
                     c[shortest] += IndexedValue(i, item)
-                    // About how tall the bubble will be: its lines of text.
-                    heights[shortest] += 2.2f + kotlin.math.ceil(item.text.length.coerceAtLeast(1) / 48f) + item.text.count { it == '\n' }
+                    // About how tall the bubble will be: its lines of text,
+                    // laid out wider and shrunk the longer it is.
+                    val f = textLengthFactor(item.text)
+                    heights[shortest] += (2.2f + minOf(TEXT_TILE_MAX_LINES.toFloat(), kotlin.math.ceil(item.text.length.coerceAtLeast(1) / (48f * f)) + item.text.count { it == '\n' })) / f
                 }
                 c
             }
@@ -3131,8 +3138,9 @@ private fun LazyListScope.postsTextRows(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         col.forEach { (localIndex, item) ->
                             key(item.id) {
-                                Box(Modifier.fillMaxWidth().shrinkToWidth(TEXT_BUBBLE_REFERENCE)) {
-                                    TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) })
+                                Box(Modifier.fillMaxWidth().shrinkToWidth(TEXT_BUBBLE_REFERENCE * textLengthFactor(item.text))) {
+                                    TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) },
+                                        maxLines = TEXT_TILE_MAX_LINES)
                                 }
                             }
                         }
@@ -3247,6 +3255,23 @@ private fun LazyListScope.postsHorizontalVideoRows(
 /** The widths these tiles are laid out at before shrinking to their
  *  column (see shrinkToWidth): about what each gets on a phone in portrait. */
 private val COMPACT_TEXT_REFERENCE = 170.dp
+
+/**
+ * Landscape grids: how much wider than usual a text post is laid out before
+ * it's shrunk to its column — so a longer post gets somewhat smaller text
+ * and fewer lines (its tile about factor² shorter), while a short one
+ * stays as it is. 1 up to ~150 characters, growing with the square root of
+ * the length (≈1.4 at 300) up to 1.7 from ~430 on — no further, so the text
+ * stays readable; past that, [TEXT_TILE_MAX_LINES] cuts it off. Each line
+ * break counts as 40 characters, since it starts a new line.
+ */
+internal fun textLengthFactor(text: String): Float {
+    val n = text.length + 40 * text.count { it == '\n' }
+    return kotlin.math.sqrt(n / 150f).coerceIn(1f, 1.7f)
+}
+
+/** Landscape grids: the most lines a text post's tile shows ("…" after). */
+private const val TEXT_TILE_MAX_LINES = 18
 private val TEXT_BUBBLE_REFERENCE = 260.dp
 private val VIDEO_CARD_REFERENCE = 280.dp
 
@@ -3968,7 +3993,7 @@ private fun ShrinkToFitText(text: String, baseFontSize: androidx.compose.ui.unit
  *  the post's full text (no title/truncation-to-one-line) since these posts
  *  don't have a separate title the way blogs do. */
 @Composable
-private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, onOpen: () -> Unit, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
     // A text post wears its uploader's own profile color, wherever it shows.
     @Suppress("NAME_SHADOWING")
     val tint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
@@ -3998,6 +4023,7 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
             )
         } else Text(
             item.text, color = Color.White.copy(0.92f), fontSize = 14.sp, lineHeight = 19.sp,
+            maxLines = maxLines, overflow = TextOverflow.Ellipsis,
             modifier = if (blurNsfw) Modifier.blur(40.dp) else Modifier
         )
         if (blurNsfw) {
@@ -4015,7 +4041,7 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
  *  the same content that used to span the full width now settles into one
  *  column's worth instead. */
 @Composable
-private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, shape: RoundedCornerShape, onOpen: () -> Unit) {
+private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, shape: RoundedCornerShape, onOpen: () -> Unit, maxLines: Int = Int.MAX_VALUE) {
     // A text post wears its uploader's own profile color, wherever it shows.
     @Suppress("NAME_SHADOWING")
     val tint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
@@ -4042,6 +4068,7 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
             )
         } else Text(
             item.text, color = Color.White.copy(0.92f), fontSize = 9.sp, lineHeight = 12.sp,
+            maxLines = maxLines, overflow = TextOverflow.Ellipsis,
             modifier = if (blurNsfw) Modifier.blur(36.dp) else Modifier
         )
         if (blurNsfw) {
