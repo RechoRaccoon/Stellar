@@ -23,6 +23,9 @@ from that branch, or from `main` once it's merged.
   amount (`commentsSideWidth * commentsFraction`), so the picture refits in
   the space left. Closing works as before. (`Landscape.SIDE_PANEL_WIDTH`,
   the old right-hand panel, is gone.)
+- Video icons/banners (`ProfileBannerVideo`) take a `poster`: the regular
+  picture is drawn over the video until its first frame (listener, or
+  playback past 150ms), so they never show black while loading.
 
 ## 0g. Update: landscape tips
 

@@ -1667,7 +1667,13 @@ private fun ProfileHeaderSection(
                 }
                 // A video banner (muted, looping) over the picture, when they have one.
                 com.mediaviewer.util.ProfileStyles.of(author.did)?.bannerVideo?.let { video ->
-                    ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize())
+                    // (The banner picture stays on top until the video's first frame.)
+                    ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize(), poster = {
+                        if (profile?.bannerUrl != null) AsyncImage(
+                            model = profile.bannerUrl, contentDescription = null,
+                            contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                        ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bannerColor.copy(0.55f), Color.Black))))
+                    })
                 }
                 // Glass wash so the banner reads as "under glass" rather than a bare photo.
                 Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Black.copy(0.10f), Color.Black.copy(0.45f)))))
@@ -2148,7 +2154,12 @@ private fun ProfileAvatarGlass(
         if (videoDid != null && videoCid != null) {
             ProfileBannerVideo(
                 videoDid, videoCid, Modifier.fillMaxSize().clip(shape),
-                cornerPercent = if (shape == CircleShape) 50 else 24
+                cornerPercent = if (shape == CircleShape) 50 else 24,
+                // (The regular picture stays on top until the video's first frame.)
+                poster = {
+                    if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
+                    else Box(Modifier.fillMaxSize().clip(shape).background(Color.White.copy(0.15f)))
+                }
             )
         }
     }

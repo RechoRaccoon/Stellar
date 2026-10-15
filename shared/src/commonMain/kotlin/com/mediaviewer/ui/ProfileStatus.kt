@@ -301,12 +301,16 @@ fun newProfileStatus(text: String, minutes: Long): ProfileStatus {
 }
 
 /**
- * A profile's video banner, muted and looping over the banner picture
- * (which stays underneath until the first frame is up). Played straight
- * from the blob on the owner's PDS.
+ * A profile's video banner (or icon), muted and looping over the banner
+ * picture. Until the video's first frame is showing, [poster] (the regular
+ * picture) is drawn on top of it, so it never shows black while loading.
+ * Played straight from the blob on the owner's PDS.
  */
 @Composable
-fun ProfileBannerVideo(did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0) {
+fun ProfileBannerVideo(
+    did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0,
+    poster: (@Composable () -> Unit)? = null
+) {
     var url by remember(did, cid) { mutableStateOf<String?>(null) }
     LaunchedEffect(did, cid) {
         url = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
@@ -314,13 +318,27 @@ fun ProfileBannerVideo(did: String, cid: String, modifier: Modifier = Modifier, 
     val u = url ?: return
     val context = LocalContext.current
     val player = remember(u) { FeedVideos.acquire(context, u) }
+    var firstFrame by remember(u) { mutableStateOf(false) }
     DisposableEffect(player) {
+        val l = object : FeedVideoListener { override fun onFirstFrame() { firstFrame = true } }
+        player.addListener(l)
         player.setVolumeMuted(true)
         player.play()
         onDispose {
+            player.removeListener(l)
             player.setVolumeMuted(false)
             FeedVideos.recycle(u, player)
         }
     }
-    FeedVideoView(player, modifier, fill = true, cornerPercent = cornerPercent)
+    // (Some players don't report the first frame: playing past the start counts.)
+    LaunchedEffect(player) {
+        while (!firstFrame) {
+            if (player.isPlaying && player.currentPosition > 150L) firstFrame = true
+            kotlinx.coroutines.delay(200)
+        }
+    }
+    Box(modifier) {
+        FeedVideoView(player, Modifier.matchParentSize(), fill = true, cornerPercent = cornerPercent)
+        if (!firstFrame && poster != null) Box(Modifier.matchParentSize()) { poster() }
+    }
 }

@@ -231,7 +231,10 @@ fun EditProfileDialog(
                         ) {
                             when {
                                 picked != null -> LoopingVideoPreview(picked, Modifier.fillMaxSize(), fill = true, cornerPercent = cornerPercent)
-                                saved != null -> ProfileBannerVideo(author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent)
+                                saved != null -> ProfileBannerVideo(
+                                    author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent,
+                                    poster = { Box(Modifier.fillMaxSize().background(fieldColor)) }
+                                )
                             }
                             if (picked == null && saved == null) {
                                 Icon(Icons.Default.Videocam, contentDescription = "Pick a video", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(24.dp))
