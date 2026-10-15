@@ -25,6 +25,16 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
@@ -218,6 +228,9 @@ fun MainFeedScreen(
     onRemoveFeed: (String) -> Unit = {},
     /** Explore mode pinched in (back to the profile a feed was opened from). */
     onGridPinchIn: () -> Unit = {},
+    /** Nothing's open over the timeline / Explore, so the keyboard
+     *  shortcuts are theirs (see the key handler below). */
+    shortcutsEnabled: Boolean = true,
     availableFeeds: List<BskyFeedInfo>,
     selectedFeedUri: String?,
     authorFeedState: MainViewModel.AuthorFeedSavedState?,
@@ -434,8 +447,42 @@ fun MainFeedScreen(
     // Landscape: the comments are the side list on the left (the same
     // width, and drag handle, as every other page's), pushing the post over.
     val commentsSideWidth = rememberSideListWidth()
+    // Landscape: a comment's media open over the whole screen (and the blur behind it).
+    var commentViewer by remember { mutableStateOf<Pair<List<com.mediaviewer.model.CommentMedia>, Int>?>(null) }
+    val commentViewerBlur = if (commentViewer != null) 26.dp else 0.dp
 
-    Box(Modifier.fillMaxSize().background(OledBlack)) {
+    // ── Keyboard shortcuts (every version, with a keyboard) ──
+    // Timeline: L / Space like, R repost, ← → (or A / D, ↑ ↓) the previous /
+    // next post, E Explore (as pinching in does). Explore: T back to the
+    // timeline, at the post it was on. Only while nothing's open over them;
+    // typing in a text field never triggers them (the field takes the keys).
+    val keyFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val shortcutsOn = shortcutsEnabled && (screenState == ScreenState.FEED || screenState == ScreenState.COMMENTS || screenState == ScreenState.GRID)
+    LaunchedEffect(screenState, shortcutsEnabled) {
+        if (shortcutsEnabled && (screenState == ScreenState.FEED || screenState == ScreenState.GRID)) runCatching { keyFocus.requestFocus() }
+    }
+    val latestShortcutsOn by rememberUpdatedState(shortcutsOn)
+    val latestIndex by rememberUpdatedState(currentIndex)
+    Box(
+        Modifier.fillMaxSize().background(OledBlack)
+            .focusRequester(keyFocus)
+            .focusable()
+            .onKeyEvent { e ->
+                if (!latestShortcutsOn || e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                if (e.isCtrlPressed || e.isMetaPressed || e.isAltPressed) return@onKeyEvent false
+                val state = latestScreenState
+                if (state == ScreenState.GRID) {
+                    if (e.key == Key.T) { onNavigateTo(latestIndex); true } else false
+                } else when (e.key) {
+                    Key.L, Key.Spacebar -> { onToggleLike(); true }
+                    Key.R -> { onToggleRepost(); true }
+                    Key.DirectionRight, Key.D, Key.DirectionDown -> { onNavigateNext(); true }
+                    Key.DirectionLeft, Key.A, Key.DirectionUp -> { onNavigatePrev(); true }
+                    Key.E -> { onPinchIn(); true }
+                    else -> false
+                }
+            }
+    ) {
         // Sideways, the timeline is just the normal page rotated (the old
         // media-only landscape view is no longer used).
         AnimatedContent(
@@ -472,7 +519,10 @@ fun MainFeedScreen(
                 // so the post slides over to the right to make room (its
                 // picture refitting to stay fully in view) and keeps its buttons.
                 ScreenState.FEED, ScreenState.COMMENTS -> Box(
-                    Modifier.fillMaxSize().padding(start = if (isLandscape) commentsSideWidth * commentsFraction else 0.dp)
+                    // (Pushed over by exactly the comments' width — the open
+                    // animation only, nothing else — so they never cover the post's UI.)
+                    Modifier.fillMaxSize().padding(start = if (isLandscape) commentsSideWidth * commentsOpenAnim else 0.dp)
+                        .pageBlur(commentViewerBlur)
                 ) { FeedView(
                     commentsFraction  = if (isLandscape) 0f else commentsFraction,
                     mediaItems        = mediaItems,
@@ -743,9 +793,13 @@ fun MainFeedScreen(
                 backdrop        = if (isLandscape) null else lastBackdrop,
                 reducedAnimations = reducedAnimations,
                 onDragFractionChanged = { commentsDragFraction = it },
-                onOpenProfile = onOpenProfile
+                onOpenProfile = onOpenProfile,
+                sideList = isLandscape,
+                // (Landscape: a comment's picture opens over the whole screen.)
+                onOpenMedia = if (isLandscape) { list, i -> commentViewer = list to i } else null
             )
         }
+        LaunchedEffect(commentsOpen, isLandscape) { if (!commentsOpen || !isLandscape) commentViewer = null }
         AnimatedVisibility(
             visible = commentsOpen,
             enter = if (reducedAnimations) EnterTransition.None
@@ -754,7 +808,7 @@ fun MainFeedScreen(
             exit = if (reducedAnimations) ExitTransition.None
                 else if (isLandscape) slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { -it }
                 else slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
-            modifier = if (isLandscape) Modifier.align(Alignment.CenterStart).fillMaxHeight().zIndex(5f)
+            modifier = if (isLandscape) Modifier.align(Alignment.CenterStart).fillMaxHeight().zIndex(5f).pageBlur(commentViewerBlur)
                 else Modifier.fillMaxSize().zIndex(5f)
         ) {
             if (isLandscape) {
@@ -775,6 +829,14 @@ fun MainFeedScreen(
                     SideListEdge(lastDominantColor)
                 }
             } else Comments()
+        }
+
+        // Landscape: a comment's picture / video / GIF over the whole screen,
+        // the post and comments blurred behind it.
+        commentViewer?.let { (list, start) ->
+            Box(Modifier.fillMaxSize().zIndex(6f)) {
+                CommentMediaViewer(list, start, lastDominantColor, liquidGlass, null) { commentViewer = null }
+            }
         }
 
         if (errorMessage != null) {
@@ -2151,10 +2213,18 @@ private fun PostContent(
                         .padding(end = 12.dp, bottom = if (liquidGlass) 8.dp else 4.dp)
                 ) {
                     LandscapeBarScale(landscape) {
-                        LandscapeFullscreenButton(
-                            liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
-                            onClick = { moreMenuExpanded = false; onLandscapeFullscreen() }
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Explore (the grid) — what pinching in does.
+                            LandscapeFullscreenButton(
+                                liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
+                                onClick = { moreMenuExpanded = false; onPinchToGrid() },
+                                icon = Icons.Default.GridView, contentDescription = "Explore"
+                            )
+                            LandscapeFullscreenButton(
+                                liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
+                                onClick = { moreMenuExpanded = false; onLandscapeFullscreen() }
+                            )
+                        }
                     }
                 }
             }
@@ -4359,21 +4429,24 @@ private fun Modifier.landscapeSideSafe(): Modifier {
     return this.padding(horizontal = side)
 }
 
-/** Landscape's round fullscreen button (bottom right). */
+/** Landscape's round buttons at the bottom right: fullscreen (hide the
+ *  UI), and Explore above it. */
 @Composable
 private fun LandscapeFullscreenButton(
     liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
-    onClick: () -> Unit, modifier: Modifier = Modifier
+    onClick: () -> Unit, modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Fullscreen,
+    contentDescription: String = "Fullscreen"
 ) {
     val tap = rememberHapticTap()
     val m = modifier.size(46.dp).clip(CircleShape).clickable { tap(); onClick() }
     if (liquidGlass) {
         LiquidGlassSurface(modifier = m, shape = CircleShape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(24.dp))
         }
     } else {
         Box(m.background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(24.dp))
         }
     }
 }

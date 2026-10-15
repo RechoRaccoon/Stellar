@@ -696,6 +696,12 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             onMoveFeed                = viewModel::moveFeed,
             onRemoveFeed              = viewModel::removeFeed,
             onGridPinchIn             = viewModel::pinchInFromGrid,
+            // (Keyboard shortcuts only while nothing's open over the timeline.)
+            shortcutsEnabled          = (profileOverlay == null || profileOverlay?.hidden == true) && !searchOpen &&
+                !dmInboxOpen && !inboxOpen && !composePostOpen && sendPopupTarget == null && quoteRepostTarget == null &&
+                reviewComposeTarget == null && !vrmModeOpen && !cameraModeOpen && !taggingOverlayOpen && !tutorialOpen &&
+                LocalOverlays.launchApp == null && LocalOverlays.feedBuilder == null && LocalOverlays.editHistoryFor == null &&
+                com.mediaviewer.ui.Tips.tour == null,
             availableFeeds            = availableFeeds,
             selectedFeedUri           = selectedFeed,
             authorFeedState           = authorFeedState,

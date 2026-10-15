@@ -90,7 +90,13 @@ fun CommentsSheet(
     /** 0 = fully open … 1 = dragged all the way down (for the blur behind). */
     onDragFractionChanged: (Float) -> Unit = {},
     /** A commenter's picture or name tapped: their profile. */
-    onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit = {}
+    onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit = {},
+    /** Landscape's side list: no pulling it down to close it (it isn't a
+     *  sheet there), and a comment's media opens through [onOpenMedia]. */
+    sideList: Boolean = false,
+    /** Given: a comment's media opens there (the whole screen) instead of
+     *  over the comments. */
+    onOpenMedia: ((List<com.mediaviewer.model.CommentMedia>, Int) -> Unit)? = null
 ) {
     // A comment's media opened full screen (its list and which one).
     var viewerMedia by remember(currentItem?.id) { mutableStateOf<Pair<List<com.mediaviewer.model.CommentMedia>, Int>?>(null) }
@@ -212,7 +218,7 @@ fun CommentsSheet(
             .fillMaxSize()
             .onSizeChanged { sheetHeightPx = it.height.coerceAtLeast(1) }
             .graphicsLayer { translationY = dragOffset }
-            .nestedScroll(dragConnection)
+            .then(if (sideList) Modifier else Modifier.nestedScroll(dragConnection))
             .blockClicksBehind()
             // (The dark wash that keeps white text readable is NOT on the
             // sheet: it's a full-screen scrim in FeedView that fades in with
@@ -227,6 +233,7 @@ fun CommentsSheet(
                     .fillMaxWidth()
                     .draggable(
                         orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
+                        enabled = !sideList,
                         state = rememberDraggableState { d -> if (!closing) dragOffset = (dragOffset + d).coerceAtLeast(0f) },
                         onDragStopped = { v -> settle(v) }
                     )
@@ -344,7 +351,7 @@ fun CommentsSheet(
                                         parent = parent, liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = backdrop,
                                         onBack = { threadStack = stack.dropLast(1) },
                                         onOpenProfile = openProfileOf,
-                                        onOpenMedia = { i -> viewerMedia = parent.media to i },
+                                        onOpenMedia = { i -> onOpenMedia?.invoke(parent.media, i) ?: run { viewerMedia = parent.media to i } },
                                         onLongPress = if (isOwn(parent)) ({ commentToDelete = parent }) else null
                                     )
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp,
@@ -380,7 +387,7 @@ fun CommentsSheet(
                                         dominantColor = dominantColor, backdrop = backdrop,
                                         indented = parent != null,
                                         onOpenProfile = openProfileOf,
-                                        onOpenMedia = { i -> viewerMedia = comment.media to i },
+                                        onOpenMedia = { i -> onOpenMedia?.invoke(comment.media, i) ?: run { viewerMedia = comment.media to i } },
                                         onLongPress = if (isOwn(comment)) ({ commentToDelete = comment }) else null
                                     )
                                 }

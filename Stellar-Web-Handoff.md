@@ -26,6 +26,14 @@ from that branch, or from `main` once it's merged.
 - Landscape grids: text posts are laid out `textLengthFactor(text)` wider
   (1–1.7 by length) before shrinking to their column, and cut off after
   `TEXT_TILE_MAX_LINES` (18) with "…".
+- Keyboard shortcuts (all versions, `MainFeedScreen` root `onKeyEvent`):
+  timeline L/Space like, R repost, ←/→ (A/D, ↑/↓) previous/next, E Explore;
+  Explore: T back to the timeline. Only while nothing's open over them
+  (`shortcutsEnabled`, worked out in AppRoot); text fields keep their keys.
+- Landscape timeline: a round 2×2-grid Explore button above the hide-UI
+  button. The comments side list can't be pulled down (`CommentsSheet`
+  `sideList`), the post is pushed by exactly its width, and a comment's
+  media opens over the whole screen (`onOpenMedia`), the rest blurred.
 - Web: the page blocks the browser's own drag-and-drop (index.html) — a
   slightly moved double tap in Firefox could drag the canvas as an image
   and open it in a new tab.
