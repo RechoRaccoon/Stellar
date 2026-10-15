@@ -20,10 +20,11 @@ import androidx.compose.ui.unit.dp
  * Sideways rows (tabs, chips, Mutuals, pagers) with a mouse. Compose only
  * lets a finger drag them, and a plain wheel turn doesn't move them (only
  * Shift + wheel), so on a computer they couldn't be scrolled. On desktop
- * these add mouse dragging and the wheel; on phones they add nothing.
+ * these add mouse dragging (the wheel stays with the page around them);
+ * on phones they add nothing.
  */
 
-/** Mouse dragging and the wheel for a sideways [state] (desktop only). */
+/** Mouse dragging for a sideways [state] (desktop and web only). */
 expect fun Modifier.mouseSideways(state: ScrollableState, enabled: Boolean = true): Modifier
 
 /** Mouse dragging for a pager: it follows the mouse, then settles on the

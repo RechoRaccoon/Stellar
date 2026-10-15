@@ -3,6 +3,12 @@ package com.mediaviewer.web
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.font.FontFamily
@@ -39,12 +45,22 @@ fun main() {
         val crash = WebCrashLog.read()
         ComposeViewport(document.body!!) {
             WebFontsLoader()
-            SharedAppHost(
-                context = WebContext,
-                createPlatform = { bsky, e621 -> WebAppPlatform(bsky, e621) },
-                crashLog = crash,
-                onCrashLogDismissed = { WebCrashLog.clear() }
-            )
+            // Text laid out before a font arrived (a Japanese feed name, say)
+            // keeps its blank glyphs until something lays it out again, so
+            // each time a font finishes loading everything is laid out anew:
+            // the font scale is nudged by a millionth (invisible), which
+            // every piece of text depends on.
+            val d = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(d.density, d.fontScale * (1f + (fontsLoaded % 2) * 1e-6f))
+            ) {
+                SharedAppHost(
+                    context = WebContext,
+                    createPlatform = { bsky, e621 -> WebAppPlatform(bsky, e621) },
+                    crashLog = crash,
+                    onCrashLogDismissed = { WebCrashLog.clear() }
+                )
+            }
         }
         hideSplash()
     }
@@ -55,6 +71,9 @@ fun main() {
  * uses them for any character its own font can't draw — emoji, Japanese,
  * Korean, Chinese.
  */
+/** How many fonts have finished loading (see the font-scale nudge in main). */
+private var fontsLoaded by mutableStateOf(0)
+
 @Composable
 private fun WebFontsLoader() {
     val resolver = LocalFontFamilyResolver.current
@@ -62,6 +81,7 @@ private fun WebFontsLoader() {
         suspend fun use(font: WebFonts.WebFont) {
             val bytes = WebFonts.fetch(font) ?: return
             runCatching { resolver.preload(FontFamily(Font(identity = font.name, data = bytes))) }
+            fontsLoaded++
         }
         use(WebFonts.LATIN)
         launch {

@@ -18,22 +18,9 @@ import kotlin.math.abs
 
 actual fun Modifier.mouseSideways(state: ScrollableState, enabled: Boolean): Modifier =
     if (!enabled) this else this
-        // The wheel: after the row itself has had its turn (it only takes a
-        // sideways wheel or Shift + wheel), an up/down turn scrolls it —
-        // unless it's already at that end, so the page around it scrolls.
-        .pointerInput(state) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Main)
-                    if (event.type != PointerEventType.Scroll) continue
-                    val change = event.changes.firstOrNull() ?: continue
-                    if (change.isConsumed) continue
-                    val delta = change.scrollDelta
-                    if (delta.x != 0f || delta.y == 0f) continue
-                    if (state.dispatchRawDelta(delta.y * WHEEL_STEP.toPx()) != 0f) change.consume()
-                }
-            }
-        }
+        // (The mouse wheel is left to the page around it: rows are
+        // scrolled by dragging with the mouse — or a trackpad's sideways
+        // swipe / Shift + wheel, which the row itself takes.)
         .pointerInput(state) {
             awaitPointerEventScope {
                 while (true) {
@@ -66,9 +53,6 @@ actual fun Modifier.mousePager(state: PagerState, enabled: Boolean): Modifier =
             }
         }
     }
-
-/** How far one wheel notch scrolls a sideways row. */
-private val WHEEL_STEP = 64.dp
 
 /**
  * One left-button mouse drag, watched before the row's contents see it
