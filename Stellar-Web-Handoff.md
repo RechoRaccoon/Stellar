@@ -24,8 +24,10 @@ from that branch, or from `main` once it's merged.
   the space left. Closing works as before. (`Landscape.SIDE_PANEL_WIDTH`,
   the old right-hand panel, is gone.)
 - One landscape UI scale for the post and its comments:
-  `landscapeUiBaseScale(height)` (0.76 on a phone on its side, up to 1.15 on
-  tablets / tall desktop windows) times the bar pinch
+  `landscapeUiBaseScale(height, width)` — 0.85 for phones on their side
+  (≤430dp tall), 1.0 at 640dp, 1.1 at 820dp (tablets), 1.15 from 1000dp
+  (desktop), linear between, capped so the bottom-left cluster stays under
+  40% of the width (see its doc for the reasoning) — times the bar pinch
   (`UiToggles.landscapeBarScale`, now 0.7–1.8). The comments side list
   draws at `rememberLandscapeUiScale()`. The pinch locks onto 1 within
   ±0.06 with a haptic tick (`landscapeBarPinch(onSnap)`).
