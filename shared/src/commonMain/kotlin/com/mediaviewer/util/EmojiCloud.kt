@@ -209,6 +209,14 @@ object EmojiCloud {
      *  text) and where its picture is. */
     data class EmojiSpan(val start: Int, val end: Int, val did: String, val cid: String, val name: String)
 
+    /** True when [text] is nothing but [spans] (and spaces). */
+    fun isOnlyEmoji(text: String, spans: List<EmojiSpan>): Boolean {
+        if (spans.isEmpty()) return false
+        var rest = text
+        spans.sortedByDescending { it.start }.forEach { rest = rest.removeRange(it.start, it.end) }
+        return rest.isBlank()
+    }
+
     /** The emoji in a message, from its facets (none for other apps' messages). */
     fun emojiSpans(text: String, facets: List<JsonElement>?): List<EmojiSpan> {
         if (facets.isNullOrEmpty()) return emptyList()

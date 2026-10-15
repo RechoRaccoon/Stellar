@@ -94,6 +94,9 @@
         document.addEventListener('dragstart', (e) => e.preventDefault(), true);
         document.addEventListener('drop', (e) => e.preventDefault(), true);
         document.addEventListener('dragover', (e) => e.preventDefault(), true);
+        // Ctrl + wheel (and a trackpad pinch, which browsers send the same
+        // way) zooms inside Stellar (DMs), not the whole page.
+        document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false, capture: true });
     </script>
 </head>
 <body>

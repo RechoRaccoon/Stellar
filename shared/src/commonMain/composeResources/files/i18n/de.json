@@ -1871,5 +1871,9 @@
 "Restart": "Neu starten",
 "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar läuft schneller, weil Live-Unschärfe und andere aufwendige Effekte wegfallen. Glas wird zu einer einfarbigen Fläche und der Hintergrund steht still. Stellar startet zum Umschalten neu.",
 "Turn Off Performance Mode?": "Leistungsmodus ausschalten?",
-"Turn On Performance Mode?": "Leistungsmodus einschalten?"
+"Turn On Performance Mode?": "Leistungsmodus einschalten?",
+"The custom emoji you add are saved to your Bluesky account, where anyone can see them. Don't upload anything you wouldn't want others to see.": "Eigene Emojis, die du hinzufügst, werden in deinem Bluesky-Konto gespeichert, wo alle sie sehen können. Lade nichts hoch, das andere nicht sehen sollen.",
+"Your Emoji Are Public": "Deine Emojis sind öffentlich",
+"Your Status Is Public": "Dein Status ist öffentlich",
+"Your status and your status history are saved to your Bluesky account, where anyone can see them. Don't post anything you wouldn't want others to see.": "Dein Status und dein Statusverlauf werden in deinem Bluesky-Konto gespeichert, wo alle sie sehen können. Poste nichts, das andere nicht sehen sollen."
 }

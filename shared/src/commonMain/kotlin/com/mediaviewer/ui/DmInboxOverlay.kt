@@ -19,6 +19,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onSizeChanged
 import kotlinx.coroutines.launch
@@ -724,7 +728,7 @@ private fun DmThreadView(
                     }
 
                     LazyColumn(
-                        Modifier.fillMaxSize(), state = listState,
+                        Modifier.fillMaxSize().dmPinchZoom(), state = listState,
                         contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (thread.loadingMore) {
@@ -813,9 +817,13 @@ private fun DmThreadView(
         // `.windowInsetsPadding(WindowInsets.navBarSpace)` modifiers, which would add both insets
         // together and leave a gap above the keyboard on 3-button nav)
         // takes whichever of the two is currently larger.
+        // (With the emoji menu open it sits at the bottom edge in the
+        // keyboard's place, edge to edge like the composer's, and the field
+        // rides on top of it instead of the keyboard.)
+        Column(Modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace))
+                .then(if (emojiPanelOpen) Modifier else Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace)))
                 .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
             // "Replying to …" — slides in above the field while a reply is set.
@@ -919,20 +927,22 @@ private fun DmThreadView(
                 Box(sendModifier.clip(sendShape).background(Color.White.copy(0.14f))) { SendButtonContent() }
             }
         }
-            // The emoji menu, where the keyboard was.
-            if (emojiPanelOpen) {
-                Spacer(Modifier.height(8.dp))
-                EmojiPanel(
-                    store = emojiStore,
-                    height = emojiPanelHeight,
-                    compact = emojiTabEditing,
-                    liquidGlass = liquidGlass,
-                    tint = profileTint,
-                    onPickEmoji = { insertEmoji(it) },
-                    onEditingChange = { emojiTabEditing = it },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+        }
+        // The emoji menu, where the keyboard was (riding on top of the
+        // keyboard while a tab is being renamed).
+        if (emojiPanelOpen) {
+            EmojiPanel(
+                store = emojiStore,
+                height = emojiPanelHeight,
+                compact = emojiTabEditing,
+                liquidGlass = liquidGlass,
+                tint = profileTint,
+                onPickEmoji = { insertEmoji(it) },
+                onEditingChange = { emojiTabEditing = it },
+                modifier = Modifier.fillMaxWidth()
+                    .padding(bottom = if (emojiTabEditing) with(imeDensity) { imeBottomPx.toDp() } else 0.dp)
+            )
+        }
         }
     }
 
@@ -949,7 +959,7 @@ private fun DmThreadView(
     }
 
     // (The first time the emoji menu opens: custom emoji are public.)
-    if (emojiPanelOpen) PublicDataNotice(liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop)
+    if (emojiPanelOpen) PublicDataNotice(PublicDataKind.EMOJI, liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop)
 
     // ── Reaction picker (long press) ──
     val current = picker
@@ -976,6 +986,46 @@ private fun DmThreadView(
     }
     }
 }
+
+/**
+ * Pinch the chat to make its messages bigger (pinching back stops at the
+ * normal size); Ctrl + the mouse wheel, or a trackpad pinch, on a computer.
+ * The size is kept on this device (UiToggles.dmScale). Two fingers on the
+ * list zoom it instead of scrolling it.
+ */
+private fun Modifier.dmPinchZoom(): Modifier = this
+    .pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            var zoomed = false
+            do {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.changes.count { it.pressed } >= 2) {
+                    val zoom = event.calculateZoom()
+                    if (zoom != 1f) {
+                        com.mediaviewer.util.UiToggles.updateDmScale(com.mediaviewer.util.UiToggles.dmScale * zoom, save = false)
+                        zoomed = true
+                    }
+                    event.changes.forEach { it.consume() }
+                }
+            } while (event.changes.any { it.pressed })
+            if (zoomed) com.mediaviewer.util.UiToggles.updateDmScale(com.mediaviewer.util.UiToggles.dmScale, save = true)
+        }
+    }
+    .pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
+                val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                if (dy == 0f) continue
+                val step = (1f + kotlin.math.abs(dy).coerceAtMost(3f) * 0.05f)
+                val next = if (dy < 0f) com.mediaviewer.util.UiToggles.dmScale * step else com.mediaviewer.util.UiToggles.dmScale / step
+                com.mediaviewer.util.UiToggles.updateDmScale(next, save = true)
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }
 
 /** The strip above the message field while replying: an accent bar in the
  *  replied-to sender's color, "Replying to …", the message, and an X. */
@@ -1087,6 +1137,14 @@ private fun DmBubble(
                 Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
             }
         }
+    // Pinch-to-zoom size (see DmThreadView), and a message that's only
+    // custom emoji: a snug bubble around them, even on every side.
+    val scale = com.mediaviewer.util.UiToggles.dmScale
+    val kxFacets = remember(msg.id, msg.facets) { msg.facets?.map { it.toKx() } }
+    val emojiOnly = remember(msg.id, kxFacets, embedded) {
+        msg.replyTo == null && embedded == null &&
+            com.mediaviewer.util.EmojiCloud.isOnlyEmoji(msg.text, com.mediaviewer.util.EmojiCloud.emojiSpans(msg.text, kxFacets))
+    }
     Column(
         Modifier.fillMaxWidth().offset { androidx.compose.ui.unit.IntOffset(dragX.value.toInt(), 0) },
         horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
@@ -1099,7 +1157,7 @@ private fun DmBubble(
             // Item 12 follow-up: shared-post cards are bigger/more prominent
             // now, so this bubble needs more room to show them well —
             // widened from 260.dp.
-            Modifier.widthIn(max = 300.dp)
+            Modifier.widthIn(max = 300.dp * scale)
                 .onGloballyPositioned { bubbleBounds[0] = it.boundsInRoot() }
                 .then(
                     if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
@@ -1114,7 +1172,10 @@ private fun DmBubble(
                     // (combinedClickable gives the long-press haptic itself.)
                     onLongClick = { bubbleBounds[0]?.let(onLongPress) }
                 )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(
+                    horizontal = (if (emojiOnly) 6.dp else 12.dp) * scale,
+                    vertical = (if (emojiOnly) 6.dp else 8.dp) * scale
+                )
         ) {
             // A reply: a compact quote of the message it answers — tap it to
             // jump there.
@@ -1154,8 +1215,7 @@ private fun DmBubble(
             if (shownText.isNotBlank()) {
                 // (Custom emoji drawn as pictures; their facets only line up
                 // with the message's own, unshortened text.)
-                val facets = remember(msg.id, msg.facets) { msg.facets?.map { it.toKx() } }
-                DmMessageText(shownText, if (shownText == msg.text) facets else null, Color.White, 14.sp, 18.sp)
+                DmMessageText(shownText, if (shownText == msg.text) kxFacets else null, Color.White, (14 * scale).sp, (18 * scale).sp)
             }
             if (sharedFeed != null) {
                 if (shownText.isNotBlank()) Spacer(Modifier.height(8.dp))

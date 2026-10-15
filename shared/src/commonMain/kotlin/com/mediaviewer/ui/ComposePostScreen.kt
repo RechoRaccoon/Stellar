@@ -1709,7 +1709,7 @@ fun ComposePostScreen(
             )
         }
         // (The first time the emoji menu opens: custom emoji are public.)
-        if (emojiPanelOpen) PublicDataNotice(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop)
+        if (emojiPanelOpen) PublicDataNotice(PublicDataKind.EMOJI, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop)
         editingAltFor?.let { uri ->
             AltTextDialog(
                 image = uri, initial = imageAlts[uri].orEmpty(),

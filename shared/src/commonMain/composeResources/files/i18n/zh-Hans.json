@@ -1871,5 +1871,9 @@
 "Restart": "重新启动",
 "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "跳过实时模糊等耗费资源的效果，让 Stellar 运行更快。玻璃效果变为纯色，背景保持静止。Stellar 会重新启动以切换。",
 "Turn Off Performance Mode?": "关闭性能模式？",
-"Turn On Performance Mode?": "开启性能模式？"
+"Turn On Performance Mode?": "开启性能模式？",
+"The custom emoji you add are saved to your Bluesky account, where anyone can see them. Don't upload anything you wouldn't want others to see.": "你添加的自定义表情会保存在你的 Bluesky 账号中，任何人都能看到。不要上传任何你不想让别人看到的内容。",
+"Your Emoji Are Public": "你的表情是公开的",
+"Your Status Is Public": "你的状态是公开的",
+"Your status and your status history are saved to your Bluesky account, where anyone can see them. Don't post anything you wouldn't want others to see.": "你的状态和状态历史会保存在你的 Bluesky 账号中，任何人都能看到。不要发布任何你不想让别人看到的内容。"
 }

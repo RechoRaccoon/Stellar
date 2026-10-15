@@ -802,7 +802,9 @@ internal fun SettingsPageContent(
                             message = if (on) "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch."
                                 else "Live blur and the other effects come back. Stellar restarts to switch.",
                             confirmLabel = "Restart",
-                            liquidGlass = liquidGlass, tint = tint, backdrop = null,
+                            // (The page's own backdrop: its glass blurs what's
+                            // behind it, like the other Settings popups.)
+                            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                             onConfirm = { pendingPerformanceMode = null; com.mediaviewer.util.UiToggles.applyPerformanceMode(context, on) },
                             onDismiss = { pendingPerformanceMode = null },
                             destructive = false

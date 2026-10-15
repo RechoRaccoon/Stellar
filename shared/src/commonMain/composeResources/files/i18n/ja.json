@@ -1871,5 +1871,9 @@
 "Restart": "再起動",
 "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "ライブぼかしなどの重いエフェクトを省いて、Stellarが速く動きます。ガラスは単色になり、背景は動かなくなります。切り替えのためStellarを再起動します。",
 "Turn Off Performance Mode?": "パフォーマンスモードをオフにしますか？",
-"Turn On Performance Mode?": "パフォーマンスモードをオンにしますか？"
+"Turn On Performance Mode?": "パフォーマンスモードをオンにしますか？",
+"The custom emoji you add are saved to your Bluesky account, where anyone can see them. Don't upload anything you wouldn't want others to see.": "追加したカスタム絵文字はBlueskyアカウントに保存され、誰でも見ることができます。他の人に見られたくないものはアップロードしないでください。",
+"Your Emoji Are Public": "絵文字は公開されています",
+"Your Status Is Public": "ステータスは公開されています",
+"Your status and your status history are saved to your Bluesky account, where anyone can see them. Don't post anything you wouldn't want others to see.": "ステータスとステータス履歴はBlueskyアカウントに保存され、誰でも見ることができます。他の人に見られたくないものは投稿しないでください。"
 }

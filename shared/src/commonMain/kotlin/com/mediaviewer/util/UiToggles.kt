@@ -45,7 +45,9 @@ object UiToggles {
     private const val KEY_DEV_TOOLS_UNLOCKED = "dev_tools_unlocked"
     private const val KEY_DEV_FORCE_SCAN_BUBBLE = "dev_force_scan_bubble"
     private const val KEY_SCAN_BUBBLE_DISMISSED = "scan_bubble_dismissed"
-    private const val KEY_PUBLIC_DATA_NOTICE_SEEN = "public_data_notice_seen"
+    private const val KEY_STATUS_NOTICE_SEEN = "status_public_notice_seen"
+    private const val KEY_EMOJI_NOTICE_SEEN = "emoji_public_notice_seen"
+    private const val KEY_DM_SCALE = "dm_scale"
     private const val KEY_PERFORMANCE_MODE = "performance_mode"
     private const val KEY_CUSTOMIZE_HUB_COLLAPSED = "customize_hub_collapsed"
     private const val KEY_COLLAPSED_SETTINGS_SECTIONS = "collapsed_settings_sections"
@@ -309,14 +311,34 @@ object UiToggles {
         com.mediaviewer.ui.compat.restartApp(context)
     }
 
-    /** The one-time notice that statuses, status history and custom emoji
-     *  are public has been seen (and closed). */
-    var publicDataNoticeSeen by mutableStateOf(false)
+    /** How big DM messages are drawn (pinch in a chat, or Ctrl + wheel):
+     *  1 = the normal size, never smaller; up to [DM_SCALE_MAX]. Kept on
+     *  this device. */
+    var dmScale by mutableStateOf(1f)
+        private set
+    const val DM_SCALE_MAX = 2.6f
+
+    /** Sets [dmScale] now; [save] writes it (at the end of a pinch). */
+    fun updateDmScale(value: Float, save: Boolean) {
+        dmScale = value.coerceIn(1f, DM_SCALE_MAX)
+        if (save) prefs?.edit()?.putFloat(KEY_DM_SCALE, dmScale)?.apply()
+    }
+
+    /** The one-time notices that statuses (and their history) and custom
+     *  emoji are public have been seen (and closed). */
+    var statusNoticeSeen by mutableStateOf(false)
+        private set
+    var emojiNoticeSeen by mutableStateOf(false)
         private set
 
-    fun markPublicDataNoticeSeen() {
-        publicDataNoticeSeen = true
-        prefs?.edit()?.putBoolean(KEY_PUBLIC_DATA_NOTICE_SEEN, true)?.apply()
+    fun markStatusNoticeSeen() {
+        statusNoticeSeen = true
+        prefs?.edit()?.putBoolean(KEY_STATUS_NOTICE_SEEN, true)?.apply()
+    }
+
+    fun markEmojiNoticeSeen() {
+        emojiNoticeSeen = true
+        prefs?.edit()?.putBoolean(KEY_EMOJI_NOTICE_SEEN, true)?.apply()
     }
 
     /** Whether any loading transition/screen plays at all. */
@@ -359,7 +381,9 @@ object UiToggles {
         devForceScanBubble = p.getBoolean(KEY_DEV_FORCE_SCAN_BUBBLE, false)
         scanBubbleDismissed = p.getBoolean(KEY_SCAN_BUBBLE_DISMISSED, false)
         customizeHubCollapsed = p.getBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, false)
-        publicDataNoticeSeen = p.getBoolean(KEY_PUBLIC_DATA_NOTICE_SEEN, false)
+        statusNoticeSeen = p.getBoolean(KEY_STATUS_NOTICE_SEEN, false)
+        emojiNoticeSeen = p.getBoolean(KEY_EMOJI_NOTICE_SEEN, false)
+        dmScale = p.getFloat(KEY_DM_SCALE, 1f).coerceIn(1f, DM_SCALE_MAX)
         performanceMode = p.getBoolean(KEY_PERFORMANCE_MODE, false)
         performanceModeAtStart = performanceMode
         collapsedSettingsSections = p.getStringSet(KEY_COLLAPSED_SETTINGS_SECTIONS, null)?.toSet()

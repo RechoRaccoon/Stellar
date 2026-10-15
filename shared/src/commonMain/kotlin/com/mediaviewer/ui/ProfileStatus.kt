@@ -339,7 +339,7 @@ fun ProfileStatusEditor(
             )
         }
         // (The first time: statuses are public.)
-        PublicDataNotice(liquidGlass = liquidGlass, tint = tint)
+        PublicDataNotice(PublicDataKind.STATUS, liquidGlass = liquidGlass, tint = tint)
     }
 }
 

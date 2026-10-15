@@ -41,8 +41,15 @@ from that branch, or from `main` once it's merged.
   `com.rechoraccoon.stellar.statusHistory` record per status, a local copy
   for speed, synced once a session; deletes delete the record (retried
   until they go through).
-- **One-time "These Are Public" notice** (`ui/PublicDataNotice.kt`) the
-  first time the status box or an emoji menu opens.
+- **One-time public notices** (`ui/PublicDataNotice.kt`, `PublicDataKind`):
+  one for statuses (the status box), a separate one for custom emoji (an
+  emoji menu), each remembered on its own.
+- **DM zoom**: pinch the chat (Ctrl + wheel / trackpad pinch on computers)
+  to scale messages, text and emoji; never below normal, up to 2.6×, kept
+  on the device (`UiToggles.dmScale`). The web page stops the browser's own
+  Ctrl+wheel zoom so it reaches Stellar.
+- DM emoji menu sits at the bottom edge, full width (like the composer's).
+  Emoji-only messages: a snug bubble with even padding.
 - **Custom emoji on the PDS and in DMs** (`util/EmojiCloud.kt`):
   - each emoji is a `com.rechoraccoon.stellar.emoji` record (name, folder,
     FNV-1a hash, PNG blob);

@@ -73,11 +73,7 @@ internal fun DmMessageText(
         androidx.compose.material3.Text(text, color = color, fontSize = fontSize, lineHeight = lineHeight)
         return
     }
-    val onlyEmoji = remember(text, spans) {
-        var rest = text
-        spans.sortedByDescending { it.start }.forEach { rest = rest.removeRange(it.start, it.end) }
-        rest.isBlank()
-    }
+    val onlyEmoji = remember(text, spans) { EmojiCloud.isOnlyEmoji(text, spans) }
     val side = if (onlyEmoji) 2.6.em else 1.35.em
     val annotated = remember(text, spans) {
         buildAnnotatedString {
@@ -102,7 +98,15 @@ internal fun DmMessageText(
     }
     androidx.compose.material3.Text(
         annotated, color = color, fontSize = fontSize,
-        lineHeight = if (onlyEmoji) (fontSize.value * 2.9f).sp else lineHeight,
+        // Only emoji: the line is exactly as tall as they are (no space
+        // above or below), so the bubble's padding is all there is.
+        lineHeight = if (onlyEmoji) (fontSize.value * 2.6f).sp else lineHeight,
+        style = if (onlyEmoji) androidx.compose.material3.LocalTextStyle.current.copy(
+            lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
+            )
+        ) else androidx.compose.material3.LocalTextStyle.current,
         inlineContent = inline
     )
 }

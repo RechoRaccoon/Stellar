@@ -1871,5 +1871,9 @@
 "Restart": "Перезапустить",
 "Stellar will run faster by skipping live blur and other heavy effects. Glass becomes a solid color, and the background holds still. Stellar restarts to switch.": "Stellar будет работать быстрее без живого размытия и других тяжёлых эффектов. Стекло станет сплошным цветом, а фон замрёт. Для переключения Stellar перезапустится.",
 "Turn Off Performance Mode?": "Выключить режим производительности?",
-"Turn On Performance Mode?": "Включить режим производительности?"
+"Turn On Performance Mode?": "Включить режим производительности?",
+"The custom emoji you add are saved to your Bluesky account, where anyone can see them. Don't upload anything you wouldn't want others to see.": "Собственные эмодзи, которые вы добавляете, сохраняются в вашем аккаунте Bluesky, где их может увидеть любой. Не загружайте то, что не хотите показывать другим.",
+"Your Emoji Are Public": "Ваши эмодзи публичны",
+"Your Status Is Public": "Ваш статус публичен",
+"Your status and your status history are saved to your Bluesky account, where anyone can see them. Don't post anything you wouldn't want others to see.": "Ваш статус и история статусов сохраняются в вашем аккаунте Bluesky, где их может увидеть любой. Не публикуйте то, что не хотите показывать другим."
 }
