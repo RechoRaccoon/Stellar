@@ -654,6 +654,28 @@ class BlueskyRepository {
          *  know about it just shows the post as a normal image. */
         const val TEXTSHOT_EMOJI_ALT_PREFIX = "A textshot post with emoji reading: "
 
+        /** A link card pointing at a GIF (Tenor's GIF-picker links, or any .gif). */
+        fun isGifLink(uri: String): Boolean {
+            val path = uri.substringBefore('?').lowercase()
+            return path.endsWith(".gif") && (path.startsWith("https://") || path.startsWith("http://"))
+        }
+
+        /**
+         * A Tenor GIF link as the looping MP4 Bluesky's own app plays:
+         * media.tenor.com/<id>AAAAC/<name>.gif → t.gifs.bsky.app/<id>AAAP1/<name>.mp4.
+         * Null for any other GIF (it stays a picture).
+         */
+        fun tenorVideoUrl(uri: String): String? {
+            val noQuery = uri.substringBefore('?')
+            if (!noQuery.startsWith("https://media.tenor.com/")) return null
+            val parts = noQuery.removePrefix("https://media.tenor.com/").split('/')
+            if (parts.size < 2) return null
+            val id = parts[0]
+            val name = parts[1]
+            if (!id.contains("AAAAC") || !name.lowercase().endsWith(".gif")) return null
+            return "https://t.gifs.bsky.app/" + id.replace("AAAAC", "AAAP1") + "/" + name.dropLast(4) + ".mp4"
+        }
+
         /** Sentinel URI standing in for the pinned "Following" home timeline, which
          *  (unlike every other saved feed) is served by getTimeline, not getFeed. */
         const val FOLLOWING_FEED_URI = "timeline://following"
@@ -4807,6 +4829,30 @@ class BlueskyRepository {
         return when (val embed = post.embed) {
             null -> textOnlyItem()
             else -> when {
+                // A GIF post: Bluesky sends a GIF as a link card to the GIF
+                // (Tenor's, from its GIF picker), not as media. An animated
+                // GIF plays as a looping video (Bluesky's own GIF service
+                // serves Tenor's as MP4); a plain .gif link is a picture.
+                embed.type.contains("external") && embed.external?.uri?.let { isGifLink(it) } == true -> {
+                    val ext = embed.external!!
+                    val w = Regex("[?&]ww=(\\d+)").find(ext.uri)?.groupValues?.get(1)?.toFloatOrNull()
+                    val h = Regex("[?&]hh=(\\d+)").find(ext.uri)?.groupValues?.get(1)?.toFloatOrNull()
+                    val ratio = if (w != null && h != null && w > 0f && h > 0f) w / h else null
+                    val video = tenorVideoUrl(ext.uri)
+                    val still = ext.thumb?.takeIf { it.isNotBlank() } ?: ext.uri
+                    listOf(
+                        MediaItem(
+                            id = post.cid, mediaUrl = if (video != null) still else ext.uri, thumbUrl = still,
+                            isVideo = video != null, videoPlaylistUrl = video,
+                            postUri = post.uri, postCid = post.cid, feedContext = item.feedContext,
+                            author = author, likeUri = post.viewer?.like, repostUri = post.viewer?.repost,
+                            isLiked = post.viewer?.like != null, isReposted = post.viewer?.repost != null,
+                            likeCount = post.likeCount ?: 0, replyCount = post.replyCount ?: 0,
+                            repostCount = post.repostCount ?: 0, text = text, altText = ext.title.orEmpty(),
+                            aspectRatio = ratio, labels = nsfwLabels
+                        )
+                    )
+                }
                 // Bug fix: Bluesky's 5-10 image "photo carousel" posts (added
                 // mid-2026) were falling through to textOnlyItem() below and
                 // rendering as text-only, image-less posts. This block used

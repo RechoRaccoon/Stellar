@@ -54,6 +54,10 @@ from that branch, or from `main` once it's merged.
 - Comment media waits ~450ms after the comments switch posts
   (`LocalCommentMediaReady`, provided by CommentsSheet): placeholders,
   no GIF players or full-size prefetches mid-swipe.
+- GIF posts (Bluesky sends them as a link card to the .gif): an animated
+  Tenor GIF is a looping video (`BlueskyRepository.tenorVideoUrl`:
+  media.tenor.com/<id>AAAAC/<name>.gif → t.gifs.bsky.app/<id>AAAP1/<name>.mp4,
+  as Bluesky's app does), any other .gif link a picture (`isGifLink`).
 - Profile/DM effects (`DmEffects.kt`): sized by `effectUnit()` — a phone
   held upright's size at most (1.25dp per unit), not the window's width —
   with up to 2.5× as many pieces across a wide window (`effectCount`).
