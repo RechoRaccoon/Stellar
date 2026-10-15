@@ -162,6 +162,10 @@ object TipAnchors {
         if (r == null) live.remove(id) else if (live[id] != r) live[id] = r
     }
 
+    /** Everything that can be pointed at that's on screen now (while a
+     *  tour is up), so notes can keep off other buttons too. */
+    internal fun onScreen(): List<Rect> = live.values.toList()
+
     internal fun setPublishing(on: Boolean) {
         if (on == publishing) return
         publishing = on
@@ -351,15 +355,35 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
         val padPx = with(density) { 6.dp.toPx() }
         val maxCorner = with(density) { 22.dp.toPx() }
         val ringPx = with(density) { 1.5.dp.toPx() }
-        val edgePx = with(density) { 10.dp.toPx() }
-        /** A lit area and its corner radius. Something running edge to edge
-         *  (a row of chips, the Launchpad) is lit as a plain full-width band,
-         *  so nothing is cut off by rounded corners off the screen's sides. */
+        /** A lit area and its corner radius. Something that really runs off
+         *  a side of the screen (a sideways-scrolling row of chips) is lit
+         *  square, out to that edge only — never across the whole screen —
+         *  so nothing is cut off by rounded corners off the screen's sides.
+         *  Everything else, however close to an edge, is lit just around itself. */
         fun hole(id: String): Pair<Rect, Float>? {
             val a = TipAnchors.rect(id) ?: return null
-            val r = Rect(a.left - origin.x - padPx, a.top - origin.y - padPx, a.right - origin.x + padPx, a.bottom - origin.y + padPx)
-            if (size.width > 0f && (r.left <= edgePx || r.right >= size.width - edgePx)) {
-                return Rect(0f, r.top, size.width, r.bottom) to 0f
+            val left = a.left - origin.x
+            val right = a.right - origin.x
+            val r = Rect(left - padPx, a.top - origin.y - padPx, right + padPx, a.bottom - origin.y + padPx)
+            if (size.width > size.height) {
+                // Landscape: always just around it, kept on screen. Pulled in
+                // from one edge, it's pulled in the same from the other, so the
+                // gap around what's inside stays even on both sides.
+                val inL = max(0f, padPx - r.left)
+                val inR = max(0f, r.right - (size.width - padPx))
+                val inT = max(0f, padPx - r.top)
+                val inB = max(0f, r.bottom - (size.height - padPx))
+                val dx = max(inL, inR)
+                val dy = max(inT, inB)
+                val c = Rect(r.left + dx, r.top + dy, r.right - dx, r.bottom - dy)
+                return c to min(maxCorner, min(c.width, c.height) / 2f)
+            }
+            if (size.width > 0f) {
+                val offLeft = left <= 1f
+                val offRight = right >= size.width - 1f
+                if (offLeft || offRight) {
+                    return Rect(if (offLeft) 0f else r.left, r.top, if (offRight) size.width else r.right, r.bottom) to 0f
+                }
             }
             return r to min(maxCorner, min(r.width, r.height) / 2f)
         }
@@ -383,9 +407,13 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
                 val (r, corner) = hole(id) ?: return@forEach
                 val alpha = 0.75f * (if (id in previousHoles) 1f else f)
                 if (corner == 0f) {
-                    // A full-width band: lines along its top and bottom only.
-                    drawLine(lineColor.copy(alpha = alpha), Offset(0f, r.top), Offset(r.right, r.top), ringPx)
-                    drawLine(lineColor.copy(alpha = alpha), Offset(0f, r.bottom), Offset(r.right, r.bottom), ringPx)
+                    // Out to the screen's edge: lines along its top and
+                    // bottom, and down its side that's on screen.
+                    val c = lineColor.copy(alpha = alpha)
+                    drawLine(c, Offset(r.left, r.top), Offset(r.right, r.top), ringPx)
+                    drawLine(c, Offset(r.left, r.bottom), Offset(r.right, r.bottom), ringPx)
+                    if (r.left > 0f) drawLine(c, Offset(r.left, r.top), Offset(r.left, r.bottom), ringPx)
+                    if (r.right < size.width) drawLine(c, Offset(r.right, r.top), Offset(r.right, r.bottom), ringPx)
                 } else drawRoundRect(
                     lineColor.copy(alpha = alpha), topLeft = r.topLeft, size = r.size,
                     cornerRadius = CornerRadius(corner), style = Stroke(ringPx)
@@ -406,6 +434,7 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
             val s = t.steps.getOrNull(index) ?: return@AnimatedContent
             StepContent(
                 s, origin, size, accent, lineColor,
+                obstacles = { holes.mapNotNull { holeRect(it) } },
                 isCurrent = { Tips.tour === t && Tips.step == index },
                 placed = { i, r -> noteRects[index to i] = r }, rectOf = { i -> noteRects[index to i] }
             )
@@ -449,7 +478,8 @@ fun TipOverlay(tint: Color, modifier: Modifier = Modifier) {
 
 @Composable
 private fun StepContent(
-    step: TipStep, origin: Offset, screen: Size, accent: Color, lineColor: Color, isCurrent: () -> Boolean,
+    step: TipStep, origin: Offset, screen: Size, accent: Color, lineColor: Color,
+    obstacles: () -> List<Rect>, isCurrent: () -> Boolean,
     placed: (Int, Rect) -> Unit, rectOf: (Int) -> Rect?
 ) {
     val density = LocalDensity.current
@@ -487,7 +517,11 @@ private fun StepContent(
             }
         }
         step.notes.forEachIndexed { i, note ->
-            if (shown(note)) NoteText(note, i, origin, screen, margin, accent) { r -> placed(i, r) }
+            if (shown(note)) NoteText(
+                note, i, origin, screen, margin, accent,
+                // (Landscape: kept clear of the lit parts and of the notes before it.)
+                avoid = { obstacles() + (0 until i).mapNotNull { rectOf(it) } }
+            ) { r -> placed(i, r) }
         }
         step.anims.forEach { a ->
             TipAnimation(a, accent)
@@ -556,15 +590,19 @@ private fun elbowPath(box: Rect, target: Rect, gap: Float, inset: Float): Path? 
 
 @Composable
 private fun NoteText(
-    note: TipNote, index: Int, origin: Offset, screen: Size, margin: Float, accent: Color, onPlaced: (Rect) -> Unit
+    note: TipNote, index: Int, origin: Offset, screen: Size, margin: Float, accent: Color,
+    avoid: () -> List<Rect>, onPlaced: (Rect) -> Unit
 ) {
     val density = LocalDensity.current
+    // Landscape: the tours' places are laid out for a phone held upright,
+    // so instead each note goes beside what it's about, where there's room.
+    val sideways = screen.width > screen.height && screen.height > 0f
     val pin = when (val pl = note.place) {
         is TipPlace.Screen -> pl.pin
         is TipPlace.Above -> pl.pin
         is TipPlace.Below -> pl.pin
     }
-    val align = note.align ?: when {
+    val align = if (sideways) TextAlign.Start else note.align ?: when {
         pin < 0.25f -> TextAlign.Start
         pin > 0.75f -> TextAlign.End
         else -> TextAlign.Center
@@ -607,8 +645,51 @@ private fun NoteText(
                     }
                 }
             }
+            val target = (note.anchors + listOfNotNull((note.place as? TipPlace.Above)?.anchor, (note.place as? TipPlace.Below)?.anchor))
+                .mapNotNull { anchorRect(it) }
+                .reduceOrNull { a, b -> Rect(min(a.left, b.left), min(a.top, b.top), max(a.right, b.right), max(a.bottom, b.bottom)) }
+            if (sideways && target != null) {
+                // Right of it, left of it, below, above: the first spot that's
+                // on screen and clear wins (else the least covered one).
+                val gap = 34.dp.toPx()
+                val cy = (target.center.y - p.height / 2f)
+                val cx = (target.center.x - p.width / 2f)
+                // Beside it first; then above/below — centred on it, or with
+                // either edge at its middle, and stacked further out when the
+                // nearer rows are taken (several notes on one bar).
+                val step = p.height + 14.dp.toPx()
+                val xs = listOf(cx, target.center.x - p.width + 24.dp.toPx(), target.center.x - 24.dp.toPx())
+                val spots = buildList {
+                    add(Offset(target.right + gap, cy)); add(Offset(target.left - gap - p.width, cy))
+                    for (k in 0..3) for (x0 in xs) {
+                        add(Offset(x0, target.top - gap - p.height - step * k))
+                        add(Offset(x0, target.bottom + gap + step * k))
+                    }
+                }
+                // (With some air around everything, so nothing's crammed.)
+                val air = 12.dp.toPx()
+                val blocked = avoid().map { it.inflate(air * 2) }
+                val buttons = TipAnchors.onScreen().map { it.translate(-origin.x, -origin.y) }
+                    .filter { it.width * it.height < sw * sh * 0.15f }
+                fun fit(o: Offset) = Offset(
+                    o.x.coerceIn(margin, max(margin, sw - margin - p.width)),
+                    o.y.coerceIn(margin, max(margin, sh - margin - p.height))
+                )
+                fun cost(o: Offset): Float {
+                    val f = fit(o)
+                    val box = Rect(f.x, f.y, f.x + p.width, f.y + p.height)
+                    val moved = (f - o).getDistance()
+                    val covered = (blocked + target.inflate(air)).sumOf { b -> if (b.overlaps(box)) (b.intersect(box).width * b.intersect(box).height).toDouble() else 0.0 }.toFloat()
+                    // Other (dimmed) buttons count too, a little less.
+                    val others = buttons.sumOf { b -> if (b.overlaps(box)) (b.intersect(box).width * b.intersect(box).height).toDouble() else 0.0 }.toFloat()
+                    val far = (Offset(box.center.x, box.center.y) - target.center).getDistance()
+                    return covered + others * 0.5f + moved * 6f + far * 0.5f
+                }
+                val best = fit(spots.minByOrNull { cost(it) } ?: spots.first())
+                x = best.x; y = best.y
+            }
             x = x.coerceIn(margin, max(margin, sw - margin - p.width))
-            y = y.coerceIn(margin * 2, max(margin * 2, sh - margin * 3 - p.height))
+            y = y.coerceIn(if (sideways) margin else margin * 2, max(margin * 2, sh - (if (sideways) margin else margin * 3) - p.height))
             layout(c.maxWidth, c.maxHeight) { p.place(IntOffset(x.toInt(), y.toInt())) }
         }
     ) {
@@ -624,14 +705,14 @@ private fun NoteText(
             Column(horizontalAlignment = horizontal) {
                 if (note.title != null) {
                     Text(
-                        note.title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, textAlign = align,
-                        style = TextStyle(shadow = shadow), lineHeight = 28.sp
+                        note.title, color = Color.White, fontSize = if (sideways) 19.sp else 23.sp, fontWeight = FontWeight.Bold, textAlign = align,
+                        style = TextStyle(shadow = shadow), lineHeight = if (sideways) 23.sp else 28.sp
                     )
                     if (note.text.isNotBlank()) Spacer(Modifier.height(6.dp))
                 }
                 if (note.text.isNotBlank()) Text(
-                    emphasize(note.text, accent), color = Color.White.copy(alpha = 0.94f), fontSize = 15.sp,
-                    lineHeight = 21.sp, textAlign = align, style = TextStyle(shadow = shadow)
+                    emphasize(note.text, accent), color = Color.White.copy(alpha = 0.94f), fontSize = if (sideways) 13.sp else 15.sp,
+                    lineHeight = if (sideways) 18.sp else 21.sp, textAlign = align, style = TextStyle(shadow = shadow)
                 )
             }
         }

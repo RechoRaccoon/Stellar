@@ -14,7 +14,20 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0f. Update: status durations, banner pills, composer Remove bubble, landscape fit (latest)
+## 0g. Update: landscape tips (latest)
+
+- `ui/Tips.kt`: in landscape a lit area is only ever drawn around its own
+  thing (never an edge-to-edge band), kept on screen, and pulled in evenly on
+  both sides when an edge forces it. Notes ignore the tours' portrait places
+  and go beside / above / below what they're about — stacked further out
+  when needed — keeping clear of lit parts, earlier notes and other buttons
+  (`TipAnchors.onScreen`), in slightly smaller text. Portrait is unchanged
+  except a clipped row's band now stops at the row's own far side.
+- Profile name pills are back to the original sizes; landscape Search's bar
+  splits out its back button; landscape side gaps are just the camera
+  cutout (`landscapeSideGaps`, on the Hub, profiles, Search, DMs, grids).
+
+## 0f. Update: status durations, banner pills, composer Remove bubble, landscape fit
 
 - **Status popup**: Minutes / Hours / Days / Never. Each unit remembers its
   own number (30 / 24 / 7 by default; Never = 0, greyed); the last unit and
