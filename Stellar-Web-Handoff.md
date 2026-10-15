@@ -28,7 +28,7 @@ from that branch, or from `main` once it's merged.
   `TEXT_TILE_MAX_LINES` (18) with "…".
 - Keyboard shortcuts (all versions, `MainFeedScreen` root `onKeyEvent`):
   timeline L/Space like (played by the post on screen through `FeedKeys`,
-  so the heart comes out of the like button), R repost, F follow/unfollow,
+  so the heart comes out of the like button), R repost, B save, F follow/unfollow,
   ←/→ (A/D, ↑/↓) previous/next, E Explore; any press on the timeline takes
   the keys back (a text field pressed still gets them);
   Explore: T back to the timeline. Only while nothing's open over them

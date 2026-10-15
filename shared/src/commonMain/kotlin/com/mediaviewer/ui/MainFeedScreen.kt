@@ -453,7 +453,7 @@ fun MainFeedScreen(
     val commentViewerBlur = if (commentViewer != null) 26.dp else 0.dp
 
     // ── Keyboard shortcuts (every version, with a keyboard) ──
-    // Timeline: L / Space like, R repost, F follow / unfollow, ← → (or A / D, ↑ ↓) the previous /
+    // Timeline: L / Space like, R repost, B save (bookmark), F follow / unfollow, ← → (or A / D, ↑ ↓) the previous /
     // next post, E Explore (as pinching in does). Explore: T back to the
     // timeline, at the post it was on. Only while nothing's open over them;
     // typing in a text field never triggers them (the field takes the keys).
@@ -490,6 +490,7 @@ fun MainFeedScreen(
                     Key.L, Key.Spacebar -> { FeedKeys.likes++; true }
                     Key.R -> { onToggleRepost(); true }
                     Key.F -> { onToggleFollow(); true }
+                    Key.B -> { onToggleBookmark(); true }
                     Key.DirectionRight, Key.D, Key.DirectionDown -> { onNavigateNext(); true }
                     Key.DirectionLeft, Key.A, Key.DirectionUp -> { onNavigatePrev(); true }
                     Key.E -> { onPinchIn(); true }
