@@ -379,7 +379,10 @@ class MainViewModel(
         val musicHistory: List<RockskyTrack> = emptyList(),
         val cursor: String? = null,
         val loading: Boolean = false,
-        val loaded: Boolean = false
+        val loaded: Boolean = false,
+        // Seeded from the on-disk cache (a trimmed first batch, no cursor):
+        // shown instantly, but the tab still fetches for real when opened.
+        val fromCache: Boolean = false
     )
 
     // Feature request #4: on-disk snapshot of one profile's tab strip —
@@ -4304,9 +4307,9 @@ class MainViewModel(
             (cached?.availableTabs?.mapNotNull { name -> runCatching { ProfileTab.valueOf(name) }.getOrNull() } ?: emptyList())
         val seededTabStates = buildMap {
             if (cached != null) {
-                if (cached.posts.isNotEmpty()) put(ProfileTab.POSTS, ProfileTabState(items = cached.posts, loaded = true))
-                if (cached.reposts.isNotEmpty()) put(ProfileTab.REPOSTS, ProfileTabState(items = cached.reposts, loaded = true))
-                if (cached.likes.isNotEmpty()) put(ProfileTab.LIKES, ProfileTabState(items = cached.likes, loaded = true))
+                if (cached.posts.isNotEmpty()) put(ProfileTab.POSTS, ProfileTabState(items = cached.posts, loaded = true, fromCache = true))
+                if (cached.reposts.isNotEmpty()) put(ProfileTab.REPOSTS, ProfileTabState(items = cached.reposts, loaded = true, fromCache = true))
+                if (cached.likes.isNotEmpty()) put(ProfileTab.LIKES, ProfileTabState(items = cached.likes, loaded = true, fromCache = true))
                 if (cached.blogs.isNotEmpty()) put(ProfileTab.BLOGS, ProfileTabState(blogs = cached.blogs, loaded = true))
                 if (cached.reviews.isNotEmpty()) put(ProfileTab.REVIEWS, ProfileTabState(reviews = cached.reviews, loaded = true))
                 if (cached.backlog.isNotEmpty()) put(ProfileTab.BACKLOG, ProfileTabState(backlog = cached.backlog, loaded = true))
@@ -4653,7 +4656,7 @@ class MainViewModel(
         // own doc comment on these two fields.
         _profileOverlay.value = cur.copy(selectedTab = tab, postKindFilter = PostKindFilter.ALL, reviewKindFilter = ReviewKindFilter.ALL, musicYear = 0)
         val state = cur.tabStates[tab]
-        if (state == null || (!state.loaded && !state.loading)) loadProfileTab(tab, reset = true)
+        if (state == null || (!state.loaded && !state.loading) || (state.fromCache && !state.loading)) loadProfileTab(tab, reset = true)
         if (tab == ProfileTab.MUSIC_HISTORY) loadMusicYears(cur.author.did)
         if (tab == ProfileTab.POSTS && state != null) setProfileSortKind(PostKindFilter.ALL)
     }
@@ -4756,7 +4759,10 @@ class MainViewModel(
     fun loadMoreProfileTab() {
         val cur = _profileOverlay.value ?: return
         val state = cur.tabStates[cur.selectedTab] ?: return
-        if (state.loading || state.cursor == null) return
+        if (state.loading) return
+        // Still only the cached first batch: load the real thing.
+        if (state.fromCache) { loadProfileTab(cur.selectedTab, reset = true); return }
+        if (state.cursor == null) return
         // Item 7: Music History pages RockskyTrack, not MediaItem, so it
         // can't share loadProfileTab's fetchPage below (which is typed
         // around MediaItem) — same cursor-in-ProfileTabState mechanism,
