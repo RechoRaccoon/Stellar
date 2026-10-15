@@ -98,6 +98,14 @@ fun CommentsSheet(
      *  over the comments. */
     onOpenMedia: ((List<com.mediaviewer.model.CommentMedia>, Int) -> Unit)? = null
 ) {
+    // Comment media waits a moment after switching to another post (see
+    // LocalCommentMediaReady), so a swipe stays smooth.
+    var mediaReady by remember { mutableStateOf(true) }
+    LaunchedEffect(currentItem?.id) {
+        mediaReady = false
+        kotlinx.coroutines.delay(450)
+        mediaReady = true
+    }
     // A comment's media opened full screen (its list and which one).
     var viewerMedia by remember(currentItem?.id) { mutableStateOf<Pair<List<com.mediaviewer.model.CommentMedia>, Int>?>(null) }
     val openProfileOf: (CommentItem) -> Unit = { c ->
@@ -224,6 +232,7 @@ fun CommentsSheet(
             // sheet: it's a full-screen scrim in FeedView that fades in with
             // the blur, so it doesn't slide up with the comments.)
     ) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalCommentMediaReady provides mediaReady) {
         // Behind a comment's media opened full screen: blurred, not dimmed.
         val viewerBlur = if (viewerMedia != null) 26.dp else 0.dp
         Column(Modifier.fillMaxSize().pageBlur(viewerBlur)) {
@@ -607,7 +616,8 @@ fun CommentsSheet(
                 onDismiss = { addingTag = false }
             )
         }
-    }
+        }
+}
 }
 
 /** A picture / video attached to the comment being written, with an X to

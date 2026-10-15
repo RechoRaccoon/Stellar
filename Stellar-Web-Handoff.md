@@ -27,7 +27,10 @@ from that branch, or from `main` once it's merged.
   (1–1.7 by length) before shrinking to their column, and cut off after
   `TEXT_TILE_MAX_LINES` (18) with "…".
 - Keyboard shortcuts (all versions, `MainFeedScreen` root `onKeyEvent`):
-  timeline L/Space like, R repost, ←/→ (A/D, ↑/↓) previous/next, E Explore;
+  timeline L/Space like (played by the post on screen through `FeedKeys`,
+  so the heart comes out of the like button), R repost, F follow/unfollow,
+  ←/→ (A/D, ↑/↓) previous/next, E Explore; any press on the timeline takes
+  the keys back (a text field pressed still gets them);
   Explore: T back to the timeline. Only while nothing's open over them
   (`shortcutsEnabled`, worked out in AppRoot); text fields keep their keys.
 - Landscape timeline: a round 2×2-grid Explore button above the hide-UI
@@ -48,6 +51,9 @@ from that branch, or from `main` once it's merged.
   next two posts' and previous post's in the background
   (`prefetchComments`), with one fetch per post at a time
   (`commentsInFlight`).
+- Comment media waits ~450ms after the comments switch posts
+  (`LocalCommentMediaReady`, provided by CommentsSheet): placeholders,
+  no GIF players or full-size prefetches mid-swipe.
 - Profile/DM effects (`DmEffects.kt`): sized by `effectUnit()` — a phone
   held upright's size at most (1.25dp per unit), not the window's width —
   with up to 2.5× as many pieces across a wide window (`effectCount`).

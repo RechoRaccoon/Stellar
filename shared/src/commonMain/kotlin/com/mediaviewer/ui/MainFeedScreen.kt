@@ -453,7 +453,7 @@ fun MainFeedScreen(
     val commentViewerBlur = if (commentViewer != null) 26.dp else 0.dp
 
     // ── Keyboard shortcuts (every version, with a keyboard) ──
-    // Timeline: L / Space like, R repost, ← → (or A / D, ↑ ↓) the previous /
+    // Timeline: L / Space like, R repost, F follow / unfollow, ← → (or A / D, ↑ ↓) the previous /
     // next post, E Explore (as pinching in does). Explore: T back to the
     // timeline, at the post it was on. Only while nothing's open over them;
     // typing in a text field never triggers them (the field takes the keys).
@@ -466,6 +466,17 @@ fun MainFeedScreen(
     val latestIndex by rememberUpdatedState(currentIndex)
     Box(
         Modifier.fillMaxSize().background(OledBlack)
+            // Any press on the timeline / Explore takes the keys back (so the
+            // shortcuts keep working after a button or popup had them) — a
+            // text field pressed then still takes them for itself.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val e = awaitPointerEvent(PointerEventPass.Initial)
+                        if (e.type == PointerEventType.Press && latestShortcutsOn) runCatching { keyFocus.requestFocus() }
+                    }
+                }
+            }
             .focusRequester(keyFocus)
             .focusable()
             .onKeyEvent { e ->
@@ -475,8 +486,10 @@ fun MainFeedScreen(
                 if (state == ScreenState.GRID) {
                     if (e.key == Key.T) { onNavigateTo(latestIndex); true } else false
                 } else when (e.key) {
-                    Key.L, Key.Spacebar -> { onToggleLike(); true }
+                    // (Played by the post on screen, heart animation and all.)
+                    Key.L, Key.Spacebar -> { FeedKeys.likes++; true }
                     Key.R -> { onToggleRepost(); true }
+                    Key.F -> { onToggleFollow(); true }
                     Key.DirectionRight, Key.D, Key.DirectionDown -> { onNavigateNext(); true }
                     Key.DirectionLeft, Key.A, Key.DirectionUp -> { onNavigatePrev(); true }
                     Key.E -> { onPinchIn(); true }
@@ -1130,6 +1143,7 @@ private fun FeedView(
                 val item = mediaItems.getOrNull(idx) ?: return@AnimatedContent
                 PostContent(
                     item             = item,
+                    isCurrent        = idx == currentIndex,
                     appMode          = appMode,
                     liquidGlass      = liquidGlass,
                     onSwipeLeft      = onSwipeLeft,
@@ -1193,6 +1207,8 @@ private fun FeedView(
 @Composable
 private fun PostContent(
     item: MediaItem, appMode: AppMode, liquidGlass: Boolean,
+    /** The post being shown (not one sliding away): keyboard likes go to it. */
+    isCurrent: Boolean = true,
     onSwipeLeft: () -> Unit, onSwipeRight: () -> Unit,
     onSwipeUp: () -> Unit, onSwipeDown: () -> Unit,
     onPinchToGrid: () -> Unit, onDoubleTap: () -> Unit,
@@ -1298,6 +1314,16 @@ private fun PostContent(
         if (!big && (appMode != AppMode.BLUESKY || item.isLiked)) return
         if (likeBursts.size > 12) likeBursts.removeAt(0)
         likeBursts.add(LikeBurst(com.mediaviewer.platform.currentTimeMillis() * 16 + likeBursts.size, at, big))
+    }
+    // A like from the keyboard (L / Space): just like tapping the heart
+    // button — its heart comes out of the button.
+    val seenKeyLikes = remember { intArrayOf(FeedKeys.likes) }
+    LaunchedEffect(FeedKeys.likes) {
+        if (FeedKeys.likes == seenKeyLikes[0]) return@LaunchedEffect
+        seenKeyLikes[0] = FeedKeys.likes
+        if (!isCurrent) return@LaunchedEffect
+        likeButtonCenterRoot?.let { burstAt(it - postBoxRootOrigin, big = false) }
+        onToggleLike()
     }
 
     // Items 5-8: the "More" menu's own state, hoisted up here (out of
@@ -4429,6 +4455,11 @@ private fun Modifier.landscapeSideSafe(): Modifier {
         maxOf(cutout.getLeft(this, dir), cutout.getRight(this, dir)).toDp()
     }.coerceAtLeast(16.dp)
     return this.padding(horizontal = side)
+}
+
+/** Keyboard likes, handed to the post on screen (see PostContent). */
+private object FeedKeys {
+    var likes by mutableIntStateOf(0)
 }
 
 /** Landscape's round buttons at the bottom right: fullscreen (hide the

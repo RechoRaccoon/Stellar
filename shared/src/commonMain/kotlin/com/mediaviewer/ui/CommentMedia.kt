@@ -67,6 +67,14 @@ import com.mediaviewer.ui.compat.navBarSpace
 import com.mediaviewer.util.rememberHapticTap
 
 /**
+ * False for a moment after the comments switch to another post (swiping
+ * between posts with them open): comment media waits — plain placeholders
+ * of the same size — so pictures, GIF players and full-size downloads don't
+ * all start at once in the middle of the swipe. (See CommentsSheet.)
+ */
+val LocalCommentMediaReady = androidx.compose.runtime.compositionLocalOf { true }
+
+/**
  * A comment's pictures / video / GIF, under its text — each at its full
  * shape (nothing cropped), kept small: one is at most [MAX_SINGLE] tall;
  * several sit side by side in a row at [ROW_HEIGHT] (scrolls if they don't
@@ -84,7 +92,9 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
     val context = LocalContext.current
     // Full pictures fetched before they're tapped, so they open at once.
     // (Videos aren't: the player pool's preload belongs to the feed.)
-    LaunchedEffect(media) {
+    val ready = LocalCommentMediaReady.current
+    LaunchedEffect(media, ready) {
+        if (!ready) return@LaunchedEffect
         val loader = coil3.SingletonImageLoader.get(context.coilContext)
         media.filter { it.kind == CommentMedia.Kind.IMAGE && it.fullUrl.isNotBlank() }.forEach { m ->
             loader.enqueue(coil3.request.ImageRequest.Builder(context.coilContext).data(m.fullUrl).build())
@@ -101,7 +111,7 @@ fun CommentMediaBlock(media: List<CommentMedia>, tint: Color, onOpen: (Int) -> U
                 ),
             contentAlignment = Alignment.Center
         ) {
-            when (item.kind) {
+            if (ready) when (item.kind) {
                 CommentMedia.Kind.GIF ->
                     if (item.videoUrl != null) GifVideo(item, Modifier.fillMaxSize(), ContentScale.Crop)
                     else AnimatedGifImage(item.fullUrl, item.alt.ifBlank { null }, Modifier.fillMaxSize(), ContentScale.Crop)
