@@ -33,9 +33,6 @@ object Landscape {
     /** The sign-in page's fields and buttons. */
     val FORM_WIDTH: Dp = 460.dp
 
-    /** Comments beside the post they're on. */
-    val SIDE_PANEL_WIDTH: Dp = 420.dp
-
     /**
      * Columns for a grid that has [portrait] columns in portrait: in
      * landscape, as many columns of about [tileDp] as fit across

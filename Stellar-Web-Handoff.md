@@ -14,7 +14,17 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0g. Update: landscape tips (latest)
+## 0h. Update: landscape comments as a side list (latest)
+
+- Timeline, landscape: the comments open as the left side list (shared
+  `rememberSideListWidth()`, `SideListEdge` drag pill, content laid out at
+  `SIDE_LIST_LAYOUT_WIDTH` and scaled down with `shrinkToFit`). Opening
+  slides it in from the left while the post is padded over by the same
+  amount (`commentsSideWidth * commentsFraction`), so the picture refits in
+  the space left. Closing works as before. (`Landscape.SIDE_PANEL_WIDTH`,
+  the old right-hand panel, is gone.)
+
+## 0g. Update: landscape tips
 
 - `ui/Tips.kt`: in landscape a lit area is only ever drawn around its own
   thing (never an edge-to-edge band), kept on screen, and pulled in evenly on

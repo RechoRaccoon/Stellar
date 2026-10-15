@@ -429,6 +429,9 @@ fun MainFeedScreen(
     )
     var commentsDragFraction by remember { mutableFloatStateOf(0f) }
     val commentsFraction = (commentsOpenAnim * (1f - commentsDragFraction)).coerceIn(0f, 1f)
+    // Landscape: the comments are the side list on the left (the same
+    // width, and drag handle, as every other page's), pushing the post over.
+    val commentsSideWidth = rememberSideListWidth()
 
     Box(Modifier.fillMaxSize().background(OledBlack)) {
         // Sideways, the timeline is just the normal page rotated (the old
@@ -463,11 +466,11 @@ fun MainFeedScreen(
             label = "screen"
         ) { state ->
             when (state) {
-                // Landscape: the comments open beside the post (a side
-                // panel, like a video site's), so the post slides over to
-                // make room and keeps its buttons.
+                // Landscape: the comments open as the side list on the left,
+                // so the post slides over to the right to make room (its
+                // picture refitting to stay fully in view) and keeps its buttons.
                 ScreenState.FEED, ScreenState.COMMENTS -> Box(
-                    Modifier.fillMaxSize().padding(end = if (isLandscape) Landscape.SIDE_PANEL_WIDTH * commentsFraction else 0.dp)
+                    Modifier.fillMaxSize().padding(start = if (isLandscape) commentsSideWidth * commentsFraction else 0.dp)
                 ) { FeedView(
                     commentsFraction  = if (isLandscape) 0f else commentsFraction,
                     mediaItems        = mediaItems,
@@ -717,19 +720,8 @@ fun MainFeedScreen(
 
         // The comments sheet, over the (blurred) post. Landscape: a panel
         // down the right-hand side, beside the post (see FeedView above).
-        AnimatedVisibility(
-            visible = commentsOpen,
-            enter = if (reducedAnimations) EnterTransition.None
-                else if (isLandscape) slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { it }
-                else slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it },
-            exit = if (reducedAnimations) ExitTransition.None
-                else if (isLandscape) slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220))
-                else slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
-            modifier = if (isLandscape) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(Landscape.SIDE_PANEL_WIDTH).zIndex(5f)
-                .background(dimSpaceColor(lastDominantColor, 0.18f))
-                .drawBehind { drawLine(lastDominantColor.copy(alpha = 0.55f), Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
-                else Modifier.fillMaxSize().zIndex(5f)
-        ) {
+        @Composable
+        fun Comments() {
             CommentsSheet(
                 currentItem     = currentItem,
                 comments        = comments,
@@ -750,6 +742,33 @@ fun MainFeedScreen(
                 onDragFractionChanged = { commentsDragFraction = it },
                 onOpenProfile = onOpenProfile
             )
+        }
+        AnimatedVisibility(
+            visible = commentsOpen,
+            enter = if (reducedAnimations) EnterTransition.None
+                else if (isLandscape) slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { -it }
+                else slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it },
+            exit = if (reducedAnimations) ExitTransition.None
+                else if (isLandscape) slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { -it }
+                else slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
+            modifier = if (isLandscape) Modifier.align(Alignment.CenterStart).fillMaxHeight().zIndex(5f)
+                else Modifier.fillMaxSize().zIndex(5f)
+        ) {
+            if (isLandscape) {
+                // The side list: laid out at the standard side-list width and
+                // shrunk evenly when it's narrower (nothing squashed or cut),
+                // with the shared drag handle on its edge.
+                Row(Modifier.fillMaxHeight()) {
+                    Box(
+                        Modifier.width(commentsSideWidth).fillMaxHeight()
+                            .background(dimSpaceColor(lastDominantColor, 0.18f))
+                            .drawBehind { drawLine(lastDominantColor.copy(alpha = 0.55f), Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
+                    ) {
+                        Box(Modifier.fillMaxSize().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) { Comments() }
+                    }
+                    SideListEdge(lastDominantColor)
+                }
+            } else Comments()
         }
 
         if (errorMessage != null) {
