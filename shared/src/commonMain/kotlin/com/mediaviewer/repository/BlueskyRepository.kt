@@ -2988,10 +2988,28 @@ class BlueskyRepository {
         token: String, myDid: String, convoId: String, text: String,
         embedPostUri: String? = null, embedPostCid: String? = null,
         /** Reply to this message (Bluesky's own DM replies). */
-        replyToMessageId: String? = null
+        replyToMessageId: String? = null,
+        /** More facets (Stellar's custom emoji). If the chat service won't
+         *  take them, the message goes without (their :name: text stays). */
+        extraFacets: List<Map<String, Any>> = emptyList()
     ): Result<Unit> = runCatching {
         ensureChatApi(myDid)
-        val facets = (buildHashtagFacets(text) + buildLinkFacets(text)).takeIf { it.isNotEmpty() }
+        if (extraFacets.isNotEmpty()) {
+            val first = postMessage(token, convoId, text, embedPostUri, embedPostCid, replyToMessageId, extraFacets)
+            if (first.isSuccess) return@runCatching
+            val msg = first.exceptionOrNull()?.message.orEmpty()
+            // Only a refusal of the message itself is retried without them.
+            if (!msg.contains("400") && !msg.contains("Invalid", ignoreCase = true)) throw first.exceptionOrNull()!!
+        }
+        postMessage(token, convoId, text, embedPostUri, embedPostCid, replyToMessageId, emptyList()).getOrThrow()
+    }
+
+    private suspend fun postMessage(
+        token: String, convoId: String, text: String,
+        embedPostUri: String?, embedPostCid: String?, replyToMessageId: String?,
+        extraFacets: List<Map<String, Any>>
+    ): Result<Unit> = runCatching {
+        val facets = (buildHashtagFacets(text) + buildLinkFacets(text) + extraFacets).takeIf { it.isNotEmpty() }
         val embed  = if (embedPostUri != null && embedPostCid != null) mapOf(
             "\$type" to "app.bsky.embed.record",
             "record" to mapOf("uri" to embedPostUri, "cid" to embedPostCid)
@@ -4072,6 +4090,62 @@ class BlueskyRepository {
     }
 
     /** Your own record, read through your own signed-in server. */
+    // ── Custom emoji: one record per emoji (its picture as a blob), on your own PDS ──
+
+    /** Every emoji record in [did]'s library. */
+    suspend fun listEmojiRecords(token: String, did: String): List<com.mediaviewer.util.EmojiCloud.RemoteEmoji> = withContext(ioDispatcher) {
+        val out = ArrayList<com.mediaviewer.util.EmojiCloud.RemoteEmoji>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            val resp = api.listRecords("Bearer $token", did, com.mediaviewer.util.EmojiCloud.COLLECTION, 100, cursor)
+            if (!resp.isSuccessful) error("Emoji ${resp.code()}: ${errorBodyText(resp).take(120)}")
+            val body = resp.body() ?: break
+            for (rec in body.records) {
+                val value = rec.value?.takeIf { it.isJsonObject }?.toKx() as? kotlinx.serialization.json.JsonObject ?: continue
+                fun text(key: String) = (value[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+                val image = value["image"] as? kotlinx.serialization.json.JsonObject ?: continue
+                val cid = ((image["ref"] as? kotlinx.serialization.json.JsonObject)?.get("\$link") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?: continue
+                out += com.mediaviewer.util.EmojiCloud.RemoteEmoji(
+                    rkey = rec.uri.substringAfterLast('/'), name = text("name").orEmpty().ifBlank { "emoji" },
+                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder")
+                )
+            }
+            cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
+        } while (cursor != null && ++pages < 70)
+        out
+    }
+
+    /** Uploads one emoji's PNG and saves its record; returns (record key, blob cid). */
+    suspend fun createEmojiRecord(token: String, did: String, name: String, png: ByteArray, hash: String, folder: String?): Pair<String, String> = withContext(ioDispatcher) {
+        val up = api.uploadBlob("Bearer $token", "image/png", png.toRequestBody("image/png".toMediaType()))
+        val blob = up.body()?.blob ?: error("Emoji upload ${up.code()}: ${errorBodyText(up).take(120)}")
+        val record = linkedMapOf<String, Any>(
+            "\$type" to com.mediaviewer.util.EmojiCloud.COLLECTION,
+            "name" to name,
+            "image" to blob,
+            "hash" to hash,
+            "createdAt" to com.mediaviewer.platform.nowIsoString()
+        )
+        if (!folder.isNullOrBlank()) record["folder"] = folder
+        val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, com.mediaviewer.util.EmojiCloud.COLLECTION, record))
+        val body = resp.body() ?: error("Emoji ${resp.code()}: ${errorBodyText(resp).take(120)}")
+        body.uri.substringAfterLast('/') to blob.ref.link
+    }
+
+    suspend fun deleteEmojiRecord(token: String, did: String, rkey: String) = withContext(ioDispatcher) {
+        val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, com.mediaviewer.util.EmojiCloud.COLLECTION, rkey))
+        if (!resp.isSuccessful && resp.code() != 404) error("Emoji ${resp.code()}: ${errorBodyText(resp).take(120)}")
+    }
+
+    /** An account's blob (an emoji's picture), from its PDS. */
+    suspend fun fetchBlob(did: String, cid: String): ByteArray = withContext(ioDispatcher) {
+        val resp = PlainHttp.get(BlueskyBlobResolver.resolveBlobUrl(did, cid))
+        if (!resp.isSuccessful || resp.body.isEmpty()) error("Blob ${resp.code}")
+        resp.body
+    }
+
     // ── Status history: one record per status posted, on your own PDS ──
 
     /** Every status in [did]'s history (newest first), with each record's key. */

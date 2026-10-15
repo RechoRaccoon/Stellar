@@ -24,6 +24,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import com.mediaviewer.json.toKx
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -487,8 +490,45 @@ private fun DmThreadView(
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     // First chat opened: how to react and reply (Tips.kt).
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(1000); Tips.request(TipTours.DMS) }
-    var text by remember { mutableStateOf("") }
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    val text = field.text
     val isGroup = thread.convo.isGroup
+
+    // ── Custom emoji (the raccoon button, left of the field) ──
+    // Like the composer's Textshot menu: the menu takes the keyboard's
+    // place at its height; tapping the field brings the keyboard back.
+    val emojiContext = com.mediaviewer.ui.compat.LocalContext.current
+    val emojiStore = remember { com.mediaviewer.util.EmojiStore.get(emojiContext) }
+    LaunchedEffect(Unit) { emojiStore.load() }
+    var emojiPanelOpen by remember { mutableStateOf(false) }
+    var emojiTabEditing by remember { mutableStateOf(false) }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val imeDensity = androidx.compose.ui.platform.LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(imeDensity)
+    var keyboardPx by remember { mutableStateOf(rememberedKeyboardPx) }
+    var lastImePx by remember { mutableStateOf(0) }
+    LaunchedEffect(imeBottomPx) {
+        if (imeBottomPx > lastImePx && emojiPanelOpen && !emojiTabEditing) emojiPanelOpen = false
+        lastImePx = imeBottomPx
+        if (imeBottomPx > keyboardPx) { keyboardPx = imeBottomPx; rememberedKeyboardPx = imeBottomPx }
+    }
+    // (The library follows the account: synced when the menu opens, and
+    // again when it closes, for anything added or deleted in it.)
+    LaunchedEffect(emojiPanelOpen) {
+        if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDid)
+        else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDid, force = true)
+    }
+    com.mediaviewer.ui.compat.BackHandler(enabled = emojiPanelOpen) { emojiPanelOpen = false; emojiTabEditing = false }
+    val emojiPanelHeight = with(imeDensity) { if (keyboardPx > 0) keyboardPx.toDp() else 300.dp }.coerceIn(240.dp, 480.dp)
+    fun insertEmoji(entry: com.mediaviewer.util.EmojiEntry) {
+        val t = field
+        val start = t.selection.min.coerceIn(0, t.text.length)
+        val end = t.selection.max.coerceIn(start, t.text.length)
+        val token = emojiStore.charFor(entry).toString()
+        field = androidx.compose.ui.text.input.TextFieldValue(
+            t.text.substring(0, start) + token + t.text.substring(end), androidx.compose.ui.text.TextRange(start + token.length)
+        )
+    }
     val myDid = selfDid.ifBlank {
         if (isGroup) "" else thread.messages.firstOrNull { it.sender?.did != thread.convo.member.did }?.sender?.did ?: ""
     }
@@ -550,7 +590,7 @@ private fun DmThreadView(
     fun send() {
         if (text.isBlank() || thread.sending) return
         onSendReply(text.trim(), replyTarget?.id)
-        text = ""
+        field = androidx.compose.ui.text.input.TextFieldValue("")
         replyTarget = null
     }
 
@@ -801,29 +841,65 @@ private fun DmThreadView(
             }
         Row(
             Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // The raccoon: keyboard ⇄ custom emoji menu.
+            val emojiShape = CircleShape
+            val emojiModifier = Modifier.size(46.dp).clickable {
+                tap()
+                if (emojiPanelOpen) {
+                    emojiPanelOpen = false; emojiTabEditing = false
+                    runCatching { inputFocus.requestFocus() }
+                    keyboardController?.show()
+                } else {
+                    emojiPanelOpen = true
+                    keyboardController?.hide()
+                }
+            }
+            @Composable
+            fun EmojiButtonContent() {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.Text("\uD83E\uDD9D", fontSize = 20.sp, lineHeight = 20.sp)
+                }
+            }
+            if (liquidGlass) {
+                LiquidGlassSurface(emojiModifier, shape = emojiShape, tint = profileTint, backdrop = backdrop) { EmojiButtonContent() }
+            } else {
+                Box(emojiModifier.clip(emojiShape).background(Color.White.copy(0.14f))) { EmojiButtonContent() }
+            }
+
             val fieldShape = RoundedCornerShape(24.dp)
             @Composable
             fun MessageFieldContent() {
-                Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                // Grows to a few lines, then scrolls (the emoji pictures move with the text).
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = 46.dp, max = 132.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    var fieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                    val emojiState = emojiStore.state
+                    val transformation = remember(emojiStore, emojiState) { emojiVisualTransformation(emojiStore) }
                     BasicTextField(
-                        value = text, onValueChange = { text = it },
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                        value = field, onValueChange = { field = it },
+                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
                         cursorBrush = SolidColor(Color.White),
+                        visualTransformation = transformation,
+                        onTextLayout = { fieldLayout = it },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { send() }),
                         modifier = Modifier.fillMaxWidth().focusRequester(inputFocus)
                     )
+                    EmojiFieldOverlay(text, fieldLayout, emojiStore)
                     if (text.isEmpty()) Text(if (replyTarget != null) "Reply…" else "Message…", color = DimGray, fontSize = 14.sp)
                 }
             }
             if (liquidGlass) {
-                LiquidGlassSurface(Modifier.weight(1f).height(46.dp), shape = fieldShape, tint = profileTint, backdrop = backdrop) { MessageFieldContent() }
+                LiquidGlassSurface(Modifier.weight(1f).heightIn(min = 46.dp), shape = fieldShape, tint = profileTint, backdrop = backdrop) { MessageFieldContent() }
             } else {
-                Box(Modifier.weight(1f).height(46.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { MessageFieldContent() }
+                Box(Modifier.weight(1f).heightIn(min = 46.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { MessageFieldContent() }
             }
 
             val sendShape = CircleShape
@@ -843,6 +919,20 @@ private fun DmThreadView(
                 Box(sendModifier.clip(sendShape).background(Color.White.copy(0.14f))) { SendButtonContent() }
             }
         }
+            // The emoji menu, where the keyboard was.
+            if (emojiPanelOpen) {
+                Spacer(Modifier.height(8.dp))
+                EmojiPanel(
+                    store = emojiStore,
+                    height = emojiPanelHeight,
+                    compact = emojiTabEditing,
+                    liquidGlass = liquidGlass,
+                    tint = profileTint,
+                    onPickEmoji = { insertEmoji(it) },
+                    onEditingChange = { emojiTabEditing = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 
@@ -857,6 +947,9 @@ private fun DmThreadView(
             backdrop = if (bubblesOut) bubbleBackdrop else null
         )
     }
+
+    // (The first time the emoji menu opens: custom emoji are public.)
+    if (emojiPanelOpen) PublicDataNotice(liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop)
 
     // ── Reaction picker (long press) ──
     val current = picker
@@ -1059,7 +1152,10 @@ private fun DmBubble(
             val sharedProfile = remember(msg.text) { if (sharedFeed != null) null else sharedProfileActor(msg.text) }
             val shownText = sharedFeed?.rest ?: if (sharedProfile != null) sharedProfile.second else msg.text
             if (shownText.isNotBlank()) {
-                Text(shownText, color = Color.White, fontSize = 14.sp, lineHeight = 18.sp)
+                // (Custom emoji drawn as pictures; their facets only line up
+                // with the message's own, unshortened text.)
+                val facets = remember(msg.id, msg.facets) { msg.facets?.map { it.toKx() } }
+                DmMessageText(shownText, if (shownText == msg.text) facets else null, Color.White, 14.sp, 18.sp)
             }
             if (sharedFeed != null) {
                 if (shownText.isNotBlank()) Spacer(Modifier.height(8.dp))

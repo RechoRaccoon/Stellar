@@ -153,6 +153,29 @@ actual class EmojiStore private constructor() {
 
     actual fun imageBitmapForChar(c: Char): ImageBitmap? = entryFor(c)?.let { imageBitmapFor(it) }
 
+    actual fun pngBytes(entry: EmojiEntry): ByteArray? = runCatching { readLocalFile("$dir/${entry.file}") }.getOrNull()
+
+    actual suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry? {
+        load()
+        val id = reserveId() ?: return null
+        val path = "$dir/e_$id.png"
+        val ok = withContext(Dispatchers.Default) {
+            runCatching { Image.makeFromEncoded(png); writeLocalFile(path, png) }.getOrDefault(false)
+        }
+        if (!ok) {
+            synchronizedCompat(lock) { reservedIds.remove(id) }
+            runCatching { deleteLocalFile(path) }
+            return null
+        }
+        return withContext(Dispatchers.Main) {
+            val cur = state.index
+            val entry = EmojiEntry(id, uniqueName(sanitizeName(name), cur.emojis.map { it.name.lowercase() }.toSet()), "e_$id.png")
+            commit(EmojiIndex(cur.emojis + entry, filedInto(cur.folders, folderName, id)))
+            synchronizedCompat(lock) { reservedIds.remove(id) }
+            entry
+        }
+    }
+
     private fun forget(entry: EmojiEntry) {
         synchronizedCompat(lock) { images.remove(entry.id); composeImages.remove(entry.id) }
         runCatching { deleteLocalFile("$dir/${entry.file}") }

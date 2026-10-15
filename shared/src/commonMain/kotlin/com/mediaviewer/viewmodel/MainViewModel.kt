@@ -3269,7 +3269,12 @@ class MainViewModel(
         tapHaptic()
         _dmThread.value = thread.copy(sending = true)
         viewModelScope.launch(ioDispatcher) {
-            bskyRepo.sendMessage(bskyToken, _bskyDid.value, thread.convo.convoId, text, replyToMessageId = replyToMessageId)
+            // Custom emoji go as ":name:" with a facet pointing at the picture
+            // on your PDS (see EmojiCloud).
+            val (body, emojiFacets) = runCatching {
+                com.mediaviewer.util.EmojiCloud.prepareMessage(com.mediaviewer.util.EmojiStore.get(platform.context), _bskyDid.value, text)
+            }.getOrElse { com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(text) to emptyList() }
+            bskyRepo.sendMessage(bskyToken, _bskyDid.value, thread.convo.convoId, body, replyToMessageId = replyToMessageId, extraFacets = emojiFacets)
                 .onSuccess {
                     // Re-fetch the thread so the new message shows up in the linear history.
                     val refreshed = bskyRepo.getConvoMessages(bskyToken, _bskyDid.value, thread.convo.convoId)
@@ -6217,6 +6222,22 @@ class MainViewModel(
             }
         }
         com.mediaviewer.util.ProfileStyles.resumeOwnStatusClear()
+        // Custom emoji live on your own PDS too (one record per emoji).
+        com.mediaviewer.util.EmojiCloud.init(platform.context)
+        com.mediaviewer.util.EmojiCloud.remote = object : com.mediaviewer.util.EmojiCloud.Remote {
+            private suspend fun <T> signedIn(call: suspend () -> T): T {
+                if (!_bskyLoggedIn.value) error("Not signed in")
+                return try { call() } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (isAuthError(e.message) && refreshBskyTokenIfPossible()) call() else throw e
+                }
+            }
+            override suspend fun list(did: String) = signedIn { bskyRepo.listEmojiRecords(bskyToken, did) }
+            override suspend fun create(did: String, name: String, png: ByteArray, hash: String, folder: String?) =
+                signedIn { bskyRepo.createEmojiRecord(bskyToken, did, name, png, hash, folder) }
+            override suspend fun delete(did: String, rkey: String) = signedIn { bskyRepo.deleteEmojiRecord(bskyToken, did, rkey) }
+            override suspend fun fetch(did: String, cid: String) = bskyRepo.fetchBlob(did, cid)
+        }
         // The shared tag dataset: downloaded into the tagging service as
         // one more imported dataset (see tagging/SharedTagDataset).
         com.mediaviewer.tagging.SharedTagDataset.init(platform.context)

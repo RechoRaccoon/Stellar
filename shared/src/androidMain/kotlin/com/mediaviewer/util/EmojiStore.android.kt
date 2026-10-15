@@ -139,6 +139,29 @@ actual class EmojiStore private constructor(context: Context) {
 
     fun fileFor(entry: EmojiEntry): File = File(dir, entry.file)
 
+    actual fun pngBytes(entry: EmojiEntry): ByteArray? = runCatching { fileFor(entry).readBytes() }.getOrNull()
+
+    actual suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry? = withContext(Dispatchers.IO) {
+        load()
+        val id = reserveId() ?: return@withContext null
+        val file = File(dir, "e_$id.png")
+        val ok = runCatching {
+            BitmapFactory.decodeByteArray(png, 0, png.size) != null && run { file.writeBytes(png); true }
+        }.getOrDefault(false)
+        if (!ok) {
+            synchronized(lock) { reservedIds.remove(id) }
+            runCatching { file.delete() }
+            return@withContext null
+        }
+        synchronized(lock) {
+            val cur = state.index
+            val entry = EmojiEntry(id, uniqueName(sanitizeName(name), cur.emojis.map { it.name.lowercase() }.toSet()), "e_$id.png")
+            commit(EmojiIndex(cur.emojis + entry, filedInto(cur.folders, folderName, id)))
+            reservedIds.remove(id)
+            entry
+        }
+    }
+
     /** Decoded emoji picture (cached) — used by [TextshotRenderer]. */
     fun bitmapFor(entry: EmojiEntry): Bitmap? {
         bitmapCache[entry.id]?.let { return it }

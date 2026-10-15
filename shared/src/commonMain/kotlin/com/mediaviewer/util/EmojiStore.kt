@@ -18,6 +18,15 @@ data class EmojiIndex(
     val folders: List<EmojiFolder> = emptyList()
 )
 
+/** [folders] with emoji [id] filed into the one named [folderName] (made
+ *  if there isn't one); unchanged for a null name. */
+fun filedInto(folders: List<EmojiFolder>, folderName: String?, id: Int): List<EmojiFolder> {
+    if (folderName.isNullOrBlank()) return folders
+    val existing = folders.firstOrNull { it.name == folderName }
+        ?: return folders + EmojiFolder((folders.maxOfOrNull { it.id } ?: 0) + 1, folderName, listOf(id))
+    return folders.map { if (it.id == existing.id) it.copy(emojiIds = it.emojiIds + id) else it }
+}
+
 /** [EmojiIndex] plus a lookup table, rebuilt whenever the index changes. */
 class EmojiState(val index: EmojiIndex) {
     val byId: Map<Int, EmojiEntry> = index.emojis.associateBy { it.id }
@@ -42,6 +51,14 @@ expect class EmojiStore {
     fun toShortcodes(text: String): String
     fun stripEmoji(text: String): String
     fun imageBitmapForChar(c: Char): ImageBitmap?
+
+    /** The emoji's picture, as stored (a PNG). */
+    fun pngBytes(entry: EmojiEntry): ByteArray?
+
+    /** Adds a picture that's already a small PNG (an emoji from the
+     *  person's PDS, see EmojiCloud), filed into the folder named
+     *  [folderName] (made if there isn't one). Null if it couldn't be read. */
+    suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry?
 
     companion object {
         fun get(context: PlatformContext): EmojiStore

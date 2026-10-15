@@ -547,3 +547,7 @@ EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.manual = 
 EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id NOT IN ({0})) OR 
 No shared dataset yet ({0})
 Stellar Shared Tags
+Blob {0}
+Emoji upload {0}: {1}
+Emoji {0}: {1}
+com.rechoraccoon.stellar.richtext.facet#emoji

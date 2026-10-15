@@ -14,7 +14,53 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0k. Update: tagging page, status history, alt text, composer fixes (latest)
+## 0l. Update: shared tag dataset, multi-dataset tags, PDS status history, DM emoji (latest)
+
+- **Tags from several datasets on one post.** Importing a dataset now
+  adds its tags to posts already there (each tag once, highest score)
+  instead of skipping them. Every post and tag records which datasets it
+  came from, so deleting a dataset removes only what nothing else has.
+  Android: `TagDatabase` v5 (`post_sources`, `tag_sources`); elsewhere the
+  dataset file's `sets` (post) and `s` (tag) fields (old files read fine).
+- **Shared tag dataset.** `tools/tag-dataset/merge.py` + the "Shared Tag
+  Dataset" workflow (`.github/workflows/tag-dataset.yml`): the exports
+  attached to the `tag-datasets` release (a pre-release; .json or
+  .json.gz) are merged and published as `manifest.json` + `part-NNN.json`
+  on the `tag-dataset` branch (one force-pushed commit). Runs when that
+  release is edited, daily, or by hand. Rebuilt from the files present,
+  so deleting a file removes what only it contributed.
+  App: `tagging/SharedTagDataset.kt`. Opening Tagged search checks the
+  manifest (raw.githubusercontent.com, CORS-open) at most once a day; a
+  first download or an update is offered in a `ConfirmPopup` with a
+  progress bar. Installed as one more imported dataset (new copy in, then
+  the old one out). Exports leave it out (`exportAllPosts(exclude)`), so it
+  never feeds back in. Tagged search is always shown now.
+  `AppUpdates` reads `/releases` and skips pre-releases and
+  `tag-datasets`, so that release can't be mistaken for an app update.
+- **Status history on the PDS** (`util/StatusHistory.kt`): one
+  `com.rechoraccoon.stellar.statusHistory` record per status, a local copy
+  for speed, synced once a session; deletes delete the record (retried
+  until they go through).
+- **One-time "These Are Public" notice** (`ui/PublicDataNotice.kt`) the
+  first time the status box or an emoji menu opens.
+- **Custom emoji on the PDS and in DMs** (`util/EmojiCloud.kt`):
+  - each emoji is a `com.rechoraccoon.stellar.emoji` record (name, folder,
+    FNV-1a hash, PNG blob);
+  - the library syncs both ways when an emoji menu opens and closes (an
+    emoji deleted here since the last sync has its record deleted);
+  - `EmojiStore` gained `pngBytes`/`addPng` on every platform;
+  - DMs: a 🦝 button at the left of the field opens the emoji menu where
+    the keyboard was; the field now grows to a few lines (emoji drawn by
+    `EmojiFieldOverlay`); a sent emoji becomes ":name:" plus a
+    `com.rechoraccoon.stellar.richtext.facet#emoji` facet (did, rkey,
+    blob cid) — if the chat service refuses the facet it's sent without;
+    `DmMessageText` draws them inline (bigger when a message is only
+    emoji). Other apps show ":name:".
+- Media posts with no text show the "Stats" bubble.
+- `ConfirmPopup`: `showCancel`, `progress`/`progressLabel`,
+  `dismissOnOutsideTap`.
+
+## 0k. Update: tagging page, status history, alt text, composer fixes
 
 - Tagging page (`TaggingOverlay.kt`): one header row — Back, "Tagging"
   + spinner, and a "N Posts · size" pill — over the post at its own

@@ -421,6 +421,13 @@ fun ComposePostScreen(
     }
     // Registered after the composer's own BackHandler, so Back closes the menu first.
     BackHandler(enabled = emojiPanelOpen) { emojiPanelOpen = false; emojiTabEditing = false }
+    // (The library follows the account: synced when the menu opens, and
+    // again when it closes, for anything added or deleted in it.)
+    val selfDidForEmoji = com.mediaviewer.util.Supporter.selfDid
+    LaunchedEffect(emojiPanelOpen, selfDidForEmoji) {
+        if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji)
+        else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji, force = true)
+    }
     val emojiPanelHeight = with(imeDensity) { if (keyboardPx > 0) keyboardPx.toDp() else 300.dp }.coerceIn(240.dp, 480.dp)
     val imeDp = with(imeDensity) { imeBottomPx.toDp() }
     // What the scrolling content and the bottom bar reserve at the screen's bottom.
@@ -2052,7 +2059,7 @@ private fun ReviewStarPicker(rating: Int, onRatingChange: (Int) -> Unit) {
 
 /** Last keyboard height seen (px), kept across composer sessions so the emoji
  *  menu can match the keyboard's size even the first time it is opened. */
-private var rememberedKeyboardPx = 0
+internal var rememberedKeyboardPx = 0
 
 /** [GlassCircleButton]'s twin for an emoji glyph instead of an icon (the
  *  raccoon button in Textshot mode). Same size, glass and haptic tap. */
@@ -2346,12 +2353,12 @@ private fun GrowingTextField(
  *  gives it a solid, wrappable slot; it's painted transparent and the emoji
  *  picture is drawn over it. A little letter-spacing widens the slot to the
  *  ~1.25em that a normal emoji glyph takes. */
-private const val EMOJI_SLOT_CHAR = '\u4E00'
-private val EmojiSlotStyle = SpanStyle(color = Color.Transparent, letterSpacing = 0.25.em)
+internal const val EMOJI_SLOT_CHAR = '\u4E00'
+internal val EmojiSlotStyle = SpanStyle(color = Color.Transparent, letterSpacing = 0.25.em)
 
 /** Swaps every emoji token for a slot — one character for one character, so
  *  caret/selection offsets map straight across (OffsetMapping.Identity). */
-private fun emojiVisualTransformation(store: EmojiStore) = VisualTransformation { text ->
+internal fun emojiVisualTransformation(store: EmojiStore) = VisualTransformation { text ->
     val shown = buildAnnotatedString {
         for (c in text.text) {
             if (store.entryFor(c) != null) withStyle(EmojiSlotStyle) { append(EMOJI_SLOT_CHAR) } else append(c)
