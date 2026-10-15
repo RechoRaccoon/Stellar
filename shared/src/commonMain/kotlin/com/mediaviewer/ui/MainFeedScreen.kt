@@ -2194,10 +2194,11 @@ private fun PostContent(
                             centeredText = "Tap to Add Saved Post to Folder",
                             stats = postStats
                         )
-                    } else if (item.isTextOnly && postStats != null) {
-                        // Text posts show their text in the middle, so the
-                        // bubble here reads "Stats" and opens to the counts
-                        // and date (gone when both are turned off).
+                    } else if (postStats != null) {
+                        // Text posts show their text in the middle, and media
+                        // posts may have none: the bubble here reads "Stats"
+                        // and opens to the counts and date (gone when both
+                        // are turned off).
                         PostStatsBubble(
                             stats = postStats,
                             liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
@@ -3077,8 +3078,9 @@ private fun PostTextBubble(
     }
 }
 
-/** A text post's bubble: reads "Stats"; tap to fade to the counts and
- *  date, tap again to fade back. */
+/** The bubble of a post with no text under it (a text post, or media
+ *  without words): reads "Stats"; tap to fade to the counts and date, tap
+ *  again to fade back. */
 @Composable
 private fun PostStatsBubble(
     stats: PostBubbleStats, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,

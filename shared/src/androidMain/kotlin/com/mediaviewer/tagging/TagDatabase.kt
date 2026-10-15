@@ -27,6 +27,38 @@ import android.database.sqlite.SQLiteOpenHelper
  *  SQLite and is if anything more precise for this data. */
 class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
 
+    /** Which datasets each post and each tag came from ('' = this device's
+     *  own tagging). A post or tag shared by several datasets is stored
+     *  once, with one source row per dataset, so deleting a dataset removes
+     *  only what no other dataset (or this device) also has. */
+    private fun createSourceTables(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS post_sources (post_uri TEXT NOT NULL, dataset_id TEXT NOT NULL, PRIMARY KEY (post_uri, dataset_id))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS tag_sources (post_uri TEXT NOT NULL, tag_name TEXT NOT NULL, dataset_id TEXT NOT NULL, PRIMARY KEY (post_uri, tag_name, dataset_id))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_post_sources_dataset ON post_sources(dataset_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tag_sources_dataset ON tag_sources(dataset_id)")
+    }
+
+    /** Adds [tag] to [postUri] from [source]: one row per tag (the higher
+     *  score kept), plus the source. A tag added by hand stays as it is. */
+    private fun mergeTag(db: SQLiteDatabase, postUri: String, tag: String, confidence: Float, source: String) {
+        db.execSQL("UPDATE media_tags SET confidence = MAX(confidence, ?) WHERE post_uri = ? AND tag_name = ? AND manual = 0", arrayOf(confidence, postUri, tag))
+        db.execSQL(
+            "INSERT INTO media_tags (post_uri, tag_name, confidence) SELECT ?, ?, ? " +
+                "WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE post_uri = ? AND tag_name = ?)",
+            arrayOf(postUri, tag, confidence, postUri, tag)
+        )
+        db.execSQL("INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) VALUES (?, ?, ?)", arrayOf(postUri, tag, source))
+    }
+
+    /** Tags no source has any more (and not added by hand) are dropped. */
+    private fun dropOrphanTags(db: SQLiteDatabase, postFilter: String, args: Array<out Any>) {
+        db.execSQL(
+            "DELETE FROM media_tags WHERE manual = 0 AND post_uri IN ($postFilter) AND NOT EXISTS " +
+                "(SELECT 1 FROM tag_sources s WHERE s.post_uri = media_tags.post_uri AND s.tag_name = media_tags.tag_name)",
+            args
+        )
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -78,6 +110,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         // searchPostUris filters by tag_name first.
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_media_tags_tag_name ON media_tags(tag_name)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_liked_media_dataset_id ON liked_media(dataset_id)")
+        createSourceTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -119,6 +152,16 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
             )
             db.execSQL("UPDATE media_tags SET manual = 1 WHERE post_uri IN (SELECT post_uri FROM liked_media WHERE ai_tagged = 0)")
         }
+        if (oldVersion < 5) {
+            // Tags from several datasets on one post: every existing post
+            // and AI/imported tag belonged to its row's one dataset.
+            createSourceTables(db)
+            db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) SELECT post_uri, dataset_id FROM liked_media")
+            db.execSQL(
+                "INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) " +
+                    "SELECT t.post_uri, t.tag_name, m.dataset_id FROM media_tags t JOIN liked_media m ON m.post_uri = t.post_uri WHERE t.manual = 0"
+            )
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -142,14 +185,15 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
      *  imported dataset) — a post with only hand-added tags isn't. */
     fun isAiTagged(postUri: String): Boolean {
         readableDatabase.rawQuery(
-            "SELECT 1 FROM liked_media WHERE post_uri = ? AND (ai_tagged = 1 OR dataset_id != ?) LIMIT 1",
+            "SELECT 1 FROM liked_media WHERE post_uri = ? AND (ai_tagged = 1 OR EXISTS " +
+                "(SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?)) LIMIT 1",
             arrayOf(postUri, LOCAL_DATASET_ID)
         ).use { return it.moveToFirst() }
     }
 
     fun isInImportedDataset(postUri: String): Boolean {
         readableDatabase.rawQuery(
-            "SELECT 1 FROM liked_media WHERE post_uri = ? AND dataset_id != ? LIMIT 1",
+            "SELECT 1 FROM post_sources WHERE post_uri = ? AND dataset_id != ? LIMIT 1",
             arrayOf(postUri, LOCAL_DATASET_ID)
         ).use { return it.moveToFirst() }
     }
@@ -163,33 +207,28 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
      *  normal on-device tagging pipeline (TaggingRepository.inferAndStore/
      *  tagOnePost/tagBatch's text-only shortcut) leaves this at the
      *  default, so only [importDataset] ever passes a real dataset id. */
-    fun storeTags(postUri: String, cid: String, mediaUrl: String, tags: List<Pair<String, Float>>, datasetId: String = LOCAL_DATASET_ID) {
+    fun storeTags(postUri: String, cid: String, mediaUrl: String, tags: List<Pair<String, Float>>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
             // Update in place (an INSERT OR REPLACE would delete the row
             // first, and with it — ON DELETE CASCADE — any hand-added tags).
+            // A post that came with a dataset keeps that as its first source.
             val values = android.content.ContentValues().apply {
                 put("cid", cid); put("media_url", mediaUrl)
-                put("indexed_timestamp", System.currentTimeMillis()); put("dataset_id", datasetId); put("ai_tagged", 1)
+                put("indexed_timestamp", System.currentTimeMillis()); put("ai_tagged", 1)
             }
             if (db.update("liked_media", values, "post_uri = ?", arrayOf(postUri)) == 0) {
                 values.put("post_uri", postUri)
+                values.put("dataset_id", LOCAL_DATASET_ID)
                 db.insertOrThrow("liked_media", null, values)
             }
-            // Replace the AI's tags from any earlier pass; hand-added ones stay.
-            db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND manual = 0", arrayOf(postUri))
-            val hand = HashSet<String>()
-            db.rawQuery("SELECT tag_name FROM media_tags WHERE post_uri = ?", arrayOf(postUri)).use { c ->
-                while (c.moveToNext()) hand.add(c.getString(0))
-            }
-            tags.forEach { (tag, confidence) ->
-                if (tag in hand) return@forEach
-                db.execSQL(
-                    "INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)",
-                    arrayOf(postUri, tag, confidence)
-                )
-            }
+            db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)", arrayOf(postUri, LOCAL_DATASET_ID))
+            // Replace this device's AI tags from any earlier pass; hand-added
+            // ones, and tags imported datasets gave it, stay.
+            db.execSQL("DELETE FROM tag_sources WHERE post_uri = ? AND dataset_id = ?", arrayOf(postUri, LOCAL_DATASET_ID))
+            dropOrphanTags(db, "?", arrayOf(postUri))
+            tags.forEach { (tag, confidence) -> mergeTag(db, postUri, tag, confidence, LOCAL_DATASET_ID) }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -325,9 +364,15 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id, ai_tagged) VALUES (?, ?, ?, ?, ?, 0)",
                 arrayOf(postUri, cid, mediaUrl, System.currentTimeMillis(), LOCAL_DATASET_ID)
             )
+            db.execSQL(
+                "INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM post_sources WHERE post_uri = ?)",
+                arrayOf(postUri, LOCAL_DATASET_ID, postUri)
+            )
             when {
-                oldTag != null && newTag == null ->
+                oldTag != null && newTag == null -> {
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, oldTag))
+                    db.execSQL("DELETE FROM tag_sources WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, oldTag))
+                }
                 oldTag == null && newTag != null -> {
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
                     db.execSQL("INSERT INTO media_tags (post_uri, tag_name, confidence, manual) VALUES (?, ?, 1.0, 1)", arrayOf(postUri, newTag))
@@ -336,6 +381,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     // (Renaming onto a tag it already has merges the two.)
                     db.execSQL("DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, newTag))
                     db.execSQL("UPDATE media_tags SET tag_name = ?, manual = 1 WHERE post_uri = ? AND tag_name = ?", arrayOf(newTag, postUri, oldTag))
+                    db.execSQL("DELETE FROM tag_sources WHERE post_uri = ? AND tag_name = ?", arrayOf(postUri, oldTag))
                 }
             }
             db.setTransactionSuccessful()
@@ -364,21 +410,13 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
     }
 
     /** Imports a friend's exported dataset as its own separate, independently
-     *  deletable entry — per the request, importing must never override or
-     *  merge into the existing on-device dataset. Everything lands in the
-     *  same liked_media/media_tags tables (so search/browse still treats
-     *  every dataset "as one", per the request) but tagged with a fresh
-     *  [datasetId] so [deleteDataset] can later remove exactly this import
-     *  and nothing else.
-     *
-     *  Uses INSERT OR IGNORE on post_uri (liked_media's primary key): if this
-     *  import contains a post the device already has — from the local
-     *  dataset or an earlier import — the existing row (and its tags) wins
-     *  and the incoming duplicate is skipped rather than overwriting it or
-     *  failing the whole import. A handful of coincidental overlapping likes
-     *  between two people's datasets is expected and shouldn't block the
-     *  rest of the import or silently reassign an existing post to a
-     *  different dataset_id. */
+     *  deletable entry. Everything lands in the same liked_media/media_tags
+     *  tables (so search treats every dataset as one); a post the device
+     *  already has (from its own tagging or another dataset) gets this
+     *  dataset's tags added to it — each tag once, the higher score kept —
+     *  and every post and tag remembers which datasets it came from
+     *  (post_sources/tag_sources), so [deleteDataset] removes exactly what
+     *  only this dataset brought. */
     fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo {
         val id = java.util.UUID.randomUUID().toString()
         val importedAt = System.currentTimeMillis()
@@ -389,10 +427,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 "INSERT INTO datasets (id, name, imported_at) VALUES (?, ?, ?)",
                 arrayOf(id, name, importedAt)
             )
-            var inserted = 0
-            // Not android.database.Cursor — SQLiteStatement doesn't
-            // implement java.io.Closeable, so this is explicit try/finally
-            // rather than Kotlin's `.use {}`.
+            var count = 0
             val insertStmt = db.compileStatement(
                 "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)"
             )
@@ -405,21 +440,16 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     insertStmt.bindString(3, post.mediaUrl)
                     insertStmt.bindLong(4, importedAt)
                     insertStmt.bindString(5, id)
-                    val rowId = insertStmt.executeInsert()
-                    if (rowId == -1L) return@forEach // already present under another dataset — skip its tags too
-                    inserted++
-                    post.tags.forEach { (tag, confidence) ->
-                        db.execSQL(
-                            "INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)",
-                            arrayOf(post.postUri, tag, confidence)
-                        )
-                    }
+                    insertStmt.executeInsert()
+                    db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)", arrayOf(post.postUri, id))
+                    count++
+                    post.tags.forEach { (tag, confidence) -> mergeTag(db, post.postUri, tag, confidence, id) }
                 }
             } finally {
                 insertStmt.close()
             }
             db.setTransactionSuccessful()
-            return TagDatasetInfo(id, name, importedAt, inserted)
+            return TagDatasetInfo(id, name, importedAt, count)
         } finally {
             db.endTransaction()
         }
@@ -429,7 +459,8 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
     fun localPostsForExport(): List<TagExportedPost> {
         val posts = LinkedHashMap<String, TagExportedPost>()
         readableDatabase.rawQuery(
-            "SELECT post_uri, cid, media_url FROM liked_media WHERE dataset_id = ?", arrayOf(LOCAL_DATASET_ID)
+            "SELECT m.post_uri, m.cid, m.media_url FROM liked_media m JOIN post_sources p ON p.post_uri = m.post_uri WHERE p.dataset_id = ?",
+            arrayOf(LOCAL_DATASET_ID)
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val uri = cursor.getString(0)
@@ -438,8 +469,10 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         }
         val tagsByPost = HashMap<String, MutableList<Pair<String, Float>>>()
         readableDatabase.rawQuery(
-            "SELECT t.post_uri, t.tag_name, t.confidence FROM media_tags t JOIN liked_media m ON m.post_uri = t.post_uri " +
-                "WHERE m.dataset_id = ? ORDER BY t.confidence DESC", arrayOf(LOCAL_DATASET_ID)
+            // This device's own tags: its AI's, and the ones added by hand.
+            "SELECT t.post_uri, t.tag_name, t.confidence FROM media_tags t WHERE t.manual = 1 OR EXISTS " +
+                "(SELECT 1 FROM tag_sources s WHERE s.post_uri = t.post_uri AND s.tag_name = t.tag_name AND s.dataset_id = ?) " +
+                "ORDER BY t.confidence DESC", arrayOf(LOCAL_DATASET_ID)
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 tagsByPost.getOrPut(cursor.getString(0)) { mutableListOf() }.add(cursor.getString(1) to cursor.getFloat(2))
@@ -456,29 +489,24 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val now = System.currentTimeMillis()
         db.beginTransaction()
         try {
-            db.execSQL("DELETE FROM media_tags WHERE post_uri IN (SELECT post_uri FROM liked_media WHERE dataset_id = ?)", arrayOf(LOCAL_DATASET_ID))
-            db.execSQL("DELETE FROM liked_media WHERE dataset_id = ?", arrayOf(LOCAL_DATASET_ID))
-            val insert = db.compileStatement(
-                "INSERT OR REPLACE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)"
+            // This device's own tags go (imported datasets' stay), then any
+            // post nothing is left on.
+            db.execSQL("DELETE FROM tag_sources WHERE dataset_id = ?", arrayOf(LOCAL_DATASET_ID))
+            db.execSQL(
+                "DELETE FROM media_tags WHERE post_uri IN (SELECT post_uri FROM post_sources WHERE dataset_id = ?) AND " +
+                    "(manual = 1 OR NOT EXISTS (SELECT 1 FROM tag_sources s WHERE s.post_uri = media_tags.post_uri AND s.tag_name = media_tags.tag_name))",
+                arrayOf(LOCAL_DATASET_ID)
             )
-            try {
-                for (post in posts) {
-                    if (post.postUri.isBlank()) continue
-                    // A post also present in an imported dataset moves into the main one.
-                    db.execSQL("DELETE FROM media_tags WHERE post_uri = ?", arrayOf(post.postUri))
-                    insert.clearBindings()
-                    insert.bindString(1, post.postUri)
-                    insert.bindString(2, post.cid)
-                    insert.bindString(3, post.mediaUrl)
-                    insert.bindLong(4, now)
-                    insert.bindString(5, LOCAL_DATASET_ID)
-                    insert.executeInsert()
-                    for ((tag, confidence) in post.tags) {
-                        db.execSQL("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)", arrayOf(post.postUri, tag, confidence))
-                    }
-                }
-            } finally {
-                insert.close()
+            db.execSQL("DELETE FROM post_sources WHERE dataset_id = ?", arrayOf(LOCAL_DATASET_ID))
+            db.execSQL("DELETE FROM liked_media WHERE NOT EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri)")
+            for (post in posts) {
+                if (post.postUri.isBlank()) continue
+                db.execSQL(
+                    "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)",
+                    arrayOf(post.postUri, post.cid, post.mediaUrl, now, LOCAL_DATASET_ID)
+                )
+                db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)", arrayOf(post.postUri, LOCAL_DATASET_ID))
+                for ((tag, confidence) in post.tags) mergeTag(db, post.postUri, tag, confidence, LOCAL_DATASET_ID)
             }
             db.setTransactionSuccessful()
         } finally {
@@ -494,7 +522,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         readableDatabase.rawQuery(
             """
             SELECT d.id, d.name, d.imported_at,
-                (SELECT COUNT(*) FROM liked_media lm WHERE lm.dataset_id = d.id) AS post_count
+                (SELECT COUNT(*) FROM post_sources ps WHERE ps.dataset_id = d.id) AS post_count
             FROM datasets d ORDER BY d.imported_at DESC
             """.trimIndent(),
             null
@@ -515,8 +543,33 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.execSQL("DELETE FROM media_tags WHERE post_uri IN (SELECT post_uri FROM liked_media WHERE dataset_id = ?)", arrayOf(id))
-            db.execSQL("DELETE FROM liked_media WHERE dataset_id = ?", arrayOf(id))
+            val inSet = "SELECT post_uri FROM post_sources WHERE dataset_id = ?"
+            // Its tags go unless another dataset (or this device) has them too.
+            db.execSQL("DELETE FROM tag_sources WHERE dataset_id = ?", arrayOf(id))
+            dropOrphanTags(db, inSet, arrayOf(id))
+            // Its posts go unless something else still has them.
+            db.execSQL(
+                "DELETE FROM liked_media WHERE post_uri IN ($inSet) AND " +
+                    "NOT EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?) AND " +
+                    "NOT EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = liked_media.post_uri)",
+                arrayOf(id, id)
+            )
+            // A post it brought that's still here (another dataset or hand
+            // tags have it) moves to whichever source is left; one only hand
+            // tags are left on still needs the AI.
+            db.execSQL(
+                "UPDATE liked_media SET ai_tagged = CASE WHEN EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?) THEN ai_tagged ELSE 0 END, " +
+                    "dataset_id = COALESCE((SELECT p.dataset_id FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ? LIMIT 1), ?) " +
+                    "WHERE post_uri IN ($inSet) AND dataset_id = ?",
+                arrayOf(id, id, LOCAL_DATASET_ID, id, id)
+            )
+            db.execSQL("DELETE FROM post_sources WHERE dataset_id = ?", arrayOf(id))
+            // (A post kept only by its hand tags is this device's now.)
+            db.execSQL(
+                "INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) SELECT post_uri, ? FROM liked_media " +
+                    "WHERE NOT EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri)",
+                arrayOf(LOCAL_DATASET_ID)
+            )
             db.execSQL("DELETE FROM datasets WHERE id = ?", arrayOf(id))
             db.setTransactionSuccessful()
         } finally {
@@ -543,6 +596,8 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         // imported-datasets list would keep showing entries whose underlying
         // liked_media/media_tags rows had already been wiped.
         db.execSQL("DELETE FROM datasets")
+        db.execSQL("DELETE FROM post_sources")
+        db.execSQL("DELETE FROM tag_sources")
         db.execSQL("VACUUM")
     }
 
@@ -561,7 +616,10 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         //
         // Bumped 3 -> 4: liked_media.ai_tagged + media_tags.manual (hand
         // tags no longer stop the AI tagging a post, and survive it).
-        private const val DB_VERSION = 4
+        //
+        // Bumped 4 -> 5: post_sources + tag_sources (one post's tags can come
+        // from several datasets; deleting one removes only its own).
+        private const val DB_VERSION = 5
 
         /** Sentinel dataset_id for every row created by the normal on-device
          *  tagging pipeline (as opposed to an imported dataset — see the

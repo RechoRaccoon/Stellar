@@ -70,7 +70,10 @@ object TaggerFiles {
 private data class StoredTag(
     val n: String = "", val c: Float = 0f,
     /** Added by hand on the Tags page (kept when the AI tags the post). */
-    val m: Boolean = false
+    val m: Boolean = false,
+    /** The datasets that gave this tag ("" = this device). Null in files
+     *  from before tags were merged: then the post's own datasets. */
+    val s: List<String>? = null
 )
 
 @Serializable
@@ -85,10 +88,46 @@ private data class StoredPost(
     /** The AI has tagged it. Null in files from before hand tags were told
      *  apart: then a post whose every tag scores exactly 1 was only ever
      *  tagged by hand. */
-    val ai: Boolean? = null
+    val ai: Boolean? = null,
+    /** Every dataset this post came with ("" = this device). Null in files
+     *  from before posts could be in several: then just [set]. */
+    val sets: List<String>? = null
 ) {
-    val aiDone: Boolean get() = set.isNotEmpty() || (ai ?: !(tags.isNotEmpty() && tags.all { it.c == 1f }))
-    val handTags: List<StoredTag> get() = tags.filter { it.m || (ai != true && it.c == 1f) }
+    val sources: List<String> get() = sets ?: listOf(set)
+    fun sourcesOf(tag: StoredTag): List<String> = tag.s ?: if (tag.m) emptyList() else sources
+    val aiDone: Boolean get() = sources.any { it.isNotEmpty() } || (ai ?: !(tags.isNotEmpty() && tags.all { it.c == 1f }))
+    val handTags: List<StoredTag> get() = tags.filter { it.m || (ai != true && it.c == 1f && "" in sourcesOf(it)) }
+
+    /** The same post with every tag's sources written out, the hand-added
+     *  ones marked. */
+    fun normalized(): StoredPost {
+        val hand = handTags.toSet()
+        return copy(sets = sources, tags = tags.map { t -> if (t in hand) t.copy(m = true, s = emptyList()) else t.copy(s = sourcesOf(t)) })
+    }
+
+    /** [incoming] added as coming from [source]: each tag once (the higher
+     *  score kept); a tag added by hand stays as it is. */
+    fun merged(source: String, incoming: List<Pair<String, Float>>): StoredPost {
+        val byName = LinkedHashMap<String, StoredTag>()
+        tags.forEach { byName[it.n] = it }
+        for ((name, score) in incoming) {
+            if (name.isBlank()) continue
+            val e = byName[name]
+            byName[name] = when {
+                e == null -> StoredTag(name, score, s = listOf(source))
+                e.m -> e
+                else -> e.copy(c = maxOf(e.c, score), s = (e.s.orEmpty() + source).distinct())
+            }
+        }
+        return copy(tags = byName.values.toList(), sets = (sources + source).distinct())
+    }
+
+    /** Everything [source] gave it taken away: tags only it had go (hand
+     *  tags stay). */
+    fun without(source: String): StoredPost = copy(
+        sets = sources - source,
+        tags = tags.mapNotNull { t -> if (t.m) t else { val left = t.s.orEmpty() - source; if (left.isEmpty()) null else t.copy(s = left) } }
+    )
 }
 
 @Serializable
@@ -140,15 +179,15 @@ private class TagStore(private val engine: TaggerEngine) {
 
     /** The AI has already tagged it (hand tags alone don't count). */
     fun isAiTagged(uri: String): Boolean = locked { posts[uri]?.aiDone == true }
-    fun isInImportedDataset(uri: String): Boolean = locked { posts[uri]?.set?.isNotEmpty() == true }
+    fun isInImportedDataset(uri: String): Boolean = locked { posts[uri]?.sources?.any { it.isNotEmpty() } == true }
 
     fun storeTags(uri: String, cid: String, url: String, tags: List<Pair<String, Float>>) {
         locked {
-            // Hand-added tags stay; the AI's own are replaced.
-            val hand = posts.remove(uri)?.handTags.orEmpty().map { it.copy(m = true) }
-            val handNames = hand.mapTo(HashSet()) { it.n }
-            val ai = tags.filter { it.first !in handNames }.map { StoredTag(it.first, it.second) }
-            posts[uri] = StoredPost(uri, cid, url, currentTimeMillis(), "", ai + hand, ai = true)
+            // This device's earlier AI tags are replaced; hand-added ones,
+            // and the ones imported datasets gave it, stay.
+            val base = posts.remove(uri)?.normalized()?.without("")
+                ?: StoredPost(uri, cid, url, 0L, "", emptyList(), sets = emptyList())
+            posts[uri] = base.merged("", tags).copy(cid = cid, url = url, at = currentTimeMillis(), ai = true)
         }
         changed()
     }
@@ -158,8 +197,8 @@ private class TagStore(private val engine: TaggerEngine) {
         locked {
             // A post first tagged by hand is still tagged by the AI later.
             val existing = posts[uri]
-            val post = existing?.let { it.copy(ai = it.aiDone, tags = it.tags.map { t -> if (t in it.handTags) t.copy(m = true) else t }) }
-                ?: StoredPost(uri, cid, url, currentTimeMillis(), "", emptyList(), ai = false)
+            val post = existing?.let { it.normalized().copy(ai = it.aiDone) }
+                ?: StoredPost(uri, cid, url, currentTimeMillis(), "", emptyList(), ai = false, sets = listOf(""))
             var tags = post.tags
             when {
                 oldTag != null && newTag == null -> tags = tags.filterNot { it.n == oldTag }
@@ -203,7 +242,10 @@ private class TagStore(private val engine: TaggerEngine) {
         posts.values.map { p -> TagExportedPost(p.uri, p.cid, p.url, p.tags.sortedByDescending { it.c }.map { it.n to it.c }) }
     }
 
-    /** Added as its own dataset; a post this device already has keeps what it has. */
+    /** Added as its own dataset. A post this device already has (from its
+     *  own tagging or another dataset) gets this dataset's tags added to it,
+     *  each tag once; every post and tag remembers which datasets it came
+     *  from, so [deleteDataset] removes only what this one alone brought. */
     fun import(name: String, incoming: List<TagExportedPost>): TagDatasetInfo {
         val id = randomUuidString()
         val now = currentTimeMillis()
@@ -211,8 +253,10 @@ private class TagStore(private val engine: TaggerEngine) {
             datasets.add(StoredDataset(id, name, now))
             var count = 0
             for (post in incoming) {
-                if (post.postUri.isBlank() || posts.containsKey(post.postUri)) continue
-                posts[post.postUri] = StoredPost(post.postUri, post.cid, post.mediaUrl, now, id, post.tags.map { StoredTag(it.first, it.second) })
+                if (post.postUri.isBlank()) continue
+                val base = posts[post.postUri]?.normalized()
+                    ?: StoredPost(post.postUri, post.cid, post.mediaUrl, now, id, emptyList(), sets = emptyList())
+                posts[post.postUri] = base.merged(id, post.tags)
                 count++
             }
             count
@@ -222,12 +266,22 @@ private class TagStore(private val engine: TaggerEngine) {
     }
 
     fun listDatasets(): List<TagDatasetInfo> = locked {
-        datasets.sortedByDescending { it.at }.map { d -> TagDatasetInfo(d.id, d.name, d.at, posts.values.count { it.set == d.id }) }
+        datasets.sortedByDescending { it.at }.map { d -> TagDatasetInfo(d.id, d.name, d.at, posts.values.count { d.id in it.sources }) }
     }
 
     fun deleteDataset(id: String) {
         locked {
-            posts.values.filter { it.set == id }.map { it.uri }.forEach { posts.remove(it) }
+            for (uri in posts.values.filter { id in it.sources }.map { it.uri }) {
+                val left = posts.getValue(uri).normalized().without(id)
+                if (left.sources.isEmpty() && left.tags.isEmpty()) { posts.remove(uri); continue }
+                // Kept by another dataset or by hand tags; with only hand
+                // tags left it's this device's again, and still needs the AI.
+                posts[uri] = when {
+                    left.sources.isEmpty() -> left.copy(set = "", sets = listOf(""), ai = false)
+                    left.set == id -> left.copy(set = left.sources.first())
+                    else -> left
+                }
+            }
             datasets.removeAll { it.id == id }
         }
         changed(urgent = true)
