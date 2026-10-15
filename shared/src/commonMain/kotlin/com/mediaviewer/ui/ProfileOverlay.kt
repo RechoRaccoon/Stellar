@@ -2002,10 +2002,12 @@ private fun ProfileBannerOverlayLayout(
         // Name pills, measured first: their combined height dictates the
         // avatar's height.
         val displayNamePlaceable = subcompose("displayName") {
-            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 15.sp, bold = true, backdrop = backdrop)
+            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 15.sp, bold = true, backdrop = backdrop,
+                modifier = Modifier.copyOnTap(author.displayName))
         }.first().measure(loose)
         val usernamePlaceable = subcompose("username") {
-            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 12.sp, bold = false, backdrop = backdrop)
+            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 12.sp, bold = false, backdrop = backdrop,
+                modifier = Modifier.copyOnTap("@${author.handle}"))
         }.first().measure(loose)
         val namesHeight = displayNamePlaceable.height + nameGapPx + usernamePlaceable.height
 
@@ -2169,6 +2171,19 @@ private fun ProfileAvatarGlass(
         }
     } else {
         Box(Modifier.size(size).clip(shape).background(Color.Black.copy(0.5f)).padding(5.dp)) { AvatarImage() }
+    }
+}
+
+/** Tapping copies [text] to the clipboard, with a "Copied" message. */
+@Composable
+private fun Modifier.copyOnTap(text: String): Modifier {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val tap = rememberHapticTap()
+    return this.clip(RoundedCornerShape(14.dp)).clickable {
+        if (text.isBlank()) return@clickable
+        tap()
+        clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+        com.mediaviewer.ui.compat.showPlatformToast(com.mediaviewer.i18n.tr("Copied"))
     }
 }
 
@@ -5742,7 +5757,8 @@ private fun ReviewPanel(fr: FriendPopfeedReview, social: MainViewModel.ReviewSoc
 @Composable
 private fun TitleReviewBar(
     liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit,
-    /** "Backlog"/"Remove"/"…" for the pill on the right of Review; null hides it. */
+    /** "Backlog"/"Remove"/"…" for the pill on the right of Review (an even
+     *  half each); null hides it, and Review takes the whole row. */
     backlogLabel: String? = null,
     onBacklog: () -> Unit = {}
 ) {
@@ -5766,7 +5782,7 @@ private fun TitleReviewBar(
     }
     Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace).height(60.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxSize().tipAnchor("title.bar"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill("Review", 2f, Color.White, onClick)
+            Pill("Review", 1f, Color.White, onClick)
             if (backlogLabel != null) {
                 Pill(backlogLabel, 1f, if (backlogLabel == "Remove") Color(0xFFFF6B6B) else Color.White, onBacklog)
             }
