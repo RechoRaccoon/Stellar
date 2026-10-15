@@ -3324,16 +3324,22 @@ private fun MultiImageGrid(
         val rows = remember(count, landscape, maxWidth, maxHeight) {
             if (!landscape) gridRowsFor(count)
             else {
-                val n = count.coerceIn(1, 9)
-                (1..3).map { r ->
+                fun split(n: Int, r: Int): List<Int> {
                     // r rows, the earlier ones taking any extra.
                     val base = n / r
                     val extra = n % r
-                    List(r) { base + if (it < extra) 1 else 0 }.filter { it > 0 }
-                }.maxByOrNull { cellFor(it) } ?: listOf(n)
+                    return List(r) { base + if (it < extra) 1 else 0 }.filter { it > 0 }
+                }
+                val n = count.coerceIn(1, 9)
+                val grouped = (1..3).map { split(n, it) }
+                // With 10+ images, a wide 1- or 2-row strip shows the tenth
+                // tile on its own; a 3-row grid keeps the 9 + "+N" grouping.
+                val strips = if (count >= 10) (1..2).map { split(10, it) } else emptyList()
+                (strips + grouped).maxByOrNull { cellFor(it) } ?: listOf(n)
             }
         }
         val starts = remember(rows) { rows.runningFold(0) { acc, n -> acc + n } }
+        val shown = rows.sum()
         val cell = cellFor(rows).coerceAtLeast(48.dp)
         val groupH = cell * rows.size + gap * (rows.size - 1)
         val centeredTop = (maxHeight - groupH) / 2
@@ -3372,12 +3378,12 @@ private fun MultiImageGrid(
                                 },
                                 modifier = Modifier.fillMaxSize().padding(2.dp).clip(RoundedCornerShape(14.dp))
                             )
-                            if (i == 8 && count > 9) {
+                            if (i == shown - 1 && count > shown) {
                                 Box(
                                     Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.55f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("+${count - 9}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                                    Text("+${count - shown + 1}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
