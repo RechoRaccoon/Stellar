@@ -1832,5 +1832,11 @@
 "You have v{0}": "当前为 v{0}",
 "You're on the newest version": "已是最新版本",
 "Never": "永不",
-"Status": "状态"
+"Status": "状态",
+"Couldn't load ONNX Runtime": "无法加载 ONNX Runtime",
+"Couldn't save the model": "无法保存模型",
+"Download failed (HTTP {0})": "下载失败（HTTP {0}）",
+"Download was cut off": "下载中断了",
+"The tagger model was removed by the browser. Download it again in Settings.": "浏览器已删除标签模型。请在设置中重新下载。",
+"This browser can't store the model": "此浏览器无法存储模型"
 }

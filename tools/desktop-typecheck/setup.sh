@@ -18,6 +18,7 @@ get com/google/code/gson/gson/2.10.1/gson-2.10.1.jar
 get org/bytedeco/javacv/1.5.11/javacv-1.5.11.jar
 get org/bytedeco/javacpp/1.5.11/javacpp-1.5.11.jar
 get org/bytedeco/ffmpeg/7.1-1.5.11/ffmpeg-7.1-1.5.11.jar
+get com/microsoft/onnxruntime/onnxruntime/1.18.0/onnxruntime-1.18.0.jar
 for m in base graphics controls web swing media; do
   get org/openjfx/javafx-$m/21.0.6/javafx-$m-21.0.6-linux.jar
 done

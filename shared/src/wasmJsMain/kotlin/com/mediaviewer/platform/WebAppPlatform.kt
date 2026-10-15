@@ -2,16 +2,17 @@ package com.mediaviewer.platform
 
 import com.mediaviewer.model.LiveNowPlatform
 import com.mediaviewer.tagging.TaggingService
-import com.mediaviewer.tagging.UnavailableTaggingService
 
 /** The web side of [AppPlatform]. Features a browser can't do report
  *  themselves unavailable (Android keeps all of them). */
 class WebAppPlatform(
-    @Suppress("UNUSED_PARAMETER") bskyRepo: com.mediaviewer.repository.BlueskyRepository,
-    @Suppress("UNUSED_PARAMETER") e621Repo: com.mediaviewer.repository.E621Repository
+    bskyRepo: com.mediaviewer.repository.BlueskyRepository,
+    e621Repo: com.mediaviewer.repository.E621Repository
 ) : AppPlatform {
     override val context: PlatformContext get() = WebContext
-    override val tagging: TaggingService = UnavailableTaggingService
+    // AI Tagging: the same model as Android, through onnxruntime-web.
+    override val tagging: TaggingService =
+        com.mediaviewer.tagging.EngineTaggingRepository(com.mediaviewer.tagging.WebTaggerEngine(), bskyRepo, e621Repo)
 
     override fun haptic() {}
 

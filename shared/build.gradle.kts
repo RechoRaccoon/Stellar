@@ -142,6 +142,8 @@ kotlin {
                 implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
                 // Backups (the same streamed JSON format as Android's).
                 implementation("com.google.code.gson:gson:2.10.1")
+                // AI Tagging: the same ONNX Runtime (and model) as Android.
+                implementation("com.microsoft.onnxruntime:onnxruntime:1.18.0")
                 // Video: FFmpeg through JavaCV — playback (Bluesky's HLS
                 // streams included), upload re-encoding, GIF <-> video. The
                 // GPL build (x264); Stellar itself is GPLv3. Only the pieces

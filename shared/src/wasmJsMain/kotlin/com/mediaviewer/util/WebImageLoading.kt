@@ -180,7 +180,7 @@ private class WebFetcher(private val uri: String, private val options: Options) 
 private const val MAX_SIDE = 2560
 
 /** Bluesky's picture CDN: https://cdn.bsky.app/img/<size>/plain/<did>/<cid>@<format>. */
-private object BskyCdn {
+internal object BskyCdn {
     /** [url] in the CDN's smaller size when the picture is shown small
      *  enough for it: avatars at up to 160 px use the avatar thumbnail
      *  (128 px), feed pictures at up to 1000 px the feed thumbnail. */

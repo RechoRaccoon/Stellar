@@ -1832,5 +1832,11 @@
 "You have v{0}": "현재 v{0}",
 "You're on the newest version": "최신 버전입니다",
 "Never": "안 함",
-"Status": "상태"
+"Status": "상태",
+"Couldn't load ONNX Runtime": "ONNX Runtime을 불러오지 못했어요",
+"Couldn't save the model": "모델을 저장하지 못했어요",
+"Download failed (HTTP {0})": "다운로드 실패 (HTTP {0})",
+"Download was cut off": "다운로드가 중간에 끊겼어요",
+"The tagger model was removed by the browser. Download it again in Settings.": "브라우저가 태그 모델을 삭제했어요. 설정에서 다시 다운로드하세요.",
+"This browser can't store the model": "이 브라우저는 모델을 저장할 수 없어요"
 }

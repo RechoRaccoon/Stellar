@@ -15,7 +15,7 @@ class IosAppPlatform(
     // its tagger along (see registerIosTagger); otherwise it stays gated.
     override val tagging: TaggingService =
         com.mediaviewer.tagging.IosTaggerBridge.tagger
-            ?.let { com.mediaviewer.tagging.IosTaggingRepository(it, bskyRepo, e621Repo) }
+            ?.let { com.mediaviewer.tagging.EngineTaggingRepository(com.mediaviewer.tagging.IosTaggerEngine(it), bskyRepo, e621Repo) }
             ?: UnavailableTaggingService
 
     override fun haptic() = IosHaptics.tick()

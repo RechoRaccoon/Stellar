@@ -4,9 +4,9 @@ import com.mediaviewer.model.MediaItem
 
 /*
  * AI Tagging, as the ViewModel and UI see it. Android's implementation is
- * TaggingRepository (on-device ONNX model + SQLite); iOS doesn't have the
- * tagger yet and uses [UnavailableTaggingService], so the feature is simply
- * hidden there.
+ * TaggingRepository (on-device ONNX model + SQLite); iOS, desktop and the
+ * web use [EngineTaggingRepository] with their own [TaggerEngine].
+ * [UnavailableTaggingService] is for an iOS build without the tagger.
  */
 
 /** Where the tagger model download stands (was TaggerModelManager.State). */
@@ -44,7 +44,7 @@ data class TaggingProgress(
 )
 
 interface TaggingService {
-    /** False where the platform has no on-device tagger (iOS for now). */
+    /** False where the platform has no on-device tagger. */
     val isSupported: Boolean get() = true
     fun currentCounts(): Pair<Int, Int>
     fun datasetSizeBytes(): Long

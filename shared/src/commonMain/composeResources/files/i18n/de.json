@@ -1832,5 +1832,11 @@
 "You have v{0}": "Du hast v{0}",
 "You're on the newest version": "Du hast bereits die neueste Version",
 "Never": "Nie",
-"Status": "Status"
+"Status": "Status",
+"Couldn't load ONNX Runtime": "ONNX Runtime konnte nicht geladen werden",
+"Couldn't save the model": "Das Modell konnte nicht gespeichert werden",
+"Download failed (HTTP {0})": "Download fehlgeschlagen (HTTP {0})",
+"Download was cut off": "Der Download wurde abgebrochen",
+"The tagger model was removed by the browser. Download it again in Settings.": "Der Browser hat das Tagging-Modell entfernt. Lade es in den Einstellungen erneut herunter.",
+"This browser can't store the model": "Dieser Browser kann das Modell nicht speichern"
 }

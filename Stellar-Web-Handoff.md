@@ -14,7 +14,42 @@ from that branch, or from `main` once it's merged.
 
 ---
 
-## 0i. Update: web fonts, wheel, text posts, double-tap (latest)
+## 0j. Update: AI Tagging on desktop and web, small fixes (latest)
+
+- AI Tagging now works on desktop and the web, with the same model,
+  thresholds, dataset format and import/export as Android. The service is
+  shared: `tagging/EngineTaggingRepository.kt` (commonMain) holds the
+  dataset (one JSON file), the liked-posts paging and the thresholds;
+  each platform gives it a `TaggerEngine` (download, load, tag one
+  picture, read/write the dataset):
+  - iOS: `IosTaggerEngine` (iosMain) wraps the Swift `IosTagger`. It uses
+    the same files as before, so nothing already tagged is lost. It
+    replaces `IosTaggingRepository`.
+  - Desktop: `DesktopTaggerEngine`. Runs on ONNX Runtime for Java
+    (`com.microsoft.onnxruntime:onnxruntime:1.18.0`, ~89 MB with every
+    OS's native library). Skia letterboxes the picture onto white at
+    448×448 as raw BGR, as Android does. Files go in `<data>/tagger/`.
+  - Web: `WebTaggerEngine`. Runs on onnxruntime-web 1.18.0 from jsDelivr,
+    added to the page the first time tagging runs: WebGPU where the
+    browser has it, otherwise WebAssembly. The ~390 MB model is kept in
+    Cache Storage (`stellar-tagger`). The tag list, a `model.ready` marker
+    and the dataset are in WebFiles. If the browser evicts the model, the
+    marker is dropped and Settings offers the download again. Pictures
+    from cdn.bsky.app fall back to the poster's PDS, as images do.
+  - `PlatformFeature.AI_TAGGING` is on for desktop and web.
+  - Checked with a tiny stand-in ONNX model (same input shape; it scores
+    mean B/G/R) on both the web build and the real desktop engine. Both
+    give the expected scores, so the colour order, letterboxing and
+    thresholds are right. The real 390 MB model couldn't be fetched from
+    the sandbox.
+- Landscape multi-image posts: 10+ images show all 10 tiles when a
+  1- or 2-row strip is biggest; a 3×3 grid keeps 9 + "+N".
+- Profiles: tabs seeded from the on-disk cache (`fromCache`) still fetch
+  when opened (Reposts/Likes used to need a manual refresh). Tapping the
+  name or handle pill copies it ("Copied").
+- Title page: Review and Remove/Backlog split the bar evenly.
+
+## 0i. Update: web fonts, wheel, text posts, double-tap
 
 - Web: when a font finishes loading (`WebFontsLoader` in webApp Main.kt),
   every text is laid out again (the font scale is nudged by 1e-6), so text

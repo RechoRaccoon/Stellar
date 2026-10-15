@@ -25,6 +25,9 @@ enum class PlatformFeature(val label: String) {
         (this == TRANSLATION && com.mediaviewer.util.TranslationManager.isAvailable) ||
         // iOS: the same tagger model, run by the Swift app (ONNX Runtime).
         (this == AI_TAGGING && IosCapabilities.aiTagging) ||
+        // Desktop and web: the same model through ONNX Runtime (Java /
+        // onnxruntime-web).
+        (this == AI_TAGGING && (currentPlatform == PlatformKind.DESKTOP || currentPlatform == PlatformKind.WEB)) ||
         // iOS: GIFs made with Apple's own image and video frameworks.
         (this == GIF_EXPORT && IosCapabilities.gifExport) ||
         // iOS: fonts imported from the Files app; desktop: from any folder;

@@ -1832,5 +1832,11 @@
 "You have v{0}": "Tu as la v{0}",
 "You're on the newest version": "Tu as déjà la dernière version",
 "Never": "Jamais",
-"Status": "Statut"
+"Status": "Statut",
+"Couldn't load ONNX Runtime": "Impossible de charger ONNX Runtime",
+"Couldn't save the model": "Impossible d'enregistrer le modèle",
+"Download failed (HTTP {0})": "Échec du téléchargement (HTTP {0})",
+"Download was cut off": "Le téléchargement a été interrompu",
+"The tagger model was removed by the browser. Download it again in Settings.": "Le navigateur a supprimé le modèle d'étiquetage. Téléchargez-le à nouveau dans les Réglages.",
+"This browser can't store the model": "Ce navigateur ne peut pas stocker le modèle"
 }

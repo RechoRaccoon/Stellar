@@ -528,3 +528,7 @@ RechoRaccoon/Stellar
 Stellar-{0}
 Stellar {0}
 application/vnd.github+json
+(self.caches ? caches.delete(cacheName) : Promise.resolve(false))
+(window.__stellarTaggerProgress ? window.__stellarTaggerProgress.done : 0)
+(window.__stellarTaggerProgress ? window.__stellarTaggerProgress.total : 0)
+Error: 

@@ -1832,5 +1832,11 @@
 "You have v{0}": "У вас v{0}",
 "You're on the newest version": "У вас последняя версия",
 "Never": "Никогда",
-"Status": "Статус"
+"Status": "Статус",
+"Couldn't load ONNX Runtime": "Не удалось загрузить ONNX Runtime",
+"Couldn't save the model": "Не удалось сохранить модель",
+"Download failed (HTTP {0})": "Ошибка загрузки (HTTP {0})",
+"Download was cut off": "Загрузка прервалась",
+"The tagger model was removed by the browser. Download it again in Settings.": "Браузер удалил модель тегов. Скачайте её снова в настройках.",
+"This browser can't store the model": "Этот браузер не может хранить модель"
 }

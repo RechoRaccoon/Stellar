@@ -1832,5 +1832,11 @@
 "You have v{0}": "現在は v{0} です",
 "You're on the newest version": "最新バージョンです",
 "Never": "なし",
-"Status": "ステータス"
+"Status": "ステータス",
+"Couldn't load ONNX Runtime": "ONNX Runtimeを読み込めませんでした",
+"Couldn't save the model": "モデルを保存できませんでした",
+"Download failed (HTTP {0})": "ダウンロードに失敗しました（HTTP {0}）",
+"Download was cut off": "ダウンロードが途中で切れました",
+"The tagger model was removed by the browser. Download it again in Settings.": "ブラウザがタグ付けモデルを削除しました。設定からもう一度ダウンロードしてください。",
+"This browser can't store the model": "このブラウザではモデルを保存できません"
 }

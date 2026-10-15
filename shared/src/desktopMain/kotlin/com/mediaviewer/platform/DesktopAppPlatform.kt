@@ -3,7 +3,6 @@ package com.mediaviewer.platform
 import com.mediaviewer.model.LiveNowPlatform
 import com.mediaviewer.network.DesktopHttpClients
 import com.mediaviewer.tagging.TaggingService
-import com.mediaviewer.tagging.UnavailableTaggingService
 import com.mediaviewer.util.GifEncoder
 import com.mediaviewer.util.PostDownloads
 import com.mediaviewer.worker.BlueskyBlobResolver
@@ -17,11 +16,13 @@ import java.io.File
 /** The desktop side of [AppPlatform]. Features a computer can't do report
  *  themselves unavailable (Android keeps all of them). */
 class DesktopAppPlatform(
-    @Suppress("UNUSED_PARAMETER") bskyRepo: com.mediaviewer.repository.BlueskyRepository,
-    @Suppress("UNUSED_PARAMETER") e621Repo: com.mediaviewer.repository.E621Repository
+    bskyRepo: com.mediaviewer.repository.BlueskyRepository,
+    e621Repo: com.mediaviewer.repository.E621Repository
 ) : AppPlatform {
     override val context: PlatformContext get() = DesktopContext
-    override val tagging: TaggingService = UnavailableTaggingService
+    // AI Tagging: the same model as Android, through ONNX Runtime for Java.
+    override val tagging: TaggingService =
+        com.mediaviewer.tagging.EngineTaggingRepository(com.mediaviewer.tagging.DesktopTaggerEngine(), bskyRepo, e621Repo)
 
     override fun haptic() {}
 
