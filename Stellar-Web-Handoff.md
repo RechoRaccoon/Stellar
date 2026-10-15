@@ -44,6 +44,13 @@ from that branch, or from `main` once it's merged.
   press-and-drag (`ReorderableSideColumn` in SideList.kt), each has a pin
   button at its right, and while one is held the same two bubbles show just
   above the bottom bar (`HubFeedDragState.sideActive`).
+- Comments: fetched the moment a post is shown (no 350ms wait), and the
+  next two posts' and previous post's in the background
+  (`prefetchComments`), with one fetch per post at a time
+  (`commentsInFlight`).
+- Profile/DM effects (`DmEffects.kt`): sized by `effectUnit()` — a phone
+  held upright's size at most (1.25dp per unit), not the window's width —
+  with up to 2.5× as many pieces across a wide window (`effectCount`).
 - Web: the page blocks the browser's own drag-and-drop (index.html) — a
   slightly moved double tap in Firefox could drag the canvas as an image
   and open it in a new tab.

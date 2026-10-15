@@ -145,8 +145,8 @@ private val PARTY_PALETTE = listOf(
  *  each swaying on its own string. */
 private fun DrawScope.drawBalloons(t: Float, seed: Long) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
-    repeat(16) {
+    val unit = effectUnit()
+    repeat(effectCount(16)) {
         val x0 = (0.06f + rnd.nextFloat() * 0.88f) * size.width
         val delay = rnd.nextFloat() * 2.4f
         val rise = 3.6f + rnd.nextFloat() * 1.6f
@@ -199,6 +199,16 @@ private fun DrawScope.drawBalloons(t: Float, seed: Long) {
 }
 
 /** A heart, point down, centred on the origin and about 2 units wide. */
+/** The size the effects are drawn at: made for a phone held upright (400
+ *  units across), and no bigger than that on a wide tablet, desktop or
+ *  browser window — there they'd otherwise grow with the window's width. */
+private const val EFFECT_MAX_UNIT_DP = 1.25f
+private fun DrawScope.effectUnit(): Float = minOf(size.width / 400f, density * EFFECT_MAX_UNIT_DP)
+/** [n] of a phone's worth, more across a wider window (up to 2.5×) so the
+ *  smaller pieces still fill it. */
+private fun DrawScope.effectCount(n: Int): Int =
+    (n * (size.width / (400f * effectUnit())).coerceIn(1f, 2.5f)).toInt()
+
 private fun heartPath(): Path = Path().apply {
     moveTo(0f, 0.95f)
     cubicTo(-0.25f, 0.7f, -1.05f, 0.2f, -1.05f, -0.35f)
@@ -215,12 +225,12 @@ private fun heartPath(): Path = Path().apply {
  *  the sender's own profile colors. */
 private fun DrawScope.drawHearts(t: Float, seed: Long, colors: List<Color>, duration: Float, sprites: HashMap<Color, HeartSprites>) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
+    val unit = effectUnit()
     val palette = colors.filter { it.alpha > 0f }.ifEmpty { listOf(Color(0xFFFF4FA1), Color(0xFFFF7EB9)) }.map { brightHeart(it) }
     // The sprites are drawn at the biggest heart's size (capped), and
     // every heart is that picture scaled to its own size.
     val spriteS = (27f * unit).coerceAtMost(64f)
-    repeat(18) { i ->
+    repeat(effectCount(18)) { i ->
         val x0 = (0.07f + rnd.nextFloat() * 0.86f) * size.width
         val delay = rnd.nextFloat() * (duration - 5.6f).coerceAtLeast(0.5f)
         val rise = 4.6f + rnd.nextFloat() * 1.0f
@@ -399,13 +409,13 @@ private fun brightHeart(c: Color): Color {
  *  with a small splash where each one lands. */
 private fun DrawScope.drawRain(t: Float, seed: Long, duration: Float) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
+    val unit = effectUnit()
     // Builds, holds, then eases off.
     val strength = (t / 1.2f).coerceAtMost(1f) * ((duration - t) / 1.6f).coerceIn(0f, 1f)
     // How far left a drop travels for each unit it falls.
     val slant = 0.42f
     val reachX = size.height * slant
-    repeat(150) {
+    repeat(effectCount(150)) {
         val start = rnd.nextFloat()
         val fall = 0.55f + rnd.nextFloat() * 0.4f
         val offset = rnd.nextFloat() * fall
@@ -485,9 +495,10 @@ private fun BubbleField(
     val tap = com.mediaviewer.util.rememberHapticTap()
     var time by timeState
     var done by doneState
-    val bubbles = remember(playKey, w, h) {
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val bubbles = remember(playKey, w, h, density) {
         val rnd = Random(com.mediaviewer.platform.nanoTime() xor (playKey.toLong() shl 20))
-        val unit = w / 400f
+        val unit = minOf(w / 400f, density * EFFECT_MAX_UNIT_DP)
         val count = 14
         // They pop in a shuffled order, spaced out, after floating a while.
         val order = (0 until count).shuffled(rnd)
@@ -641,8 +652,8 @@ private fun DrawScope.drawBubble(glass: Boolean, popping: Float) {
 /** Snow: flakes drift down slowly, a few at first, then thinning out. */
 private fun DrawScope.drawSnow(t: Float, seed: Long) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
-    repeat(80) {
+    val unit = effectUnit()
+    repeat(effectCount(80)) {
         val x0 = rnd.nextFloat()
         val delay = rnd.nextFloat() * 4.2f
         val fall = 4.5f + rnd.nextFloat() * 2.3f
@@ -665,11 +676,11 @@ private fun DrawScope.drawSnow(t: Float, seed: Long) {
 /** Fireworks: rockets climb from the bottom and burst into falling sparks. */
 private fun DrawScope.drawFireworks(t: Float, seed: Long) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
+    val unit = effectUnit()
     val palette = listOf(
         Color(0xFFFF4FA1), Color(0xFFFFD166), Color(0xFF4FC3F7), Color(0xFF7CFFB2), Color(0xFFB388FF), Color(0xFFFF8A65)
     )
-    repeat(7) { b ->
+    repeat(effectCount(7)) { b ->
         val launch = b * 0.5f + rnd.nextFloat() * 0.3f
         val x = (0.14f + rnd.nextFloat() * 0.72f) * size.width
         val peak = (0.16f + rnd.nextFloat() * 0.3f) * size.height
@@ -719,8 +730,8 @@ private fun DrawScope.drawFireworks(t: Float, seed: Long) {
 /** Bats: a small flock flaps across the screen, each on its own wavy path. */
 private fun DrawScope.drawBats(t: Float, seed: Long) {
     val rnd = Random(seed)
-    val unit = size.width / 400f
-    repeat(10) {
+    val unit = effectUnit()
+    repeat(effectCount(10)) {
         val delay = rnd.nextFloat() * 1.7f
         val cross = 2.3f + rnd.nextFloat() * 1.3f
         val leftToRight = rnd.nextBoolean()

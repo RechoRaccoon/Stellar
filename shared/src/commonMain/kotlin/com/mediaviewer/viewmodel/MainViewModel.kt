@@ -7495,18 +7495,28 @@ class MainViewModel(
             currentItem.distinctUntilChangedBy { it?.id }.collectLatest { item ->
                 if (item == null) return@collectLatest
                 showCommentsFor(item)
-                // Don't fetch for every post flicked straight past.
-                delay(350)
-                val key = commentKey(item)
-                if (cachedComments(key) == null) {
-                    if (_appMode.value == AppMode.BLUESKY && item.replyCount == 0 && item.postUri.isNotBlank()) {
-                        putCachedComments(key, emptyList())
-                        if (commentsShownFor == key) { _comments.value = emptyList(); _commentsLoading.value = false }
-                    } else {
-                        fetchComments(item)
-                    }
-                }
+                // Right away — no waiting on the post first — so opening the
+                // comments finds them ready.
+                prefetchComments(item)
+                // Then the posts either side — the next two and the one
+                // before — so swiping on finds their comments already here.
+                val items = _mediaItems.value
+                val at = items.indexOfFirst { it.id == item.id }
+                if (at >= 0) listOf(at + 1, at + 2, at - 1).forEach { i -> items.getOrNull(i)?.let { prefetchComments(it) } }
             }
+        }
+    }
+
+    /** Fetches [item]'s comments into the cache if they aren't there yet (a
+     *  post with no replies is known to have none without asking). */
+    private fun prefetchComments(item: MediaItem) {
+        val key = commentKey(item)
+        if (cachedComments(key) != null) return
+        if (_appMode.value == AppMode.BLUESKY && item.replyCount == 0 && item.postUri.isNotBlank()) {
+            putCachedComments(key, emptyList())
+            if (commentsShownFor == key) { _comments.value = emptyList(); _commentsLoading.value = false }
+        } else {
+            fetchComments(item)
         }
     }
 
@@ -7520,9 +7530,18 @@ class MainViewModel(
         _commentsLoading.value = cached == null
     }
 
+    // Posts whose comments are being fetched right now (so one isn't asked
+    // for twice at once — the prefetch and opening the sheet, say).
+    private val commentsInFlight = mutableSetOf<String>()
+
     private fun fetchComments(item: MediaItem) {
         val key = commentKey(item)
+        if (!com.mediaviewer.platform.synchronizedCompat(commentsInFlight) { commentsInFlight.add(key) }) {
+            if (commentsShownFor == key && _comments.value.isEmpty()) _commentsLoading.value = true
+            return
+        }
         viewModelScope.launch(ioDispatcher) {
+          try {
             if (commentsShownFor == key && _comments.value.isEmpty()) _commentsLoading.value = true
             val result: Result<List<CommentItem>>? = if (_appMode.value == AppMode.BLUESKY) {
                 if (item.postUri.isBlank()) null else bskyRepo.getPostThread(bskyToken, item.postUri)
@@ -7538,6 +7557,9 @@ class MainViewModel(
                 if (commentsShownFor == key && _screenState.value == ScreenState.COMMENTS) _errorMessage.value = it.message
             }
             if (commentsShownFor == key) _commentsLoading.value = false
+          } finally {
+            com.mediaviewer.platform.synchronizedCompat(commentsInFlight) { commentsInFlight.remove(key) }
+          }
         }
     }
 
