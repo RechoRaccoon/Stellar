@@ -1265,6 +1265,19 @@ fun ProfileOverlay(
             }
         }
 
+        // ── Back: fixed (it doesn't scroll away), the size of the scroll-to-top
+        // arrow, just under the camera notch at the far left. (Landscape: the
+        // side list's first row instead.)
+        if (!rememberLandscape()) {
+            Box(
+                Modifier.align(Alignment.TopStart)
+                    .padding(top = rememberTopCutoutClearance())
+                    .padding(top = 8.dp, start = 12.dp)
+            ) {
+                ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
+            }
+        }
+
         state.openBlog?.let { blog ->
             BlogDetailOverlay(
                 blog = blog, author = author, liquidGlass = liquidGlass, tint = blended,
@@ -1479,7 +1492,7 @@ private fun ProfileInteractionBar(
     onPillBounds: (Offset, IntSize) -> Unit = { _, _ -> },
     onMoreBounds: (Offset, IntSize) -> Unit = { _, _ -> }
 ) {
-    val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(26.dp)
     val iconSize = 20.dp
     // The pill's visible height — 44dp glass / 36dp flat, exactly what the
     // old full-width pill measured after its 8dp vertical padding inside
@@ -1648,6 +1661,21 @@ private fun ProfileInteractionBar(
 }
 
 @Composable
+private fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    val shape = CircleShape
+    val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
+    val icon: @Composable () -> Unit = {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+    if (liquidGlass) {
+        LiquidGlassSurface(modifier = base, shape = shape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) { icon() }
+    } else {
+        Box(base.background(Color.Black.copy(0.6f)), contentAlignment = Alignment.Center) { icon() }
+    }
+}
+
+@Composable
 private fun ScrollToTopBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null, onClick: () -> Unit) =
     ScrollToTopGlassBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onClick)
 
@@ -1772,15 +1800,13 @@ private fun ProfileHeaderSection(
             //  - the avatar's height needs to exactly span from the top of
             //    the display-name pill down to the bottom of the username
             //    pill, whatever those pills' real heights turn out to be.
-            // A taller banner than a phone's (~131 dp, 3:1 across a phone) —
-            // a wide window — gets all of it scaled up together, so the
-            // buttons still run nearly from the banner's top to its bottom
-            // and the avatar still spans the two name pills.
-            val bannerDensity = LocalDensity.current
-            val overlayScale = (bannerHeight / 131.dp).coerceIn(1f, 2.2f)
-            CompositionLocalProvider(
-                LocalDensity provides androidx.compose.ui.unit.Density(bannerDensity.density * overlayScale, bannerDensity.fontScale)
-            ) {
+            // The pieces over the banner are laid out at a fixed height (all
+            // of them fit there) and scaled as a whole to the room they get:
+            // the banner's full height in portrait, its lower three quarters
+            // in landscape — so they never run past the banner's edges, at
+            // any width.
+            val overlayHeight = if (rememberLandscape()) bannerHeight * 0.75f else bannerHeight
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(overlayHeight).scaleToHeight(BANNER_OVERLAY_REFERENCE)) {
             ProfileBannerOverlayLayout(
                 author = author,
                 liquidGlass = liquidGlass,
@@ -2085,8 +2111,9 @@ private fun ProfileBannerOverlayLayout(
     onOpenStatus: () -> Unit = {},
     onOpenAvatar: () -> Unit = {}
 ) {
-    // Landscape: Back is the first row of the side list instead.
-    val showClose = !rememberLandscape()
+    // (Back is a fixed button of its own now — see ProfileBackBubble — and
+    // landscape's is the side list's first row.)
+    val showClose = false
     val inset = 16.dp
     val gap = 8.dp
     val nameGap = 6.dp
@@ -2185,6 +2212,10 @@ private fun ProfileBannerOverlayLayout(
  *  from the screen's sides: about as close as its posts. */
 internal val PROFILE_EDGE = 6.dp
 
+/** The height a profile banner's buttons and name pills are laid out at
+ *  before they're scaled to the banner (see scaleToHeight). */
+private val BANNER_OVERLAY_REFERENCE = 140.dp
+
 @Composable
 private fun CountStat(count: Int, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2201,24 +2232,23 @@ private fun formatCount(n: Int): String = when {
 
 @Composable
 private fun EditGlassBubble(liquidGlass: Boolean, tint: Color, onClick: () -> Unit, backdrop: GlassBackdrop? = null) {
-    val shape = CircleShape
+    // A pill that says "Edit", the pencil at its right.
+    val shape = RoundedCornerShape(50)
     val tap = rememberHapticTap()
+    val content: @Composable () -> Unit = {
+        Row(Modifier.fillMaxHeight().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Edit", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+        }
+    }
     if (liquidGlass) {
         LiquidGlassSurface(
-            modifier = Modifier.size(30.dp).clickable(onClick = { tap(); onClick() }),
+            modifier = Modifier.height(30.dp).clickable(onClick = { tap(); onClick() }),
             shape = shape, tint = tint, backdrop = backdrop
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit profile", tint = Color.White, modifier = Modifier.size(15.dp))
-            }
-        }
+        ) { content() }
     } else {
-        Box(
-            Modifier.size(30.dp).clip(shape).background(Color.White.copy(0.14f)).clickable(onClick = { tap(); onClick() }),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Edit, contentDescription = "Edit profile", tint = Color.White, modifier = Modifier.size(15.dp))
-        }
+        Box(Modifier.height(30.dp).clip(shape).background(Color.White.copy(0.14f)).clickable(onClick = { tap(); onClick() })) { content() }
     }
 }
 
@@ -2863,9 +2893,10 @@ private fun MediaItem.tileAspectRatio(): Float = when {
  *  just needs to be roughly proportional to how tall that bubble will
  *  actually end up, not exact. */
 private fun MediaItem.estimatedMasonryHeightUnits(): Float = if (isTextOnly && !isEmojiTextshot) {
-    val charsPerLine = 32
-    val lines = kotlin.math.ceil(text.length.coerceAtLeast(1) / charsPerLine.toFloat())
-    0.22f + lines * 0.16f
+    // (The opened post's card, ~370 dp wide: at least 160 dp tall, its
+    // 19 sp lines plus padding past that — see TimelineShapedTextTile.)
+    val lines = kotlin.math.ceil(text.length.coerceAtLeast(1) / 26f) + text.count { it == '\n' }
+    (maxOf(160f, lines * 26f + 52f) / 370f).coerceAtMost(1.6f)
 } else {
     1f / tileAspectRatio()
 }
@@ -2959,12 +2990,23 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
                 TextshotEmojiImage(item.textshotImageUrl, cornerRadius = 10.dp, modifier = Modifier.fillMaxSize())
             }
         } else if (item.isTextOnly) {
-            // The uploader's own color, dimmed, behind their text.
+            // A square text bubble in the uploader's own color, inset in the
+            // tile, with ALL of their words scaled to fit inside it.
             val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
-            // A square of their text, centered and sized to fill it (like the
-            // post itself when it's opened).
-            Box(contentModifier.background(androidx.compose.ui.graphics.lerp(OledBlack, authorTint, 0.35f)).padding(8.dp), contentAlignment = Alignment.Center) {
-                FittedPostText(item.text, maxSp = 15f, minSp = 6f, modifier = Modifier.fillMaxSize())
+            val bubbleShape = RoundedCornerShape(12.dp)
+            Box(contentModifier.background(OledBlack).padding(5.dp)) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .then(
+                            if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = bubbleShape)
+                            else Modifier.clip(bubbleShape).background(androidx.compose.ui.graphics.lerp(OledBlack, authorTint, 0.35f))
+                        )
+                        .clip(bubbleShape)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    FittedPostText(item.text, maxSp = 15f, minSp = 2f, modifier = Modifier.fillMaxSize())
+                }
             }
         } else {
             val thumb = item.mediaGroup.firstOrNull()?.thumbUrl?.ifBlank { item.mediaGroup.firstOrNull()?.mediaUrl }
@@ -3278,7 +3320,10 @@ private fun PinterestEntryTile(
     item: MediaItem, tint: Color, mediaShape: RoundedCornerShape, textShape: RoundedCornerShape,
     liquidGlass: Boolean, onSeedSubImageIndex: (String, Int) -> Unit, onClick: () -> Unit
 ) {
-    if (item.isTextOnly) {
+    if (item.isTextOnly && !item.isEmojiTextshot) {
+        // Exactly the card the post is when opened, shrunk to the column.
+        TimelineShapedTextTile(item, liquidGlass, tint, onClick)
+    } else if (item.isTextOnly) {
         // (Shrinks with narrower columns rather than growing taller — and,
         // in landscape, the longer the post the smaller, see textLengthFactor.)
         val sideways = rememberLandscape()
@@ -3447,6 +3492,45 @@ private fun LazyListScope.postsHorizontalVideoRows(
 
 /** Landscape's horizontal-video card: the 16:9 picture, then the post's
  *  text as its title, who posted it, and its likes/replies. */
+/**
+ * A text post in a Pinterest-style grid: the very card the post is when
+ * it's opened (Timeline's TextOnlyPostCard — its width, its 160 dp least
+ * height, its 19 sp centered words shrinking only when they'd run past the
+ * room between the author row and the bars), shrunk as a whole to fit the
+ * column. So it's the same shape there as here — usually much shorter than
+ * a plain bubble of the same words.
+ */
+@Composable
+private fun TimelineShapedTextTile(item: MediaItem, liquidGlass: Boolean, tint: Color, onOpen: () -> Unit) {
+    val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
+    val tap = rememberHapticTap()
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    val sideways = screen.width > screen.height
+    val cardWidth = if (sideways) minOf(screen.width * 0.94f, 640f).dp else (screen.width * 0.94f).dp
+    val maxCardHeight = (screen.height - 104 - 176).coerceAtLeast(160).dp
+    val shape = RoundedCornerShape(28.dp)
+    val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
+    Box(Modifier.fillMaxWidth().shrinkToWidth(cardWidth)) {
+        Box(
+            Modifier.fillMaxWidth().heightIn(min = 160.dp)
+                .then(
+                    if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = shape)
+                    else Modifier.clip(shape).background(Color.White.copy(0.06f))
+                )
+                .clip(shape)
+                .clickable { tap(); onOpen() }
+                .padding(horizontal = 18.dp, vertical = 26.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            FittedPostText(
+                item.text.ifBlank { " " }, maxSp = 19f, minSp = 11f, maxHeight = maxCardHeight - 52.dp,
+                modifier = Modifier.fillMaxWidth().then(if (blurNsfw) Modifier.blur(40.dp) else Modifier)
+            )
+            if (blurNsfw) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)))
+        }
+    }
+}
+
 /** The widths these tiles are laid out at before shrinking to their
  *  column (see shrinkToWidth): about what each gets on a phone in portrait. */
 private val COMPACT_TEXT_REFERENCE = 170.dp
@@ -6331,7 +6415,7 @@ fun ResultsInteractionBar(
     /** An extra button at the right end (Search › Tagged's Sort). */
     trailing: (@Composable () -> Unit)? = null
 ) {
-    val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(26.dp)
     val iconSize = 20.dp
     val pillHeight = if (liquidGlass) 44.dp else 36.dp
     val tap = rememberHapticTap()

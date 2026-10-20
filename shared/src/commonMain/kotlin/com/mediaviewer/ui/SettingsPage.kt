@@ -1106,30 +1106,9 @@ internal fun SettingsPageContent(
                 }
             }
 
-            // Hybrid (squared, with the bars and buttons you touch most
-            // round), Round or Squared — see ui/theme/Shapes.kt.
-            SettingsBubble(liquidGlass, tint, backdrop) {
-                var shapeMenuExpanded by remember { mutableStateOf(false) }
-                val currentShape = com.mediaviewer.util.UiToggles.uiShape
-                BubbleRow {
-                    RowLabel("UI Shape", Modifier.weight(1f))
-                    Box {
-                        Text(
-                            currentShape.label,
-                            color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable { shapeMenuExpanded = true }
-                        )
-                        DropdownMenu(expanded = shapeMenuExpanded, onDismissRequest = { shapeMenuExpanded = false }) {
-                            com.mediaviewer.util.UiToggles.UiShape.entries.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.label, fontWeight = if (option == currentShape) FontWeight.SemiBold else FontWeight.Normal) },
-                                    onClick = { com.mediaviewer.util.UiToggles.updateUiShape(option); shapeMenuExpanded = false }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            // Every rounded corner in the app made square (profile icons and
+            // the camera notch bubble stay round).
+            ToggleBubble("Squared-Off Corners", com.mediaviewer.util.UiToggles.squareCorners, { com.mediaviewer.util.UiToggles.updateSquareCorners(it) }, liquidGlass, tint, backdrop)
             ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
             ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         }

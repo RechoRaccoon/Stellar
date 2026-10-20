@@ -3890,7 +3890,7 @@ private fun ActionRow(
     }
 
     if (liquidGlass) {
-        val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
+        val shape = RoundedCornerShape(26.dp)
         LiquidGlassSurface(
             modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp).then(boundsModifier).tipAnchor("tl.actions"),
             shape = shape, tint = dominantColor, backdrop = backdrop

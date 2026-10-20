@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
@@ -225,7 +226,7 @@ fun GridSizeSlider(tint: Color) {
             Text("$columns", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         // (Drawn here rather than Material's Slider so its track and thumb
-        // follow UI Shape: square with Hybrid or Squared.)
+        // follow Squared-Off Corners.)
         val min = com.mediaviewer.util.UiToggles.LANDSCAPE_MIN_COLUMNS
         val max = com.mediaviewer.util.UiToggles.LANDSCAPE_MAX_COLUMNS
         val square = com.mediaviewer.util.UiToggles.squareCorners
@@ -239,7 +240,7 @@ fun GridSizeSlider(tint: Color) {
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier.fillMaxWidth().height(28.dp)
                 .onSizeChanged { widthPx = it.width }
-                .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures { pick(it.x) } }
+                .pointerInput(Unit) { detectTapGestures { pick(it.x) } }
                 .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> change.consume(); pick(change.position.x) } },
             contentAlignment = Alignment.CenterStart
         ) {

@@ -265,7 +265,7 @@ fun BrowserInteractionBar(
     onPopout: () -> Unit, modifier: Modifier = Modifier
 ) {
     val tap = rememberHapticTap()
-    val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(26.dp)
     val pillHeight = if (liquidGlass) 44.dp else 36.dp
     @Composable
     fun Button(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {

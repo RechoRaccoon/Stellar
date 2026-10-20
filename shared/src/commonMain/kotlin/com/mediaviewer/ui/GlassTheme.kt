@@ -347,7 +347,7 @@ fun styledProfileColors(did: String?): ProfileColors? {
     return ProfileColors(Color(a), Color(b))
 }
 
-/** A profile icon's outline: round in every UI Shape, or — for a
+/** A profile icon's outline: round even with Squared-Off Corners on, or — for a
  *  supporter who switched it in Edit Profile — square (see SquareIconShape). */
 @Composable
 fun profileIconShape(did: String?): Shape =
@@ -1093,8 +1093,7 @@ fun GlassDropdownMenu(
 @Composable
 fun ScrollToTopGlassBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
     val tap = com.mediaviewer.util.rememberHapticTap()
-    // (Round in Hybrid too.)
-    val shape = com.mediaviewer.ui.theme.SoftCircleShape
+    val shape = com.mediaviewer.ui.theme.CircleShape
     val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
     val icon: @Composable () -> Unit = {
         androidx.compose.material3.Icon(
@@ -1226,7 +1225,7 @@ fun BubbleActionStack(
             val p = progress[i]
             // Distance from this bubble down to the anchor: it rises out of the bar.
             val rise = (n - i) * (bubblePx + gapPx) * 0.55f
-            val shape = com.mediaviewer.ui.theme.SoftCircleShape
+            val shape = com.mediaviewer.ui.theme.CircleShape
             val m = Modifier
                 .size(bubble)
                 .graphicsLayer {

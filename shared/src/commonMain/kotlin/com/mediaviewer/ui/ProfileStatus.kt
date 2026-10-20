@@ -132,7 +132,7 @@ fun ProfileStatusBubble(
     if (status == null && !isOwn) return
     val tap = rememberHapticTap()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // (Square corners with UI Shape → Hybrid or Squared.)
+    // (Square corners with Squared-Off Corners on.)
     val square = com.mediaviewer.util.UiToggles.squareCorners
     val shape = remember(density, square) { with(density) { StatusBubbleShape(if (square) 0f else 12.dp.toPx(), TAIL.toPx()) } }
     val fill = lerp(tint, Color.Black, 0.35f).copy(alpha = 0.92f)

@@ -105,6 +105,31 @@ fun landscapeUiBaseScale(heightDp: Int, widthDp: Int = Int.MAX_VALUE): Float {
  * card in a grid of many columns keeps its shape (smaller, not taller).
  * Wider columns lay it out normally.
  */
+/** Lays its content out [reference] tall (and as wide as that height
+ *  leaves it, at the same proportions) and scales it, up or down, to the
+ *  height it really has — a profile banner's buttons and name pills. */
+fun Modifier.scaleToHeight(reference: Dp): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val ref = reference.roundToPx().coerceAtLeast(1)
+        val w = constraints.maxWidth
+        val h = constraints.maxHeight
+        val inf = androidx.compose.ui.unit.Constraints.Infinity
+        if (w == inf || h == inf || h <= 0) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val scale = h.toFloat() / ref
+            val p = measurable.measure(androidx.compose.ui.unit.Constraints.fixed((w / scale).toInt().coerceAtLeast(1), ref))
+            layout(w, h) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
+
 fun Modifier.shrinkToWidth(reference: Dp): Modifier = this.then(
     Modifier.layout { measurable, constraints ->
         val ref = reference.roundToPx()
