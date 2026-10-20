@@ -58,13 +58,15 @@ import kotlinx.serialization.json.put
  * app storage (next to the data it protects, which is already there in
  * plain form) so you can see it again in Settings.
  *
- * ## On the PDS
- * - [COLLECTION]/self — the vault: the sealed data key and the encrypted
- *   bundle (every section below, as JSON), split into blobs of at most
- *   [CHUNK] bytes so even a PDS with the old 5 MB blob limit takes them.
- * - [FILES]/<random> — one record per synced file (a draft's or note's
- *   picture, an archived post's photo or video), the file encrypted in the
- *   same sized pieces. Its name says nothing about what's in it.
+ * ## On the PDS: one record
+ * Everything is [COLLECTION]/self: the sealed data key, the encrypted
+ * bundle (every section, as JSON) and every synced file (a draft's or
+ * note's picture, an archived post's photo or video), all as blobs of at
+ * most [CHUNK] bytes so even a PDS with the old 5 MB blob limit takes
+ * them. The record only lists the blobs (so the PDS keeps them); which
+ * blob is which file is inside the encrypted bundle. A sync, however much
+ * it carries, is that one record written once (2 points); a file dropped
+ * from the list is deleted by the PDS itself, with no write for it.
  * Every piece is XChaCha20-Poly1305 with its own random nonce, bound (as
  * associated data) to your DID, the record, its place and the number of
  * pieces, so nothing can be swapped, reordered or cut short unnoticed.
@@ -84,7 +86,6 @@ import kotlinx.serialization.json.put
 @OptIn(ExperimentalEncodingApi::class)
 object PrivateSync {
     const val COLLECTION = "com.rechoraccoon.stellar.vault"
-    const val FILES = "com.rechoraccoon.stellar.vaultFile"
     private const val RKEY = "self"
     private const val VERSION = 1
 
@@ -95,8 +96,11 @@ object PrivateSync {
     private const val CHECK_MS = 20_000L
     private const val PULL_MS = 5 * 60_000L
     private const val MIN_PUSH_GAP_MS = 15_000L
-    /** New file records per sync; the rest go on the next one. */
+    /** New files uploaded per sync; the rest go on the next one. */
     private const val FILES_PER_SYNC = 40
+    /** Blobs the record may list (~130 bytes each keeps it far below the
+     *  PDS's size limit for a record: about 2.8 GB of files). */
+    private const val MAX_RECORD_BLOBS = 700
 
     class Rec(val rkey: String, val cid: String, val value: JsonObject)
 
@@ -317,22 +321,20 @@ object PrivateSync {
         val account = did
         val secret = secureRandomBytes(20)
         newSecretKey = formatSecret(secret)
-        prefs?.edit()?.remove(k("base"))?.remove(k("cid"))?.remove(k("files_known"))?.commit()
+        prefs?.edit()?.remove(k("base"))?.remove(k("cid"))?.commit()
+        // (The new record replaces the old one; its blobs, unlisted, are
+        // removed by the PDS.)
         val current = runCatching { remote?.get(account, COLLECTION, RKEY) }.getOrNull()
-        val err = setupPush(account, secret, secureRandomBytes(32), swap = current?.cid, wipeFiles = true)
-        return err
+        return setupPush(account, secret, secureRandomBytes(32), swap = current?.cid)
     }
 
-    private suspend fun setupPush(account: String, secret: ByteArray, key: ByteArray, swap: String?, wipeFiles: Boolean = false): String? {
-        val r = remote ?: return "Not signed in"
+    private suspend fun setupPush(account: String, secret: ByteArray, key: ByteArray, swap: String?): String? {
+        if (remote == null) return "Not signed in"
         return lock.withLock {
             try {
-                if (wipeFiles) runCatching {
-                    r.list(account, FILES).forEach { if (WriteBudget.take(1)) r.delete(account, FILES, it.rkey) }
-                }
                 val ctx = context ?: return@withLock "Not ready"
                 val local = Sections.collect(ctx, account)
-                val (bundle, _) = withFiles(ctx, account, key, local, null)
+                val bundle = withFiles(ctx, key, local, null)
                 if (!WriteBudget.take(2)) return@withLock "Try again in a little while"
                 val cid = writeVault(account, key, kek(secret, account), bundle, swap)
                 if (did != account) return@withLock null
@@ -432,7 +434,7 @@ object PrivateSync {
                         if (did == account) Sections.apply(ctx, account, changedHere)
                     }
                     fetchMissingFiles(ctx, account, key, merged)
-                    val (final, uploaded) = withFiles(ctx, account, key, sectionsOf(merged), merged["files"] as? JsonObject)
+                    val final = withFiles(ctx, key, sectionsOf(merged), merged["files"] as? JsonObject)
                     val unchanged = remoteBundle != null && final == remoteBundle
                     if (unchanged) {
                         prefs?.edit()?.putString(k("base"), final.toString())?.putString(k("cid"), rec!!.cid)?.commit()
@@ -442,7 +444,6 @@ object PrivateSync {
                     if (!WriteBudget.take(2)) {
                         // (Over budget: what's here stays here until the next try.)
                         lastError = "Waiting to stay within your PDS's limits"
-                        uploaded.forEach { runCatching { if (WriteBudget.take(1)) r.delete(account, FILES, it) } }
                         return
                     }
                     try {
@@ -450,7 +451,6 @@ object PrivateSync {
                         prefs?.edit()?.putString(k("base"), final.toString())?.putString(k("cid"), cid)?.commit()
                         lastPush = currentTimeMillis()
                         markSynced()
-                        dropOrphanFiles(account, remoteBundle, base, final)
                         StatusHistory.retirePublic(account)
                         return
                     } catch (e: SwapFailed) {
@@ -507,6 +507,7 @@ object PrivateSync {
             "key" to keyField,
             "set" to set,
             "chunks" to chunks,
+            "files" to fileBlobs(bundle),
             "updatedAt" to nowIsoString()
         )
         return r.put(account, COLLECTION, RKEY, record, swap)
@@ -576,81 +577,78 @@ object PrivateSync {
         return out
     }
 
-    /** The bundle for [sections]: files they point at that the PDS doesn't
-     *  have yet are uploaded (a few per sync), and ones nothing points at
-     *  anymore leave the list. Also returns the new file records' keys. */
-    private suspend fun withFiles(ctx: PlatformContext, account: String, key: ByteArray, sections: JsonObject, known: JsonObject?): Pair<JsonObject, List<String>> {
+    /** A file's blobs, from its bundle entry {"set", "blobs": [{"c": cid, "z": size}]}. */
+    private fun entryBlobs(entry: JsonElement?): List<Pair<String, Long>> =
+        ((entry as? JsonObject)?.get("blobs") as? JsonArray).orEmpty().mapNotNull { b ->
+            val o = b as? JsonObject ?: return@mapNotNull null
+            val cid = o["c"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            cid to (o["z"]?.jsonPrimitive?.longOrNull ?: 0L)
+        }
+
+    /** Every file blob the bundle uses, as the record lists them. */
+    private fun fileBlobs(bundle: JsonObject): List<Map<String, Any>> =
+        (bundle["files"] as? JsonObject).orEmpty().values.flatMap { entryBlobs(it) }.map { (cid, size) ->
+            mapOf("\$type" to "blob", "ref" to mapOf("\$link" to cid), "mimeType" to "application/octet-stream", "size" to size)
+        }
+
+    /** The bundle for [sections]: files they point at that the vault
+     *  doesn't hold yet are uploaded (a few per sync, while the record has
+     *  room), and ones nothing points at anymore leave the list. */
+    private suspend fun withFiles(ctx: PlatformContext, key: ByteArray, sections: JsonObject, known: JsonObject?): JsonObject {
         val r = remote ?: error("Not signed in")
         val refs = referencedFiles(sections)
         val files = linkedMapOf<String, JsonElement>()
-        known?.forEach { (token, rk) -> if (token in refs) files[token] = rk }
-        val uploaded = mutableListOf<String>()
+        known?.forEach { (token, entry) -> if (token in refs && entryBlobs(entry).isNotEmpty()) files[token] = entry }
+        var blobCount = files.values.sumOf { entryBlobs(it).size }
         var budget = FILES_PER_SYNC
         for (token in refs) {
             if (token in files || budget <= 0) continue
             val uri = localUri(ctx, token) ?: continue
             val size = PrivateFiles.ownSize(ctx, uri)
             if (size <= 0L || size > MAX_FILE) continue
-            if (!WriteBudget.take(3)) break
-            budget--
-            val rkey = randomRkey()
-            val set = b64(secureRandomBytes(12))
             val n = ((size + CHUNK - 1) / CHUNK).toInt()
-            val chunks = mutableListOf<Map<String, Any>>()
+            if (blobCount + n > MAX_RECORD_BLOBS) continue
+            budget--
+            val set = b64(secureRandomBytes(12))
+            val blobs = mutableListOf<JsonElement>()
             var ok = true
             for (i in 0 until n) {
                 val part = PrivateFiles.readRange(ctx, uri, i.toLong() * CHUNK, CHUNK)
                 if (part == null || (part.size != CHUNK && i < n - 1)) { ok = false; break }
-                chunks += r.upload(seal(key, part, "stellar-sync-file|v1|$account|$rkey|$set|$i|$n"))
+                val up = r.upload(seal(key, part, "stellar-sync-file|v1|$set|$i|$n"))
+                val cid = ((up["ref"] as? Map<*, *>)?.get("\$link") as? String) ?: run { ok = false; null } ?: break
+                blobs += buildJsonObject { put("c", cid); put("z", (up["size"] as? Number)?.toLong() ?: 0L) }
             }
             if (!ok) continue
-            r.put(account, FILES, rkey, linkedMapOf("\$type" to FILES, "v" to VERSION, "set" to set, "chunks" to chunks, "createdAt" to nowIsoString()), null)
-            files[token] = JsonPrimitive(rkey)
-            uploaded += rkey
+            files[token] = buildJsonObject { put("set", set); put("blobs", JsonArray(blobs)) }
+            blobCount += n
         }
-        val out = buildJsonObject {
+        return buildJsonObject {
             put("v", VERSION)
             put("s", sections)
             put("files", JsonObject(files))
         }
-        return out to uploaded
     }
 
     private suspend fun fetchMissingFiles(ctx: PlatformContext, account: String, key: ByteArray, bundle: JsonObject) {
         val r = remote ?: return
         val files = bundle["files"] as? JsonObject ?: return
-        for ((token, rkEl) in files) {
+        for ((token, entry) in files) {
             val uri = localUri(ctx, token) ?: continue
             if (PrivateFiles.ownSize(ctx, uri) >= 0L) continue
-            val rkey = (rkEl as? JsonPrimitive)?.contentOrNull ?: continue
+            val set = ((entry as? JsonObject)?.get("set") as? JsonPrimitive)?.contentOrNull ?: continue
+            val blobs = entryBlobs(entry)
+            if (blobs.isEmpty()) continue
             runCatching {
-                val rec = r.get(account, FILES, rkey) ?: return@runCatching
-                val set = rec.value["set"]?.jsonPrimitive?.contentOrNull ?: return@runCatching
-                val cids = blobCids(rec.value)
                 var ok = true
-                cids.forEachIndexed { i, cid ->
-                    val part = open(key, r.blob(account, cid), "stellar-sync-file|v1|$account|$rkey|$set|$i|${cids.size}")
+                blobs.forEachIndexed { i, (cid, _) ->
+                    val part = open(key, r.blob(account, cid), "stellar-sync-file|v1|$set|$i|${blobs.size}")
                     if (!PrivateFiles.appendBytes(ctx, uri, part, restart = i == 0)) ok = false
                 }
                 if (!ok) PrivateFiles.delete(ctx, uri)
             }.onFailure { runCatching { PrivateFiles.delete(ctx, uri) } }
         }
     }
-
-    /** File records the vault no longer lists (removed here or elsewhere). */
-    private suspend fun dropOrphanFiles(account: String, remoteBundle: JsonObject?, base: JsonObject?, final: JsonObject) {
-        val r = remote ?: return
-        val now = (final["files"] as? JsonObject)?.values?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.toSet().orEmpty()
-        val before = listOfNotNull(remoteBundle, base).flatMap { b ->
-            (b["files"] as? JsonObject)?.values?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
-        }.toSet()
-        for (rk in before - now) {
-            if (!WriteBudget.take(1)) break
-            runCatching { r.delete(account, FILES, rk) }
-        }
-    }
-
-    private fun randomRkey(): String = secureRandomBytes(10).joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
     // ── Merging ────────────────────────────────────────────────────────
 

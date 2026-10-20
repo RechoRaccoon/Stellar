@@ -52,7 +52,24 @@ internal object Sections {
         "last_mode", "last_feed_uri", "last_e621_tags", "last_picker_tab"
     )
 
-    private class Prefs(val section: String, val file: String, val keep: (key: String, did: String) -> Boolean)
+    /**
+     * What you've looked at never leaves this device: no viewing history,
+     * recently viewed or recent searches, whatever store it's in. A second
+     * line of defence behind the lists above, so a new setting named like
+     * one can't slip into the vault. (Status history is the one "history"
+     * that syncs: the statuses you posted, listed by its exact key.)
+     */
+    private fun isViewingData(name: String): Boolean {
+        val n = name.lowercase()
+        return "history" in n || "viewed" in n || "recent" in n || "seen" in n
+    }
+
+    private fun settingSynced(name: String) =
+        name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) && !name.contains("cache") && !isViewingData(name)
+
+    private class Prefs(val section: String, val file: String, private val rule: (key: String, did: String) -> Boolean) {
+        fun keep(key: String, did: String) = rule(key, did) && (section == "status" || !isViewingData(key))
+    }
 
     private val PREFS = listOf(
         Prefs("ui", "ui_toggles") { _, _ -> true },
@@ -72,7 +89,7 @@ internal object Sections {
         val settings = linkedMapOf<String, JsonElement>()
         for ((key, value) in ctx.appSettings.data.first().asMap()) {
             val name = key.name
-            if (name in SETTINGS_EXCLUDED || name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) || name.contains("cache")) continue
+            if (!settingSynced(name)) continue
             encode(value, roots)?.let { settings[name] = it }
         }
         out["settings"] = JsonObject(settings)
@@ -102,11 +119,11 @@ internal object Sections {
                 // (A setting dropped elsewhere goes back to its default here.)
                 for (key in prefs.asMap().keys.toList()) {
                     val name = key.name
-                    if (name in SETTINGS_EXCLUDED || name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) || name.contains("cache")) continue
+                    if (!settingSynced(name)) continue
                     if (name !in incoming) prefs.remove(key)
                 }
                 for ((name, el) in incoming) {
-                    if (name in SETTINGS_EXCLUDED || name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX)) continue
+                    if (!settingSynced(name)) continue
                     val o = el as? JsonObject ?: continue
                     val (t, v) = o.entries.firstOrNull() ?: continue
                     runCatching {

@@ -99,7 +99,8 @@ fun EditHistoryPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdro
                 VersionCard(
                     if (original) "Original" else "Earlier version",
                     isoToText(v.at) + if (v.images > 0) " · ${v.images} image${if (v.images == 1) "" else "s"}" else "",
-                    v.text, tint, current = false, pictures = v.pictures(item.author.did)
+                    v.text, tint, current = false, pictures = v.pictures(item.author.did),
+                    did = item.author.did, cids = v.imageBlobs.map { it.ref.link }
                 )
             }
             if (versions.isEmpty()) Text(
@@ -112,7 +113,12 @@ fun EditHistoryPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdro
 }
 
 @Composable
-private fun VersionCard(label: String, sub: String, text: String, tint: Color, current: Boolean, pictures: List<String> = emptyList()) {
+private fun VersionCard(
+    label: String, sub: String, text: String, tint: Color, current: Boolean, pictures: List<String> = emptyList(),
+    /** The pictures' blobs, when known: one the CDN won't serve (it's no
+     *  longer in the post itself) is fetched from the PDS instead. */
+    did: String = "", cids: List<String> = emptyList()
+) {
     val shape = RoundedCornerShape(16.dp)
     Column(
         Modifier.fillMaxWidth().clip(shape)
@@ -136,9 +142,17 @@ private fun VersionCard(label: String, sub: String, text: String, tint: Color, c
         if (pictures.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                pictures.forEach { url ->
+                pictures.forEachIndexed { i, url ->
+                    val cid = cids.getOrNull(i)?.takeIf { it.isNotBlank() && did.isNotBlank() }
+                    var model by remember(url) { mutableStateOf(url) }
+                    val scope = rememberCoroutineScope()
                     coil3.compose.AsyncImage(
-                        model = url, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        model = model, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        onError = {
+                            if (cid != null && model == url) scope.launch {
+                                runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()?.let { model = it }
+                            }
+                        },
                         modifier = Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.06f))
                     )
                 }
