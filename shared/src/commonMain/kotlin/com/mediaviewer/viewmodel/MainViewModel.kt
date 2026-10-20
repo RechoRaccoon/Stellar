@@ -6280,6 +6280,7 @@ class MainViewModel(
         // Custom emoji live on your own PDS too (one record per emoji).
         com.mediaviewer.util.EmojiCloud.init(platform.context)
         com.mediaviewer.util.EmojiAccounts.init(platform.context)
+        com.mediaviewer.ui.VideoVolume.init(platform.context)
         com.mediaviewer.util.MentionSuggest.account = { _bskyDid.value }
         com.mediaviewer.util.MentionSuggest.search = search@{ q ->
             if (!_bskyLoggedIn.value) return@search emptyList()

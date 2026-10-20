@@ -3,6 +3,9 @@ package com.mediaviewer.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.mediaviewer.platform.PlatformContext
+import com.mediaviewer.platform.sharedPreferences
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** The transport controls the feed's own (Compose-drawn) video UI needs. */
 interface VideoController {
@@ -36,6 +39,26 @@ interface FeedVideoPlayer : VideoController {
     /** Silences (or un-silences) the sound — a profile's video banner
      *  always plays muted. */
     fun setVolumeMuted(muted: Boolean) {}
+    /** 0–1: how loud it plays while not muted (see [VideoVolume]). */
+    fun setVolume(level: Float) {}
+}
+
+/** The video player's volume slider: one level for every video, half
+ *  to begin with, remembered between launches. */
+object VideoVolume {
+    var level by androidx.compose.runtime.mutableStateOf(0.5f)
+        private set
+    private var prefs: com.mediaviewer.platform.SharedPreferences? = null
+
+    fun init(context: PlatformContext) {
+        if (prefs != null) return
+        prefs = context.sharedPreferences("video_volume").also { level = it.getFloat("level", 0.5f).coerceIn(0f, 1f) }
+    }
+
+    fun set(value: Float) {
+        level = value.coerceIn(0f, 1f)
+        prefs?.edit()?.putFloat("level", level)?.apply()
+    }
 }
 
 /**

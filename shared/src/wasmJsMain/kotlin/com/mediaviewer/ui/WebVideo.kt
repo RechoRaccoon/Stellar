@@ -107,6 +107,7 @@ class WebVideoPlayer(val url: String, muted: Boolean = false) : FeedVideoPlayer 
     /** Cover instead of contain, and rounded corners (see FeedVideoView). */
     fun setLook(fill: Boolean, cornerPercent: Int) { if (!released) setVideoLook(element, fill, cornerPercent) }
     override fun setVolumeMuted(muted: Boolean) = setMuted(muted)
+    override fun setVolume(level: Float) { if (!released) setVideoVolume(element, level.toDouble()) }
 
     /** A small copy of the picture showing now (at most [maxWidth] wide), for
      *  the blurred glass over the video; null while there's none to copy. */
@@ -267,6 +268,7 @@ private fun playVideo(v: JsAny): Unit = js("""{
 private fun pauseVideo(v: JsAny): Unit = js("v.pause()")
 private fun seekVideo(v: JsAny, seconds: Double): Unit = js("{ try { v.currentTime = seconds; } catch (e) {} }")
 private fun setVideoMuted(v: JsAny, muted: Boolean): Unit = js("{ v.muted = muted; }")
+private fun setVideoVolume(v: JsAny, level: Double): Unit = js("{ v.volume = Math.max(0, Math.min(1, level)); }")
 private fun setVideoLook(v: JsAny, fill: Boolean, cornerPercent: Int): Unit =
     js("{ v.style.objectFit = fill ? 'cover' : 'contain'; v.style.borderRadius = cornerPercent > 0 ? (cornerPercent + '%') : ''; }")
 

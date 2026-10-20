@@ -24,6 +24,9 @@ import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.focusRequester
@@ -966,30 +969,14 @@ private fun LandscapeMediaView(
                         AnimatedVisibility(
                             visible = lcControlsVisible && !item.isBlocked,
                             enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
-                            modifier = Modifier.align(Alignment.Center)
-                        ) {
-                            VideoTransportButtons(
-                                liquidGlass = true, dominantColor = NeutralGlassTint, backdrop = null,
-                                isPlaying = lcIsPlaying,
-                                onPlayPause = { lcPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
-                                onSkip = { delta ->
-                                    lcPlayerRef?.let { p ->
-                                        val target = (p.currentPosition + delta)
-                                            .coerceIn(0L, if (lcDurationMs > 0) lcDurationMs else Long.MAX_VALUE)
-                                        p.seekTo(target)
-                                    }
-                                }
-                            )
-                        }
-                        AnimatedVisibility(
-                            visible = lcControlsVisible && !item.isBlocked,
-                            enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
                             modifier = Modifier.align(Alignment.BottomCenter)
                         ) {
-                            VideoSeekBar(
+                            VideoControlBar(
                                 liquidGlass = true, dominantColor = NeutralGlassTint, backdrop = null,
+                                isPlaying = lcIsPlaying,
                                 positionMs = if (lcIsSeeking) lcSeekPreviewMs else lcPositionMs,
                                 durationMs = lcDurationMs,
+                                onPlayPause = { lcPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
                                 onSeeking = { ms -> lcIsSeeking = true; lcSeekPreviewMs = ms },
                                 onSeekFinish = { lcIsSeeking = false; lcPlayerRef?.seekTo(lcSeekPreviewMs) }
                             )
@@ -1980,30 +1967,14 @@ private fun PostContent(
                 AnimatedVisibility(
                     visible = videoControlsVisible,
                     enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    VideoTransportButtons(
-                        liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop,
-                        isPlaying = videoIsPlaying,
-                        onPlayPause = { videoPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
-                        onSkip = { deltaMs ->
-                            videoPlayerRef?.let { p ->
-                                val target = (p.currentPosition + deltaMs)
-                                    .coerceIn(0L, if (videoDurationMs > 0) videoDurationMs else Long.MAX_VALUE)
-                                p.seekTo(target)
-                            }
-                        }
-                    )
-                }
-                AnimatedVisibility(
-                    visible = videoControlsVisible,
-                    enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    VideoSeekBar(
+                    VideoControlBar(
                         liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop,
+                        isPlaying = videoIsPlaying,
                         positionMs = if (videoIsSeeking) videoSeekPreviewMs else videoPositionMs,
                         durationMs = videoDurationMs,
+                        onPlayPause = { videoPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
                         onSeeking = { ms -> videoIsSeeking = true; videoSeekPreviewMs = ms },
                         onSeekFinish = { videoIsSeeking = false; videoPlayerRef?.seekTo(videoSeekPreviewMs) }
                     )
@@ -4108,6 +4079,8 @@ private fun VideoPlayer(
     }
 
     LaunchedEffect(player) { onPlayerReady(player) }
+    val volume = VideoVolume.level
+    LaunchedEffect(player, volume) { player.setVolume(volume) }
 
     DisposableEffect(player) {
         val listener = object : FeedVideoListener {
@@ -4188,6 +4161,106 @@ private fun VideoPlayer(
                 )
             }
         }
+    }
+}
+
+/**
+ * The video player's controls, compact: one glass bar along the bottom of
+ * the video with play/pause, the time, the seek track, and the volume
+ * (an icon that mutes, and a small slider; half to begin with, see
+ * [VideoVolume]). The glass reflects the video behind it.
+ */
+@Composable
+internal fun VideoControlBar(
+    liquidGlass: Boolean,
+    dominantColor: Color,
+    backdrop: GlassBackdrop?,
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onPlayPause: () -> Unit,
+    onSeeking: (Long) -> Unit,
+    onSeekFinish: () -> Unit
+) {
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(18.dp)
+    var dragProgress by remember { mutableStateOf<Float?>(null) }
+    val progress = dragProgress ?: if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    var unmutedLevel by remember { mutableStateOf(0.5f) }
+    fun clock(ms: Long): String {
+        val t = (ms / 1000).coerceAtLeast(0)
+        return "${t / 60}:${(t % 60).toString().padStart(2, '0')}"
+    }
+    @Composable
+    fun Track(fraction: Float, modifier: Modifier, onChange: (Float) -> Unit, onDone: () -> Unit, thumb: Dp) {
+        Box(
+            modifier.height(28.dp).pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    onChange((down.position.x / size.width).coerceIn(0f, 1f))
+                    while (true) {
+                        val e = awaitPointerEvent()
+                        val ch = e.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) break
+                        ch.consume()
+                        onChange((ch.position.x / size.width).coerceIn(0f, 1f))
+                    }
+                    onDone()
+                }
+            },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.22f)))
+            Box(Modifier.fillMaxWidth(fraction).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                Box(Modifier.offset(x = (maxWidth - thumb) * fraction).size(thumb).clip(CircleShape).background(Color.White))
+            }
+        }
+    }
+    val content: @Composable BoxScope.() -> Unit = {
+        Row(
+            Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(34.dp).clip(CircleShape).clickable { tap(); onPlayPause() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Text(clock(dragProgress?.let { (it * durationMs).toLong() } ?: positionMs), color = Color.White, fontSize = 11.sp, maxLines = 1)
+            Spacer(Modifier.width(8.dp))
+            Track(
+                progress, Modifier.weight(1f),
+                onChange = { f -> if (durationMs > 0) { dragProgress = f; onSeeking((f * durationMs).toLong()) } },
+                onDone = { if (dragProgress != null) { onSeekFinish(); dragProgress = null } },
+                thumb = 10.dp
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(clock(durationMs), color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
+            Spacer(Modifier.width(6.dp))
+            val level = VideoVolume.level
+            Box(
+                Modifier.size(30.dp).clip(CircleShape).clickable {
+                    tap()
+                    if (level > 0f) { unmutedLevel = level; VideoVolume.set(0f) } else VideoVolume.set(unmutedLevel.takeIf { it > 0f } ?: 0.5f)
+                },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    when { level <= 0f -> Icons.AutoMirrored.Filled.VolumeOff; level < 0.5f -> Icons.AutoMirrored.Filled.VolumeDown; else -> Icons.AutoMirrored.Filled.VolumeUp },
+                    contentDescription = if (level <= 0f) "Unmute" else "Mute", tint = Color.White, modifier = Modifier.size(18.dp)
+                )
+            }
+            Track(level, Modifier.width(64.dp), onChange = { VideoVolume.set(it) }, onDone = {}, thumb = 9.dp)
+        }
+    }
+    if (liquidGlass) {
+        LiquidGlassSurface(modifier = Modifier.fillMaxWidth().padding(10.dp), shape = shape, tint = dominantColor, backdrop = backdrop, content = content)
+    } else {
+        Box(Modifier.fillMaxWidth().padding(10.dp).clip(shape).background(Color.Black.copy(alpha = 0.55f)), content = content)
     }
 }
 

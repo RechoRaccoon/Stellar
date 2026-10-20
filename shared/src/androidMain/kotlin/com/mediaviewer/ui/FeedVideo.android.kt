@@ -46,7 +46,10 @@ internal class ExoFeedVideoPlayer(val exo: ExoPlayer) : FeedVideoPlayer {
         wrapped.remove(listener)?.let { exo.removeListener(it) }
     }
 
-    override fun setVolumeMuted(muted: Boolean) { exo.volume = if (muted) 0f else 1f }
+    private var muted = false
+    private var level = VideoVolume.level
+    override fun setVolumeMuted(muted: Boolean) { this.muted = muted; exo.volume = if (muted) 0f else level }
+    override fun setVolume(level: Float) { this.level = level; if (!muted) exo.volume = level }
 }
 
 actual object FeedVideos {

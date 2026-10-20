@@ -282,6 +282,8 @@ private fun GifVideo(item: CommentMedia, modifier: Modifier, scale: ContentScale
     val url = item.videoUrl ?: return
     val context = LocalContext.current
     val player = remember(url) { FeedVideos.acquire(context, url) }
+    val volume = VideoVolume.level
+    LaunchedEffect(player, volume) { player.setVolume(volume) }
     DisposableEffect(player) { onDispose { player.pause(); FeedVideos.recycle(url, player) } }
     var firstFrame by remember(url) { mutableStateOf(false) }
     DisposableEffect(player) {
@@ -317,6 +319,8 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, fallbackTint: Colo
     val backdrop = remember(layer) { GlassBackdrop(layer) { origin } }
     val context = LocalContext.current
     val player = remember(url) { FeedVideos.acquire(context, url) }
+    val volume = VideoVolume.level
+    LaunchedEffect(player, volume) { player.setVolume(volume) }
     DisposableEffect(player) { onDispose { player.pause(); FeedVideos.recycle(url, player) } }
     var playing by remember(url) { mutableStateOf(false) }
     var aspect by remember(url) { mutableStateOf(player.aspectRatio.takeIf { it > 0f } ?: item.aspect.takeIf { it > 0f } ?: (16f / 9f)) }
@@ -379,23 +383,14 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, fallbackTint: Colo
             }
             AnimatedVisibility(
                 visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
-                modifier = Modifier.align(Alignment.Center)
-            ) {
-                VideoTransportButtons(
-                    liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                    isPlaying = playing,
-                    onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
-                    onSkip = { delta -> seekTo(positionMs + delta) }
-                )
-            }
-            AnimatedVisibility(
-                visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                VideoSeekBar(
+                VideoControlBar(
                     liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                    isPlaying = playing,
                     positionMs = if (seeking) seekPreviewMs else positionMs,
                     durationMs = durationMs,
+                    onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
                     onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
                     onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
                 )

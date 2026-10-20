@@ -114,6 +114,7 @@ internal class AvFeedVideoPlayer(val url: String) : FeedVideoPlayer {
     override fun addListener(listener: FeedVideoListener) { listeners += listener }
     override fun removeListener(listener: FeedVideoListener) { listeners -= listener }
     override fun setVolumeMuted(muted: Boolean) { player.muted = muted }
+    override fun setVolume(level: Float) { player.volume = level }
 
     fun release() {
         player.pause()

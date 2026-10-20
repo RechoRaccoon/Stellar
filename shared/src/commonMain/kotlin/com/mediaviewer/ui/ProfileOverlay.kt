@@ -2900,9 +2900,13 @@ private fun <T> emptyAfterFilterLoadMore(
 private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, modifier: Modifier, liquidGlass: Boolean, playIconSize: Dp = 18.dp, rounded: Boolean = true, onClick: () -> Unit) {
     // Fix 9: the shared light tap, via the shared helper.
     val tap = rememberHapticTap()
+    // A video plays while it's hovered or held (see videoPreviewTrigger).
+    val previewUrl = item.videoPlaylistUrl?.takeIf { item.isVideo && !item.nsfwBlurred(LocalHateFunBlurNsfw.current) }
+    var previewing by remember(item.id) { mutableStateOf(false) }
     Box(
         modifier
             .clip(shape)
+            .then(if (previewUrl != null) Modifier.videoPreviewTrigger { previewing = it } else Modifier)
             // A subtle fill behind the image (rather than nothing) so a post
             // whose thumbnail fails to resolve — a dead link, a repost of
             // now-deleted media — reads as "no preview" instead of a stark
@@ -2947,6 +2951,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
                 AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = contentModifier)
             }
         }
+        if (previewing && previewUrl != null) VideoTilePreview(previewUrl, Modifier.matchParentSize())
         if (!blurNsfw) {
             if (item.isVideo) {
                 VideoCoverBadge(iconSize = (playIconSize - 4.dp).coerceAtLeast(12.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))

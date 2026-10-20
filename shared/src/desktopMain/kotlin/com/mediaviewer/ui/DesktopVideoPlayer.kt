@@ -35,6 +35,7 @@ import kotlin.math.log10
 internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = false) : FeedVideoPlayer {
     @Volatile private var silenced = false
     override fun setVolumeMuted(muted: Boolean) { silenced = muted }
+    override fun setVolume(level: Float) { DesktopVideo.volume = level }
     /** The picture to draw now (Compose state). */
     var frame: ImageBitmap? by mutableStateOf(null)
         private set
@@ -285,7 +286,7 @@ internal object DesktopVideo {
         javax.swing.SwingUtilities.invokeLater { runCatching(block) }
     }
 
-    /** 0..1, the in-app volume (Settings has none yet: always full). */
+    /** 0..1, the video player's volume slider (VideoVolume). */
     @Volatile var volume: Float = 1f
 
     fun applyVolume(line: SourceDataLine) {
