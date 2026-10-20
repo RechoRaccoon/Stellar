@@ -2654,17 +2654,82 @@ class BlueskyRepository {
         token: String, did: String, text: String,
         quotedUri: String, quotedCid: String
     ): Result<String> {
+        val (richWords, richFacets) = richText(text)
         val record = mutableMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
-            "text" to text,
+            "text" to richWords,
             "embed" to mapOf(
                 "\$type" to "app.bsky.embed.record",
                 "record" to mapOf("uri" to quotedUri, "cid" to quotedCid)
             ),
             "createdAt" to com.mediaviewer.platform.nowIsoString()
         )
-        buildHashtagFacets(text).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+        richFacets.takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
         return createRecord(token, did, "app.bsky.feed.post", record)
+    }
+
+    /** Handles already looked up (handle → DID), for mentions. */
+    private val mentionDids = com.mediaviewer.platform.ConcurrentHashMap<String, String>()
+
+    /**
+     * A post's text as it's saved, with every facet Bluesky draws:
+     *  - Markdown links: "[words](https://…)" become just "words", linked
+     *    (Bluesky shows them but has no way to write them).
+     *  - @handle mentions, tappable to the account (handles that don't
+     *    resolve to an account stay plain text).
+     *  - #hashtags, and bare https:// links.
+     * Offsets are UTF-8 bytes into the returned text.
+     */
+    suspend fun richText(raw: String): Pair<String, List<Map<String, Any>>> {
+        fun facet(byteStart: Int, byteEnd: Int, feature: Map<String, Any>) = mapOf(
+            "index" to mapOf("byteStart" to byteStart, "byteEnd" to byteEnd),
+            "features" to listOf(feature)
+        )
+        // 1. Markdown links out, remembering where their words land.
+        val md = Regex("\\[([^\\]\\n]{1,300})\\]\\((https?://[^\\s)]+)\\)")
+        val out = StringBuilder()
+        val linked = ArrayList<Triple<Int, Int, String>>() // char start, char end, url (in the new text)
+        var at = 0
+        for (m in md.findAll(raw)) {
+            out.append(raw, at, m.range.first)
+            val start = out.length
+            out.append(m.groupValues[1])
+            linked += Triple(start, out.length, m.groupValues[2])
+            at = m.range.last + 1
+        }
+        out.append(raw.substring(at))
+        val text = out.toString()
+        fun bytes(charIndex: Int) = text.substring(0, charIndex).encodeToByteArray().size
+        val facets = ArrayList<Map<String, Any>>()
+        val taken = ArrayList<IntRange>()
+        fun free(r: IntRange) = taken.none { it.first <= r.last && r.first <= it.last }
+        for ((a, b, url) in linked) {
+            facets += facet(bytes(a), bytes(b), mapOf("\$type" to "app.bsky.richtext.facet#link", "uri" to url))
+            taken += a until b
+        }
+        // 2. Bare links.
+        for (m in Regex("https?://[^\\s]+").findAll(text)) {
+            val url = m.value.trimEnd('.', ',', ')', '!', '?', ';', ':', '"', '\'')
+            val r = m.range.first until m.range.first + url.length
+            if (url.length <= 8 || !free(r)) continue
+            facets += facet(bytes(r.first), bytes(r.last + 1), mapOf("\$type" to "app.bsky.richtext.facet#link", "uri" to url))
+            taken += r
+        }
+        // 3. Mentions.
+        for (m in Regex("(?<=^|[\\s(\\[\"'])@([a-zA-Z0-9][a-zA-Z0-9.-]*\\.[a-zA-Z][a-zA-Z0-9-]*)").findAll(text)) {
+            val handle = m.groupValues[1].trimEnd('.', '-').lowercase()
+            val r = m.range.first until m.range.first + 1 + handle.length
+            if (!free(r)) continue
+            val did = mentionDids[handle] ?: runCatching { resolveHandleToDid(handle) }.getOrNull()?.also { mentionDids[handle] = it } ?: continue
+            facets += facet(bytes(r.first), bytes(r.last + 1), mapOf("\$type" to "app.bsky.richtext.facet#mention", "did" to did))
+            taken += r
+        }
+        // 4. Hashtags.
+        for (m in Regex("(?<=^|[\\s])#([a-zA-Z0-9_]+)").findAll(text)) {
+            if (!free(m.range)) continue
+            facets += facet(bytes(m.range.first), bytes(m.range.last + 1), mapOf("\$type" to "app.bsky.richtext.facet#tag", "tag" to m.groupValues[1]))
+        }
+        return text to facets.sortedBy { ((it["index"] as Map<*, *>)["byteStart"] as Int) }
     }
 
     /** Byte-offset link facets for every http(s) URL in [text], so links
@@ -3205,9 +3270,10 @@ class BlueskyRepository {
                 media.isNotEmpty() -> buildImagesEmbed(uploadImageBlobs(token, context, media.take(4)))
                 else -> null
             }
+            val (richWords, richFacets) = richText(text)
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
-                "text" to text,
+                "text" to richWords,
                 "reply" to mapOf(
                     "root" to mapOf("uri" to rootUri, "cid" to rootCid),
                     "parent" to mapOf("uri" to parentUri, "cid" to parentCid)
@@ -3215,7 +3281,7 @@ class BlueskyRepository {
                 "createdAt" to com.mediaviewer.platform.nowIsoString()
             )
             embed?.let { record["embed"] = it }
-            buildHashtagFacets(text).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+            richFacets.takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
             if (embed != null && selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels)
             createRecord(token, did, "app.bsky.feed.post", record).getOrThrow()
         }
@@ -3930,9 +3996,10 @@ class BlueskyRepository {
         selfLabels: List<String> = emptyList()
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
+        val (richWords, richFacets) = richText(text)
         val record = mutableMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
-            "text" to text,
+            "text" to richWords,
             "createdAt" to com.mediaviewer.platform.nowIsoString()
         )
         if (images.isNotEmpty()) record["embed"] = buildImagesEmbed(images, imageAlts)
@@ -3940,7 +4007,7 @@ class BlueskyRepository {
             "root" to mapOf("uri" to reply.root.uri, "cid" to reply.root.cid),
             "parent" to mapOf("uri" to reply.parent.uri, "cid" to reply.parent.cid)
         )
-        buildHashtagFacets(text).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+        richFacets.takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
         if (selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels)
 
         val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.feed.post", record))
@@ -4033,12 +4100,12 @@ class BlueskyRepository {
 
             // ── Text, tags, labels ──
             record["\$type"] = "app.bsky.feed.post"
-            record["text"] = newText
             // Unchanged text keeps its tags/links/mentions exactly as they were.
             if (newText != oldText) {
-                val facets = buildHashtagFacets(newText) + buildLinkFacets(newText)
+                val (richWords, facets) = richText(newText)
+                record["text"] = richWords
                 if (facets.isNotEmpty()) record["facets"] = facets else record.remove("facets")
-            }
+            } else record["text"] = newText
             if (selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels) else record.remove("labels")
 
             // ── History ──
@@ -4862,13 +4929,14 @@ class BlueskyRepository {
             }
             if (uploaded.isGif) videoEmbed["presentation"] = "gif"
             alt.trim().take(VIDEO_ALT_MAX).takeIf { it.isNotEmpty() }?.let { videoEmbed["alt"] = it }
+            val (richWords, richFacets) = richText(text)
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
-                "text" to text,
+                "text" to richWords,
                 "embed" to videoEmbed,
                 "createdAt" to com.mediaviewer.platform.nowIsoString()
             )
-            (buildHashtagFacets(text) + buildLinkFacets(text)).takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
+            richFacets.takeIf { it.isNotEmpty() }?.let { record["facets"] = it }
             if (selfLabels.isNotEmpty()) record["labels"] = selfLabelsField(selfLabels)
             val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.feed.post", record))
             val respBody = resp.body() ?: error("Posting the video failed (${resp.code()}): ${errorBodyText(resp).take(160)}")
