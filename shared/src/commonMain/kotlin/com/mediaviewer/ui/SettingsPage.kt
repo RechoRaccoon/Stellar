@@ -927,7 +927,27 @@ internal fun SettingsPageContent(
                             else visualizerPermission.launch("android.permission.RECORD_AUDIO")
                         }
                     }
-                    if (com.mediaviewer.util.UiToggles.audioVisualizer) {
+                    // The web and computers: where the sound comes from — the
+                    // web asks the browser for it (a tap), a computer looks
+                    // for a loopback input.
+                    val computer = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB ||
+                        com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.DESKTOP
+                    if (com.mediaviewer.util.UiToggles.audioVisualizer && computer) {
+                        BubbleDivider()
+                        BubbleRow {
+                            Column(Modifier.weight(1f)) {
+                                RowLabel("Sound Source", Modifier)
+                                val st = com.mediaviewer.util.AudioVisualizerEngine.status
+                                if (st.isNotBlank()) Text(st, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, lineHeight = 14.sp)
+                            }
+                            Text(
+                                if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) "Listen" else "Look Again",
+                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 10.dp).clickable { com.mediaviewer.util.AudioVisualizerEngine.startListening(visualizerContext) }
+                            )
+                        }
+                    }
+                    if (com.mediaviewer.util.UiToggles.audioVisualizer && !computer) {
                         var callMenuExpanded by remember { mutableStateOf(false) }
                         val callMode = com.mediaviewer.util.UiToggles.visualizerCallMode
                         BubbleDivider()

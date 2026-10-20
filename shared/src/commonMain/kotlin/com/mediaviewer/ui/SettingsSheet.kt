@@ -2585,7 +2585,9 @@ private fun ReturnToFeedBar(
     val moreReserve = barHeight + 10.dp
     val uploadReserve = barHeight + 10.dp
 
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+    // (Landscape: the window-wide visualizer steps up onto this bar.)
+    val barLandscape = rememberLandscape()
+    Box(Modifier.fillMaxWidth().visualizerFloor("hub.bar", "hub", enabled = barLandscape), contentAlignment = Alignment.CenterStart) {
         if (showPillAndUpload) {
         // Bug fix (item 11): this used to force an opaque
         // Color.Black.copy(alpha = 0.62f) backing under the glass tint,
@@ -2606,7 +2608,7 @@ private fun ReturnToFeedBar(
         // Audio visualizer resting on top of the Timeline/Explore pills, in
         // your own color: laid out at zero height and drawn upward, so it
         // never moves the bar or anything above it.
-        if (!atTop && (com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
+        if (!atTop && !barLandscape && (com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
             AudioVisualizerBars(
                 color = tint,
                 modifier = Modifier

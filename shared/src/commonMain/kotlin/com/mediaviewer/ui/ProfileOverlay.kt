@@ -1612,7 +1612,10 @@ private fun ProfileInteractionBar(
         .height(if (liquidGlass) 60.dp else 52.dp).fillMaxWidth()
     val pillModifier = Modifier.height(pillHeight)
     Box(modifier = barModifier, contentAlignment = Alignment.Center) {
-        Box(Modifier.tipAnchor("profile.bar").onGloballyPositioned { onPillBounds(it.positionInRoot(), it.size) }) {
+        val barLandscape = rememberLandscape()
+        Box(Modifier.tipAnchor("profile.bar").onGloballyPositioned { onPillBounds(it.positionInRoot(), it.size) }
+            // (Landscape: the window-wide visualizer steps up onto this bar.)
+            .visualizerFloor("profile.bar", "profile", enabled = barLandscape)) {
             if (liquidGlass) {
                 LiquidGlassSurface(modifier = pillModifier, shape = shape, tint = tint, backdrop = backdrop) { BarContent() }
             } else {
@@ -1621,7 +1624,7 @@ private fun ProfileInteractionBar(
             // Audio visualizer resting on top of the bar, as wide as the
             // pill, in this profile's color — drawn just above it, so it
             // takes no layout space and never moves the bar.
-            if ((com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
+            if (!barLandscape && (com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
                 AudioVisualizerBars(
                     color = tint,
                     matchTimelineBarWidth = true,

@@ -371,4 +371,7 @@ actual object AudioVisualizerEngine {
         if (silent && levels.all { it <= 0.001f }) return
         _levels = smoothed.copyOf()
     }
+
+    actual fun startListening(context: Context) {}
+    actual val listening: Boolean get() = true
 }

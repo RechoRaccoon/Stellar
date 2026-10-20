@@ -2106,12 +2106,15 @@ private fun PostContent(
             ) {
             LandscapeBarScale(landscape) {
             Column(
-                modifier = if (landscape) Modifier.width(landscapeClusterWidth(appMode, liquidGlass)) else Modifier.fillMaxWidth(),
+                // (Sideways, the visualizer runs along the whole bottom of the
+                // window and steps up onto this — see AudioVisualizerSkyline.)
+                modifier = if (landscape) Modifier.width(landscapeClusterWidth(appMode, liquidGlass)).visualizerFloor("feed.cluster." + item.id, "feed")
+                    else Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // The visualizer takes up no layout space at all (drawn upward
                 // from a zero-height slot), so turning it on never moves anything.
-                if ((com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
+                if (!landscape && (com.mediaviewer.util.UiToggles.audioVisualizer && !com.mediaviewer.util.LocalData.batterySaverActive)) {
                     val barsColor = if (liquidGlass) dominantColor else rememberDominantColor(glassBackdropUrl)
                     AudioVisualizerBars(
                         color = barsColor,

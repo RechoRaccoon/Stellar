@@ -11,4 +11,7 @@ actual object AudioVisualizerEngine {
     actual fun watchPlayerSessions(context: PlatformContext) {}
     actual fun acquire(context: PlatformContext) {}
     actual fun release() {}
+
+    actual fun startListening(context: PlatformContext) {}
+    actual val listening: Boolean get() = true
 }

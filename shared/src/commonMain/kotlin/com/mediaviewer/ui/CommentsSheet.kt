@@ -463,7 +463,8 @@ fun CommentsSheet(
                         }
                     }
                     Row(
-                        Modifier.fillMaxWidth(),
+                        // (Landscape: the visualizer steps up onto the comment box.)
+                        Modifier.fillMaxWidth().visualizerFloor("feed.comments", "feed", enabled = sideList),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {

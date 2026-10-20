@@ -36,7 +36,10 @@ enum class PlatformFeature(val label: String) {
         // iOS: through a share-sheet shortcut (Settings explains how).
         (this == OPEN_BY_DEFAULT_LINKS && currentPlatform == PlatformKind.IOS) ||
         // Desktop: GIFs made with the bundled FFmpeg.
-        (this == GIF_EXPORT && currentPlatform == PlatformKind.DESKTOP)
+        (this == GIF_EXPORT && currentPlatform == PlatformKind.DESKTOP) ||
+        // Desktop: a loopback input (Stereo Mix, BlackHole…); web: sound
+        // shared through the browser's own prompt.
+        (this == AUDIO_VISUALIZER && (currentPlatform == PlatformKind.DESKTOP || currentPlatform == PlatformKind.WEB))
 }
 
 /** What the iOS app turned out to be able to do, set once at launch when

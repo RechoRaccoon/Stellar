@@ -1618,6 +1618,30 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             kotlinx.coroutines.delay(if (id == com.mediaviewer.ui.TipTours.VRM || id == com.mediaviewer.ui.TipTours.CAMERA) 1500 else 800)
             com.mediaviewer.ui.Tips.request(id)
         }
+        // Landscape's audio visualizer: one row along the whole bottom of the
+        // window (stepping up onto the bottom bars), for the Timeline, the
+        // Hub and profiles. (Portrait keeps each screen's own row.)
+        val visualizerLandscape = rememberLandscape()
+        val visualizerScreen: String? = when {
+            !visualizerLandscape || !settled || onboardingShown -> null
+            !com.mediaviewer.platform.PlatformFeature.AUDIO_VISUALIZER.isAvailable -> null
+            !com.mediaviewer.util.UiToggles.audioVisualizer || com.mediaviewer.util.LocalData.batterySaverActive -> null
+            vrmModeOpen || cameraModeOpen || composePostOpen || searchOpen || dmInboxOpen || inboxOpen -> null
+            profileShowing -> "profile"
+            profileOverlay?.hidden == false -> null
+            screenState == ScreenState.SETTINGS -> "hub"
+            screenState == ScreenState.FEED || screenState == ScreenState.COMMENTS -> "feed"
+            else -> null
+        }
+        AudioVisualizerSkyline(
+            visualizerScreen,
+            color = when (visualizerScreen) {
+                "profile" -> profileTint
+                "feed" -> currentDominantColor
+                else -> selfProfileTint
+            },
+            modifier = Modifier.zIndex(25f)
+        )
         com.mediaviewer.ui.TipOverlay(tint = selfProfileTint, modifier = Modifier.zIndex(30f))
     }
     }
