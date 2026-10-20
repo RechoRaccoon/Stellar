@@ -1867,7 +1867,11 @@ private fun PostContent(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         AsyncImage(model = displayThumb.ifBlank { displayFull }, contentDescription = null,
                             contentScale = ContentScale.Fit, modifier = mediaModifier)
-                        if (displayFull != displayThumb && displayFull.isNotBlank()) {
+                        // A GIF (a GIF link no video service has an MP4 of)
+                        // moves, looping, over its still.
+                        if (displayFull.substringBefore('?').endsWith(".gif", ignoreCase = true)) {
+                            AnimatedGifImage(displayFull, displayAlt.ifBlank { null }, mediaModifier, ContentScale.Fit)
+                        } else if (displayFull != displayThumb && displayFull.isNotBlank()) {
                             AsyncImage(
                                 model = ImageRequest.Builder(coil3.compose.LocalPlatformContext.current).data(displayFull).crossfade(true).build(),
                                 contentDescription = displayAlt.ifBlank { null },

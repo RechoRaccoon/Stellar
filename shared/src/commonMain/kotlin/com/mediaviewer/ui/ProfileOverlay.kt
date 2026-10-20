@@ -1694,7 +1694,14 @@ private fun ProfileHeaderSection(
         val bannerBackdrop = remember(liquidGlass, backdropLayer) {
             if (liquidGlass) GlassBackdrop(backdropLayer) { backdropOrigin } else null
         }
-        Box(Modifier.fillMaxWidth().height(146.dp)) {
+        // The banner is always seen whole: as tall as its own shape needs at
+        // this width (Bluesky's are 3:1), within limits — and if a limit is
+        // reached, it's fitted inside, over a soft copy of itself, never
+        // cropped.
+        var bannerAspect by remember(profile?.bannerUrl) { mutableStateOf(3f) }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val bannerHeight = (maxWidth / bannerAspect.coerceIn(0.5f, 8f)).coerceIn(112.dp, 280.dp)
+        Box(Modifier.fillMaxWidth().height(bannerHeight)) {
             // Only the raw photo + wash gets recorded into the shared backdrop
             // layer — ProfileBannerOverlayLayout (a SubcomposeLayout) is kept
             // as a separate sibling below rather than nested inside this
@@ -1713,9 +1720,21 @@ private fun ProfileHeaderSection(
                     )
             ) {
                 if (profile?.bannerUrl != null) {
+                    // (Behind it, only ever seen if it doesn't fill the space:
+                    // the same picture, softened.)
                     AsyncImage(
                         model = profile.bannerUrl, contentDescription = null,
-                        contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize().then(if (CAN_BLUR) Modifier.blur(24.dp) else Modifier)
+                            .graphicsLayer { alpha = 0.55f }
+                    )
+                    AsyncImage(
+                        model = profile.bannerUrl, contentDescription = null,
+                        contentScale = ContentScale.Fit, modifier = Modifier.matchParentSize(),
+                        onSuccess = { st ->
+                            val sz = st.painter.intrinsicSize
+                            if (sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) bannerAspect = sz.width / sz.height
+                        }
                     )
                 } else {
                     Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(bannerColor.copy(0.55f), Color.Black))))
@@ -1730,8 +1749,10 @@ private fun ProfileHeaderSection(
                         ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bannerColor.copy(0.55f), Color.Black))))
                     })
                 }
-                // Glass wash so the banner reads as "under glass" rather than a bare photo.
-                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Black.copy(0.10f), Color.Black.copy(0.45f)))))
+                // (No dark wash over it any more: that's what made banners look
+                // dimmer here than elsewhere. Just a faint shade along the
+                // bottom, under the name pills.)
+                Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(0.18f))))
             }
 
             // Everything below is positioned by a single custom layout so the
@@ -1758,6 +1779,7 @@ private fun ProfileHeaderSection(
                 onOpenStatus = onOpenStatus,
                 onOpenAvatar = onOpenAvatar
             )
+        }
         }
 
         // ── Profile note (supporters; private, on this device) ──

@@ -667,13 +667,21 @@ class BlueskyRepository {
          */
         fun tenorVideoUrl(uri: String): String? {
             val noQuery = uri.substringBefore('?')
+            // Giphy keeps an MP4 beside every GIF.
+            Regex("^https://(?:media\\d?|i)\\.giphy\\.com/media/([A-Za-z0-9]+)/(?:giphy|source)\\.gif$").find(noQuery)?.let {
+                return "https://media.giphy.com/media/${it.groupValues[1]}/giphy.mp4"
+            }
             if (!noQuery.startsWith("https://media.tenor.com/")) return null
             val parts = noQuery.removePrefix("https://media.tenor.com/").split('/')
             if (parts.size < 2) return null
             val id = parts[0]
             val name = parts[1]
-            if (!id.contains("AAAAC") || !name.lowercase().endsWith(".gif")) return null
-            return "https://t.gifs.bsky.app/" + id.replace("AAAAC", "AAAP1") + "/" + name.dropLast(4) + ".mp4"
+            if (!name.lowercase().endsWith(".gif")) return null
+            // A Tenor id ends in five letters naming the format ("AAAAC" for
+            // the GIF Bluesky's picker posts, "AAAAM", "AAAAd"… from other
+            // apps): any of them, as the MP4 format.
+            if (id.length <= 5 || !id.takeLast(5).startsWith("AAA")) return null
+            return "https://t.gifs.bsky.app/" + id.dropLast(5) + "AAAP1/" + name.dropLast(4) + ".mp4"
         }
 
         /** Sentinel URI standing in for the pinned "Following" home timeline, which
