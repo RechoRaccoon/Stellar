@@ -87,6 +87,7 @@ fun LocalOverlayHost(
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
+        LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.savedFeedUris = savedFeedUris
         LocalOverlays.bookmarkFolderId = folderId
     }

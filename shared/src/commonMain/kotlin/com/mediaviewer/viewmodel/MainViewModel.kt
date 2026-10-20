@@ -2016,6 +2016,14 @@ class MainViewModel(
 
     fun openSearch() { tapHaptic(); _searchOpen.value = true }
 
+    /** Search › Tagged, over whatever's showing; closing it goes back. */
+    fun openTaggedPage() {
+        tapHaptic()
+        _searchHiddenBehindPost.value = false
+        _searchOpen.value = true
+        setSearchFilter(SearchFilter.LIKED_TAGS)
+    }
+
     /** Opens [url] in Search › Web Browser (over whatever's showing). */
     fun openInAppBrowser(url: String) {
         tapHaptic()

@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import com.mediaviewer.ui.compat.horizontalScroll
+import androidx.compose.foundation.horizontalScroll as foundationHorizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -393,7 +394,7 @@ fun MainFeedScreen(
     val context = LocalContext.current
     val configuration = com.mediaviewer.ui.compat.rememberScreenSizeDp()
     val taggingStatusLabel: String? =
-        if (!tagPostWhenLiked || !com.mediaviewer.util.UiToggles.showTaggingStatus) null
+        if ((!tagPostWhenLiked && !com.mediaviewer.util.UiToggles.tagWhenViewed) || !com.mediaviewer.util.UiToggles.showTaggingStatus) null
         else when (likeTagPhase) {
             MainViewModel.LikeTagPhase.ACTIVATING -> "Activating tagger…"
             MainViewModel.LikeTagPhase.TAGGING -> "Tagging $likeTagPending post" + if (likeTagPending == 1) "" else "s"
@@ -3306,10 +3307,21 @@ private fun PostStatusRow(
             )
         }
         AnimatedStatus(taggingLabel, reducedAnimations) { label ->
+            // Tagging can run a long while: on an OLED screen the pill drifts
+            // a few dp and breathes slowly, so it never sits burning one spot.
+            val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "tagPillDrift")
+            val dx by drift.animateFloat(-3f, 3f, androidx.compose.animation.core.infiniteRepeatable(tween(23_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillX")
+            val dy by drift.animateFloat(-1.5f, 1.5f, androidx.compose.animation.core.infiniteRepeatable(tween(31_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillY")
+            val glow by drift.animateFloat(0.72f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(9_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillAlpha")
             StatusPill(
                 label = label, spinning = true, liquidGlass = liquidGlass,
-                tint = tint, backdrop = backdrop, onClick = null,
+                tint = tint, backdrop = backdrop,
+                // Tap: the Tagged page, over the timeline (closing it comes back here).
+                onClick = { LocalOverlays.onOpenTagged?.invoke() },
                 modifier = Modifier.padding(bottom = 4.dp)
+                    .graphicsLayer {
+                        if (!reducedAnimations) { translationX = dx * density; translationY = dy * density; alpha = glow }
+                    }
             )
         }
         // This post downloading (normally or as a GIF), then done.
@@ -3661,7 +3673,9 @@ private fun ImageSelectorRow(
             val latestSelect = rememberUpdatedState(onSelect)
             Row(
                 Modifier
-                    .horizontalScroll(rememberScrollState())
+                    // (Foundation's own scroll, not the mouse-drag one: a
+                    // mouse drag here scrubs the pictures, like a finger.)
+                    .foundationHorizontalScroll(rememberScrollState())
                     .pointerInput(n, stepPx) {
                         // Tap = jump there; hold (or drag) = scrub along the row.
                         awaitEachGesture {
