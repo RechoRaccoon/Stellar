@@ -25,6 +25,12 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.material.icons.filled.Star
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -70,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.mediaviewer.model.BskyMessageView
+import com.mediaviewer.model.readableText
 import com.mediaviewer.model.DmConversation
 import com.mediaviewer.model.DmEmbeddedPost
 import com.mediaviewer.ui.theme.DimGray
@@ -497,6 +504,9 @@ private fun DmThreadView(
     // First chat opened: how to react and reply (Tips.kt).
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(1000); Tips.request(TipTours.DMS) }
     var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    val enterSends = com.mediaviewer.platform.currentPlatform.let {
+        it != com.mediaviewer.platform.PlatformKind.ANDROID && it != com.mediaviewer.platform.PlatformKind.IOS
+    }
     val text = field.text
     val isGroup = thread.convo.isGroup
 
@@ -653,6 +663,16 @@ private fun DmThreadView(
     var bubbleOrigin by remember { mutableStateOf(Offset.Zero) }
     val bubbleBackdrop = remember(bubbleLayer) { GlassBackdrop(bubbleLayer) { bubbleOrigin } }
     val bubblesOut = liquidGlass && LiteGlass.LIVE && effectPlay?.first == DmEffect.BUBBLES
+    // The message bar floats over the chat: messages scroll on under it and
+    // it blurs them (just dims them where blur is off: the web, Performance
+    // Mode). The list is recorded, over the sky, for the bar to blur.
+    var barHeightPx by remember { mutableStateOf(0) }
+    val barLayer = rememberGraphicsLayer()
+    var listOrigin by remember { mutableStateOf(Offset.Zero) }
+    val barBackdrop = remember(liquidGlass, barLayer) { if (liquidGlass) GlassBackdrop(barLayer) { listOrigin } else null }
+    // Landscape: the emoji menu is a card above the field, at the left
+    // (like Discord's), not a panel across the whole bottom.
+    val emojiFloating = rememberLandscape()
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().then(
@@ -678,7 +698,23 @@ private fun DmThreadView(
             else Modifier
         )
     ) {
-        Box(Modifier.weight(1f).fillMaxWidth().pageBlur(listBlur)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(
+            Modifier.fillMaxSize().pageBlur(listBlur)
+                .onGloballyPositioned { listOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    if (liquidGlass && LiteGlass.LIVE) barLayer.record {
+                        if (backdrop != null) {
+                            val sky = backdrop.originInRoot()
+                            clipRect(0f, 0f, size.width, size.height) {
+                                translate(sky.x - listOrigin.x, sky.y - listOrigin.y) { drawLayer(backdrop.layer) }
+                            }
+                        }
+                        this@drawWithContent.drawContent()
+                    }
+                    drawContent()
+                }
+        ) {
             when {
                 thread.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 1.5.dp)
@@ -710,6 +746,23 @@ private fun DmThreadView(
                         }
                         lastMessageId = newLastId
                     }
+                    // Stuck to the newest message until the person scrolls up:
+                    // pictures, emoji and cards that finish loading after the
+                    // chat opens (and grow the last messages) no longer leave it
+                    // sitting a little above the bottom.
+                    val dragged by listState.interactionSource.collectIsDraggedAsState()
+                    var stuck by remember(thread.convo.convoId) { mutableStateOf(true) }
+                    LaunchedEffect(listState, dragged) {
+                        snapshotFlow { listState.canScrollForward }.collect { canGoOn ->
+                            if (!canGoOn) stuck = true else if (dragged) stuck = false
+                        }
+                    }
+                    LaunchedEffect(listState, stuck, positioned) {
+                        if (!stuck || !positioned) return@LaunchedEffect
+                        snapshotFlow { listState.layoutInfo.totalItemsCount to listState.canScrollForward }.collect { (_, canGoOn) ->
+                            if (stuck && canGoOn && !listState.isScrollInProgress) listState.dispatchRawDelta(1_000_000f)
+                        }
+                    }
 
                     // Item 12 follow-up: infinite-scroll-up for older DMs —
                     // ask for more once the user scrolls near the top of
@@ -729,9 +782,11 @@ private fun DmThreadView(
                         if (highlightId != null) { kotlinx.coroutines.delay(1400); highlightId = null }
                     }
 
+                    val barHeightDp = with(density) { barHeightPx.toDp() }
                     LazyColumn(
                         Modifier.fillMaxSize().dmPinchZoom(), state = listState,
-                        contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp + barHeightDp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (thread.loadingMore) {
                             item(key = "loading_more") {
@@ -803,8 +858,6 @@ private fun DmThreadView(
             }
         }
 
-        HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
-
         // Item 12 follow-up: the input row is now a floating glass pill (no
         // more flat rectangular fill behind it, no more Material's own
         // outlined-box styling) with a live backdrop reflection, the same
@@ -822,10 +875,15 @@ private fun DmThreadView(
         // (With the emoji menu open it sits at the bottom edge in the
         // keyboard's place, edge to edge like the composer's, and the field
         // rides on top of it instead of the keyboard.)
-        Column(Modifier.fillMaxWidth()) {
+        // (Where blur is off: a dim fade behind the bar instead.)
+        if (!(liquidGlass && LiteGlass.LIVE)) Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(with(density) { barHeightPx.toDp() } + 24.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+        )
         Column(
-            Modifier.fillMaxWidth()
-                .then(if (emojiPanelOpen) Modifier else Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace)))
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .onSizeChanged { barHeightPx = it.height }
+                .then(if (emojiPanelOpen && !emojiFloating) Modifier else Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace)))
                 .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
             // "Replying to …" — slides in above the field while a reply is set.
@@ -843,8 +901,8 @@ private fun DmThreadView(
                     val accent = tintOf(target)
                     ReplyPreviewBar(
                         name = nameOf(target),
-                        snippet = target.text.ifBlank { if (thread.embeddedPosts[target.id] != null) "Shared a post" else "Message" },
-                        accent = accent, liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop,
+                        snippet = target.readableText.ifBlank { if (thread.embeddedPosts[target.id] != null) "Shared a post" else "Message" },
+                        accent = accent, liquidGlass = liquidGlass, tint = profileTint, backdrop = barBackdrop,
                         onCancel = { tap(); replyTarget = null }
                     )
                 }
@@ -870,11 +928,12 @@ private fun DmThreadView(
             @Composable
             fun EmojiButtonContent() {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    androidx.compose.material3.Text("\uD83E\uDD9D", fontSize = 20.sp, lineHeight = 20.sp)
+                    // (A star: custom emoji.)
+                    androidx.compose.material3.Text("\u2605", color = Color.White, fontSize = 21.sp, lineHeight = 21.sp)
                 }
             }
             if (liquidGlass) {
-                LiquidGlassSurface(emojiModifier, shape = emojiShape, tint = profileTint, backdrop = backdrop) { EmojiButtonContent() }
+                LiquidGlassSurface(emojiModifier, shape = emojiShape, tint = profileTint, backdrop = barBackdrop) { EmojiButtonContent() }
             } else {
                 Box(emojiModifier.clip(emojiShape).background(Color.White.copy(0.14f))) { EmojiButtonContent() }
             }
@@ -901,9 +960,18 @@ private fun DmThreadView(
                             cursorBrush = SolidColor(Color.White),
                             visualTransformation = transformation,
                             onTextLayout = { fieldLayout = it },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            // Phones: Enter is a new line (the send button sends).
+                            // Computers and the web: Enter sends, Shift+Enter is a
+                            // new line.
+                            keyboardOptions = KeyboardOptions(imeAction = if (enterSends) ImeAction.Send else ImeAction.Default),
                             keyboardActions = KeyboardActions(onSend = { send() }),
                             modifier = Modifier.fillMaxWidth().focusRequester(inputFocus)
+                                .onPreviewKeyEvent { e ->
+                                    if (enterSends && e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                                        (e.key == androidx.compose.ui.input.key.Key.Enter || e.key == androidx.compose.ui.input.key.Key.NumPadEnter) &&
+                                        !e.isShiftPressed
+                                    ) { send(); true } else false
+                                }
                         )
                         EmojiFieldOverlay(text, fieldLayout, emojiStore)
                     }
@@ -911,7 +979,7 @@ private fun DmThreadView(
                 }
             }
             if (liquidGlass) {
-                LiquidGlassSurface(Modifier.weight(1f).heightIn(min = 46.dp), shape = fieldShape, tint = profileTint, backdrop = backdrop) { MessageFieldContent() }
+                LiquidGlassSurface(Modifier.weight(1f).heightIn(min = 46.dp), shape = fieldShape, tint = profileTint, backdrop = barBackdrop) { MessageFieldContent() }
             } else {
                 Box(Modifier.weight(1f).heightIn(min = 46.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { MessageFieldContent() }
             }
@@ -928,15 +996,29 @@ private fun DmThreadView(
                 tap(); send()
             }
             if (liquidGlass) {
-                LiquidGlassSurface(sendModifier, shape = sendShape, tint = profileTint, backdrop = backdrop) { SendButtonContent() }
+                LiquidGlassSurface(sendModifier, shape = sendShape, tint = profileTint, backdrop = barBackdrop) { SendButtonContent() }
             } else {
                 Box(sendModifier.clip(sendShape).background(Color.White.copy(0.14f))) { SendButtonContent() }
             }
         }
         }
+        // Landscape: the emoji menu as a card over the chat, just above
+        // the field, at the left.
+        if (emojiPanelOpen && emojiFloating) {
+            EmojiPanel(
+                store = emojiStore, height = 380.dp, compact = false,
+                liquidGlass = liquidGlass, tint = profileTint,
+                onPickEmoji = { insertEmoji(it) }, onEditingChange = { emojiTabEditing = it },
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .padding(start = 10.dp, bottom = with(density) { barHeightPx.toDp() } + 4.dp),
+                showAccounts = true, selfDid = myDid, selfAvatarUrl = selfAvatarUrl,
+                partner = if (isGroup) null else thread.convo.member, floating = true
+            )
+        }
+        }
         // The emoji menu, where the keyboard was (riding on top of the
         // keyboard while a tab is being renamed).
-        if (emojiPanelOpen) {
+        if (emojiPanelOpen && !emojiFloating) {
             EmojiPanel(
                 store = emojiStore,
                 height = emojiPanelHeight,
@@ -946,9 +1028,10 @@ private fun DmThreadView(
                 onPickEmoji = { insertEmoji(it) },
                 onEditingChange = { emojiTabEditing = it },
                 modifier = Modifier.fillMaxWidth()
-                    .padding(bottom = if (emojiTabEditing) with(imeDensity) { imeBottomPx.toDp() } else 0.dp)
+                    .padding(bottom = if (emojiTabEditing) with(imeDensity) { imeBottomPx.toDp() } else 0.dp),
+                showAccounts = true, selfDid = myDid, selfAvatarUrl = selfAvatarUrl,
+                partner = if (isGroup) null else thread.convo.member
             )
-        }
         }
     }
 
@@ -972,6 +1055,10 @@ private fun DmThreadView(
     if (current != null) {
         val (msg, bounds) = current
         val mine = isMine(msg)
+        val emojiToSave = remember(msg.id) {
+            com.mediaviewer.util.EmojiCloud.emojiSpans(msg.text, msg.facets?.map { it.toKx() })
+                .filter { it.did != myDid }.distinctBy { it.cid }
+        }
         ReactionPickerOverlay(
             anchor = bounds,
             alignEnd = mine,
@@ -985,8 +1072,20 @@ private fun DmThreadView(
             },
             onReply = { tap(); picker = null; startReply(msg) },
             onCopy = if (msg.text.isNotBlank()) ({
-                tap(); clipboard.setText(androidx.compose.ui.text.AnnotatedString(msg.text)); picker = null
+                val words = com.mediaviewer.util.EmojiCloud.readableText(msg.text, msg.facets?.map { it.toKx() })
+                tap(); clipboard.setText(androidx.compose.ui.text.AnnotatedString(words)); picker = null
             }) else null,
+            // Someone else's custom emoji in it: Save puts them in your own.
+            onSave = emojiToSave.takeIf { it.isNotEmpty() }?.let { spans ->
+                {
+                    tap(); picker = null
+                    scope.launch {
+                        var n = 0
+                        spans.forEach { sp -> if (com.mediaviewer.util.EmojiCloud.saveOthers(emojiStore, myDid, sp.did, sp.cid, sp.name) != null) n++ }
+                        com.mediaviewer.ui.compat.showPlatformToast(if (n > 0) "Saved to your emoji" else "Couldn't save that emoji")
+                    }
+                }
+            },
             onDismiss = { picker = null }
         )
     }
@@ -1202,7 +1301,7 @@ private fun DmBubble(
                             fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
                         )
                         Text(
-                            if (quoted.isDeleted) "Deleted message" else quoted.text.ifBlank { "Shared a post" },
+                            if (quoted.isDeleted) "Deleted message" else quoted.readableText.ifBlank { "Shared a post" },
                             color = Color.White.copy(0.7f), fontSize = 12.sp, lineHeight = 15.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
@@ -1369,6 +1468,7 @@ private fun ReactionPickerOverlay(
     onPick: (String) -> Unit,
     onReply: () -> Unit,
     onCopy: (() -> Unit)?,
+    onSave: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     com.mediaviewer.ui.compat.BackHandler(onBack = onDismiss)
@@ -1457,6 +1557,7 @@ private fun ReactionPickerOverlay(
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         PickerAction("Reply", Icons.AutoMirrored.Filled.Reply, onReply)
                         if (onCopy != null) PickerAction("Copy", Icons.Default.ContentCopy, onCopy)
+                        if (onSave != null) PickerAction("Save", Icons.Default.Star, onSave)
                     }
                 }
             }

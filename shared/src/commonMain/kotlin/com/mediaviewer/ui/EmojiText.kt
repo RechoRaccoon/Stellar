@@ -74,8 +74,9 @@ internal fun DmMessageText(
         return
     }
     val onlyEmoji = remember(text, spans) { EmojiCloud.isOnlyEmoji(text, spans) }
-    // Only emoji: as big as the bubble's normal height allows.
-    val side = if (onlyEmoji) 3.2.em else 1.35.em
+    // Discord-sized: about a line and three quarters tall among words, and
+    // big ("jumbo") when the message is only emoji.
+    val side = if (onlyEmoji) JUMBO_EM.em else INLINE_EM.em
     val annotated = remember(text, spans) {
         buildAnnotatedString {
             var at = 0
@@ -90,10 +91,8 @@ internal fun DmMessageText(
     val inline = remember(spans, side) {
         spans.mapIndexed { i, s ->
             "emoji$i" to InlineTextContent(Placeholder(side, side, PlaceholderVerticalAlign.TextCenter)) {
-                val url by produceState<String?>(null, s.did, s.cid) {
-                    value = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(s.did, s.cid) }.getOrNull()
-                }
-                AsyncImage(model = url, contentDescription = s.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                // (Animated emoji move, and loop.)
+                RemoteEmojiPicture(s.did, s.cid, s.animated, s.name, Modifier.fillMaxSize())
             }
         }.toMap()
     }
@@ -101,7 +100,7 @@ internal fun DmMessageText(
         annotated, color = color, fontSize = fontSize,
         // Only emoji: the line is exactly as tall as they are (no space
         // above or below), so the bubble's padding is all there is.
-        lineHeight = if (onlyEmoji) (fontSize.value * 3.2f).sp else lineHeight,
+        lineHeight = if (onlyEmoji) (fontSize.value * JUMBO_EM).sp else maxOf(lineHeight.value, fontSize.value * INLINE_EM).sp,
         style = if (onlyEmoji) androidx.compose.material3.LocalTextStyle.current.copy(
             lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
                 androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
@@ -111,3 +110,7 @@ internal fun DmMessageText(
         inlineContent = inline
     )
 }
+
+/** Custom emoji in a DM, in ems of the text: among words, and alone. */
+private const val INLINE_EM = 1.75f
+private const val JUMBO_EM = 3.6f

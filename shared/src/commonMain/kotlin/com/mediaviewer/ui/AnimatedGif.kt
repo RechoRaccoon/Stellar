@@ -13,3 +13,15 @@ expect fun AnimatedGifImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop
 )
+
+/** An animated GIF from bytes [load] hands over (a custom emoji's own
+ *  file), looping. [key] names those bytes (for the cache): the same key,
+ *  the same picture. Shows nothing until it's ready. */
+@Composable
+expect fun AnimatedGifBytes(
+    key: String,
+    load: suspend () -> ByteArray?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit
+)

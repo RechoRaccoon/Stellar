@@ -2928,10 +2928,10 @@ class BlueskyRepository {
             last == null -> ""
             last.isSystem -> "Group updated"
             last.type?.endsWith("#deletedMessageView") == true -> "Message deleted"
-            last.text.isNotBlank() -> {
+            last.readableText.isNotBlank() -> {
                 val by = last.sender?.did
                 val who = if (by == myDid) "You" else if (convo.isGroup) by?.let(firstNameOf) else null
-                if (who != null) "$who: ${last.text}" else last.text
+                if (who != null) "$who: ${last.readableText}" else last.readableText
             }
             last.embed != null -> if (last.sender?.did == myDid) "You shared a post" else "Shared a post"
             else -> ""
@@ -3029,8 +3029,10 @@ class BlueskyRepository {
         /** Reply to this message (Bluesky's own DM replies). */
         replyToMessageId: String? = null,
         /** More facets (Stellar's custom emoji). If the chat service won't
-         *  take them, the message goes without (their :name: text stays). */
-        extraFacets: List<Map<String, Any>> = emptyList()
+         *  take them, [fallbackText] is sent without them instead. */
+        extraFacets: List<Map<String, Any>> = emptyList(),
+        /** The message with each custom emoji as ":name:" text. */
+        fallbackText: String = text
     ): Result<Unit> = runCatching {
         ensureChatApi(myDid)
         if (extraFacets.isNotEmpty()) {
@@ -3039,6 +3041,8 @@ class BlueskyRepository {
             val msg = first.exceptionOrNull()?.message.orEmpty()
             // Only a refusal of the message itself is retried without them.
             if (!msg.contains("400") && !msg.contains("Invalid", ignoreCase = true)) throw first.exceptionOrNull()!!
+            postMessage(token, convoId, fallbackText, embedPostUri, embedPostCid, replyToMessageId, emptyList()).getOrThrow()
+            return@runCatching
         }
         postMessage(token, convoId, text, embedPostUri, embedPostCid, replyToMessageId, emptyList()).getOrThrow()
     }
@@ -4148,7 +4152,8 @@ class BlueskyRepository {
                     ?: continue
                 out += com.mediaviewer.util.EmojiCloud.RemoteEmoji(
                     rkey = rec.uri.substringAfterLast('/'), name = text("name").orEmpty().ifBlank { "emoji" },
-                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder")
+                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder"),
+                    animated = (image["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "image/gif"
                 )
             }
             cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
@@ -4158,7 +4163,9 @@ class BlueskyRepository {
 
     /** Uploads one emoji's PNG and saves its record; returns (record key, blob cid). */
     suspend fun createEmojiRecord(token: String, did: String, name: String, png: ByteArray, hash: String, folder: String?): Pair<String, String> = withContext(ioDispatcher) {
-        val up = api.uploadBlob("Bearer $token", "image/png", png.toRequestBody("image/png".toMediaType()))
+        // (An animated emoji is a GIF.)
+        val mime = if (com.mediaviewer.util.GifInfo.isGif(png)) "image/gif" else "image/png"
+        val up = api.uploadBlob("Bearer $token", mime, png.toRequestBody(mime.toMediaType()))
         val blob = up.body()?.blob ?: error("Emoji upload ${up.code()}: ${errorBodyText(up).take(120)}")
         val record = linkedMapOf<String, Any>(
             "\$type" to com.mediaviewer.util.EmojiCloud.COLLECTION,

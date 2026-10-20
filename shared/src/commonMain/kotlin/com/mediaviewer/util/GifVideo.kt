@@ -80,7 +80,9 @@ object GifVideo {
  * under 20 ms counts as 100 ms, as browsers do).
  */
 object GifDecoder {
-    fun decode(b: ByteArray, onFrame: (canvas: IntArray, width: Int, height: Int, delayMs: Long) -> Unit) {
+    /** [background]: what's under the first frame and what a "clear
+     *  this frame" disposal leaves (black for video; see-through for emoji). */
+    fun decode(b: ByteArray, background: Int = 0xFF000000.toInt(), onFrame: (canvas: IntArray, width: Int, height: Int, delayMs: Long) -> Unit) {
         if (!GifInfo.isGif(b) || b.size < 13) error("Not a GIF")
         var p = 6
         fun u8(): Int = if (p < b.size) (b[p++].toInt() and 0xFF) else { p++; 0 }
@@ -97,7 +99,7 @@ object GifDecoder {
         }
         val globalTable = if (flags and 0x80 != 0) readTable(1 shl ((flags and 0x07) + 1)) else null
         val black = 0xFF000000.toInt()
-        val canvas = IntArray(width * height) { black }
+        val canvas = IntArray(width * height) { background }
         var saved: IntArray? = null
         var disposal = 0
         var transparent = -1
@@ -171,7 +173,7 @@ object GifDecoder {
                     // What happens to this frame before the next one.
                     when (disposal) {
                         2 -> for (y in iy until minOf(iy + ih, height)) for (x in ix until minOf(ix + iw, width)) {
-                            if (y >= 0 && x >= 0) canvas[y * width + x] = black
+                            if (y >= 0 && x >= 0) canvas[y * width + x] = background
                         }
                         3 -> saved?.copyInto(canvas)
                     }

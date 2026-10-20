@@ -176,4 +176,18 @@ actual object MediaBridge {
 
     actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
         withContext(Dispatchers.IO) { DesktopUri.of(File(DesktopFfmpeg.videoFromGif(gif))) }
+
+    actual suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames =
+        withContext(Dispatchers.IO) {
+            val frames = ArrayList<IntArray>()
+            var fw = 0; var fh = 0
+            DesktopFfmpeg.frames(pathOf(uri), maxFps = fps.toDouble(), maxSeconds = maxSeconds, maxSide = maxOf(maxSide * 4, 512)) { px, w, h, _ ->
+                // (Scaled here, area-averaged, from a larger frame: smoother.)
+                val (tw, th) = com.mediaviewer.util.EmojiMedia.fit(w, h, maxSide)
+                if (fw == 0) { fw = tw; fh = th }
+                frames += com.mediaviewer.util.EmojiMedia.scale(px, w, h, fw, fh)
+            }
+            if (frames.isEmpty()) error("Couldn't read the video")
+            VideoFrames(fw, fh, frames, (1000 / fps.coerceAtLeast(1)))
+        }
 }

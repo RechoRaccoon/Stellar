@@ -71,3 +71,47 @@ actual fun AnimatedGifImage(url: String, contentDescription: String?, modifier: 
     }
     Image(bitmap = f[index.coerceIn(0, f.lastIndex)].first, contentDescription = contentDescription, modifier = modifier, contentScale = contentScale)
 }
+
+/** Small decoded GIFs (custom emoji) by key: many of them can be on screen
+ *  at once, so this holds more than [gifCache]. */
+private val bytesGifCache = LinkedHashMap<String, List<Pair<ImageBitmap, Int>>>()
+
+@Composable
+actual fun AnimatedGifBytes(key: String, load: suspend () -> ByteArray?, contentDescription: String?, modifier: Modifier, contentScale: ContentScale) {
+    var frames by remember(key) { mutableStateOf(com.mediaviewer.platform.synchronizedCompat(bytesGifCache) { bytesGifCache[key] }) }
+    LaunchedEffect(key) {
+        if (frames != null) return@LaunchedEffect
+        val bytes = runCatching { load() }.getOrNull() ?: return@LaunchedEffect
+        val decoded = withContext(Dispatchers.Default) {
+            runCatching {
+                val codec = Codec.makeFromData(Data.makeFromBytes(bytes))
+                val count = codec.frameCount.coerceIn(1, 150)
+                val infos = codec.framesInfo
+                (0 until count).map { i ->
+                    val bmp = Bitmap()
+                    bmp.allocPixels(codec.imageInfo)
+                    codec.readPixels(bmp, i)
+                    val ms = infos.getOrNull(i)?.duration ?: 100
+                    bmp.asComposeImageBitmap() to (if (ms < 20) 100 else ms)
+                }
+            }.getOrNull()
+        }
+        if (decoded != null && decoded.isNotEmpty()) {
+            com.mediaviewer.platform.synchronizedCompat(bytesGifCache) {
+                bytesGifCache[key] = decoded
+                while (bytesGifCache.size > 48) bytesGifCache.remove(bytesGifCache.keys.first())
+            }
+            frames = decoded
+        }
+    }
+    val f = frames
+    if (f.isNullOrEmpty()) return
+    var index by remember(f) { mutableIntStateOf(0) }
+    if (f.size > 1) LaunchedEffect(f) {
+        while (true) {
+            delay(f[index].second.toLong())
+            index = (index + 1) % f.size
+        }
+    }
+    Image(bitmap = f[index.coerceIn(0, f.lastIndex)].first, contentDescription = contentDescription, modifier = modifier, contentScale = contentScale)
+}

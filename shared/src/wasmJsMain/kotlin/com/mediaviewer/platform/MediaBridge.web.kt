@@ -160,7 +160,66 @@ actual object MediaBridge {
     /** (Without FFmpeg, a GIF is sent to Bluesky's video service as is; it converts GIFs itself.) */
     actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
         throw UnsupportedOperationException("Not available on the web")
+
+    actual suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames {
+        val path = uri.webPath ?: error("Couldn't read the video")
+        val url = WebBlobs.objectUrl(path) ?: error("Couldn't read the video")
+        // [w, h, count] (little-endian ints) then every frame's RGBA.
+        val raw = videoFramesInBrowser(url, maxSide, fps, maxSeconds).await<JsBytes>().toByteArray()
+        if (raw.size < 12) error("Couldn't read the video")
+        fun int(at: Int) = (raw[at].toInt() and 0xFF) or ((raw[at + 1].toInt() and 0xFF) shl 8) or
+            ((raw[at + 2].toInt() and 0xFF) shl 16) or ((raw[at + 3].toInt() and 0xFF) shl 24)
+        val w = int(0); val h = int(4); val count = int(8)
+        if (w <= 0 || h <= 0 || count <= 0 || raw.size < 12 + w * h * 4 * count) error("Couldn't read the video")
+        val frames = (0 until count).map { f ->
+            val base = 12 + f * w * h * 4
+            IntArray(w * h) { i ->
+                val o = base + i * 4
+                (0xFF shl 24) or ((raw[o].toInt() and 0xFF) shl 16) or ((raw[o + 1].toInt() and 0xFF) shl 8) or (raw[o + 2].toInt() and 0xFF)
+            }
+        }
+        return VideoFrames(w, h, frames, 1000 / fps.coerceAtLeast(1))
+    }
 }
+
+/** The start of a video as small frames: seeks through it, drawing each
+ *  step onto a little canvas. Resolves to [w, h, count] + RGBA frames. */
+private fun videoFramesInBrowser(url: String, maxSide: Int, fps: Int, maxSeconds: Double): kotlin.js.Promise<JsBytes> = js("""new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.onerror = () => reject(new Error("Couldn't read the video"));
+    v.onloadeddata = async () => {
+        try {
+            const vw = v.videoWidth, vh = v.videoHeight;
+            if (!vw || !vh) { reject(new Error("Couldn't read the video")); return; }
+            const s = Math.min(1, maxSide / Math.max(vw, vh));
+            const w = Math.max(1, Math.round(vw * s)), h = Math.max(1, Math.round(vh * s));
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            const g = c.getContext('2d', { willReadFrequently: true });
+            const end = Math.min(isFinite(v.duration) ? v.duration : 0, maxSeconds);
+            const step = 1 / Math.max(1, fps);
+            const frames = [];
+            const seek = (t) => new Promise((ok) => {
+                const done = () => { v.removeEventListener('seeked', done); ok(); };
+                v.addEventListener('seeked', done);
+                v.currentTime = t;
+            });
+            for (let t = 0; frames.length === 0 || t < end; t += step) {
+                await seek(Math.min(t, Math.max(0, end - 0.001)));
+                g.clearRect(0, 0, w, h);
+                g.drawImage(v, 0, 0, w, h);
+                frames.push(g.getImageData(0, 0, w, h).data);
+                if (end <= 0) break;
+            }
+            const out = new Uint8Array(12 + frames.length * w * h * 4);
+            const dv = new DataView(out.buffer);
+            dv.setInt32(0, w, true); dv.setInt32(4, h, true); dv.setInt32(8, frames.length, true);
+            frames.forEach((f, i) => out.set(f, 12 + i * w * h * 4));
+            resolve(out);
+        } catch (e) { reject(e); }
+    };
+    v.src = url;
+})""")
 
 private fun blobType(blob: JsAny): String = js("blob.type || ''")
 private fun blobSize(blob: JsAny): Double = js("blob.size")

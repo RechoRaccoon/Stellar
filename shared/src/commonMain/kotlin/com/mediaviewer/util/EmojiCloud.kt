@@ -29,17 +29,29 @@ import kotlinx.serialization.json.intOrNull
  *   added on this device, downloads ones added on another, and deletes the
  *   record of one deleted here (an emoji that was here at the last sync and
  *   isn't any more).
- * - In a DM: each emoji is sent as ":name:" plus a facet of type
- *   [FACET_TYPE] over that text, pointing at the sender's record and blob.
- *   Stellar draws the picture there ([emojiSpans]); other apps, which don't
- *   know the facet, show the ":name:" text.
+ * - In a DM: each emoji is sent as one invisible character ([HIDDEN],
+ *   a word joiner: no width, no space) plus a facet of type [FACET_TYPE]
+ *   over it, pointing at the sender's record and blob. Stellar draws the
+ *   picture there ([emojiSpans]); other apps, which don't know the facet,
+ *   show nothing at all. (If the chat service ever refuses the facets, the
+ *   message goes as ":name:" text instead — see [Prepared.fallback].)
+ * - Other people's emoji: [libraryOf] reads anyone's library straight from
+ *   their own PDS (no sign-in needed), for the emoji menu's account row.
  */
 object EmojiCloud {
     const val COLLECTION = "com.rechoraccoon.stellar.emoji"
     const val FACET_TYPE = "com.rechoraccoon.stellar.richtext.facet#emoji"
 
-    /** One emoji record on a PDS. */
-    data class RemoteEmoji(val rkey: String, val name: String, val cid: String, val hash: String, val folder: String?)
+    /** Stands in for an emoji in a sent message's text: U+2060 WORD JOINER,
+     *  which every text engine draws as nothing (and isn't whitespace, so
+     *  the message is never "empty"). */
+    const val HIDDEN = "\u2060"
+
+    /** One emoji record on a PDS. [animated]: its picture is a GIF. */
+    data class RemoteEmoji(
+        val rkey: String, val name: String, val cid: String, val hash: String, val folder: String?,
+        val animated: Boolean = false
+    )
 
     @Serializable
     private data class Uploaded(val rkey: String, val cid: String)
@@ -168,14 +180,19 @@ object EmojiCloud {
         return Uploaded(rkey, cid)
     }
 
+    /** A message ready to send: [text] with [facets]; [fallback] is the
+     *  same message with ":name:" for each emoji, sent instead if the chat
+     *  service won't take the facets. */
+    data class Prepared(val text: String, val facets: List<Map<String, Any>>, val fallback: String)
+
     /**
      * A DM's text from the field: every emoji (one private-use character)
-     * becomes ":name:", with a [FACET_TYPE] facet over it pointing at the
+     * becomes [HIDDEN], with a [FACET_TYPE] facet over it pointing at the
      * emoji's record on [did]'s PDS (uploaded first if needed). An emoji
      * that can't be uploaded is sent as just its ":name:".
      */
-    suspend fun prepareMessage(store: EmojiStore, did: String, text: String): Pair<String, List<Map<String, Any>>> {
-        if (!store.containsEmoji(text)) return text to emptyList()
+    suspend fun prepareMessage(store: EmojiStore, did: String, text: String): Prepared {
+        if (!store.containsEmoji(text)) return Prepared(text, emptyList(), text)
         val out = StringBuilder()
         val facets = ArrayList<Map<String, Any>>()
         var bytes = 0
@@ -188,26 +205,99 @@ object EmojiCloud {
             val entry = store.entryFor(c)
             if (entry == null) { plain.append(c); continue }
             flush()
-            val code = ":${entry.name}:"
+            val up = ensureUploaded(store, did, entry)
+            // Uploaded: invisible, with its facet. Not: its ":name:".
+            val code = if (up != null) HIDDEN else ":${entry.name}:"
             val start = bytes
             out.append(code)
             bytes += code.encodeToByteArray().size
-            val up = ensureUploaded(store, did, entry) ?: continue
+            if (up == null) continue
+            val feature = linkedMapOf<String, Any>(
+                "\$type" to FACET_TYPE,
+                "did" to did, "rkey" to up.rkey, "cid" to up.cid, "name" to entry.name
+            )
+            if (entry.animated) feature["animated"] = true
             facets += mapOf(
                 "index" to mapOf("byteStart" to start, "byteEnd" to bytes),
-                "features" to listOf(mapOf(
-                    "\$type" to FACET_TYPE,
-                    "did" to did, "rkey" to up.rkey, "cid" to up.cid, "name" to entry.name
-                ))
+                "features" to listOf(feature)
             )
         }
         flush()
-        return out.toString() to facets
+        return Prepared(out.toString(), facets, store.toShortcodes(text))
+    }
+
+    // ── Other people's emoji ──
+
+    /** Libraries read this session, by account. */
+    private val others = HashMap<String, List<RemoteEmoji>>()
+
+    /** [did]'s emoji, from their own PDS (cached for the session; [fresh]
+     *  reads again). Empty when they have none or it can't be read. */
+    suspend fun libraryOf(did: String, fresh: Boolean = false): List<RemoteEmoji> {
+        if (!fresh) com.mediaviewer.platform.synchronizedCompat(others) { others[did] }?.let { return it }
+        val list = runCatching { readPublic(did) }.getOrNull() ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }.orEmpty()
+        com.mediaviewer.platform.synchronizedCompat(others) { others[did] = list }
+        return list
+    }
+
+    private suspend fun readPublic(did: String): List<RemoteEmoji> {
+        val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
+        val out = ArrayList<RemoteEmoji>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            val resp = com.mediaviewer.network.PlainHttp.get(
+                "$pds/xrpc/com.atproto.repo.listRecords",
+                listOfNotNull("repo" to did, "collection" to COLLECTION, "limit" to "100", cursor?.let { "cursor" to it })
+            )
+            if (resp.code !in 200..299) error("Emoji ${resp.code}")
+            val root = StellarJson.default.parseToJsonElement(resp.body.decodeToString()) as? JsonObject ?: break
+            val records = root["records"] as? JsonArray ?: break
+            for (r in records) {
+                val o = r as? JsonObject ?: continue
+                val value = o["value"] as? JsonObject ?: continue
+                fun text(k: String) = (value[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                val image = value["image"] as? JsonObject ?: continue
+                val cid = ((image["ref"] as? JsonObject)?.get("\$link") as? JsonPrimitive)?.content ?: continue
+                val mime = (image["mimeType"] as? JsonPrimitive)?.content.orEmpty()
+                val uri = (o["uri"] as? JsonPrimitive)?.content.orEmpty()
+                out += RemoteEmoji(
+                    rkey = uri.substringAfterLast('/'), name = text("name").orEmpty().ifBlank { "emoji" },
+                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder"), animated = mime == "image/gif"
+                )
+            }
+            cursor = (root["cursor"] as? JsonPrimitive)?.content?.takeIf { records.isNotEmpty() }
+        } while (cursor != null && ++pages < 30)
+        return out
+    }
+
+    /**
+     * Saves someone else's emoji into your own library ("All", and on to
+     * your PDS with the next sync). Null if it couldn't be fetched; an emoji
+     * you already have (the same picture) is not added twice.
+     */
+    suspend fun saveOthers(store: EmojiStore, myDid: String, ownerDid: String, cid: String, name: String): EmojiEntry? {
+        val bytes = runCatching { remote?.fetch(ownerDid, cid) }.getOrNull() ?: return null
+        store.load()
+        val hash = hashOf(bytes)
+        store.state.index.emojis.firstOrNull { hashFor(store, it) == hash }?.let { return it }
+        val added = store.addPng(name, bytes, null) ?: return null
+        requestSync(store, myDid, force = true)
+        return added
     }
 
     /** One emoji in a received message: its place (UTF-16 indices into the
      *  text) and where its picture is. */
-    data class EmojiSpan(val start: Int, val end: Int, val did: String, val cid: String, val name: String)
+    data class EmojiSpan(val start: Int, val end: Int, val did: String, val cid: String, val name: String, val animated: Boolean = false)
+
+    /** A message as words: each emoji as ":name:" (for copying, reply
+     *  quotes and chat previews), never the invisible stand-in. */
+    fun readableText(text: String, facets: List<JsonElement>?): String {
+        val spans = emojiSpans(text, facets)
+        var out = text
+        spans.sortedByDescending { it.start }.forEach { out = out.replaceRange(it.start, it.end, ":${it.name.ifBlank { "emoji" }}:") }
+        return out.replace(HIDDEN, "")
+    }
 
     /** True when [text] is nothing but [spans] (and spaces). */
     fun isOnlyEmoji(text: String, spans: List<EmojiSpan>): Boolean {
@@ -240,7 +330,7 @@ object EmojiCloud {
             val start = byteToChar[(idx["byteStart"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null] ?: return@mapNotNull null
             val end = byteToChar[(idx["byteEnd"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null] ?: return@mapNotNull null
             if (end <= start || str("did").isBlank() || str("cid").isBlank()) return@mapNotNull null
-            EmojiSpan(start, end, str("did"), str("cid"), str("name"))
+            EmojiSpan(start, end, str("did"), str("cid"), str("name"), animated = str("animated") == "true")
         }.sortedBy { it.start }.fold(ArrayList()) { acc, s -> if (acc.isEmpty() || s.start >= acc.last().end) acc.add(s); acc }
     }
 }

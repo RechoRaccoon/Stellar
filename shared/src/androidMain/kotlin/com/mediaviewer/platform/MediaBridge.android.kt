@@ -246,4 +246,46 @@ actual object MediaBridge {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             android.net.Uri.fromFile(GifVideoEncoder.encode(context, gif))
         }
+
+    actual suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val r = android.media.MediaMetadataRetriever()
+            try {
+                r.setDataSource(context, uri)
+                fun meta(key: Int) = r.extractMetadata(key)?.toIntOrNull() ?: 0
+                val durationMs = meta(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION).toLong()
+                val vw = meta(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val vh = meta(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val rot = meta(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                if (vw <= 0 || vh <= 0) error("Couldn't read the video")
+                // The upright size, fitted.
+                val (uw, uh) = if (rot == 90 || rot == 270) vh to vw else vw to vh
+                val (tw, th) = com.mediaviewer.util.EmojiMedia.fit(uw, uh, maxSide)
+                val stepMs = (1000.0 / fps.coerceAtLeast(1)).toLong()
+                val endMs = minOf(durationMs.takeIf { it > 0 } ?: stepMs, (maxSeconds * 1000).toLong())
+                val frames = ArrayList<IntArray>()
+                var t = 0L
+                while (t < endMs || frames.isEmpty()) {
+                    val raw = (if (android.os.Build.VERSION.SDK_INT >= 27)
+                        r.getScaledFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST, maxOf(tw, th), maxOf(tw, th))
+                    else r.getFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST)) ?: break
+                    // (Frames normally come out upright; turned here if not.)
+                    val upright = if (rot != 0 && uw != uh && (raw.width > raw.height) != (uw > uh)) {
+                        val m = android.graphics.Matrix().apply { postRotate(rot.toFloat()) }
+                        android.graphics.Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true).also { if (it !== raw) raw.recycle() }
+                    } else raw
+                    val sized = if (upright.width == tw && upright.height == th) upright
+                        else android.graphics.Bitmap.createScaledBitmap(upright, tw, th, true).also { if (it !== upright) upright.recycle() }
+                    val px = IntArray(tw * th)
+                    sized.getPixels(px, 0, tw, 0, 0, tw, th)
+                    sized.recycle()
+                    frames += px
+                    t += stepMs
+                    if (t >= endMs) break
+                }
+                VideoFrames(tw, th, frames, stepMs.toInt())
+            } finally {
+                runCatching { r.release() }
+            }
+        }
 }

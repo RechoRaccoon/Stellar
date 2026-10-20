@@ -15,23 +15,6 @@ import com.mediaviewer.util.EmojiStore
  * file pickers). Android's versions are the app's original ones.
  */
 
-/** Height of the emoji panel while a tab is being renamed (just the tab row,
- *  riding on top of the keyboard). */
-internal val EmojiPanelCompactHeight = 60.dp
-
-/** Textshot mode's custom-emoji panel. */
-@Composable
-internal expect fun EmojiPanel(
-    store: EmojiStore,
-    height: Dp,
-    compact: Boolean,
-    liquidGlass: Boolean,
-    tint: Color,
-    onPickEmoji: (EmojiEntry) -> Unit,
-    onEditingChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-)
-
 /** A muted, looping preview of a picked local video (the composer). */
 @Composable
 expect fun InlineVideoPlayer(uri: PlatformUri, modifier: Modifier = Modifier)

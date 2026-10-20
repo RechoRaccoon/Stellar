@@ -1,6 +1,7 @@
 package com.mediaviewer.model
 
 import com.mediaviewer.json.JsonElement
+import com.mediaviewer.json.toKx
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -1687,3 +1688,11 @@ data class RockskyWrappedEntry(
     val plays: Long = 0L
 )
 
+
+/** The message's words as people should see them: Stellar's custom emoji
+ *  as ":name:" (never their invisible stand-in). */
+val BskyMessageView.readableText: String
+    get() = facets.let { f ->
+        if (f.isNullOrEmpty()) text.replace(com.mediaviewer.util.EmojiCloud.HIDDEN, "")
+        else com.mediaviewer.util.EmojiCloud.readableText(text, f.map { it.toKx() })
+    }

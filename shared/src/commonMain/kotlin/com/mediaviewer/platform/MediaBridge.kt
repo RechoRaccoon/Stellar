@@ -2,6 +2,10 @@ package com.mediaviewer.platform
 
 import com.mediaviewer.network.RequestBody
 
+/** The start of a video as still frames ([MediaBridge.videoFrames]): each
+ *  [width]×[height] ARGB, every one shown for [frameMs]. */
+class VideoFrames(val width: Int, val height: Int, val frames: List<IntArray>, val frameMs: Int)
+
 /**
  * Image/video work the upload code needs from the platform: reading a
  * picked file, measuring and re-encoding pictures, probing videos, and
@@ -73,4 +77,9 @@ expect object MediaBridge {
      *  frames and timing — how Bluesky takes GIFs (as a looping video).
      *  Returns the new file; throws if it can't be made. */
     suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri
+
+    /** The first [maxSeconds] of the video, upright, scaled to fit within
+     *  [maxSide] (never up), at [fps] — what an animated emoji is made of.
+     *  Throws if it can't be read. */
+    suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames
 }

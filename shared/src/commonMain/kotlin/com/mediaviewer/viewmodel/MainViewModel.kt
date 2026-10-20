@@ -3269,12 +3269,18 @@ class MainViewModel(
         tapHaptic()
         _dmThread.value = thread.copy(sending = true)
         viewModelScope.launch(ioDispatcher) {
-            // Custom emoji go as ":name:" with a facet pointing at the picture
-            // on your PDS (see EmojiCloud).
-            val (body, emojiFacets) = runCatching {
+            // Custom emoji go as an invisible character with a facet
+            // pointing at the picture on your PDS (see EmojiCloud).
+            val prepared = runCatching {
                 com.mediaviewer.util.EmojiCloud.prepareMessage(com.mediaviewer.util.EmojiStore.get(platform.context), _bskyDid.value, text)
-            }.getOrElse { com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(text) to emptyList() }
-            bskyRepo.sendMessage(bskyToken, _bskyDid.value, thread.convo.convoId, body, replyToMessageId = replyToMessageId, extraFacets = emojiFacets)
+            }.getOrElse {
+                val plain = com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(text)
+                com.mediaviewer.util.EmojiCloud.Prepared(plain, emptyList(), plain)
+            }
+            bskyRepo.sendMessage(
+                bskyToken, _bskyDid.value, thread.convo.convoId, prepared.text, replyToMessageId = replyToMessageId,
+                extraFacets = prepared.facets, fallbackText = prepared.fallback
+            )
                 .onSuccess {
                     // Re-fetch the thread so the new message shows up in the linear history.
                     val refreshed = bskyRepo.getConvoMessages(bskyToken, _bskyDid.value, thread.convo.convoId)
@@ -6224,6 +6230,7 @@ class MainViewModel(
         com.mediaviewer.util.ProfileStyles.resumeOwnStatusClear()
         // Custom emoji live on your own PDS too (one record per emoji).
         com.mediaviewer.util.EmojiCloud.init(platform.context)
+        com.mediaviewer.util.EmojiAccounts.init(platform.context)
         com.mediaviewer.util.EmojiCloud.remote = object : com.mediaviewer.util.EmojiCloud.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {
                 if (!_bskyLoggedIn.value) error("Not signed in")
@@ -6743,7 +6750,7 @@ class MainViewModel(
                     lastSentByUsAt = if (mine) msg.sentAt else convo.lastSentByUsAt,
                     // Group chats show the newest message under their name.
                     lastMessageText = if (!convo.isGroup) when {
-                        msg.text.isNotBlank() -> if (mine) "You: ${msg.text}" else msg.text
+                        msg.readableText.isNotBlank() -> if (mine) "You: ${msg.readableText}" else msg.readableText
                         msg.embed != null -> if (mine) "You shared a post" else "Shared a post"
                         else -> convo.lastMessageText
                     } else when {
@@ -6751,7 +6758,7 @@ class MainViewModel(
                         msg.text.isNotBlank() -> {
                             val who = if (mine) "You" else (convo.groupMembers.firstOrNull { it.did == msg.sender?.did }
                                 ?: bskyRepo.chatProfiles[msg.sender?.did ?: ""])?.displayName?.substringBefore(' ')
-                            if (who != null) "$who: ${msg.text}" else msg.text
+                            if (who != null) "$who: ${msg.readableText}" else msg.readableText
                         }
                         msg.embed != null -> "Shared a post"
                         else -> convo.lastMessageText

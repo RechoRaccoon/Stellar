@@ -203,4 +203,7 @@ actual object MediaBridge {
 
     actual suspend fun videoFromGif(context: PlatformContext, gif: ByteArray): PlatformUri =
         IosUri("file://" + IosGifVideo.encode(gif))
+
+    actual suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames =
+        IosVideoFrames.read(pathOf(uri), maxSide, fps, maxSeconds)
 }

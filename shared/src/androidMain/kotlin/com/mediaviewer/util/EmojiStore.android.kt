@@ -144,7 +144,9 @@ actual class EmojiStore private constructor(context: Context) {
     actual suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry? = withContext(Dispatchers.IO) {
         load()
         val id = reserveId() ?: return@withContext null
-        val file = File(dir, "e_$id.png")
+        // (An animated emoji arrives as a GIF and is kept as one.)
+        val fileName = if (GifInfo.isGif(png)) "e_$id.gif" else "e_$id.png"
+        val file = File(dir, fileName)
         val ok = runCatching {
             BitmapFactory.decodeByteArray(png, 0, png.size) != null && run { file.writeBytes(png); true }
         }.getOrDefault(false)
@@ -155,7 +157,7 @@ actual class EmojiStore private constructor(context: Context) {
         }
         synchronized(lock) {
             val cur = state.index
-            val entry = EmojiEntry(id, uniqueName(sanitizeName(name), cur.emojis.map { it.name.lowercase() }.toSet()), "e_$id.png")
+            val entry = EmojiEntry(id, uniqueName(sanitizeName(name), cur.emojis.map { it.name.lowercase() }.toSet()), fileName)
             commit(EmojiIndex(cur.emojis + entry, filedInto(cur.folders, folderName, id)))
             reservedIds.remove(id)
             entry
@@ -184,14 +186,14 @@ actual class EmojiStore private constructor(context: Context) {
     // ── Folders ─────────────────────────────────────────────────────────
 
     /** Adds a new, empty folder after the existing ones and returns its id. */
-    fun createFolder(name: String = DEFAULT_FOLDER_NAME): Int = synchronized(lock) {
+    actual fun createFolder(name: String): Int = synchronized(lock) {
         val cur = state.index
         val id = (cur.folders.maxOfOrNull { it.id } ?: 0) + 1
         commit(cur.copy(folders = cur.folders + EmojiFolder(id, name)))
         id
     }
 
-    fun renameFolder(id: Int, name: String) = synchronized(lock) {
+    actual fun renameFolder(id: Int, name: String): Unit = synchronized(lock) {
         val clean = name.trim().ifBlank { DEFAULT_FOLDER_NAME }
         val cur = state.index
         commit(cur.copy(folders = cur.folders.map { if (it.id == id) it.copy(name = clean) else it }))
@@ -200,7 +202,7 @@ actual class EmojiStore private constructor(context: Context) {
     /** Removes the folder itself *and* every emoji that was filed into it —
      *  out of the master library, "All", and any other folder that also
      *  had it (Item 6). Emoji this folder never had are untouched. */
-    fun deleteFolder(id: Int) = synchronized(lock) {
+    actual fun deleteFolder(id: Int): Unit = synchronized(lock) {
         val cur = state.index
         val folder = cur.folders.firstOrNull { it.id == id } ?: return@synchronized
         val toDelete = folder.emojiIds.toSet()
@@ -221,12 +223,12 @@ actual class EmojiStore private constructor(context: Context) {
 
     /** How many emoji deleting this folder would take down with it (Item 6) —
      *  used to word that confirmation prompt precisely. */
-    fun emojiCountIn(folderId: Int): Int = state.index.folders.firstOrNull { it.id == folderId }?.emojiIds?.size ?: 0
+    actual fun emojiCountIn(folderId: Int): Int = state.index.folders.firstOrNull { it.id == folderId }?.emojiIds?.size ?: 0
 
     /** Deletes one emoji everywhere: out of the master library, out of every
      *  folder that had it, and its stored picture. Also frees its id for
      *  reuse by a future import. */
-    fun deleteEmoji(id: Int) = synchronized(lock) {
+    actual fun deleteEmoji(id: Int): Unit = synchronized(lock) {
         val cur = state.index
         val entry = cur.emojis.firstOrNull { it.id == id } ?: return@synchronized
         commit(
@@ -244,7 +246,7 @@ actual class EmojiStore private constructor(context: Context) {
      *  folder" — instead it bulk-deletes every emoji that isn't filed into
      *  any folder (i.e. the ones that only exist because of "All"). Returns
      *  how many were removed. */
-    fun deleteOrphanEmoji(): Int = synchronized(lock) {
+    actual fun deleteOrphanEmoji(): Int = synchronized(lock) {
         val cur = state.index
         val filed = cur.folders.flatMapTo(mutableSetOf()) { it.emojiIds }
         val orphans = cur.emojis.filter { it.id !in filed }
@@ -261,13 +263,29 @@ actual class EmojiStore private constructor(context: Context) {
 
     /** How many emoji a long-press on "All" would remove (its orphan count),
      *  used to word that confirmation prompt. */
-    fun orphanEmojiCount(): Int {
+    actual fun orphanEmojiCount(): Int {
         val filed = state.index.folders.flatMapTo(mutableSetOf()) { it.emojiIds }
         return state.index.emojis.count { it.id !in filed }
     }
 
     /** Emoji shown for a tab: [folderId] null = "All" (everything). */
-    fun emojiFor(folderId: Int?): List<EmojiEntry> {
+    /** A rearranged library: only emoji and folders that exist are kept,
+     *  and none goes missing (anything left out stays at the end). */
+    actual fun setIndex(next: EmojiIndex): Unit = synchronized(lock) {
+        val cur = state.index
+        val byId = cur.emojis.associateBy { it.id }
+        val emojis = next.emojis.mapNotNull { byId[it.id] }.distinctBy { it.id }
+        val seen = emojis.map { it.id }.toSet()
+        val keep = emojis + cur.emojis.filter { it.id !in seen }
+        val ids = keep.map { it.id }.toSet()
+        val folderIds = cur.folders.map { it.id }.toSet()
+        val folders = next.folders.filter { it.id in folderIds }.distinctBy { it.id }
+            .map { f -> f.copy(emojiIds = f.emojiIds.filter { it in ids }.distinct()) }
+        val seenF = folders.map { it.id }.toSet()
+        commit(EmojiIndex(keep, folders + cur.folders.filter { it.id !in seenF }))
+    }
+
+    actual fun emojiFor(folderId: Int?): List<EmojiEntry> {
         val st = state
         if (folderId == null) return st.index.emojis
         val folder = st.index.folders.firstOrNull { it.id == folderId } ?: return emptyList()
@@ -277,7 +295,7 @@ actual class EmojiStore private constructor(context: Context) {
     // ── Import ──────────────────────────────────────────────────────────
 
     /** Imports single images the person picked. Returns how many were added. */
-    suspend fun importImages(uris: List<Uri>, folderId: Int?): Int = withContext(Dispatchers.IO) {
+    actual suspend fun importImages(uris: List<Uri>, folderId: Int?): Int = withContext(Dispatchers.IO) {
         load()
         val items = uris.map { it to displayNameOf(it) }
         importItems(items, folderId)
@@ -285,27 +303,27 @@ actual class EmojiStore private constructor(context: Context) {
 
     /** Imports every image inside a picked folder (subfolders too, a few
      *  levels deep). Returns how many were added. */
-    suspend fun importTree(treeUri: Uri, folderId: Int?): Int = withContext(Dispatchers.IO) {
+    actual suspend fun importTree(treeUri: Uri, folderId: Int?): Int = withContext(Dispatchers.IO) {
         load()
         importItems(listImagesInTree(treeUri), folderId)
     }
 
-    private fun importItems(items: List<Pair<Uri, String>>, folderId: Int?): Int {
-        val staged = mutableListOf<Pair<Int, String>>() // id to raw name
+    private suspend fun importItems(items: List<Pair<Uri, String>>, folderId: Int?): Int {
+        val staged = mutableListOf<Triple<Int, String, String>>() // id, raw name, file
         for ((uri, rawName) in items) {
             val id = reserveId() ?: break
-            val ok = runCatching { decodeAndStore(uri, id) }.getOrDefault(false)
-            if (ok) staged += id to rawName else synchronized(lock) { reservedIds.remove(id) }
+            val file = runCatching { storeImport(uri, rawName, id) }.getOrNull()
+            if (file != null) staged += Triple(id, rawName, file) else synchronized(lock) { reservedIds.remove(id) }
         }
         if (staged.isEmpty()) return 0
 
         synchronized(lock) {
             val cur = state.index
             val taken = cur.emojis.map { it.name.lowercase() }.toMutableSet()
-            val added = staged.map { (id, rawName) ->
+            val added = staged.map { (id, rawName, file) ->
                 val name = uniqueName(sanitizeName(rawName), taken)
                 taken += name.lowercase()
-                EmojiEntry(id, name, "e_$id.png")
+                EmojiEntry(id, name, file)
             }
             val addedIds = added.map { it.id }
             val folders = cur.folders.map { f ->
@@ -328,6 +346,35 @@ actual class EmojiStore private constructor(context: Context) {
             id++
         }
         null
+    }
+
+    /** Stores one picked file as emoji [id]; the stored file's name. A
+     *  video, or an animated GIF, becomes an animated emoji (a small GIF,
+     *  see EmojiMedia); anything else a PNG. */
+    private suspend fun storeImport(uri: Uri, rawName: String, id: Int): String? {
+        val mime = runCatching { app.contentResolver.getType(uri) }.getOrNull().orEmpty()
+        if (mime.startsWith("video/") || EmojiMedia.isVideoName(rawName)) {
+            val gif = EmojiMedia.fromVideo(app, uri)
+            File(dir, "e_$id.gif").writeBytes(gif)
+            return "e_$id.gif"
+        }
+        val head = runCatching { app.contentResolver.openInputStream(uri)?.use { it.readNBytesCompat(16) } }.getOrNull()
+        if (head != null && GifInfo.isGif(head)) {
+            val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val gif = bytes?.let { EmojiMedia.fromGif(it) }
+            if (gif != null) {
+                File(dir, "e_$id.gif").writeBytes(gif)
+                return "e_$id.gif"
+            }
+        }
+        return if (decodeAndStore(uri, id)) "e_$id.png" else null
+    }
+
+    private fun java.io.InputStream.readNBytesCompat(n: Int): ByteArray {
+        val out = ByteArray(n)
+        var got = 0
+        while (got < n) { val r = read(out, got, n - got); if (r <= 0) break; got += r }
+        return out.copyOf(got)
     }
 
     private fun decodeAndStore(uri: Uri, id: Int): Boolean {
@@ -367,7 +414,7 @@ actual class EmojiStore private constructor(context: Context) {
 
     private fun listImagesInTree(tree: Uri): List<Pair<Uri, String>> {
         val out = mutableListOf<Pair<Uri, String>>()
-        val imageExt = setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif")
+        val imageExt = setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif", "mp4", "m4v", "mov", "webm", "3gp", "mkv")
         fun walk(docId: String, depth: Int) {
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
             val cols = arrayOf(
@@ -383,7 +430,7 @@ actual class EmojiStore private constructor(context: Context) {
                         val mime = c.getString(2) ?: ""
                         when {
                             mime == DocumentsContract.Document.MIME_TYPE_DIR -> if (depth < 3) walk(childId, depth + 1)
-                            mime.startsWith("image/") || name.substringAfterLast('.', "").lowercase() in imageExt ->
+                            mime.startsWith("image/") || mime.startsWith("video/") || name.substringAfterLast('.', "").lowercase() in imageExt ->
                                 out += DocumentsContract.buildDocumentUriUsingTree(tree, childId) to name
                         }
                     }
@@ -414,9 +461,10 @@ actual class EmojiStore private constructor(context: Context) {
         const val TOKEN_BASE = 0xE000
         /** 0xE000..0xF8FF — the whole Basic Multilingual Plane private-use area. */
         const val TOKEN_LIMIT = 0x1900
-        const val DEFAULT_FOLDER_NAME = "New Folder"
-        /** Stored emoji are downscaled so their longest side is at most this. */
-        private const val MAX_EMOJI_SIDE = 256
+        const val DEFAULT_FOLDER_NAME = EMOJI_DEFAULT_FOLDER_NAME
+        /** Stored emoji are downscaled so their longest side is at most this
+         *  (Discord's size). */
+        private const val MAX_EMOJI_SIDE = EmojiMedia.MAX_SIDE
 
         @Volatile private var instance: EmojiStore? = null
 

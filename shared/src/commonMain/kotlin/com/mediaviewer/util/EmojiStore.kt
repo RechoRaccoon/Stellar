@@ -5,8 +5,14 @@ import com.mediaviewer.platform.PlatformContext
 
 /** One imported custom emoji. [id] is permanent for the emoji's lifetime and
  *  is what the in-text token character is derived from (see [EmojiStore.charFor]).
- *  [file] is the PNG copy stored under the app's private files dir. */
-data class EmojiEntry(val id: Int, val name: String, val file: String)
+ *  [file] is the copy stored under the app's private files dir: a PNG, or a
+ *  GIF for an animated emoji (see [EmojiMedia]). */
+data class EmojiEntry(val id: Int, val name: String, val file: String) {
+    val animated: Boolean get() = EmojiMedia.isAnimatedFile(file)
+}
+
+/** The name a new emoji folder starts with. */
+const val EMOJI_DEFAULT_FOLDER_NAME = "New Folder"
 
 /** A user-made emoji folder/tab. "All" is not stored — it is implicitly every
  *  emoji in the library. */
@@ -59,6 +65,29 @@ expect class EmojiStore {
      *  person's PDS, see EmojiCloud), filed into the folder named
      *  [folderName] (made if there isn't one). Null if it couldn't be read. */
     suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry?
+
+    // ── The emoji menu's edits ──
+    /** A new, empty folder after the others; its id. */
+    fun createFolder(name: String): Int
+    fun renameFolder(id: Int, name: String)
+    /** The folder and every emoji in it. */
+    fun deleteFolder(id: Int)
+    fun emojiCountIn(folderId: Int): Int
+    /** One emoji, everywhere. */
+    fun deleteEmoji(id: Int)
+    /** Every emoji not in a folder; how many went. */
+    fun deleteOrphanEmoji(): Int
+    fun orphanEmojiCount(): Int
+    /** A tab's emoji: [folderId] null = "All". */
+    fun emojiFor(folderId: Int?): List<EmojiEntry>
+    /** Puts a rearranged library in place (new order, an emoji moved to
+     *  another folder) — the same emoji and folders, only arranged anew. */
+    fun setIndex(next: EmojiIndex)
+    /** Imports picked pictures, GIFs and videos (animated ones become
+     *  animated emoji) into [folderId] (null = only "All"); how many. */
+    suspend fun importImages(uris: List<com.mediaviewer.platform.PlatformUri>, folderId: Int?): Int
+    /** Every picture and video in a picked folder (Android; 0 elsewhere). */
+    suspend fun importTree(treeUri: com.mediaviewer.platform.PlatformUri, folderId: Int?): Int
 
     companion object {
         fun get(context: PlatformContext): EmojiStore
