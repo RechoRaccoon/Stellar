@@ -82,7 +82,7 @@ fun rememberSideListWidth(): Dp {
 
 /** The width a side list's content is laid out at; narrower, it all
  *  shrinks evenly to fit (see shrinkToFit) instead of being squeezed. */
-val SIDE_LIST_LAYOUT_WIDTH: Dp = 340.dp
+val SIDE_LIST_LAYOUT_WIDTH: Dp = 280.dp
 
 /**
  * The side list's edge: a small upright pill, centred, to grab and drag
@@ -145,29 +145,31 @@ fun SideListButton(
     onClick: () -> Unit
 ) {
     val tap = rememberHapticTap()
-    val shape = RoundedCornerShape(if (small) 10.dp else 12.dp)
+    val shape = RoundedCornerShape(if (small) 11.dp else 13.dp)
+    // (Sized to the list's width: big, readable labels with little empty
+    // padding around them.)
     Row(
-        modifier.fillMaxWidth().heightIn(min = if (small) 32.dp else 38.dp)
+        modifier.fillMaxWidth().heightIn(min = if (small) 38.dp else 44.dp)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = if (selected) tint else tint.copy(alpha = 0.4f), shape = shape)
                 else Modifier.clip(shape).background(if (selected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
             )
             .clickable { tap(); onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (iconUrl != null) {
             AsyncImage(
                 model = iconUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(if (small) 16.dp else 18.dp).clip(CircleShape)
+                modifier = Modifier.size(if (small) 20.dp else 22.dp).clip(CircleShape)
             )
         } else if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 15.dp else 17.dp))
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 19.dp else 21.dp))
         }
         Text(
             label, color = if (selected || locked) Color.White else DimGray,
-            fontSize = if (small) 12.sp else 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = if (small) 15.sp else 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).supporterShine(locked)
         )
@@ -197,7 +199,7 @@ fun LandscapeSideList(
 ) {
     Column(
         modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)
-            .padding(start = 16.dp, end = 16.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
+            .padding(start = 12.dp, end = 12.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
     ) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SideListButton(backLabel, selected = false, liquidGlass = liquidGlass, tint = tint, icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack)
@@ -218,8 +220,8 @@ fun GridSizeSlider(tint: Color) {
     val accent = lerp(tint, Color.White, 0.35f)
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Grid Size", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("$columns", color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Grid Size", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("$columns", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         Slider(
             value = columns.toFloat(),
