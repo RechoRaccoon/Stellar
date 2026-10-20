@@ -99,7 +99,8 @@ object ProfileStyles {
     /** Effect id → the name shown in the picker. */
     val EFFECTS = listOf(
         "none" to "None", "confetti" to "Confetti", "balloons" to "Balloons", "snow" to "Snow", "fireworks" to "Fireworks",
-        "bats" to "Bats", "hearts" to "Hearts", "rain" to "Rain", "bubbles" to "Bubbles"
+        "bats" to "Bats", "hearts" to "Hearts", "rain" to "Rain", "bubbles" to "Bubbles",
+        "paws" to "Paw Prints", "starshower" to "Shooting Stars"
     )
 
     /** The animation an effect id stands for (null for "none" / unknown). */
@@ -112,6 +113,8 @@ object ProfileStyles {
         "hearts" -> com.mediaviewer.ui.DmEffect.HEARTS
         "rain" -> com.mediaviewer.ui.DmEffect.RAIN
         "bubbles" -> com.mediaviewer.ui.DmEffect.BUBBLES
+        "paws" -> com.mediaviewer.ui.DmEffect.PAWPRINTS
+        "starshower" -> com.mediaviewer.ui.DmEffect.STAR_SHOWER
         else -> null
     }
     fun effectLabel(id: String): String = EFFECTS.firstOrNull { it.first == id }?.second ?: "None"

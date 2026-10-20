@@ -9,6 +9,7 @@ import coil3.decode.ImageSource
 import coil3.asImage
 import coil3.fetch.FetchResult
 import coil3.fetch.Fetcher
+import coil3.toUri
 import coil3.fetch.ImageFetchResult
 import coil3.fetch.SourceFetchResult
 import coil3.memory.MemoryCache
@@ -54,6 +55,9 @@ object WebImageLoading {
             ImageLoader.Builder(context)
                 .components {
                     add(BlockedHostsImageInterceptor)
+                    // A picked file (the composer's attached pictures) is a
+                    // WebUri: the loader reads it by its address.
+                    add(WebUriMapper)
                     add(WebFetcher.Factory)
                 }
                 .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.25).build() }
@@ -65,6 +69,10 @@ object WebImageLoading {
             urls.filter { it.isNotBlank() }.forEach { loader.enqueue(ImageRequest.Builder(ctx).data(it).build()) }
         }
     }
+}
+
+private object WebUriMapper : coil3.map.Mapper<com.mediaviewer.platform.WebUri, coil3.Uri> {
+    override fun map(data: com.mediaviewer.platform.WebUri, options: Options): coil3.Uri = data.urlString.toUri()
 }
 
 private class WebFetcher(private val uri: String, private val options: Options) : Fetcher {

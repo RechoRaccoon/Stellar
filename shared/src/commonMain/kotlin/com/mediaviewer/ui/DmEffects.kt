@@ -51,7 +51,11 @@ enum class DmEffect(val label: String) {
     HEARTS("Hearts"),
     RAIN("Rain"),
     /** Bubbles that float about, pop when tapped, then pop by themselves. */
-    BUBBLES("Bubbles")
+    BUBBLES("Bubbles"),
+    /** Paw prints walking up and to the right, in the profile's color. */
+    PAWPRINTS("Paw Prints"),
+    /** A shower of shooting stars. */
+    STAR_SHOWER("Shooting Stars")
 }
 
 private val RAIN_WORD = Regex("""\brain(ing)?\b""")
@@ -110,6 +114,8 @@ fun DmEffectLayer(
         DmEffect.BIRTHDAY -> 7.5f
         DmEffect.HEARTS -> 9f
         DmEffect.RAIN -> 8f
+        DmEffect.PAWPRINTS -> 9f
+        DmEffect.STAR_SHOWER -> 7f
         else -> 5.4f
     }
     var time by remember(playKey) { mutableFloatStateOf(0f) }
@@ -132,6 +138,8 @@ fun DmEffectLayer(
             DmEffect.BIRTHDAY -> drawBalloons(time, seed)
             DmEffect.HEARTS -> drawHearts(time, seed, colors, duration, heartSprites)
             DmEffect.RAIN -> drawRain(time, seed, duration)
+            DmEffect.PAWPRINTS -> drawPawprints(time, seed, colors.firstOrNull() ?: Color.White)
+            DmEffect.STAR_SHOWER -> drawStarShower(time, seed)
             else -> drawBats(time, seed)
         }
     }
@@ -784,4 +792,106 @@ private fun DrawScope.drawBat(c: Offset, s: Float, flap: Float, dir: Float) {
     // Two tiny eyes, looking the way it's flying.
     drawCircle(Color(0xFFFFD166), radius = 0.7f * s, center = Offset(c.x - 1.2f * s + dir * 0.4f * s, c.y - 4.6f * s))
     drawCircle(Color(0xFFFFD166), radius = 0.7f * s, center = Offset(c.x + 1.2f * s + dir * 0.4f * s, c.y - 4.6f * s))
+}
+
+
+// ── Paw prints ───────────────────────────────────────────────────────────
+
+/**
+ * Paw prints: a few little walkers cross the screen diagonally, up and to
+ * the right, one print at a time (left, right, left…), each print pressed
+ * in and then fading, all in [color] (the profile's own). The web draws
+ * fewer of them (see LiteGlass).
+ */
+private fun DrawScope.drawPawprints(t: Float, seed: Long, color: Color) {
+    val rnd = Random(seed)
+    val unit = effectUnit()
+    val walkers = if (LiteGlass.LIVE) effectCount(4) else 2
+    // Up and to the right, a little steeper on a tall screen.
+    val angle = -(PI.toFloat() / 4f) - rnd.nextFloat() * 0.12f
+    val dir = Offset(cos(angle), sin(angle))
+    val side = Offset(-dir.y, dir.x)
+    val stride = 34f * unit
+    val gait = 9f * unit
+    val stepEvery = 0.32f
+    val fade = 2.4f
+    val pad = lighten(color)
+    repeat(walkers) { w ->
+        val start = w * 1.25f + rnd.nextFloat() * 0.6f
+        // From somewhere along the bottom or the left edge.
+        val from = if (rnd.nextBoolean()) Offset(rnd.nextFloat() * size.width * 0.6f, size.height + 20f * unit)
+        else Offset(-20f * unit, size.height * (0.35f + rnd.nextFloat() * 0.65f))
+        val steps = ((size.width + size.height) / stride).toInt() + 4
+        for (i in 0 until steps) {
+            val at = start + i * stepEvery
+            val age = t - at
+            if (age < 0f) break
+            if (age > fade) continue
+            val left = i % 2 == 0
+            val c = from + dir * (i * stride) + side * (if (left) -gait else gait)
+            if (c.x < -40f * unit || c.y < -40f * unit || c.x > size.width + 40f * unit) continue
+            // Pressed in quickly, then fading away.
+            val alpha = (if (age < 0.12f) age / 0.12f else 1f - ((age - 0.12f) / (fade - 0.12f))).coerceIn(0f, 1f) * 0.85f
+            drawPaw(c, angle + PI.toFloat() / 2f, 7.5f * unit, pad.copy(alpha = alpha))
+        }
+    }
+}
+
+/** A paw print centred at [c], toes towards [heading] + 90°. */
+private fun DrawScope.drawPaw(c: Offset, heading: Float, r: Float, color: Color) {
+    withTransform({
+        translate(c.x, c.y)
+        rotate(heading * 180f / PI.toFloat(), Offset.Zero)
+    }) {
+        // The main pad: a soft rounded triangle.
+        val padPath = Path().apply {
+            moveTo(0f, -r * 0.55f)
+            cubicTo(r * 0.95f, -r * 0.6f, r * 1.25f, r * 0.75f, 0f, r * 0.85f)
+            cubicTo(-r * 1.25f, r * 0.75f, -r * 0.95f, -r * 0.6f, 0f, -r * 0.55f)
+            close()
+        }
+        drawPath(padPath, color)
+        // Four toes in an arc ahead of it.
+        val toes = listOf(-1.05f to -0.95f, -0.38f to -1.45f, 0.38f to -1.45f, 1.05f to -0.95f)
+        for ((x, y) in toes) drawOval(color, topLeft = Offset(x * r - r * 0.3f, y * r - r * 0.38f), size = Size(r * 0.6f, r * 0.76f))
+    }
+}
+
+private fun lighten(c: Color): Color = lerp(c, Color.White, 0.25f)
+
+// ── Shooting star shower ─────────────────────────────────────────────────
+
+/**
+ * A shower of shooting stars: dozens of meteors streak down across the
+ * screen from the upper right, staggered, each with a tail that grows in
+ * and burns out. The web draws a third as many (see LiteGlass).
+ */
+private fun DrawScope.drawStarShower(t: Float, seed: Long) {
+    val rnd = Random(seed)
+    val unit = effectUnit()
+    val n = if (LiteGlass.LIVE) effectCount(34) else 12
+    // One shared radiant, like a real shower: everything comes from the same way.
+    val angle = (PI.toFloat() * 0.75f) + (rnd.nextFloat() - 0.5f) * 0.2f
+    val dir = Offset(cos(angle), sin(angle))
+    repeat(n) {
+        val start = rnd.nextFloat() * 5.2f
+        val life = 0.7f + rnd.nextFloat() * 0.7f
+        val p = (t - start) / life
+        if (p < 0f || p > 1f) return@repeat
+        val x0 = (0.15f + rnd.nextFloat() * 1.05f) * size.width
+        val y0 = (-0.1f + rnd.nextFloat() * 0.55f) * size.height
+        val travel = (260f + rnd.nextFloat() * 220f) * unit
+        val envelope = kotlin.math.sqrt(sin(PI.toFloat() * p).coerceAtLeast(0f))
+        val head = Offset(x0 + dir.x * travel * p, y0 + dir.y * travel * p)
+        val tailLen = (60f + rnd.nextFloat() * 70f) * unit * (0.35f + 0.65f * envelope)
+        val tail = head - dir * tailLen
+        val warm = rnd.nextFloat() < 0.25f
+        val tint = if (warm) Color(0xFFFFE3B0) else Color(0xFFE6EEFF)
+        drawLine(
+            brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0f), tint.copy(alpha = 0.6f * envelope), Color.White.copy(alpha = envelope)), start = tail, end = head),
+            start = tail, end = head, strokeWidth = (1.1f + rnd.nextFloat() * 0.9f) * unit, cap = StrokeCap.Round
+        )
+        drawCircle(Color.White.copy(alpha = 0.28f * envelope), radius = 3.4f * unit, center = head)
+        drawCircle(Color.White.copy(alpha = envelope), radius = 1.2f * unit, center = head)
+    }
 }
