@@ -6267,6 +6267,18 @@ class MainViewModel(
         // Custom emoji live on your own PDS too (one record per emoji).
         com.mediaviewer.util.EmojiCloud.init(platform.context)
         com.mediaviewer.util.EmojiAccounts.init(platform.context)
+        com.mediaviewer.util.MentionSuggest.account = { _bskyDid.value }
+        com.mediaviewer.util.MentionSuggest.search = search@{ q ->
+            if (!_bskyLoggedIn.value) return@search emptyList()
+            bskyRepo.searchActorsTypeahead(bskyToken, _bskyDid.value, q).getOrNull().orEmpty()
+                .filter { it.did != _bskyDid.value && it.viewer?.blocking == null && it.viewer?.blockedBy != true }
+                .map {
+                    com.mediaviewer.util.MentionSuggest.Candidate(
+                        it.handle, mutual = it.viewer?.following != null && it.viewer.followedBy != null,
+                        following = it.viewer?.following != null
+                    )
+                }
+        }
         com.mediaviewer.util.EmojiCloud.remote = object : com.mediaviewer.util.EmojiCloud.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {
                 if (!_bskyLoggedIn.value) error("Not signed in")

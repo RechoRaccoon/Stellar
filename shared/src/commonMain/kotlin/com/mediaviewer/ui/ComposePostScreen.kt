@@ -55,6 +55,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
@@ -2301,9 +2310,43 @@ private fun GrowingTextField(
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var focused by remember { mutableStateOf(false) }
     val emojiState = emojiStore?.state // read here so the field recomposes when emoji change
-    val effectiveTransformation = if (emojiStore != null) {
+    val baseTransformation = if (emojiStore != null) {
         remember(emojiStore, emojiState) { emojiVisualTransformation(emojiStore) }
     } else visualTransformation
+    // @mention autocomplete: the rest of the likely handle shows dimmed
+    // right after the caret; a left-to-right swipe across the field (or Tab)
+    // fills it in.
+    val mention = remember(value.text, value.selection) { mentionTokenAt(value) }
+    var guess by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(mention?.second, focused) {
+        val typed = mention?.second
+        if (typed == null || !focused) { guess = null; return@LaunchedEffect }
+        // The last guess stays up while it still fits, so it doesn't blink
+        // with every letter.
+        if (guess?.startsWith(typed.lowercase()) != true) guess = null
+        delay(120)
+        guess = com.mediaviewer.util.MentionSuggest.complete(typed)
+    }
+    val ghost = mention?.let { m -> guess?.takeIf { it.startsWith(m.second.lowercase()) && it.length > m.second.length }?.drop(m.second.length) }
+    val caret = value.selection.end
+    val effectiveTransformation = if (ghost == null) baseTransformation
+        else remember(baseTransformation, ghost, caret) { ghostTransformation(baseTransformation, caret, ghost) }
+    val acceptGhost = rememberUpdatedState {
+        val m = mentionTokenAt(value)
+        val g = guess
+        if (m != null && g != null && g.startsWith(m.second.lowercase())) {
+            val start = m.first + 1
+            val end = value.selection.end
+            val tail = value.text.substring(end)
+            val insert = if (tail.firstOrNull()?.isWhitespace() == true) g else "$g "
+            val text = value.text.substring(0, start) + insert + tail
+            guess = null
+            onValueChange(TextFieldValue(text, androidx.compose.ui.text.TextRange(start + insert.length + if (insert == g) 1 else 0)))
+            true
+        } else false
+    }
+    val ghostShown = rememberUpdatedState(ghost != null)
+    val ghostTap = rememberHapticTap()
     LaunchedEffect(value.selection, value.text, layout, focused, clearancePx) {
         val l = layout ?: return@LaunchedEffect
         if (!focused || clearancePx <= 0f) return@LaunchedEffect
@@ -2311,7 +2354,34 @@ private fun GrowingTextField(
         val r = l.getCursorRect(value.selection.end.coerceIn(0, end))
         bringIntoView.bringIntoView(Rect(r.left, r.top, r.right, r.bottom + clearancePx))
     }
-    Box(Modifier.fillMaxWidth().defaultMinSize(minHeight = 28.dp)) {
+    Box(Modifier.fillMaxWidth().defaultMinSize(minHeight = 28.dp).pointerInput(Unit) {
+        val reach = 36.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (!ghostShown.value) return@awaitEachGesture
+            var dx = 0f
+            var dy = 0f
+            while (true) {
+                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                if (!ch.pressed) break
+                val d = ch.positionChange()
+                dx += d.x; dy += d.y
+                if (abs(dy) > reach || dx < -reach) break
+                if (dx > reach && dx > abs(dy) * 2f) {
+                    if (acceptGhost.value()) {
+                        ghostTap()
+                        // The rest of this swipe is ours, not a text selection.
+                        do {
+                            val more = awaitPointerEvent(PointerEventPass.Initial)
+                            more.changes.forEach { it.consume() }
+                        } while (more.changes.any { it.pressed })
+                    }
+                    break
+                }
+            }
+        }
+    }) {
         BasicTextField(
             value = value, onValueChange = onValueChange,
             textStyle = fieldStyle,
@@ -2322,15 +2392,19 @@ private fun GrowingTextField(
                 .bringIntoViewRequester(bringIntoView)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() }
+                .onPreviewKeyEvent { e ->
+                    e.type == KeyEventType.KeyDown && e.key == Key.Tab && ghostShown.value && acceptGhost.value()
+                }
         )
         // Custom emoji: each one is a blank, roughly one-em-wide slot in the
         // text (see emojiVisualTransformation) — put its picture right there.
         val l = layout
-        if (emojiStore != null && l != null && l.layoutInput.text.length == value.text.length) {
+        val shift = ghost?.length ?: 0
+        if (emojiStore != null && l != null && l.layoutInput.text.length == value.text.length + shift) {
             val density = LocalDensity.current
             value.text.forEachIndexed { i, c ->
                 val bmp = emojiStore.imageBitmapForChar(c) ?: return@forEachIndexed
-                val box = l.getBoundingBox(i)
+                val box = l.getBoundingBox(if (i >= caret) i + shift else i)
                 val side = min(box.width, box.height) * 0.92f
                 if (side <= 0f) return@forEachIndexed
                 Image(
@@ -2346,6 +2420,46 @@ private fun GrowingTextField(
                 textAlign = fieldStyle.textAlign, modifier = Modifier.fillMaxWidth())
         }
     }
+}
+
+/** The "@han" being typed right at the caret: where its "@" is and what
+ *  follows it. Only a collapsed caret at the end of the word counts, and the
+ *  "@" has to start a word (so an email address doesn't). */
+internal fun mentionTokenAt(value: TextFieldValue): Pair<Int, String>? {
+    if (!value.selection.collapsed) return null
+    val text = value.text
+    val c = value.selection.end
+    if (c <= 0 || c > text.length) return null
+    if (c < text.length && !text[c].isWhitespace()) return null
+    var i = c
+    while (i > 0 && (text[i - 1].isLetterOrDigit() || text[i - 1] == '.' || text[i - 1] == '-')) i--
+    if (i == 0 || text[i - 1] != '@' || i == c) return null
+    val at = i - 1
+    if (at > 0 && !text[at - 1].isWhitespace() && text[at - 1] != '(') return null
+    val typed = text.substring(i, c)
+    if (typed.any { it.code > 127 }) return null
+    return at to typed
+}
+
+/** [base], with [ghost] shown dimmed at [caret] (in the original text).
+ *  The ghost takes no caret positions: the mapping steps over it. */
+internal fun ghostTransformation(base: VisualTransformation, caret: Int, ghost: String) = VisualTransformation { text ->
+    val b = base.filter(text)
+    val tc = b.offsetMapping.originalToTransformed(caret.coerceIn(0, text.length)).coerceIn(0, b.text.length)
+    val g = ghost.length
+    val shown = buildAnnotatedString {
+        append(b.text.subSequence(0, tc))
+        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.35f))) { append(ghost) }
+        append(b.text.subSequence(tc, b.text.length))
+    }
+    TransformedText(shown, object : OffsetMapping {
+        override fun originalToTransformed(offset: Int): Int {
+            val t = b.offsetMapping.originalToTransformed(offset)
+            return if (t <= tc) t else t + g
+        }
+        override fun transformedToOriginal(offset: Int): Int =
+            b.offsetMapping.transformedToOriginal(if (offset <= tc) offset else if (offset < tc + g) tc else offset - g)
+    })
 }
 
 /** Stand-in for an emoji's spot in the *displayed* text: a CJK ideograph is
