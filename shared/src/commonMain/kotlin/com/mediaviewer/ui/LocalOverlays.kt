@@ -149,6 +149,8 @@ object LocalOverlays {
     var onShowBookmarkFolder: ((String?) -> Unit)? = null
     /** The tagging status pill tapped: Search › Tagged, over the timeline. */
     var onOpenTagged: (() -> Unit)? = null
+    /** The tagging page, following what's being tagged (the timeline's tagging status). */
+    var onOpenTaggingQueue: (() -> Unit)? = null
     /** See MainViewModel.placeBookmark. */
     var onPlaceBookmark: ((com.mediaviewer.model.MediaItem, Boolean) -> Unit)? = null
 }

@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.theme.AvatarShape
 
 import com.mediaviewer.ui.compat.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
@@ -174,10 +175,10 @@ private fun RecipientCell(convo: DmConversation, isSelected: Boolean, tint: Colo
         Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
             if (convo.isGroup) {
                 DmConvoAvatar(convo, 66.dp)
-            } else Box(Modifier.size(66.dp).clip(CircleShape).background(Color.White.copy(0.12f))) {
+            } else Box(Modifier.size(66.dp).clip(AvatarShape).background(Color.White.copy(0.12f))) {
                 if (convo.member.avatarUrl != null) {
                     AsyncImage(model = convo.member.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape))
+                        modifier = Modifier.fillMaxSize().clip(AvatarShape))
                 }
             }
             if (pop > 0.01f) {

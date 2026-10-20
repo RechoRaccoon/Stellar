@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.border
+import com.mediaviewer.ui.theme.AvatarShape
 
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -641,7 +642,7 @@ fun SearchOverlay(
                 // buttons, the post-type filters, the grid size slider at
                 // the bottom — and the results beside it.
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
                         // (Back slides out of the bar's left end, as in portrait.)
                         SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
                         Spacer(Modifier.height(10.dp))
@@ -990,9 +991,9 @@ private fun AccountResultRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Box(
-                Modifier.size(44.dp).clip(CircleShape)
-                    .border(1.5.dp, accent.copy(alpha = 0.85f), CircleShape)
-                    .padding(2.dp).clip(CircleShape).background(Color.White.copy(0.1f))
+                Modifier.size(44.dp).clip(AvatarShape)
+                    .border(1.5.dp, accent.copy(alpha = 0.85f), AvatarShape)
+                    .padding(2.dp).clip(AvatarShape).background(Color.White.copy(0.1f))
             ) {
                 if (author.avatarUrl != null) {
                     AsyncImage(model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -1003,9 +1004,12 @@ private fun AccountResultRow(
             Column(Modifier.weight(1f)) {
                 Text(author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("@${author.handle}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!description.isNullOrBlank()) {
-                    Text(description.replace('\n', ' '), color = Color.White.copy(0.78f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp))
-                }
+                // (Always a third line, empty without a bio, so every bubble
+                // in the People grid is the same height and the rows line up.)
+                Text(
+                    description?.replace('\n', ' ')?.takeIf { it.isNotBlank() } ?: " ",
+                    color = Color.White.copy(0.78f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp)
+                )
             }
             if (isFollowing) {
                 Text(

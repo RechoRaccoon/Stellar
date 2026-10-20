@@ -347,11 +347,11 @@ fun styledProfileColors(did: String?): ProfileColors? {
     return ProfileColors(Color(a), Color(b))
 }
 
-/** A profile icon's outline: round, or — for a supporter who switched it
- *  in Edit Profile — a slightly rounded square. */
+/** A profile icon's outline: round in every UI Shape, or — for a
+ *  supporter who switched it in Edit Profile — square (see SquareIconShape). */
 @Composable
 fun profileIconShape(did: String?): Shape =
-    if (com.mediaviewer.util.ProfileStyles.of(did)?.squareIcon == true) RoundedCornerShape(percent = 24) else CircleShape
+    if (com.mediaviewer.util.ProfileStyles.of(did)?.squareIcon == true) com.mediaviewer.ui.theme.SquareIconShape else com.mediaviewer.ui.theme.AvatarShape
 
 /** A profile's UI color — identical to ProfileOverlay's own: the average of
  *  the banner's dominant color (avatar when there's no banner) and the
@@ -1093,7 +1093,8 @@ fun GlassDropdownMenu(
 @Composable
 fun ScrollToTopGlassBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
     val tap = com.mediaviewer.util.rememberHapticTap()
-    val shape = com.mediaviewer.ui.theme.CircleShape
+    // (Round in Hybrid too.)
+    val shape = com.mediaviewer.ui.theme.SoftCircleShape
     val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
     val icon: @Composable () -> Unit = {
         androidx.compose.material3.Icon(
@@ -1225,7 +1226,7 @@ fun BubbleActionStack(
             val p = progress[i]
             // Distance from this bubble down to the anchor: it rises out of the bar.
             val rise = (n - i) * (bubblePx + gapPx) * 0.55f
-            val shape = CircleShape
+            val shape = com.mediaviewer.ui.theme.SoftCircleShape
             val m = Modifier
                 .size(bubble)
                 .graphicsLayer {

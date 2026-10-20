@@ -277,7 +277,14 @@ object EmojiCloud {
      *  Null when it couldn't be read. */
     suspend fun libraryOf(did: String, fresh: Boolean = false): List<RemoteEmoji>? {
         if (!fresh) com.mediaviewer.platform.synchronizedCompat(others) { others[did] }?.let { return it }
-        val list = runCatching { readPublic(did) }.getOrNull() ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }
+        // Straight from their PDS; if that fails or finds nothing, the same
+        // records read through your own signed-in server (which reaches
+        // every PDS) — the route profile styles fall back to as well.
+        val direct = runCatching { readPublic(did) }.getOrNull()
+        val list = direct?.takeIf { it.isNotEmpty() }
+            ?: runCatching { remote?.list(did) }.getOrNull()?.takeIf { it.isNotEmpty() || direct == null }
+            ?: direct
+            ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }
         com.mediaviewer.platform.synchronizedCompat(others) { others[did] = list }
         return list
     }

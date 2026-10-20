@@ -188,6 +188,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val searchState            by viewModel.searchState.collectAsState()
     // AI Tagging feature
     val taggingOverlayOpen     by viewModel.taggingOverlayOpen.collectAsState()
+    val taggingQueueView       by viewModel.taggingQueueView.collectAsState()
     val taggingUiState         by viewModel.taggingUiState.collectAsState()
     val hasTaggedDataset       by viewModel.hasTaggedDataset.collectAsState()
     val likedTagSearchResults  by viewModel.likedTagSearchResults.collectAsState()
@@ -1022,6 +1023,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         if (taggingOverlayOpen) {
             TaggingOverlay(
                 state          = taggingUiState,
+                queueView      = taggingQueueView,
                 liquidGlass    = liquidGlass,
                 selfAvatarUrl  = selfProfile?.author?.avatarUrl,
                 onDismiss      = viewModel::dismissTaggingOverlay,

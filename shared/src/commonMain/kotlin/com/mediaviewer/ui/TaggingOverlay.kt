@@ -6,6 +6,7 @@ import com.mediaviewer.tagging.TaggerState
 
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import com.mediaviewer.ui.theme.CircleShape
@@ -59,6 +60,9 @@ fun TaggingOverlay(
     state: MainViewModel.TaggingUiState,
     liquidGlass: Boolean,
     selfAvatarUrl: String? = null,
+    /** Opened from the timeline's tagging status: follows the posts being
+     *  tagged as they're liked or viewed (no run of its own to protect). */
+    queueView: Boolean = false,
     onDismiss: () -> Unit,
     onSearchLiked: () -> Unit
 ) {
@@ -66,7 +70,7 @@ fun TaggingOverlay(
     // that already exists (the close bubble) rather than letting a stray
     // back-gesture silently kill a long-running pass; once the run is
     // finished there's nothing left to protect, so back behaves normally.
-    if (state.isRunning) {
+    if (state.isRunning && !queueView) {
         com.mediaviewer.ui.compat.BackHandler(onBack = {})
     } else {
         com.mediaviewer.ui.compat.BackHandler(onBack = onDismiss)
@@ -131,7 +135,7 @@ fun TaggingOverlay(
                     Text("One-time download — the model stays on your device from now on", color = DimGray, fontSize = 11.sp, textAlign = TextAlign.Center)
                 }
             }
-            state.isRunning && (state.lastTaggedItem != null || currentItem != null) -> {
+            (state.isRunning || queueView) && (state.lastTaggedItem != null || currentItem != null) -> {
                 val shown = state.lastTaggedItem
                 ActiveTaggingView(
                     item = shown ?: currentItem!!,
@@ -148,7 +152,7 @@ fun TaggingOverlay(
                 CenteredCard(liquidGlass, profileTint, backdrop) {
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
                     Spacer(Modifier.height(12.dp))
-                    CardTitle("Tagging Liked Posts…", 17.sp)
+                    CardTitle(if (queueView) "Tagging…" else "Tagging Liked Posts…", 17.sp)
                 }
             }
         }
@@ -160,7 +164,7 @@ fun TaggingOverlay(
         // so it's reachable in every state above, including the full-screen
         // post view.
         // (The tagging view has its own, in its header row.)
-        val activeView = state.isRunning && modelState !is TaggerState.Downloading && state.errorMessage == null &&
+        val activeView = (state.isRunning || queueView) && modelState !is TaggerState.Downloading && state.errorMessage == null &&
             !state.isComplete && (state.lastTaggedItem != null || currentItem != null)
         if (!activeView) Box(
             Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance()).padding(16.dp),
@@ -189,10 +193,12 @@ private fun CenteredCard(
         fun CardContent() {
             Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, content = content)
         }
+        // (The outline in the profile's color is drawn over what's inside.)
+        val outline = Modifier.border(1.5.dp, androidx.compose.ui.graphics.lerp(tint, Color.White, 0.3f).copy(alpha = 0.85f), cardShape)
         if (liquidGlass) {
-            LiquidGlassSurface(Modifier.width(cardWidth), shape = cardShape, tint = tint, backdrop = backdrop) { CardContent() }
+            LiquidGlassSurface(Modifier.width(cardWidth).then(outline), shape = cardShape, tint = tint, backdrop = backdrop) { CardContent() }
         } else {
-            Box(Modifier.width(cardWidth).clip(cardShape).background(Color.White.copy(0.06f))) { CardContent() }
+            Box(Modifier.width(cardWidth).clip(cardShape).background(Color.White.copy(0.06f)).then(outline)) { CardContent() }
         }
     }
 }
@@ -283,10 +289,15 @@ private fun ActiveTaggingView(
                 }
             }
         }
+        // The outline in the profile's color goes over the picture (which
+        // is cut to the frame's corners), so the post never hides it.
+        val outline = Modifier.border(1.5.dp, androidx.compose.ui.graphics.lerp(tint, Color.White, 0.3f).copy(alpha = 0.85f), outlineShape)
         if (liquidGlass) {
-            LiquidGlassSurface(Modifier.width(frameWidth), shape = outlineShape, tint = tint, backdrop = backdrop) { FrameContent() }
+            LiquidGlassSurface(Modifier.width(frameWidth).then(outline), shape = outlineShape, tint = tint, backdrop = backdrop) {
+                Box(Modifier.clip(outlineShape)) { FrameContent() }
+            }
         } else {
-            Box(Modifier.width(frameWidth).clip(outlineShape).background(Color.White.copy(0.06f))) { FrameContent() }
+            Box(Modifier.width(frameWidth).clip(outlineShape).background(Color.White.copy(0.06f)).then(outline)) { FrameContent() }
         }
     }
 }

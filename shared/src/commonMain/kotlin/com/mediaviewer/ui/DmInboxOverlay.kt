@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.theme.AvatarShape
 
 import com.mediaviewer.ui.compat.rememberPlatformView
 
@@ -228,7 +229,7 @@ fun DmInboxOverlay(
                 } else if (t != null) {
                     if (t.convo.member.avatarUrl != null) {
                         AsyncImage(model = t.convo.member.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(28.dp).clip(CircleShape).clickable { tap(); onTapAuthor(t.convo.member) })
+                            modifier = Modifier.size(28.dp).clip(AvatarShape).clickable { tap(); onTapAuthor(t.convo.member) })
                     }
                     Column(Modifier.weight(1f).clickable { tap(); onTapAuthor(t.convo.member) }) {
                         Text(t.convo.member.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
@@ -319,7 +320,7 @@ fun DmInboxOverlay(
             }
         } else {
             Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
-                Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+                Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
                     Header(null, profileTint) { onClose() }
                     HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
                     PickerPane()
@@ -740,7 +741,7 @@ private fun DmThreadView(
                     LaunchedEffect(thread.messages.lastOrNull()?.id) {
                         val newLastId = thread.messages.lastOrNull()?.id
                         if (newLastId != null && newLastId != lastMessageId && thread.messages.isNotEmpty()) {
-                            val target = thread.messages.size - 1 + if (thread.loadingMore) 1 else 0
+                            val target = thread.messages.size - 1
                             if (!positioned) listState.scrollToItem(target) else listState.animateScrollToItem(target)
                             positioned = true
                         }
@@ -750,11 +751,13 @@ private fun DmThreadView(
                     // pictures, emoji and cards that finish loading after the
                     // chat opens (and grow the last messages) no longer leave it
                     // sitting a little above the bottom.
-                    val dragged by listState.interactionSource.collectIsDraggedAsState()
                     var stuck by remember(thread.convo.convoId) { mutableStateOf(true) }
-                    LaunchedEffect(listState, dragged) {
-                        snapshotFlow { listState.canScrollForward }.collect { canGoOn ->
-                            if (!canGoOn) stuck = true else if (dragged) stuck = false
+                    // (Any scroll away from the bottom unsticks it — a drag, a
+                    // fling or a mouse wheel; it used to watch drags only, so
+                    // after a fling or wheel scroll up it snapped back down.)
+                    LaunchedEffect(listState, thread.convo.convoId) {
+                        snapshotFlow { listState.canScrollForward to listState.isScrollInProgress }.collect { (canGoOn, scrolling) ->
+                            if (!canGoOn) stuck = true else if (scrolling) stuck = false
                         }
                     }
                     LaunchedEffect(listState, stuck, positioned) {
@@ -788,13 +791,11 @@ private fun DmThreadView(
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp + barHeightDp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (thread.loadingMore) {
-                            item(key = "loading_more") {
-                                Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
-                                }
-                            }
-                        }
+                        // (Older messages loading: a spinner over the top of
+                        // the chat, below — not a row in the list. As a row it
+                        // was often the first one showing, and when it went
+                        // away with the older messages coming in, the list
+                        // lost its place and jumped.)
                         itemsIndexed(thread.messages, key = { _, m -> m.id }) { index, msg ->
                             if (msg.isSystem) {
                                 // Group chats: "X added Y" etc., as a small
@@ -820,13 +821,13 @@ private fun DmThreadView(
                                 // Group chats: the sender's avatar beside each of their messages.
                                 val ring = tintOf(msg)
                                 Box(
-                                    Modifier.padding(end = 6.dp, bottom = 2.dp).size(30.dp).clip(CircleShape)
-                                        .background(ring.copy(alpha = 0.35f)).border(1.dp, ring.copy(alpha = 0.8f), CircleShape),
+                                    Modifier.padding(end = 6.dp, bottom = 2.dp).size(30.dp).clip(AvatarShape)
+                                        .background(ring.copy(alpha = 0.35f)).border(1.dp, ring.copy(alpha = 0.8f), AvatarShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (sender.avatarUrl != null) AsyncImage(
                                         model = sender.avatarUrl, contentDescription = displayNameOf(sender),
-                                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(AvatarShape)
                                     ) else Text(displayNameOf(sender).take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -845,13 +846,22 @@ private fun DmThreadView(
                                 onJumpToReply = { id ->
                                     val idx = thread.messages.indexOfFirst { it.id == id }
                                     if (idx >= 0) {
-                                        scope.launch { listState.animateScrollToItem(idx + if (thread.loadingMore) 1 else 0) }
+                                        scope.launch { listState.animateScrollToItem(idx) }
                                         highlightId = id
                                     }
                                 }
                             )
                             }
                             }
+                        }
+                    }
+                    if (thread.loadingMore) {
+                        Box(
+                            Modifier.align(Alignment.TopCenter).padding(top = 10.dp).size(28.dp)
+                                .clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
                         }
                     }
                 }
@@ -1358,7 +1368,7 @@ private fun DmBubble(
                         if (embedded.author.avatarUrl != null) {
                             AsyncImage(
                                 model = embedded.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(16.dp).clip(CircleShape)
+                                modifier = Modifier.size(16.dp).clip(AvatarShape)
                             )
                         }
                         Text(
@@ -1617,9 +1627,9 @@ internal fun DmConvoAvatar(convo: DmConversation, size: androidx.compose.ui.unit
     if (!convo.isGroup) {
         if (convo.member.avatarUrl != null) {
             AsyncImage(model = convo.member.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(size).clip(CircleShape))
+                modifier = Modifier.size(size).clip(AvatarShape))
         } else {
-            Box(Modifier.size(size).clip(CircleShape).background(Color.White.copy(0.15f)))
+            Box(Modifier.size(size).clip(AvatarShape).background(Color.White.copy(0.15f)))
         }
         return
     }
@@ -1653,7 +1663,7 @@ internal fun DmConvoAvatar(convo: DmConversation, size: androidx.compose.ui.unit
                 Box(m, contentAlignment = Alignment.Center) {
                     if (a?.avatarUrl != null) AsyncImage(
                         model = a.avatarUrl, contentDescription = a.displayName, contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        modifier = Modifier.fillMaxSize().clip(AvatarShape)
                     ) else Text(
                         (a?.displayName ?: "?").take(1).uppercase(), color = Color.White,
                         fontSize = (size.value * fd * 0.4f).sp, fontWeight = FontWeight.Bold
@@ -1743,7 +1753,7 @@ private fun SharedProfileCard(actor: String, onLongPress: () -> Unit = {}) {
     ) {
         Box(
             Modifier.size(58.dp).clip(CircleShape).border(2.dp, ring, CircleShape).padding(3.dp)
-                .clip(CircleShape).background(Color.White.copy(0.1f)),
+                .clip(AvatarShape).background(Color.White.copy(0.1f)),
             contentAlignment = Alignment.Center
         ) {
             if (a?.avatarUrl != null) {

@@ -381,20 +381,17 @@ private fun CommentVideo(item: CommentMedia, active: Boolean, fallbackTint: Colo
                     AsyncImage(model = item.thumbUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 }
             }
-            AnimatedVisibility(
-                visible = controls, enter = fadeIn(tween(160)), exit = fadeOut(tween(160)),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                VideoControlBar(
-                    liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
-                    isPlaying = playing,
-                    positionMs = if (seeking) seekPreviewMs else positionMs,
-                    durationMs = durationMs,
-                    onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
-                    onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
-                    onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
-                )
-            }
+            VideoControlsOverlay(
+                visible = controls,
+                liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                isPlaying = playing,
+                positionMs = if (seeking) seekPreviewMs else positionMs,
+                durationMs = durationMs,
+                onPlayPause = { if (player.isPlaying) player.pause() else player.play(); playing = !playing },
+                onSkip = { d -> seekTo(videoSkipTarget(positionMs, d, durationMs)) },
+                onSeeking = { ms -> seeking = true; seekPreviewMs = ms },
+                onSeekFinish = { seeking = false; seekTo(seekPreviewMs) }
+            )
         }
     }
 }

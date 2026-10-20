@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.background
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.mediaviewer.ui.compat.horizontalScroll
@@ -289,10 +290,10 @@ fun HubProfilesDialog(
 
 @Composable
 private fun HubProfileAvatar(author: AuthorInfo, size: Dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
         if (author.avatarUrl != null) AsyncImage(
             model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clip(CircleShape)
+            modifier = Modifier.fillMaxSize().clip(AvatarShape)
         ) else Text(author.displayName.take(1).uppercase(), color = Color.White, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
     }
 }

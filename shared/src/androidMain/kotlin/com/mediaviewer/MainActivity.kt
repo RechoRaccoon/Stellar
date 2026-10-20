@@ -127,6 +127,15 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
         com.mediaviewer.util.HardwareKeys.dispatch(event) || super.dispatchKeyEvent(event)
 
+    // Middle-click autoscroll with a mouse (see MiddleClickScroll).
+    private val middleClickScroll by lazy { com.mediaviewer.ui.MiddleClickScroll(this) }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean =
+        middleClickScroll.onTouch(ev) || super.dispatchTouchEvent(ev)
+
+    override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean =
+        middleClickScroll.onGeneric(ev) || super.dispatchGenericMotionEvent(ev)
+
     // MainViewModel is shared with iOS; on Android it runs through
     // AndroidAppPlatform (haptics, toasts, downloads, tagging, widgets…).
     private val viewModel: MainViewModel by viewModels {

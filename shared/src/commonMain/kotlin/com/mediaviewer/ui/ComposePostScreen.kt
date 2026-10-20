@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.theme.AvatarShape
 import com.mediaviewer.platform.ioDispatcher
 
 import com.mediaviewer.platform.PlatformUri as Uri
@@ -1014,10 +1015,10 @@ fun ComposePostScreen(
                     if (selfProfile?.avatarUrl != null) {
                         AsyncImage(
                             model = selfProfile.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(40.dp).clip(CircleShape)
+                            modifier = Modifier.size(40.dp).clip(AvatarShape)
                         )
                     } else {
-                        Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(0.12f)))
+                        Box(Modifier.size(40.dp).clip(AvatarShape).background(Color.White.copy(0.12f)))
                     }
                     Column {
                         Text(

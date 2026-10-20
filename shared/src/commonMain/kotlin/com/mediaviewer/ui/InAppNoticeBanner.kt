@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -99,7 +100,7 @@ fun InAppNoticeBanner(tint: Color, modifier: Modifier = Modifier) {
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.size(38.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(38.dp).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
                     if (notice.avatarUrl != null) AsyncImage(
                         model = notice.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

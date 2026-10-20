@@ -798,42 +798,37 @@ private fun DrawScope.drawBat(c: Offset, s: Float, flap: Float, dir: Float) {
 // ── Paw prints ───────────────────────────────────────────────────────────
 
 /**
- * Paw prints: a few little walkers cross the screen diagonally, up and to
- * the right, one print at a time (left, right, left…), each print pressed
- * in and then fading, all in [color] (the profile's own). The web draws
- * fewer of them (see LiteGlass).
+ * Paw prints: five giant prints walk across the screen, from the bottom
+ * left up to the top right, one at a time (left, right, left…), each
+ * pressed in and then fading, in [color] (the profile's own).
  */
 private fun DrawScope.drawPawprints(t: Float, seed: Long, color: Color) {
     val rnd = Random(seed)
-    val unit = effectUnit()
-    val walkers = if (LiteGlass.LIVE) effectCount(4) else 2
-    // Up and to the right, a little steeper on a tall screen.
-    val angle = -(PI.toFloat() / 4f) - rnd.nextFloat() * 0.12f
-    val dir = Offset(cos(angle), sin(angle))
+    val prints = 5
+    val shortSide = minOf(size.width, size.height)
+    // Big: each print about a fifth of the screen's short side across.
+    val r = shortSide * 0.075f
+    val from = Offset(size.width * 0.16f, size.height * (0.84f + rnd.nextFloat() * 0.04f))
+    val to = Offset(size.width * 0.84f, size.height * (0.16f - rnd.nextFloat() * 0.04f))
+    val path = to - from
+    val length = path.getDistance().coerceAtLeast(1f)
+    val dir = path / length
     val side = Offset(-dir.y, dir.x)
-    val stride = 34f * unit
-    val gait = 9f * unit
-    val stepEvery = 0.32f
-    val fade = 2.4f
+    val angle = kotlin.math.atan2(dir.y, dir.x)
+    val gait = r * 1.25f
+    val stepEvery = 0.75f
+    val fade = 4.2f
     val pad = lighten(color)
-    repeat(walkers) { w ->
-        val start = w * 1.25f + rnd.nextFloat() * 0.6f
-        // From somewhere along the bottom or the left edge.
-        val from = if (rnd.nextBoolean()) Offset(rnd.nextFloat() * size.width * 0.6f, size.height + 20f * unit)
-        else Offset(-20f * unit, size.height * (0.35f + rnd.nextFloat() * 0.65f))
-        val steps = ((size.width + size.height) / stride).toInt() + 4
-        for (i in 0 until steps) {
-            val at = start + i * stepEvery
-            val age = t - at
-            if (age < 0f) break
-            if (age > fade) continue
-            val left = i % 2 == 0
-            val c = from + dir * (i * stride) + side * (if (left) -gait else gait)
-            if (c.x < -40f * unit || c.y < -40f * unit || c.x > size.width + 40f * unit) continue
-            // Pressed in quickly, then fading away.
-            val alpha = (if (age < 0.12f) age / 0.12f else 1f - ((age - 0.12f) / (fade - 0.12f))).coerceIn(0f, 1f) * 0.85f
-            drawPaw(c, angle + PI.toFloat() / 2f, 7.5f * unit, pad.copy(alpha = alpha))
-        }
+    for (i in 0 until prints) {
+        val age = t - (0.2f + i * stepEvery)
+        if (age < 0f) break
+        if (age > fade) continue
+        val left = i % 2 == 0
+        val c = from + dir * (length * i / (prints - 1)) + side * (if (left) -gait else gait)
+        // Pressed in (a little squash), then fading away.
+        val press = if (age < 0.18f) age / 0.18f else 1f
+        val alpha = (if (age < 0.18f) press else 1f - ((age - 0.18f) / (fade - 0.18f))).coerceIn(0f, 1f) * 0.8f
+        drawPaw(c, angle + PI.toFloat() / 2f, r * (1.15f - 0.15f * press), pad.copy(alpha = alpha))
     }
 }
 

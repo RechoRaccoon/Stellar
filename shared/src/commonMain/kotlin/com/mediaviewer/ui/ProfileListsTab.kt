@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.animation.core.LinearEasing
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -309,12 +310,12 @@ fun ListMembersDialog(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Box(
-                                        Modifier.size(34.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)),
+                                        Modifier.size(34.dp).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         if (author.avatarUrl != null) AsyncImage(
                                             model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                            modifier = Modifier.fillMaxSize().clip(AvatarShape)
                                         ) else Text(author.displayName.take(1).uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                     }
                                     Column(Modifier.weight(1f)) {

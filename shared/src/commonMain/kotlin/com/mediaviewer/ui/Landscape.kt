@@ -189,6 +189,36 @@ fun <T> LazyListScope.landscapeGridRows(
  * or cut off; it just gets smaller. At [reference] or wider, it's laid out
  * as normal.
  */
+/** Landscape's side lists: always laid out at [reference] wide and scaled,
+ *  up or down, to the width they really have — dragging the list's edge
+ *  makes everything in it bigger or smaller together, never squished or
+ *  stretched. */
+fun Modifier.scaleToFit(reference: Dp): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val ref = reference.roundToPx()
+        val w = constraints.maxWidth
+        val inf = androidx.compose.ui.unit.Constraints.Infinity
+        if (w == inf || w <= 0 || constraints.maxHeight == inf) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val scale = w.toFloat() / ref
+            val p = measurable.measure(
+                androidx.compose.ui.unit.Constraints(
+                    minWidth = ref, maxWidth = ref,
+                    minHeight = (constraints.minHeight / scale).toInt(), maxHeight = (constraints.maxHeight / scale).toInt()
+                )
+            )
+            layout(w, (p.height * scale).toInt().coerceAtMost(constraints.maxHeight)) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
+
 fun Modifier.shrinkToFit(reference: Dp): Modifier = this.then(
     Modifier.layout { measurable, constraints ->
         val ref = reference.roundToPx()

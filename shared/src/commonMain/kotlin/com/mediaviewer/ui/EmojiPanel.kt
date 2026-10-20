@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -314,41 +315,67 @@ internal fun EmojiPanel(
                     view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CONFIRM)
                     return
                 }
-                // Onto another emoji: takes its place.
-                val target = emojiBounds.entries.firstOrNull { it.key != id && it.value.contains(pointer) }?.key ?: return
-                val folderId = selectedFolderId
-                if (folderId == null) {
-                    val list = index.emojis.toMutableList()
-                    val fromI = list.indexOfFirst { it.id == id }
-                    val toI = list.indexOfFirst { it.id == target }
-                    if (fromI < 0 || toI < 0) return
-                    list.add(toI, list.removeAt(fromI))
-                    store.setIndex(index.copy(emojis = list))
-                } else {
-                    store.setIndex(index.copy(folders = index.folders.map { f ->
-                        if (f.id != folderId) f else {
-                            val ids = f.emojiIds.toMutableList()
-                            val fromI = ids.indexOf(id); val toI = ids.indexOf(target)
-                            if (fromI < 0 || toI < 0) f else f.copy(emojiIds = ids.apply { add(toI, removeAt(fromI)) })
-                        }
-                    }))
-                }
+                // (Among the other emoji it already moved while held.)
             }
-            is EmojiHeld.Folder -> {
-                val target = folderBounds.entries.firstOrNull { it.key != item.folder.id && it.key != -1 && it.value.contains(pointer) }?.key ?: return
+            // (Folders and accounts were put in their new places while held.)
+            is EmojiHeld.Folder, is EmojiHeld.Account -> {}
+        }
+    }
+
+    /** [id] takes [target]'s place in what's showing (All, or the open folder). */
+    fun moveEmoji(id: Int, target: Int): Boolean {
+        val index = store.state.index
+        val folderId = selectedFolderId
+        if (folderId == null) {
+            val list = index.emojis.toMutableList()
+            val fromI = list.indexOfFirst { it.id == id }
+            val toI = list.indexOfFirst { it.id == target }
+            if (fromI < 0 || toI < 0) return false
+            list.add(toI, list.removeAt(fromI))
+            store.setIndex(index.copy(emojis = list))
+        } else {
+            var moved = false
+            store.setIndex(index.copy(folders = index.folders.map { f ->
+                if (f.id != folderId) f else {
+                    val ids = f.emojiIds.toMutableList()
+                    val fromI = ids.indexOf(id); val toI = ids.indexOf(target)
+                    if (fromI < 0 || toI < 0) f else { moved = true; f.copy(emojiIds = ids.apply { add(toI, removeAt(fromI)) }) }
+                }
+            }))
+            return moved
+        }
+        return true
+    }
+
+    // Like dragging feeds: what's held trades places with whatever it's
+    // dragged over as it goes, the others making way (a tick each time).
+    // The one it just traded with is left alone until the finger leaves
+    // it, so the two don't swap straight back before they've moved.
+    var swapLock by remember { mutableStateOf<Any?>(null) }
+    fun liveReorder() {
+        val item = held ?: return
+        fun <K> step(bounds: Map<K, Rect>, self: K, skip: (K) -> Boolean = { false }, move: (K) -> Boolean) {
+            swapLock?.let { l -> if (bounds.entries.none { it.key == l && it.value.contains(pointer) }) swapLock = null }
+            val target = bounds.entries.firstOrNull { it.key != self && it.key != swapLock && !skip(it.key) && it.value.contains(pointer) }?.key ?: return
+            if (move(target)) {
+                swapLock = target
+                view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+        when (item) {
+            is EmojiHeld.Emoji -> step(emojiBounds, item.entry.id) { moveEmoji(item.entry.id, it) }
+            is EmojiHeld.Folder -> step(folderBounds, item.folder.id, skip = { it == -1 }) { target ->
+                val index = store.state.index
                 val list = index.folders.toMutableList()
                 val fromI = list.indexOfFirst { it.id == item.folder.id }
                 val toI = list.indexOfFirst { it.id == target }
-                if (fromI < 0 || toI < 0) return
-                list.add(toI, list.removeAt(fromI))
-                store.setIndex(index.copy(folders = list))
+                if (fromI < 0 || toI < 0) false else { list.add(toI, list.removeAt(fromI)); store.setIndex(index.copy(folders = list)); true }
             }
-            is EmojiHeld.Account -> {
-                val target = accountBounds.entries.firstOrNull { it.key != item.account.did && it.value.contains(pointer) }?.key ?: return
+            is EmojiHeld.Account -> step(accountBounds, item.account.did) { target ->
                 val list = EmojiAccounts.saved(selfDid)
                 val fromI = list.indexOfFirst { it.did == item.account.did }
                 val toI = list.indexOfFirst { it.did == target }
-                if (fromI >= 0 && toI >= 0) EmojiAccounts.move(selfDid, fromI, toI)
+                if (fromI >= 0 && toI >= 0) { EmojiAccounts.move(selfDid, fromI, toI); true } else false
             }
         }
     }
@@ -362,9 +389,9 @@ internal fun EmojiPanel(
                     val it = item() ?: return@detectDragGesturesAfterLongPress
                     startHold(it, b, b.topLeft + off)
                 },
-                onDrag = { change, amount -> if (held != null) { change.consume(); pointer += amount } },
-                onDragEnd = { drop() },
-                onDragCancel = { held = null }
+                onDrag = { change, amount -> if (held != null) { change.consume(); pointer += amount; liveReorder() } },
+                onDragEnd = { swapLock = null; drop() },
+                onDragCancel = { swapLock = null; held = null }
             )
         }
 
@@ -384,6 +411,17 @@ internal fun EmojiPanel(
             .onGloballyPositioned { panelOrigin = it.positionInRoot() }
             // Swallow taps so they never fall through to what's behind.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            // …and every other touch too: whatever the panel's own pieces
+            // didn't use is used up here, so a swipe in it can never reach
+            // the chat (where a sideways swipe on a message replies to it).
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
+                        event.changes.forEach { if (!it.isConsumed) it.consume() }
+                    }
+                }
+            }
             .then(if (compact || floating) Modifier else Modifier.windowInsetsPadding(WindowInsets.navBarSpace))
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -757,16 +795,16 @@ private fun AccountBubble(
     val tap = rememberHapticTap()
     val ring = if (selected) Color.White else Color.White.copy(alpha = if (dashed) 0.22f else 0.35f)
     Box(
-        modifier.size(34.dp).clip(CircleShape)
+        modifier.size(34.dp).clip(AvatarShape)
             .background(tint.copy(alpha = 0.35f))
-            .border(if (selected) 2.dp else 1.dp, ring, CircleShape)
+            .border(if (selected) 2.dp else 1.dp, ring, AvatarShape)
             .combinedClickable(onClick = { tap(); onClick() }, onLongClick = if (drag != null) ({}) else null)
             .then(drag ?: Modifier),
         contentAlignment = Alignment.Center
     ) {
         if (avatarUrl != null) AsyncImage(
             model = avatarUrl, contentDescription = name, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().padding(if (selected) 2.dp else 1.dp).clip(CircleShape)
+            modifier = Modifier.fillMaxSize().padding(if (selected) 2.dp else 1.dp).clip(AvatarShape)
                 .graphicsLayer { alpha = if (selected || !dashed) 1f else 0.7f }
         ) else Text(name.take(1).uppercase(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }

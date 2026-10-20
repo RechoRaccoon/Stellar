@@ -1106,8 +1106,30 @@ internal fun SettingsPageContent(
                 }
             }
 
-            // Every rounded corner in the app made square.
-            ToggleBubble("Squared-Off Corners", com.mediaviewer.util.UiToggles.squareCorners, { com.mediaviewer.util.UiToggles.updateSquareCorners(it) }, liquidGlass, tint, backdrop)
+            // Hybrid (squared, with the bars and buttons you touch most
+            // round), Round or Squared — see ui/theme/Shapes.kt.
+            SettingsBubble(liquidGlass, tint, backdrop) {
+                var shapeMenuExpanded by remember { mutableStateOf(false) }
+                val currentShape = com.mediaviewer.util.UiToggles.uiShape
+                BubbleRow {
+                    RowLabel("UI Shape", Modifier.weight(1f))
+                    Box {
+                        Text(
+                            currentShape.label,
+                            color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { shapeMenuExpanded = true }
+                        )
+                        DropdownMenu(expanded = shapeMenuExpanded, onDismissRequest = { shapeMenuExpanded = false }) {
+                            com.mediaviewer.util.UiToggles.UiShape.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.label, fontWeight = if (option == currentShape) FontWeight.SemiBold else FontWeight.Normal) },
+                                    onClick = { com.mediaviewer.util.UiToggles.updateUiShape(option); shapeMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
             ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         }
@@ -1305,7 +1327,7 @@ internal fun SettingsPageContent(
                             }
                             BubbleDivider()
                             BubbleRow {
-                                RowLabel("Tag Media When Viewed", Modifier.weight(1f), sub = "Every post you look at in Timeline mode")
+                                RowLabel("Tag Media When Viewed", Modifier.weight(1f))
                                 CompactSwitch(com.mediaviewer.util.UiToggles.tagWhenViewed) { com.mediaviewer.util.UiToggles.updateTagWhenViewed(it) }
                             }
                             BubbleDivider()
@@ -2721,7 +2743,12 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
     val sync = com.mediaviewer.util.PrivateSync
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var reveal by remember { mutableStateOf(false) }
-    val key = remember(sync.state, reveal) { if (reveal) sync.savedSecretKey() else null }
+    var confirmRegen by remember { mutableStateOf(false) }
+    var regenerating by remember { mutableStateOf(false) }
+    var regenError by remember { mutableStateOf<String?>(null) }
+    var newKeyShown by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val key = remember(sync.state, reveal, regenerating) { if (reveal) sync.savedSecretKey() else null }
     val status = when (sync.state) {
         com.mediaviewer.util.PrivateSync.State.READY -> when {
             sync.syncing -> "Syncing…"
@@ -2737,7 +2764,7 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
     }
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
-            RowLabel("Private Data Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive, Hub and settings, encrypted on your PDS · $status")
+            RowLabel("Private Data Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive and Hub layout, encrypted on your PDS (settings stay on each device) · $status")
             PillButton("Sync Now", { sync.syncNow() }, enabled = !sync.syncing &&
                 (sync.state == com.mediaviewer.util.PrivateSync.State.READY || sync.state == com.mediaviewer.util.PrivateSync.State.OFFLINE))
         }
@@ -2750,6 +2777,44 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
                 PillButton(if (reveal) "Hide" else "Show", { reveal = !reveal })
             }
             if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyBox(key) }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel(
+                    "Regenerate Sync Key", Modifier.weight(1f),
+                    sub = regenError ?: if (regenerating) "Encrypting your data again…" else "Your data is encrypted again with a new key and the old copy is deleted. Your other devices will need the new key."
+                )
+                PillButton("Regenerate", { confirmRegen = true }, enabled = !regenerating && !sync.syncing)
+            }
+        }
+    }
+    if (confirmRegen) androidx.compose.ui.window.Dialog(
+        onDismissRequest = { confirmRegen = false },
+        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
+    ) { Box(Modifier.fillMaxSize()) {
+        ConfirmPopup(
+            title = "Regenerate Sync Key?",
+            message = "Stellar will encrypt your synced data again with a new key and delete the old copy. Your old key will stop working, and every other device signed in to this account will have to enter the new key before it can sync again.",
+            confirmLabel = "Regenerate",
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+            onConfirm = {
+                confirmRegen = false; regenerating = true; regenError = null
+                scope.launch {
+                    val e = sync.regenerateKey()
+                    regenerating = false
+                    if (e == null) { reveal = true; newKeyShown = true } else regenError = e
+                }
+            },
+            onDismiss = { confirmRegen = false }
+        )
+    } }
+    if (newKeyShown) androidx.compose.ui.window.Dialog(
+        onDismissRequest = {},
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false, usePlatformDefaultWidth = false)
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)), contentAlignment = Alignment.Center) {
+            Box(Modifier.widthIn(max = 460.dp).fillMaxWidth(0.9f).clip(RoundedCornerShape(22.dp)).background(OffBlack)) {
+                NewSyncKeyStep(tint, onContinue = { newKeyShown = false })
+            }
         }
     }
 }

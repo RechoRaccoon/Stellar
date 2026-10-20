@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.BackHandler
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -253,7 +254,7 @@ private fun InboxCard(
                         ) {
                             if (a.avatarUrl != null) AsyncImage(
                                 model = a.avatarUrl, contentDescription = a.displayName, contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                modifier = Modifier.fillMaxSize().clip(AvatarShape)
                             ) else Text(a.displayName.take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }

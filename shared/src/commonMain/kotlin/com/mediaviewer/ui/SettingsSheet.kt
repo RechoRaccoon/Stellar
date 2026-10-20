@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.mousePager
+import com.mediaviewer.ui.theme.AvatarShape
 import com.mediaviewer.ui.compat.navBarSpace
 
 import com.mediaviewer.util.rememberHapticTap
@@ -891,7 +892,7 @@ private fun AtProtocolPageContent(
         }
         }
         if (!hubSidebar) {
-            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
             Spacer(Modifier.height(6.dp))
         }
     // At the very bottom of the Hub, a further swipe up returns to the
@@ -1151,8 +1152,10 @@ private fun AtProtocolPageContent(
             }
         } else androidx.compose.foundation.pager.HorizontalPager(
             state = launchPager,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            pageSpacing = 16.dp,
+            // (Landscape's side list: closer to its edges, so the buttons
+            // have room for their labels.)
+            contentPadding = PaddingValues(horizontal = if (hubSidebar) 6.dp else 16.dp),
+            pageSpacing = if (hubSidebar) 12.dp else 16.dp,
             // (No swiping while a button is held: the edges turn the page.)
             userScrollEnabled = !lpDrag.active,
             // The badges poke out past the buttons' corners.
@@ -1256,7 +1259,7 @@ private fun AtProtocolPageContent(
         ) {
             items(maxOf(MUTUAL_SKELETON_SLOTS, friends.size)) { i ->
                 val friend = friends.getOrNull(i)
-                val avatarShape = CircleShape
+                val avatarShape = AvatarShape
                 Column(
                     Modifier.width(60.dp).then(if (friend != null) Modifier.clickable { onOpenProfile(friend) } else Modifier),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1485,7 +1488,7 @@ private fun AtProtocolPageContent(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 otherAccounts.forEach { account ->
-                    val avatarShape = CircleShape
+                    val avatarShape = AvatarShape
                     Column(
                         Modifier.width(60.dp).clickable { onSwitchAccount(account.did) },
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -1524,14 +1527,14 @@ private fun AtProtocolPageContent(
     @Composable
     fun SidebarFeeds() {
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
             Text("Feeds", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 10.dp))
             HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
         }
         Spacer(Modifier.height(6.dp))
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             // Press and hold a feed to drag it to a new place (as the row of
             // feed chips does in portrait).
             // Dragged onto the Remove / Pin bubbles above the bottom bar, it's
@@ -1599,8 +1602,8 @@ private fun AtProtocolPageContent(
     }
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
-        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)) {
-            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
                 ButtonsSection()
                 SidebarFeeds()
@@ -1610,7 +1613,7 @@ private fun AtProtocolPageContent(
             Box(Modifier.fillMaxWidth().height(0.dp).zIndex(3f), contentAlignment = Alignment.BottomCenter) {
                 HubRemoveDropTarget(feedDrag, liquidGlass, visible = feedDrag.sideActive, tint = dominantColor)
             }
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
         }
         SideListEdge(dominantColor)
     }
@@ -1982,7 +1985,7 @@ private fun HubListSection(
             ) {
                 items(members.size, key = { i -> members[i].did }) { i ->
                     val member = members[i]
-                    val avatarShape = CircleShape
+                    val avatarShape = AvatarShape
                     Column(
                         Modifier.width(60.dp).clickable { tap(); onOpenProfile(member) },
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -2827,10 +2830,10 @@ private fun HubAuthorBubble(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
-        Box(Modifier.size(avatarSize).clip(CircleShape).background(Color.White.copy(0.15f))) {
+        Box(Modifier.size(avatarSize).clip(AvatarShape).background(Color.White.copy(0.15f))) {
             if (avatarUrl != null) {
                 AsyncImage(model = avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(CircleShape))
+                    modifier = Modifier.fillMaxSize().clip(AvatarShape))
             }
         }
         Text(
@@ -3015,10 +3018,10 @@ private fun ProfileGridButton(
             Text("Profile", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(6.dp))
-            Box(Modifier.size(20.dp).clip(CircleShape).background(Color.White.copy(0.15f))) {
+            Box(Modifier.size(20.dp).clip(AvatarShape).background(Color.White.copy(0.15f))) {
                 if (avatarUrl != null) {
                     AsyncImage(model = avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape))
+                        modifier = Modifier.fillMaxSize().clip(AvatarShape))
                 }
             }
         }
@@ -3053,9 +3056,9 @@ fun AuthorChip(
         } else if (author.avatarUrl != null) {
             AsyncImage(model = author.avatarUrl, contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(16.dp).clip(CircleShape))
+                modifier = Modifier.size(16.dp).clip(AvatarShape))
         } else {
-            Box(Modifier.size(16.dp).clip(CircleShape).background(Color.White.copy(0.2f)))
+            Box(Modifier.size(16.dp).clip(AvatarShape).background(Color.White.copy(0.2f)))
         }
         Text(author.displayName.take(16), color = if (selected) Color.White else DimGray, fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
@@ -3082,7 +3085,7 @@ fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass:
         if (avatarUrl != null) {
             AsyncImage(model = avatarUrl, contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(16.dp).clip(CircleShape))
+                modifier = Modifier.size(16.dp).clip(AvatarShape))
         }
         Text(name, color = if (isSelected) Color.White else DimGray, fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)

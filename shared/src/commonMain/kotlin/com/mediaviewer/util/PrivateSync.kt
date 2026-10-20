@@ -42,8 +42,8 @@ import kotlinx.serialization.json.put
 /**
  * Private Sync: what Stellar keeps only on your devices — drafts, notes,
  * the calendar, bookmark folders, archived posts (with their pictures and
- * videos), the Hub's layout, Blogs/Reviews lists, settings, saved emoji
- * accounts, status history — kept on your own PDS, end-to-end encrypted,
+ * videos), the Hub's layout, Blogs/Reviews lists, saved emoji accounts,
+ * status history (never app settings: each device keeps its own) — kept on your own PDS, end-to-end encrypted,
  * so it follows you to every device you sign in on.
  *
  * ## Keys
@@ -326,6 +326,71 @@ object PrivateSync {
         // removed by the PDS.)
         val current = runCatching { remote?.get(account, COLLECTION, RKEY) }.getOrNull()
         return setupPush(account, secret, secureRandomBytes(32), swap = current?.cid)
+    }
+
+    /**
+     * Settings → Regenerate Sync Key (READY only). Everything synced so far
+     * is pulled and merged in first, so nothing is lost; then it's all
+     * encrypted again under a new random data key sealed by a new Secret
+     * Key, and written over the old vault with compare-and-swap. The old
+     * vault's pieces aren't listed anymore, so the PDS deletes them, and
+     * neither the old key nor the old data key opens anything after. Every
+     * other device finds its key no longer opens the vault on its next sync,
+     * forgets it, and asks for the new one. Null when done; the new key is
+     * then [savedSecretKey].
+     */
+    suspend fun regenerateKey(): String? {
+        val account = did
+        val oldKey = dek ?: return "Sync isn't on"
+        val r = remote ?: return "Not signed in"
+        val ctx = context ?: return "Not ready"
+        if (state != State.READY) return "Sync isn't on"
+        return lock.withLock {
+            syncing = true
+            try {
+                val rec = r.get(account, COLLECTION, RKEY)
+                val oldSecret = prefs?.getString(k("secret"), null)?.let { parseSecret(it) } ?: return@withLock "This device has no sync key"
+                // (Checks this device still holds the vault's current key: a
+                // device that was itself re-keyed elsewhere can't re-key it.)
+                val remoteBundle = if (rec == null) null else {
+                    val keyNow = unwrap(rec.value, oldSecret, account)
+                    if (keyNow == null || !keyNow.contentEquals(oldKey)) return@withLock "Your sync key was changed on another device"
+                    readVault(account, oldKey, rec)
+                }
+                val base = prefs?.getString(k("base"), null)?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                val local = Sections.collect(ctx, account)
+                val merged = merge(base, local, remoteBundle)
+                val changedHere = sectionsOf(merged).filter { (name, v) -> local[name] != v }
+                if (changedHere.isNotEmpty()) withContext(Dispatchers.Main) {
+                    if (did == account) Sections.apply(ctx, account, changedHere)
+                }
+                // Every file is on this device before it's sealed again.
+                fetchMissingFiles(ctx, account, oldKey, merged)
+                if (did != account) return@withLock null
+                val secret = secureRandomBytes(20)
+                val key = secureRandomBytes(32)
+                // (known = null: every file is uploaded again under the new key.)
+                val bundle = withFiles(ctx, key, sectionsOf(merged), null)
+                if (!WriteBudget.take(2)) return@withLock "Try again in a little while"
+                val cid = writeVault(account, key, kek(secret, account), bundle, swap = rec?.cid)
+                prefs?.edit()
+                    ?.putString(k("secret"), formatSecret(secret))
+                    ?.putString(k("base"), bundle.toString())
+                    ?.putString(k("cid"), cid)
+                    ?.commit()
+                oldSecret.fill(0); oldKey.fill(0)
+                dek = key
+                lastPush = currentTimeMillis()
+                markSynced()
+                null
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastError = e.message
+                if (e is SwapFailed) "Another device synced at the same time; try again" else e.message ?: "Couldn't reach your PDS"
+            } finally {
+                syncing = false
+            }
+        }
     }
 
     private suspend fun setupPush(account: String, secret: ByteArray, key: ByteArray, swap: String?): String? {
@@ -662,6 +727,7 @@ object PrivateSync {
         val names = LinkedHashSet(r.keys + local.keys)
         val s = linkedMapOf<String, JsonElement>()
         for (name in names) {
+            if (name in Sections.RETIRED) continue
             // A section only one side knows (a newer app version's, say)
             // passes through as it is.
             // The same thing changed here and elsewhere: this device's change

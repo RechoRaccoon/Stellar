@@ -33,15 +33,19 @@ import kotlinx.serialization.json.longOrNull
  * Paths to this device's own files are written as stellar-sync://private/…
  * and stellar-sync://media/… so they mean the same file on every device.
  *
- * Left out on purpose: sign-ins and tokens, caches, where you last were in
- * the app, viewing history, and settings that belong to one device (its
- * notifications, Battery Saver, loading animation, tagging, Download When
- * Liked, the custom font and VRM files). The tag database itself (tagged
- * posts, datasets) is a separate on-device database that's never read here.
+ * Left out on purpose: every app setting (each device keeps its own; the
+ * Hub's layout is the one exception), sign-ins and tokens, caches, where
+ * you last were in the app and viewing history. The tag database itself
+ * (tagged posts, datasets) is a separate on-device database that's never
+ * read here.
  */
 internal object Sections {
     const val PRIVATE_TOKEN = "stellar-sync://private"
     const val MEDIA_TOKEN = "stellar-sync://media"
+
+    /** Sections older versions synced that now stay on each device (the
+     *  look-and-feel toggles): dropped from the vault on the next sync. */
+    val RETIRED = setOf("ui")
 
     /** App settings that stay on their device. */
     private val SETTINGS_EXCLUDED = setOf(
@@ -74,21 +78,30 @@ internal object Sections {
         return n == "loading_animation" || n == "download_on_like" || "tag" in n
     }
 
+    /** From the app's settings file only these travel: they're lists you
+     *  built (Blogs/Reviews subscriptions, followed e621 artists), not
+     *  settings. Everything else in it stays on its device. */
+    private val SETTINGS_DATA = setOf("subscribed_review_dids", "subscribed_blog_dids", "e621_followed_artists")
+
     private fun settingSynced(name: String) =
-        name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) && !name.contains("cache") &&
-            !isViewingData(name) && !deviceOnly(name)
+        name in SETTINGS_DATA && name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) &&
+            !name.contains("cache") && !isViewingData(name) && !deviceOnly(name)
+
+    /** The supporter file's settings (the rest of it is your drafts, notes,
+     *  folders and the like, which do travel). */
+    private val LOCAL_SETTINGS = setOf(
+        "browser_last_url", "battery_saver", "notify_dms", "notify_inbox", "dm_effects_played",
+        "holidays_major", "holidays_minor", "search_engine"
+    )
 
     private class Prefs(val section: String, val file: String, private val rule: (key: String, did: String) -> Boolean) {
         fun keep(key: String, did: String) = rule(key, did) && (section == "status" || (!isViewingData(key) && !deviceOnly(key)))
     }
 
     private val PREFS = listOf(
-        Prefs("ui", "ui_toggles") { _, _ -> true },
         // The Hub's layout is kept per account; only this one's travels.
         Prefs("hub", "hub_layout") { key, did -> key != "active_did" && key != "legacy_claimed" && (!key.contains('@') || key.contains("@$did")) },
-        Prefs("local", LocalData.PREFS) { key, _ ->
-            key !in setOf("browser_last_url", "battery_saver", "notify_dms", "notify_inbox", "dm_effects_played")
-        },
+        Prefs("local", LocalData.PREFS) { key, _ -> key !in LOCAL_SETTINGS },
         Prefs("status", "status_history") { key, did -> key == "entries_$did" },
         Prefs("emojiAccounts", "emoji_accounts") { key, did -> key == "saved_$did" }
     )
@@ -175,7 +188,6 @@ internal object Sections {
             }
             edit.commit()
             when (p.section) {
-                "ui" -> UiToggles.reload(ctx)
                 "hub" -> HubLayout.reload(ctx)
                 "local" -> LocalData.reload(ctx)
                 "status" -> StatusHistory.reload(did)

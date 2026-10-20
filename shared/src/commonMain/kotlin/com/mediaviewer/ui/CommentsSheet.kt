@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.theme.AvatarShape
 
 import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
@@ -794,9 +795,9 @@ private fun CommentRow(
         val toProfile = Modifier.clickable(enabled = comment.authorDid.isNotBlank()) { tap(); onOpenProfile(comment) }
         if (comment.authorAvatarUrl != null) {
             AsyncImage(model = comment.authorAvatarUrl, contentDescription = "${comment.authorDisplayName}'s profile", contentScale = ContentScale.Crop,
-                modifier = Modifier.size(30.dp).clip(CircleShape).then(toProfile))
+                modifier = Modifier.size(30.dp).clip(AvatarShape).then(toProfile))
         } else {
-            Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)).then(toProfile))
+            Box(modifier = Modifier.size(30.dp).clip(AvatarShape).background(Color.White.copy(0.1f)).then(toProfile))
         }
 
         Column(modifier = Modifier.weight(1f)) {
@@ -916,9 +917,9 @@ private fun ThreadParentHeader(
                 // author's avatar, unlike every regular CommentRow below it.
                 if (parent.authorAvatarUrl != null) {
                     AsyncImage(model = parent.authorAvatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(30.dp).clip(CircleShape).then(toProfile))
+                        modifier = Modifier.size(30.dp).clip(AvatarShape).then(toProfile))
                 } else {
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(Color.White.copy(0.1f)).then(toProfile))
+                    Box(Modifier.size(30.dp).clip(AvatarShape).background(Color.White.copy(0.1f)).then(toProfile))
                 }
                 Column(Modifier.weight(1f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = toProfile) {

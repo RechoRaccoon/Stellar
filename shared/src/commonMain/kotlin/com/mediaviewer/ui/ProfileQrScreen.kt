@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.resources.stellar_logo_vector
+import com.mediaviewer.ui.theme.AvatarShape
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -131,15 +132,15 @@ fun ProfileQrScreen(
                     // The profile picture in the middle.
                     val avatarSize = qrSize * 0.2f
                     Box(
-                        Modifier.size(avatarSize).clip(CircleShape)
+                        Modifier.size(avatarSize).clip(AvatarShape)
                             .background(Color.Black)
-                            .border(2.dp, Brush.linearGradient(listOf(start, end)), CircleShape),
+                            .border(2.dp, Brush.linearGradient(listOf(start, end)), AvatarShape),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!author.avatarUrl.isNullOrBlank()) {
                             AsyncImage(
                                 model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().padding(3.dp).clip(CircleShape)
+                                modifier = Modifier.fillMaxSize().padding(3.dp).clip(AvatarShape)
                             )
                         }
                     }

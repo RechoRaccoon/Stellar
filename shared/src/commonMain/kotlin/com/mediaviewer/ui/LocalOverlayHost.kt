@@ -51,6 +51,11 @@ fun LocalOverlayHost(
     hubShowing: Boolean
 ) {
     val folderId by viewModel.bookmarkFolderId.collectAsState()
+    // (Read here, in the composition: read only inside SideEffect below, a
+    // new folder never recomposed this, so the Saved Posts tabs kept
+    // highlighting the old one.)
+    val folderIdNow = folderId
+    LaunchedEffect(folderIdNow) { LocalOverlays.bookmarkFolderId = folderIdNow }
     val dmHidden by viewModel.dmHiddenBehindFeed.collectAsState()
     val myLists by viewModel.userLists.collectAsState()
     val selectedFeed by viewModel.selectedFeedUri.collectAsState()
@@ -88,8 +93,8 @@ fun LocalOverlayHost(
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
+        LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView
         LocalOverlays.savedFeedUris = savedFeedUris
-        LocalOverlays.bookmarkFolderId = folderId
     }
 
     // The timer keeps running (and rings) wherever you are in the app.

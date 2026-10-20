@@ -190,7 +190,7 @@ fun EditProfileDialog(
             }
             Row(Modifier.fillMaxWidth().height(rowH), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // (Square straight away when the supporter option below is on.)
-                val iconShape = if (supporter && style.squareIcon) RoundedCornerShape(percent = 24) else CircleShape
+                val iconShape = if (supporter && style.squareIcon) com.mediaviewer.ui.theme.SquareIconShape else com.mediaviewer.ui.theme.AvatarShape
                 if (!videoSlots) {
                     Box(
                         Modifier.size(rowH).clip(iconShape).background(fieldColor)
@@ -250,7 +250,7 @@ fun EditProfileDialog(
                         }
                     }
                     VideoSlot(
-                        Modifier.size(rowH), iconShape, if (supporter && style.squareIcon) 24 else 50,
+                        Modifier.size(rowH), iconShape, if (supporter && style.squareIcon) (if (com.mediaviewer.util.UiToggles.squareCorners) 0 else 24) else 50,
                         newIconVideo, style.iconVideo,
                         onPick = { pickingIcon = true; pickVideo.launch(videosOnly) },
                         onRemove = { newIconVideo = null; style = style.copy(iconVideo = null) }

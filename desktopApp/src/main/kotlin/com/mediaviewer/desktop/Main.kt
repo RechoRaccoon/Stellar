@@ -64,6 +64,8 @@ fun main() {
             javax.swing.SwingUtilities.invokeLater { DesktopBack.dispatch() }
         }
     }, AWTEvent.MOUSE_EVENT_MASK)
+    // Middle-click autoscroll, like Firefox.
+    MiddleClickScroll.install()
 
     val saved = WindowMemory.load()
     application {

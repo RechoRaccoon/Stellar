@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.background
+import com.mediaviewer.ui.theme.AvatarShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.horizontalScroll
@@ -607,7 +608,7 @@ internal fun SentByTileOverlay(
                 coil3.compose.AsyncImage(
                     model = sender.avatarUrl, contentDescription = sender.displayName,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    modifier = Modifier.size(18.dp).clip(CircleShape).background(Color.White.copy(0.12f))
+                    modifier = Modifier.size(18.dp).clip(AvatarShape).background(Color.White.copy(0.12f))
                 )
                 Text(
                     label, color = Color.White, fontSize = 10.sp, lineHeight = 12.sp,

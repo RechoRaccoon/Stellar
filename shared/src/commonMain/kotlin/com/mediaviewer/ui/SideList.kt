@@ -80,8 +80,9 @@ fun rememberSideListWidth(): Dp {
     return com.mediaviewer.util.UiToggles.sideListWidthDp.coerceIn(com.mediaviewer.util.UiToggles.SIDE_LIST_MIN_DP, max).dp
 }
 
-/** The width a side list's content is laid out at; narrower, it all
- *  shrinks evenly to fit (see shrinkToFit) instead of being squeezed. */
+/** The width a side list's content is laid out at; whatever width the list
+ *  is dragged to, it all scales evenly to fit (see scaleToFit) instead of
+ *  being squeezed or stretched. */
 val SIDE_LIST_LAYOUT_WIDTH: Dp = 280.dp
 
 /**
@@ -149,27 +150,27 @@ fun SideListButton(
     // (Sized to the list's width: big, readable labels with little empty
     // padding around them.)
     Row(
-        modifier.fillMaxWidth().heightIn(min = if (small) 38.dp else 44.dp)
+        modifier.fillMaxWidth().heightIn(min = if (small) 42.dp else 48.dp)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = if (selected) tint else tint.copy(alpha = 0.4f), shape = shape)
                 else Modifier.clip(shape).background(if (selected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
             )
             .clickable { tap(); onClick() }
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 11.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (iconUrl != null) {
             AsyncImage(
                 model = iconUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(if (small) 20.dp else 22.dp).clip(CircleShape)
+                modifier = Modifier.size(if (small) 24.dp else 26.dp).clip(CircleShape)
             )
         } else if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 19.dp else 21.dp))
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 23.dp else 25.dp))
         }
         Text(
             label, color = if (selected || locked) Color.White else DimGray,
-            fontSize = if (small) 15.sp else 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = if (small) 17.sp else 18.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).supporterShine(locked)
         )
@@ -198,7 +199,7 @@ fun LandscapeSideList(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
-        modifier.width(rememberSideListWidth()).fillMaxHeight().shrinkToFit(SIDE_LIST_LAYOUT_WIDTH)
+        modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)
             .padding(start = 12.dp, end = 12.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
     ) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -223,17 +224,34 @@ fun GridSizeSlider(tint: Color) {
             Text("Grid Size", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text("$columns", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
-        Slider(
-            value = columns.toFloat(),
-            onValueChange = { com.mediaviewer.util.UiToggles.updateLandscapeColumns(kotlin.math.round(it).toInt()) },
-            valueRange = com.mediaviewer.util.UiToggles.LANDSCAPE_MIN_COLUMNS.toFloat()..com.mediaviewer.util.UiToggles.LANDSCAPE_MAX_COLUMNS.toFloat(),
-            steps = com.mediaviewer.util.UiToggles.LANDSCAPE_MAX_COLUMNS - com.mediaviewer.util.UiToggles.LANDSCAPE_MIN_COLUMNS - 1,
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White, activeTrackColor = accent, inactiveTrackColor = Color.White.copy(alpha = 0.15f),
-                activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent
-            ),
-            modifier = Modifier.fillMaxWidth().height(28.dp)
-        )
+        // (Drawn here rather than Material's Slider so its track and thumb
+        // follow UI Shape: square with Hybrid or Squared.)
+        val min = com.mediaviewer.util.UiToggles.LANDSCAPE_MIN_COLUMNS
+        val max = com.mediaviewer.util.UiToggles.LANDSCAPE_MAX_COLUMNS
+        val square = com.mediaviewer.util.UiToggles.squareCorners
+        val trackShape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
+        val thumbShape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
+        var widthPx by remember { mutableStateOf(1) }
+        fun pick(x: Float) {
+            val f = (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f)
+            com.mediaviewer.util.UiToggles.updateLandscapeColumns(kotlin.math.round(min + f * (max - min)).toInt())
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth().height(28.dp)
+                .onSizeChanged { widthPx = it.width }
+                .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures { pick(it.x) } }
+                .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> change.consume(); pick(change.position.x) } },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            val fraction = ((columns - min).toFloat() / (max - min).coerceAtLeast(1)).coerceIn(0f, 1f)
+            val thumbW = 6.dp
+            Box(Modifier.fillMaxWidth().height(10.dp).clip(trackShape).background(Color.White.copy(alpha = 0.15f)))
+            Box(Modifier.fillMaxWidth(fraction).height(10.dp).clip(trackShape).background(accent))
+            Box(
+                Modifier.padding(start = ((maxWidth - thumbW) * fraction).coerceAtLeast(0.dp))
+                    .size(width = thumbW, height = 24.dp).clip(thumbShape).background(Color.White)
+            )
+        }
     }
 }
 

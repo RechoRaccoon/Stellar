@@ -40,6 +40,7 @@ fun main() {
     WebCrashLog.install()
     WebImageLoading.install()
     WebBackButton.install()
+    installMiddleClickScroll()
     MainScope().launch {
         WebFiles.load()
         val crash = WebCrashLog.read()
@@ -178,3 +179,72 @@ private fun installCrashHandler(): Unit = js("""{
 }""")
 private fun readCrash(): String? = js("localStorage.getItem('stellar_last_crash')")
 private fun clearCrash(): Unit = js("localStorage.removeItem('stellar_last_crash')")
+
+/**
+ * Autoscroll with the mouse's middle button, like Firefox: press it and
+ * move away from where it was pressed — whatever is under that spot
+ * scrolls, faster the farther the pointer is. Drag with it held and let go
+ * to stop; or click it, move, and click anything to stop. A small marker
+ * sits where it started. The scrolling is sent to the page as ordinary
+ * wheel events, so every list, grid and page scrolls with it.
+ */
+private fun installMiddleClickScroll(): Unit = js("""{
+    let active = false, sticky = false, moved = false;
+    let ox = 0, oy = 0, px = 0, py = 0, last = 0, target = null, marker = null;
+    const speed = (d) => {
+        const a = Math.abs(d);
+        if (a <= 12) return 0;
+        const over = a - 12;
+        return Math.sign(d) * over * 7 * (1 + over / 300);
+    };
+    const frame = (t) => {
+        if (!active) return;
+        const dt = last ? Math.min(0.1, (t - last) / 1000) : 1 / 60;
+        last = t;
+        const dx = speed(px - ox) * dt, dy = speed(py - oy) * dt;
+        if ((dx !== 0 || dy !== 0) && target) {
+            target.dispatchEvent(new WheelEvent('wheel', {
+                deltaX: dx, deltaY: dy, deltaMode: 0, clientX: ox, clientY: oy, screenX: ox, screenY: oy,
+                bubbles: true, cancelable: true, composed: true
+            }));
+        }
+        requestAnimationFrame(frame);
+    };
+    const stop = () => {
+        if (!active) return;
+        active = false; sticky = false; target = null;
+        if (marker) { marker.remove(); marker = null; }
+        document.documentElement.style.cursor = '';
+    };
+    const start = (e) => {
+        active = true; sticky = false; moved = false;
+        ox = px = e.clientX; oy = py = e.clientY; last = 0;
+        target = document.elementFromPoint(ox, oy) || document.body;
+        marker = document.createElement('div');
+        marker.style.cssText = 'position:fixed;width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;' +
+            'background:rgba(0,0,0,0.6);border:2px solid #fff;box-sizing:border-box;pointer-events:none;z-index:2147483647;' +
+            'color:#fff;font:14px/24px sans-serif;text-align:center;';
+        marker.textContent = '↕';
+        marker.style.left = ox + 'px'; marker.style.top = oy + 'px';
+        document.body.appendChild(marker);
+        document.documentElement.style.cursor = 'all-scroll';
+        requestAnimationFrame(frame);
+    };
+    window.addEventListener('mousedown', (e) => {
+        if (active && sticky) { e.preventDefault(); e.stopPropagation(); stop(); return; }
+        if (e.button === 1) { e.preventDefault(); e.stopPropagation(); start(e); }
+    }, true);
+    window.addEventListener('mousemove', (e) => {
+        if (!active) return;
+        px = e.clientX; py = e.clientY;
+        if (Math.hypot(px - ox, py - oy) > 12) moved = true;
+    }, true);
+    window.addEventListener('mouseup', (e) => {
+        if (!active || e.button !== 1) return;
+        e.preventDefault(); e.stopPropagation();
+        if (moved) stop(); else sticky = true;
+    }, true);
+    // (A middle click never pastes or opens anything meanwhile.)
+    window.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); }, true);
+    window.addEventListener('blur', () => stop());
+}""")

@@ -181,8 +181,9 @@ actual fun CameraNotchButton(
         NotchGeometry.ringSizePx = ringPx
         NotchGeometry.centerYPx = cutoutCenterPx?.y ?: (fallbackTopPx + ringPx / 2f)
     }
-    val collapsedShape = CircleShape
-    val expandedShape = RoundedCornerShape(50)
+    // (Round in every UI Shape.)
+    val collapsedShape = com.mediaviewer.ui.theme.TrueCircleShape
+    val expandedShape = androidx.compose.foundation.shape.RoundedCornerShape(50)
     val shape = if (expanded) expandedShape else collapsedShape
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
 

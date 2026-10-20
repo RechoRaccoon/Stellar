@@ -2,7 +2,9 @@ package com.mediaviewer.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -54,6 +56,7 @@ import com.mediaviewer.util.rememberHapticTap
  * MainFeedScreen's popupOpen), and plays the same thing in reverse when it
  * closes — the last [target] is kept on screen while it fades out.
  */
+@OptIn(androidx.compose.animation.ExperimentalAnimationApi::class)
 @Composable
 fun <T : Any> FadingPopupHost(
     target: T?,
@@ -64,21 +67,34 @@ fun <T : Any> FadingPopupHost(
     // popup fades out after its target has already gone null.
     val holder = remember { arrayOfNulls<Any>(1) }
     if (target != null) holder[0] = target
+    // The whole popup (its full-screen dimming too) only fades; the sheet
+    // itself scales and slides in (see PopupSheetSurface). Scaling and
+    // sliding everything showed the dimming as a big square moving in on a
+    // wide window.
     AnimatedVisibility(
         visible = target != null,
-        enter = fadeIn(tween(240)) +
-            scaleIn(tween(300, easing = FastOutSlowInEasing), initialScale = 0.94f) +
-            slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it / 14 },
-        exit = fadeOut(tween(190)) +
-            scaleOut(tween(220, easing = FastOutSlowInEasing), targetScale = 0.96f) +
-            slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it / 18 },
+        enter = fadeIn(tween(240)),
+        exit = fadeOut(tween(190)),
         modifier = modifier.fillMaxSize()
     ) {
+        val progress = transition.animateFloat(
+            transitionSpec = {
+                if (targetState == androidx.compose.animation.EnterExitState.Visible) tween(300, easing = FastOutSlowInEasing)
+                else tween(220, easing = FastOutSlowInEasing)
+            },
+            label = "popupSheet"
+        ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
         @Suppress("UNCHECKED_CAST")
         val shown = (target ?: holder[0]) as T?
-        if (shown != null) content(shown)
+        if (shown != null) {
+            androidx.compose.runtime.CompositionLocalProvider(LocalPopupProgress provides { progress.value }) { content(shown) }
+        }
     }
 }
+
+/** How far a popup sheet is in (0 = away, 1 = all the way): read while
+ *  drawing, so only the sheet moves (see FadingPopupHost). */
+val LocalPopupProgress = androidx.compose.runtime.staticCompositionLocalOf<() -> Float> { { 1f } }
 
 /** A popup sheet's surface: live-blurred glass in the post's own color, or
  *  the flat dark panel when Glass Theme is off. */
@@ -92,11 +108,20 @@ fun PopupSheetSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     val absorb = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+    // Scales up a little and rises into place as its popup opens.
+    val progress = LocalPopupProgress.current
+    val moving = Modifier.graphicsLayer {
+        val p = progress()
+        val s = 0.94f + 0.06f * p
+        scaleX = s; scaleY = s
+        translationY = (1f - p) * size.height / 14f
+    }
+    val sheet = moving.then(modifier)
     if (liquidGlass) {
-        LiquidGlassSurface(modifier = modifier.then(absorb), shape = shape, tint = tint, backdrop = backdrop, content = content)
+        LiquidGlassSurface(modifier = sheet.then(absorb), shape = shape, tint = tint, backdrop = backdrop, content = content)
     } else {
         Box(
-            modifier
+            sheet
                 .clip(shape)
                 .background(Brush.verticalGradient(listOf(lerp(OffBlack, tint, 0.14f), OffBlack)))
                 .border(1.dp, lerp(tint, Color.White, 0.3f).copy(alpha = 0.5f), shape)

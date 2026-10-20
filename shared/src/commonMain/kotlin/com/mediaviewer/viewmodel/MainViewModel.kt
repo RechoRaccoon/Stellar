@@ -4068,6 +4068,14 @@ class MainViewModel(
         // A feed opened from a profile's Lists/Feeds tab: Refresh reloads
         // THAT feed (it isn't the selected Hub feed).
         if (reset && isProfileFeedActive()) { loadExternalFeed(reset = true); return }
+        // Saved Posts (and the folder open in it) / History: Refresh reloads
+        // that page — it used to drop back to the Hub's feed.
+        if (reset && activeFeedMode == ActiveFeedMode.SAVES) {
+            val folder = _bookmarkFolderId.value
+            if (folder != null) showBookmarkFolder(folder) else showSaves()
+            return
+        }
+        if (reset && activeFeedMode == ActiveFeedMode.HISTORY) { showHistory(); return }
         // Every reset starts a new "generation": a slower response for a
         // feed the person has already switched away from is dropped instead
         // of overwriting (or being appended to) the new feed.
@@ -5278,7 +5286,7 @@ class MainViewModel(
         feedCursor = null
         activeFeedMode = ActiveFeedMode.AUTHOR
         activeFeedActorDid = cur.author.did
-        _mediaItems.value = filterHidden(items)
+        _mediaItems.value = withProfileFollow(cur.author, filterHidden(items))
         _currentIndex.value = index
         // This is a context jump into an unrelated list (the profile's tab
         // items), not a swipe within the feed the user was already on — the
@@ -5296,7 +5304,16 @@ class MainViewModel(
         val did = cur.author.did
         followPagerSource(PagerSource.PROFILE_TAB,
             _profileOverlay.map { o -> if (o?.author?.did == did) o.tabStates[tab]?.items.orEmpty() else emptyList() }.distinctUntilChanged()
-        ) { fresh -> filterHidden(fresh.filter { kind.matches(it) }) }
+        ) { fresh -> withProfileFollow(_profileOverlay.value?.author ?: cur.author, filterHidden(fresh.filter { kind.matches(it) })) }
+    }
+
+    /** The profile's own posts wear whether you follow it now (followed or
+     *  unfollowed from the profile after its posts were loaded), so the
+     *  post's Follow button says Following straight away. */
+    private fun withProfileFollow(author: AuthorInfo, items: List<MediaItem>): List<MediaItem> = items.map {
+        if (it.author.did == author.did && (it.author.isFollowing != author.isFollowing || it.author.followingUri != author.followingUri))
+            it.copy(author = it.author.copy(isFollowing = author.isFollowing, followingUri = author.followingUri))
+        else it
     }
 
     /** Pinch-in on a post: if it was reached by tapping a grid item inside a
@@ -5734,6 +5751,8 @@ class MainViewModel(
         // though _selectedFeedUri.value can legitimately be null again.
         hasAutoSelectedFeed = true
         viewModelScope.launch { prefs.setLastFeedUri(uri) }
+        // (A feed picked from Saved Posts or History leaves them.)
+        if (activeFeedMode == ActiveFeedMode.SAVES || activeFeedMode == ActiveFeedMode.HISTORY) activeFeedMode = ActiveFeedMode.NORMAL
         loadFeed(reset = true)
     }
 
@@ -8000,6 +8019,16 @@ class MainViewModel(
     private val _taggingOverlayOpen = MutableStateFlow(false)
     val taggingOverlayOpen: StateFlow<Boolean> = _taggingOverlayOpen
 
+    /** The tagging page opened from the timeline's tagging status: it follows
+     *  the posts being tagged as they're liked or viewed. */
+    private val _taggingQueueView = MutableStateFlow(false)
+    val taggingQueueView: StateFlow<Boolean> = _taggingQueueView
+
+    fun openTaggingQueueView() {
+        if (!_taggingUiState.value.isRunning) _taggingQueueView.value = true
+        _taggingOverlayOpen.value = true
+    }
+
     private val _taggingUiState = MutableStateFlow(TaggingUiState())
     val taggingUiState: StateFlow<TaggingUiState> = _taggingUiState
 
@@ -8150,8 +8179,12 @@ class MainViewModel(
                 runCatching { taggingRepo.warmUp() }
             }
             _likeTagPhase.value = LikeTagPhase.TAGGING
+            // (The tagging page, when it's open from the status, shows it.)
+            _taggingUiState.value = _taggingUiState.value.copy(currentItem = item)
             runCatching { taggingRepo.tagOnLike(item) }
                 .onFailure { Log.e("MainViewModel", "Tag-on-like failed", it) }
+            val newTags = runCatching { taggingRepo.tagsForPost(item.postUri) }.getOrDefault(emptyList())
+            _taggingUiState.value = _taggingUiState.value.copy(currentItem = null, lastTaggedItem = item, lastTags = newTags)
             // Its new tags show straight away wherever the post is loaded
             // (alongside any added by hand).
             refreshPostTagsFromDataset(item.postUri)
@@ -8201,7 +8234,7 @@ class MainViewModel(
                     datasetBytes = progress.datasetBytes,
                     isRunning = progress.isRunning,
                     isComplete = progress.isComplete,
-                    modelState = progress.modelState,
+                    modelState = shownModelState(progress.modelState),
                     errorMessage = (progress.modelState as? TaggerState.Failed)?.message,
                     currentItem = progress.currentItem,
                     lastTaggedItem = progress.lastTaggedItem,
@@ -8237,6 +8270,12 @@ class MainViewModel(
         }
     }
 
+    /** A run starts by saying "downloading" while it loads the model; once
+     *  the model is on this device that's only loading, so the tagging page
+     *  never shows the Downloading Tagging Model card for it. */
+    private fun shownModelState(state: TaggerState): TaggerState =
+        if (state is TaggerState.Downloading && (_taggerModelReady.value || taggingRepo.isModelReady())) TaggerState.Ready else state
+
     private fun onTaggingProgress(progress: com.mediaviewer.tagging.TaggingProgress) {
         _taggingUiState.value = TaggingUiState(
             scanned = progress.scanned,
@@ -8244,7 +8283,7 @@ class MainViewModel(
             datasetBytes = progress.datasetBytes,
             isRunning = progress.isRunning,
             isComplete = progress.isComplete,
-            modelState = progress.modelState,
+            modelState = shownModelState(progress.modelState),
             errorMessage = (progress.modelState as? TaggerState.Failed)?.message,
             currentItem = progress.currentItem,
             lastTaggedItem = progress.lastTaggedItem,
@@ -8414,6 +8453,7 @@ class MainViewModel(
         }
         if (_taggingUiState.value.isRunning) taggingRepo.cancel()
         _taggingOverlayOpen.value = false
+        _taggingQueueView.value = false
         // Item 2: land back on the Liked tab's default "everything, most
         // recent first" browse rather than whatever stale search results
         // (or lack thereof) were showing before tagging started.

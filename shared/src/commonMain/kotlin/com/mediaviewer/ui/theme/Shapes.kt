@@ -8,9 +8,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape as FoundationRounded
 
 /*
  * Every rounded corner in Stellar comes from here (the app imports these
- * instead of Compose's own): normally they're exactly Compose's
- * RoundedCornerShape and CircleShape; with Settings → UI Customization →
- * Squared-Off Corners on, every one of them is square.
+ * instead of Compose's own), following Settings → UI Customization → UI
+ * Shape: Round is exactly Compose's RoundedCornerShape and CircleShape;
+ * Squared makes every one of them square; Hybrid (the default) squares
+ * these too, but the "soft" shapes below — interaction bars, Jump to Top,
+ * the More menu's buttons — stay round. Profile icons and the camera
+ * notch bubble are round in every mode.
  */
 
 typealias RoundedCornerShape = FoundationRoundedCornerShape
@@ -33,3 +36,21 @@ fun RoundedCornerShape(topStartPercent: Int = 0, topEndPercent: Int = 0, bottomE
 
 /** A circle — or, with Squared-Off Corners on, a square. */
 val CircleShape: RoundedCornerShape get() = if (squared) Square else FoundationCircleShape
+
+/** Round in Round and Hybrid; square only with UI Shape → Squared. For the
+ *  interaction bars, Jump to Top and the More menu's buttons. */
+private val softSquared: Boolean get() = com.mediaviewer.util.UiToggles.fullySquare
+fun SoftRoundedCornerShape(size: Dp): RoundedCornerShape = if (softSquared) Square else FoundationRoundedCornerShape(size)
+fun SoftRoundedCornerShape(percent: Int): RoundedCornerShape = if (softSquared) Square else FoundationRoundedCornerShape(percent)
+val SoftCircleShape: RoundedCornerShape get() = if (softSquared) Square else FoundationCircleShape
+
+/** Always a true circle, whatever the UI Shape: profile icons (unless the
+ *  profile chose a square one — see profileIconShape) and the camera
+ *  notch bubble. */
+val AvatarShape: RoundedCornerShape = FoundationCircleShape
+val TrueCircleShape: RoundedCornerShape = FoundationCircleShape
+
+/** A profile's own Square Profile Icon: a slightly rounded square in Round,
+ *  fully square in Hybrid and Squared. */
+val SquareIconShape: RoundedCornerShape get() =
+    if (com.mediaviewer.util.UiToggles.squareCorners) Square else FoundationRoundedCornerShape(percent = 24)

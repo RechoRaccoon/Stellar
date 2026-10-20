@@ -22,7 +22,7 @@ object UiToggles {
     private const val KEY_TAGGED_SORT = "tagged_sort"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_TAG_WHEN_VIEWED = "tag_when_viewed"
-    private const val KEY_SQUARE_CORNERS = "square_corners"
+    private const val KEY_UI_SHAPE = "ui_shape"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
     private const val KEY_AUDIO_VISUALIZER = "audio_visualizer"
@@ -83,10 +83,19 @@ object UiToggles {
      *  at in Timeline mode is tagged (like Tag Media When Liked). */
     var tagWhenViewed by mutableStateOf(false)
         private set
-    /** Settings → UI Customization → Squared-Off Corners: every rounded
-     *  corner in the app is square (see ui/theme/Shapes.kt). */
-    var squareCorners by mutableStateOf(false)
+    /** Settings → UI Customization → UI Shape (see ui/theme/Shapes.kt). */
+    enum class UiShape(val label: String) {
+        /** Squared, except the bars, buttons and icons you touch most. */
+        HYBRID("Hybrid"),
+        ROUND("Round"),
+        SQUARED("Squared")
+    }
+    var uiShape by mutableStateOf(UiShape.HYBRID)
         private set
+    /** Most corners are square (Hybrid and Squared). */
+    val squareCorners: Boolean get() = uiShape != UiShape.ROUND
+    /** Every corner is square (Squared only). */
+    val fullySquare: Boolean get() = uiShape == UiShape.SQUARED
 
     /** Settings → App Functionality → "Show Translation Status" (under
      *  Translate To): the "Translated X to Y" bubble on the timeline. */
@@ -375,7 +384,7 @@ object UiToggles {
         taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
-        squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
+        uiShape = p.getString(KEY_UI_SHAPE, null)?.let { n -> UiShape.entries.firstOrNull { it.name == n } } ?: UiShape.HYBRID
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
@@ -509,9 +518,9 @@ object UiToggles {
         prefs?.edit()?.putBoolean(KEY_SHOW_TAGGING_STATUS, enabled)?.apply()
     }
 
-    fun updateSquareCorners(enabled: Boolean) {
-        squareCorners = enabled
-        prefs?.edit()?.putBoolean(KEY_SQUARE_CORNERS, enabled)?.apply()
+    fun updateUiShape(shape: UiShape) {
+        uiShape = shape
+        prefs?.edit()?.putString(KEY_UI_SHAPE, shape.name)?.apply()
     }
 
     fun updateTagWhenViewed(enabled: Boolean) {

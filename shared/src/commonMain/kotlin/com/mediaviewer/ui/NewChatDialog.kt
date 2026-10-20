@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.rememberPlatformView
+import com.mediaviewer.ui.theme.AvatarShape
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
@@ -320,10 +321,10 @@ private fun SelectedChip(author: AuthorInfo, tint: Color, onRemove: () -> Unit) 
 
 @Composable
 private fun Avatar(author: AuthorInfo, size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
         if (author.avatarUrl != null) AsyncImage(
             model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clip(CircleShape)
+            modifier = Modifier.fillMaxSize().clip(AvatarShape)
         ) else Text(author.displayName.take(1).uppercase(), color = Color.White, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
     }
 }

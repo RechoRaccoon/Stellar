@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.rememberPlatformView
+import com.mediaviewer.ui.theme.AvatarShape
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -195,10 +196,10 @@ private fun BlockedSearchField(value: String, tint: Color, onChange: (String) ->
 
 @Composable
 private fun BlockedAvatar(author: AuthorInfo, size: Dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
         if (author.avatarUrl != null) AsyncImage(
             model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clip(CircleShape)
+            modifier = Modifier.fillMaxSize().clip(AvatarShape)
         ) else Text(author.displayName.take(1).uppercase(), color = Color.White, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
     }
 }

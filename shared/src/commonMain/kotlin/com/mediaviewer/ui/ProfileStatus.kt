@@ -122,11 +122,19 @@ private class StatusBubbleShape(private val radius: Float, private val tail: Flo
  * while they have a status.
  */
 @Composable
-fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ProfileStatusBubble(
+    status: ProfileStatus?, isOwn: Boolean, tint: Color, onClick: () -> Unit, modifier: Modifier = Modifier,
+    /** How wide the bubble likes to stay (clear of the name pills); a status
+     *  that won't fit there at a readable size grows past it, up to the
+     *  room it's given. */
+    preferredWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Unspecified
+) {
     if (status == null && !isOwn) return
     val tap = rememberHapticTap()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val shape = remember(density) { with(density) { StatusBubbleShape(12.dp.toPx(), TAIL.toPx()) } }
+    // (Square corners with UI Shape → Hybrid or Squared.)
+    val square = com.mediaviewer.util.UiToggles.squareCorners
+    val shape = remember(density, square) { with(density) { StatusBubbleShape(if (square) 0f else 12.dp.toPx(), TAIL.toPx()) } }
     val fill = lerp(tint, Color.Black, 0.35f).copy(alpha = 0.92f)
     Box(
         modifier
@@ -142,7 +150,11 @@ fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onC
             // As wide and tall as the room by the picture allows (see the
             // banner layout), so a longer status gets a bigger bubble — and
             // the words shrink until every one of them fits.
-            FittedStatusText(status, Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+            FittedStatusText(
+                status, Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                preferredWidth = if (preferredWidth == androidx.compose.ui.unit.Dp.Unspecified) preferredWidth
+                    else (preferredWidth - TAIL - 20.dp).coerceAtLeast(24.dp)
+            )
         }
     }
 }
@@ -177,7 +189,10 @@ private fun rememberStatusAnnotated(text: String, emoji: List<com.mediaviewer.ut
         val annotated = androidx.compose.ui.text.buildAnnotatedString {
             text.forEachIndexed { i, c ->
                 val e = at[i]
-                if (e != null) { spots += length until length + 1; appendInlineContent("se$i", c.toString()) }
+                // (Stands on U+FFFC, not the invisible word joiner it's saved
+                // as: Android's text layout skips an ignorable character's
+                // placeholder, so the picture never showed there.)
+                if (e != null) { spots += length until length + 1; appendInlineContent("se$i", "\uFFFC") }
                 else if (c.toString() != com.mediaviewer.util.EmojiCloud.HIDDEN) append(c)
             }
         }
@@ -193,20 +208,29 @@ private fun rememberStatusAnnotated(text: String, emoji: List<com.mediaviewer.ut
         StatusAnnotated(annotated, inline, spots)
     }
 
-/** The status in its bubble: as big as 12sp, shrinking (down to 5sp)
- *  until all of it fits in the room the bubble has. */
+/** The status in its bubble: as big as 12sp, shrinking until all of it
+ *  fits in [preferredWidth]; past a readable size (8sp) it grows wider
+ *  instead, up to all the room it's given, and only then shrinks further
+ *  (down to 5sp). Measured in the same font it's drawn in, so the last
+ *  words are never cut off. */
 @Composable
-private fun FittedStatusText(status: ProfileStatus, modifier: Modifier = Modifier) {
+private fun FittedStatusText(
+    status: ProfileStatus, modifier: Modifier = Modifier,
+    preferredWidth: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Unspecified
+) {
     val (annotated, inline, spots) = rememberStatusAnnotated(status.text, status.emoji)
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val baseStyle = androidx.compose.material3.LocalTextStyle.current
     androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
         val maxW = constraints.maxWidth
         val maxH = constraints.maxHeight
-        val size = remember(annotated, maxW, maxH, density) {
+        val prefW = if (preferredWidth == androidx.compose.ui.unit.Dp.Unspecified) maxW
+            else with(density) { preferredWidth.roundToPx() }.coerceIn(1, maxOf(1, maxW))
+        val fit = remember(annotated, maxW, maxH, prefW, density, baseStyle) {
             val bounded = maxW in 1 until androidx.compose.ui.unit.Constraints.Infinity && maxH in 1 until androidx.compose.ui.unit.Constraints.Infinity
-            if (!bounded) return@remember 12f
-            fun fits(sz: Float): Boolean {
+            if (!bounded) return@remember 12f to maxW
+            fun fits(sz: Float, w: Int): Boolean {
                 val placeholders = spots.map { r ->
                     androidx.compose.ui.text.AnnotatedString.Range(
                         androidx.compose.ui.text.Placeholder((sz * STATUS_EMOJI_EM).sp, (sz * STATUS_EMOJI_EM).sp, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter),
@@ -214,19 +238,33 @@ private fun FittedStatusText(status: ProfileStatus, modifier: Modifier = Modifie
                     )
                 }
                 val r = measurer.measure(
-                    annotated, TextStyle(fontSize = sz.sp, lineHeight = (sz * 1.25f).sp), placeholders = placeholders,
-                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = maxW), density = density
+                    annotated, baseStyle.merge(TextStyle(fontSize = sz.sp, lineHeight = (sz * 1.25f).sp)), placeholders = placeholders,
+                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = w), density = density
                 )
-                return r.size.height <= maxH
+                return r.size.height <= maxH && !r.didOverflowWidth
             }
-            if (fits(12f)) return@remember 12f
-            var lo = 5f; var hi = 12f
-            repeat(8) { val mid = (lo + hi) / 2f; if (fits(mid)) lo = mid else hi = mid }
-            lo
+            fun largest(w: Int, low: Float): Float? {
+                if (fits(12f, w)) return 12f
+                if (!fits(low, w)) return null
+                var lo = low; var hi = 12f
+                repeat(8) { val mid = (lo + hi) / 2f; if (fits(mid, w)) lo = mid else hi = mid }
+                return lo
+            }
+            // 1. Readable within its usual width.
+            largest(prefW, 8f)?.let { return@remember it to prefW }
+            // 2. Wider (toward the right), at the readable size.
+            if (maxW > prefW && fits(8f, maxW)) {
+                var lo = prefW; var hi = maxW
+                while (hi - lo > 4) { val mid = (lo + hi) / 2; if (fits(8f, mid)) hi = mid else lo = mid }
+                return@remember 8f to hi
+            }
+            // 3. All the room, smaller still.
+            (largest(maxW, 5f) ?: 5f) to maxW
         }
         androidx.compose.material3.Text(
-            annotated, color = Color.White, fontSize = size.sp, lineHeight = (size * 1.25f).sp,
-            inlineContent = inline, overflow = TextOverflow.Ellipsis
+            annotated, color = Color.White, fontSize = fit.first.sp, lineHeight = (fit.first * 1.25f).sp,
+            inlineContent = inline,
+            modifier = Modifier.widthIn(max = with(density) { fit.second.toDp() })
         )
     }
 }
@@ -509,7 +547,9 @@ fun newProfileStatus(text: String, minutes: Long, emoji: List<com.mediaviewer.ut
 @Composable
 fun ProfileBannerVideo(
     did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0,
-    poster: (@Composable () -> Unit)? = null
+    poster: (@Composable () -> Unit)? = null,
+    /** False: the whole video, fitted inside (a profile's banner — never cropped). */
+    fill: Boolean = true
 ) {
     var url by remember(did, cid) { mutableStateOf<String?>(null) }
     LaunchedEffect(did, cid) {
@@ -538,7 +578,7 @@ fun ProfileBannerVideo(
         }
     }
     Box(modifier) {
-        FeedVideoView(player, Modifier.matchParentSize(), fill = true, cornerPercent = cornerPercent)
+        FeedVideoView(player, Modifier.matchParentSize(), fill = fill, cornerPercent = cornerPercent)
         if (!firstFrame && poster != null) Box(Modifier.matchParentSize()) { poster() }
     }
 }

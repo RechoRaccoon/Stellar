@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.mousePager
+import com.mediaviewer.ui.theme.AvatarShape
 import com.mediaviewer.ui.compat.navBarSpace
 
 import androidx.compose.material.icons.filled.Send
@@ -352,7 +353,7 @@ private fun <T> ProfileSubFilterRow(
             // The side padding is inside the scrolling row (like the main
             // tabs), so chips scroll right to the screen's edges instead of
             // being cut off short of them.
-            Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+            Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = PROFILE_EDGE),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             options.forEach { option ->
@@ -1478,7 +1479,7 @@ private fun ProfileInteractionBar(
     onPillBounds: (Offset, IntSize) -> Unit = { _, _ -> },
     onMoreBounds: (Offset, IntSize) -> Unit = { _, _ -> }
 ) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
     val iconSize = 20.dp
     // The pill's visible height — 44dp glass / 36dp flat, exactly what the
     // old full-width pill measured after its 8dp vertical padding inside
@@ -1749,10 +1750,12 @@ private fun ProfileHeaderSection(
                 // A video banner (muted, looping) over the picture, when they have one.
                 com.mediaviewer.util.ProfileStyles.of(author.did)?.bannerVideo?.let { video ->
                     // (The banner picture stays on top until the video's first frame.)
-                    ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize(), poster = {
+                    // (Fitted, like the picture: a wide window — or dragging
+                    // the side list — never crops it.)
+                    ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize(), fill = false, poster = {
                         if (profile?.bannerUrl != null) AsyncImage(
                             model = profile.bannerUrl, contentDescription = null,
-                            contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()
                         ) else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bannerColor.copy(0.55f), Color.Black))))
                     })
                 }
@@ -1809,7 +1812,7 @@ private fun ProfileHeaderSection(
             val noteTap = rememberHapticTap()
             // Wrapped tightly around the note (only as wide as its text).
             Row(
-                Modifier.padding(horizontal = 16.dp).padding(top = 10.dp)
+                Modifier.padding(horizontal = PROFILE_EDGE).padding(top = 10.dp)
                     .then(
                         if (liquidGlass) Modifier.glassPanel(true, tint = noteTint, shape = noteShape)
                         else Modifier.clip(noteShape).background(androidx.compose.ui.graphics.lerp(Color(0xFF16161B), noteTint, 0.3f))
@@ -1841,7 +1844,7 @@ private fun ProfileHeaderSection(
             val songColor = if (nowPlaying.albumArtUrl.isNullOrBlank()) Color.White
                 else androidx.compose.ui.graphics.lerp(coverTint, Color.White, 0.35f)
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 10.dp),
+                Modifier.fillMaxWidth().padding(horizontal = PROFILE_EDGE).padding(top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Filled.MusicNote, contentDescription = null, tint = linkColor, modifier = Modifier.size(14.dp))
@@ -1864,7 +1867,7 @@ private fun ProfileHeaderSection(
         if (bio.isNotBlank()) {
             LinkableBioText(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PROFILE_EDGE, vertical = 12.dp)
             )
         } else if (loadingProfile) {
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.CenterStart) {
@@ -1884,7 +1887,7 @@ private fun ProfileHeaderSection(
                 // much larger gap this used to leave (4dp here + a 10dp
                 // spacer + the tab row's own top padding stacked on top of
                 // each other).
-                Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 0.dp)
+                Modifier.fillMaxWidth().padding(start = PROFILE_EDGE, top = 4.dp, end = PROFILE_EDGE, bottom = 0.dp)
             ) {
                 CountStat(profile.postsCount, "Posts")
                 CountStat(profile.followersCount, "Followers")
@@ -2088,8 +2091,9 @@ private fun ProfileBannerOverlayLayout(
     val gap = 8.dp
     val nameGap = 6.dp
 
+    // (Sideways, as close to the screen's edges as the posts below.)
     androidx.compose.ui.layout.SubcomposeLayout(
-        Modifier.fillMaxSize().padding(inset)
+        Modifier.fillMaxSize().padding(horizontal = PROFILE_EDGE, vertical = inset)
     ) { constraints ->
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val gapPx = gap.roundToPx()
@@ -2145,9 +2149,14 @@ private fun ProfileBannerOverlayLayout(
         val tipX = (avatarPlaceable.width * 0.80f).toInt()
         val tipY = stackYEstimate + followPlaceable.height + gapPx + (avatarPlaceable.height * 0.20f).toInt()
         val statusMaxH = (tipY + inset.roundToPx()).coerceAtLeast(0)
+        // (It may grow over the name pills when a long status needs the room.)
+        val statusPreferred = (statusRoom + avatarPlaceable.width - tipX).coerceAtLeast(0)
         val statusPlaceable = subcompose("status") {
-            ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
-        }.firstOrNull()?.measure(loose.copy(maxWidth = (statusRoom + avatarPlaceable.width - tipX).coerceAtLeast(0), maxHeight = statusMaxH))
+            ProfileStatusBubble(
+                status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus,
+                preferredWidth = statusPreferred.toDp()
+            )
+        }.firstOrNull()?.measure(loose.copy(maxWidth = (width - tipX).coerceAtLeast(0), maxHeight = statusMaxH))
 
         layout(width, height) {
             // Follow button + name pills, centered vertically as one group, far right.
@@ -2171,6 +2180,10 @@ private fun ProfileBannerOverlayLayout(
         }
     }
 }
+
+/** How far a profile's header (banner pieces, bio, stats, tab rows) sits
+ *  from the screen's sides: about as close as its posts. */
+internal val PROFILE_EDGE = 6.dp
 
 @Composable
 private fun CountStat(count: Int, label: String) {
@@ -2239,7 +2252,7 @@ private fun CloseGlassBubble(liquidGlass: Boolean, tint: Color, onClick: () -> U
 private fun ProfileAvatarGlass(
     url: String?, size: Dp, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null,
     /** Round, or a supporter's rounded square (see [profileIconShape]). */
-    shape: androidx.compose.ui.graphics.Shape = CircleShape,
+    shape: androidx.compose.ui.graphics.Shape = AvatarShape,
     /** A video icon (whose, and its blob), played over the picture. */
     videoDid: String? = null, videoCid: String? = null,
     onClick: (() -> Unit)? = null
@@ -2255,7 +2268,7 @@ private fun ProfileAvatarGlass(
         if (videoDid != null && videoCid != null) {
             ProfileBannerVideo(
                 videoDid, videoCid, Modifier.fillMaxSize().clip(shape),
-                cornerPercent = if (shape == CircleShape) 50 else 24,
+                cornerPercent = if (shape == AvatarShape) 50 else if (com.mediaviewer.util.UiToggles.squareCorners) 0 else 24,
                 // (The regular picture stays on top until the video's first frame.)
                 poster = {
                     if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
@@ -2416,7 +2429,7 @@ private fun ProfileTabsRow(
         Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = PROFILE_EDGE, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         tabs.forEach { tab ->
@@ -3496,7 +3509,7 @@ private fun VideoCard(item: MediaItem, tint: Color, liquidGlass: Boolean, modifi
         ThumbBox(item, tint, RoundedCornerShape(12.dp), Modifier.fillMaxWidth().aspectRatio(16f / 9f), liquidGlass,
             playIconSize = 22.dp, onClick = onClick)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(32.dp).clip(CircleShape).background(Color.White.copy(0.1f))) {
+            Box(Modifier.size(32.dp).clip(AvatarShape).background(Color.White.copy(0.1f))) {
                 if (item.author.avatarUrl != null) AsyncImage(
                     model = item.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -4651,7 +4664,7 @@ private fun ByAndDateRow(author: AuthorInfo, createdAt: String, liquidGlass: Boo
             Text("By", color = DimGray, fontSize = 11.sp)
             if (author.avatarUrl != null) {
                 AsyncImage(model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(16.dp).clip(CircleShape))
+                    modifier = Modifier.size(16.dp).clip(AvatarShape))
             }
             Text("@${author.handle}", color = Color.White.copy(0.85f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -5706,7 +5719,7 @@ private fun TabBubbleRow(
             ) {
                 AsyncImage(
                     model = fr.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(20.dp).clip(CircleShape).background(Color.White.copy(0.15f))
+                    modifier = Modifier.size(20.dp).clip(AvatarShape).background(Color.White.copy(0.15f))
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -5890,7 +5903,7 @@ private fun ReviewPanel(fr: FriendPopfeedReview, social: MainViewModel.ReviewSoc
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = fr.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(34.dp).clip(CircleShape).background(Color.White.copy(0.15f))
+                    modifier = Modifier.size(34.dp).clip(AvatarShape).background(Color.White.copy(0.15f))
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -5925,7 +5938,7 @@ private fun ReviewPanel(fr: FriendPopfeedReview, social: MainViewModel.ReviewSoc
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
                         AsyncImage(
                             model = comment.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(22.dp).clip(CircleShape).background(Color.White.copy(0.15f))
+                            modifier = Modifier.size(22.dp).clip(AvatarShape).background(Color.White.copy(0.15f))
                         )
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
@@ -6196,16 +6209,14 @@ fun PostKindSubTabRow(
     showAll: Boolean = false,
     onSelect: (PostKindFilter) -> Unit
 ) {
-    val visible = remember(items, selected, showAll) {
-        if (showAll) CLASSIC_POST_KINDS
-        else CLASSIC_POST_KINDS.filter { it == selected || it == PostKindFilter.ALL || items.any { item -> it.matches(item) } }
+    // The same row profiles have: All, Media, Text Posts, with the round
+    // pill (Both / Images / Videos, Both / Posts / Polls) — every explore
+    // page alike. (An old horizontal/vertical video choice reads as Videos.)
+    val shown = when (selected) {
+        PostKindFilter.HORIZONTAL_VIDEOS, PostKindFilter.VERTICAL_VIDEOS -> PostKindFilter.VIDEOS
+        else -> selected
     }
-    if (visible.size > 1) {
-        ProfileSubFilterRow(
-            options = visible, selected = selected, liquidGlass = liquidGlass, tint = tint,
-            labelOf = { it.label() }, onSelect = onSelect
-        )
-    }
+    PostKindRowWithFacets(shown, liquidGlass, tint, onSelect)
 }
 
 /** One of your past statuses (the status box's history): its words and
@@ -6320,7 +6331,7 @@ fun ResultsInteractionBar(
     /** An extra button at the right end (Search › Tagged's Sort). */
     trailing: (@Composable () -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
     val iconSize = 20.dp
     val pillHeight = if (liquidGlass) 44.dp else 36.dp
     val tap = rememberHapticTap()

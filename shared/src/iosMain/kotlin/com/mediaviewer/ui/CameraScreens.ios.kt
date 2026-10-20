@@ -125,7 +125,8 @@ actual fun CameraNotchButton(
             else if (notch) topInset / 2 - 2.dp
             else 16.dp
         val top = (centerY - bubbleH / 2).coerceAtLeast(2.dp)
-        val shape = RoundedCornerShape(50)
+        // (Round in every UI Shape.)
+        val shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
 
         @Composable
         fun Bubble(label: String, x: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {

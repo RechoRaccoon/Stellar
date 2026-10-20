@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.mousePager
+import com.mediaviewer.ui.theme.AvatarShape
 import com.mediaviewer.ui.compat.navBarSpace
 
 import com.mediaviewer.ui.compat.coilContext
@@ -25,6 +26,7 @@ import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -983,21 +985,17 @@ private fun LandscapeMediaView(
                             onBoundsChanged = { _, _ -> },
                             externallyPaused = externallyPaused
                         )
-                        AnimatedVisibility(
+                        VideoControlsOverlay(
                             visible = lcControlsVisible && !item.isBlocked,
-                            enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        ) {
-                            VideoControlBar(
-                                liquidGlass = true, dominantColor = NeutralGlassTint, backdrop = null,
-                                isPlaying = lcIsPlaying,
-                                positionMs = if (lcIsSeeking) lcSeekPreviewMs else lcPositionMs,
-                                durationMs = lcDurationMs,
-                                onPlayPause = { lcPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
-                                onSeeking = { ms -> lcIsSeeking = true; lcSeekPreviewMs = ms },
-                                onSeekFinish = { lcIsSeeking = false; lcPlayerRef?.seekTo(lcSeekPreviewMs) }
-                            )
-                        }
+                            liquidGlass = true, dominantColor = NeutralGlassTint, backdrop = null,
+                            isPlaying = lcIsPlaying,
+                            positionMs = if (lcIsSeeking) lcSeekPreviewMs else lcPositionMs,
+                            durationMs = lcDurationMs,
+                            onPlayPause = { lcPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
+                            onSkip = { d -> lcPlayerRef?.seekTo(videoSkipTarget(lcPositionMs, d, lcDurationMs)) },
+                            onSeeking = { ms -> lcIsSeeking = true; lcSeekPreviewMs = ms },
+                            onSeekFinish = { lcIsSeeking = false; lcPlayerRef?.seekTo(lcSeekPreviewMs) }
+                        )
                     } else {
                         AsyncImage(
                             model = ImageRequest.Builder(coil3.compose.LocalPlatformContext.current).data(item.mediaUrl).crossfade(true).build(),
@@ -2005,7 +2003,9 @@ private fun PostContent(
         // from the video's *unzoomed* bounds and doesn't track the zoom
         // transform, so any zoom at all makes it stale). Now it disappears
         // at the very start of a pinch instead of partway through one.
-        if (item.isVideo && !item.isBlocked && scale <= VIDEO_UI_ZOOM_EPSILON && videoControlsVisible && videoBoundsSize != IntSize.Zero) {
+        // (Not gated on videoControlsVisible here: the controls animate in
+        // and out themselves — see VideoControlsOverlay.)
+        if (item.isVideo && !item.isBlocked && scale <= VIDEO_UI_ZOOM_EPSILON && videoBoundsSize != IntSize.Zero) {
             val density = LocalDensity.current
             val localOrigin = videoBoundsOrigin - postBoxRootOrigin
             val vbx = with(density) { localOrigin.x.toDp() }
@@ -2013,21 +2013,17 @@ private fun PostContent(
             val vbw = with(density) { videoBoundsSize.width.toDp() }
             val vbh = with(density) { videoBoundsSize.height.toDp() }
             Box(Modifier.offset(x = vbx, y = vby).size(width = vbw, height = vbh).zIndex(2.5f)) {
-                AnimatedVisibility(
+                VideoControlsOverlay(
                     visible = videoControlsVisible,
-                    enter = fadeIn(FADE_ANIM), exit = fadeOut(FADE_ANIM),
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                ) {
-                    VideoControlBar(
-                        liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop,
-                        isPlaying = videoIsPlaying,
-                        positionMs = if (videoIsSeeking) videoSeekPreviewMs else videoPositionMs,
-                        durationMs = videoDurationMs,
-                        onPlayPause = { videoPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
-                        onSeeking = { ms -> videoIsSeeking = true; videoSeekPreviewMs = ms },
-                        onSeekFinish = { videoIsSeeking = false; videoPlayerRef?.seekTo(videoSeekPreviewMs) }
-                    )
-                }
+                    liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop,
+                    isPlaying = videoIsPlaying,
+                    positionMs = if (videoIsSeeking) videoSeekPreviewMs else videoPositionMs,
+                    durationMs = videoDurationMs,
+                    onPlayPause = { videoPlayerRef?.let { p -> if (p.isPlaying) p.pause() else p.play() } },
+                    onSkip = { d -> videoPlayerRef?.seekTo(videoSkipTarget(videoPositionMs, d, videoDurationMs)) },
+                    onSeeking = { ms -> videoIsSeeking = true; videoSeekPreviewMs = ms },
+                    onSeekFinish = { videoIsSeeking = false; videoPlayerRef?.seekTo(videoSeekPreviewMs) }
+                )
             }
         }
 
@@ -2357,7 +2353,7 @@ private fun PostContent(
                 anchorSize = repostButtonSize,
                 containerRootOrigin = postBoxRootOrigin,
                 actions = listOf(
-                    BubbleAction("Quote Repost", icon = QuillIcon, iconTint = if (item.isQuoteReposted) vividAccent(dominantColor) else null) { onQuoteRepost() },
+                    BubbleAction("Quote Repost", icon = Icons.Default.FormatQuote, iconTint = if (item.isQuoteReposted) vividAccent(dominantColor) else null) { onQuoteRepost() },
                     BubbleAction(if (item.isReposted) "Undo Repost" else "Repost", icon = Icons.Default.Repeat,
                         iconTint = if (item.isReposted) vividAccent(dominantColor) else null) { onToggleRepost() }
                 ),
@@ -2577,7 +2573,7 @@ private fun SentByHeader(
                 Placeholder(width = 16.sp, height = 16.sp, placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter)
             ) {
                 AsyncImage(model = sender.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(CircleShape))
+                    modifier = Modifier.fillMaxSize().clip(AvatarShape))
             }
         )
     }
@@ -2659,7 +2655,7 @@ private fun QuickActionMenu(center: Offset, hoveredAction: QuickAction?, appMode
         Triple(QuickAction.TOP,          Icons.Filled.Favorite,  if (item.isLiked) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.TOP_RIGHT,    Icons.Default.Send,     Color.White),
         Triple(QuickAction.RIGHT,        Icons.Default.Repeat,   if (item.isReposted) vividAccent(dominantColor) else Color.White),
-        Triple(QuickAction.BOTTOM_RIGHT, QuillIcon, if (item.isQuoteReposted) vividAccent(dominantColor) else Color.White),
+        Triple(QuickAction.BOTTOM_RIGHT, Icons.Default.FormatQuote, if (item.isQuoteReposted) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.BOTTOM,       Icons.Default.Download, if (item.isDownloaded) vividAccent(dominantColor) else Color.White),
         if (isOwnPost) Triple(QuickAction.BOTTOM_LEFT, Icons.Default.Edit, Color.White)
         else Triple(QuickAction.BOTTOM_LEFT,  Icons.Default.Block,    if (item.isBlocked) Color(0xFFE0245E) else Color.White),
@@ -2950,7 +2946,7 @@ private fun AuthorRow(
         ) {
             // (Always round here: the square icon from Edit Profile is only
             // shown on profile pages.)
-            val iconShape = CircleShape
+            val iconShape = AvatarShape
             if (author.avatarUrl != null) {
                 AsyncImage(model = author.avatarUrl, contentDescription = null,
                     contentScale = ContentScale.Crop, modifier = Modifier.size(22.dp).clip(iconShape))
@@ -3316,8 +3312,9 @@ private fun PostStatusRow(
             StatusPill(
                 label = label, spinning = true, liquidGlass = liquidGlass,
                 tint = tint, backdrop = backdrop,
-                // Tap: the Tagged page, over the timeline (closing it comes back here).
-                onClick = { LocalOverlays.onOpenTagged?.invoke() },
+                // Tap: the tagging page (as Start Tagging opens it), following
+                // the posts being tagged; closing it comes back here.
+                onClick = { LocalOverlays.onOpenTaggingQueue?.invoke() },
                 modifier = Modifier.padding(bottom = 4.dp)
                     .graphicsLayer {
                         if (!reducedAnimations) { translationX = dx * density; translationY = dy * density; alpha = glow }
@@ -3355,7 +3352,8 @@ private fun gridRowsFor(count: Int): List<Int> = when {
     count == 4 -> listOf(2, 2)
     count == 5 -> listOf(2, 2, 1)
     count == 6 -> listOf(2, 2, 2)
-    count == 7 -> listOf(3, 3, 1)
+    // Seven: two across, three down, the sixth saying "+1".
+    count == 7 -> listOf(2, 2, 2)
     count == 8 -> listOf(3, 3, 2)
     else -> listOf(3, 3, 3)
 }
@@ -3462,7 +3460,8 @@ private fun MultiImageGrid(
                                     Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.55f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("+${count - shown + 1}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                                    // (How many more there are past the ones showing.)
+                                    Text("+${count - shown}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -3891,7 +3890,7 @@ private fun ActionRow(
     }
 
     if (liquidGlass) {
-        val shape = RoundedCornerShape(26.dp)
+        val shape = com.mediaviewer.ui.theme.SoftRoundedCornerShape(26.dp)
         LiquidGlassSurface(
             modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp).then(boundsModifier).tipAnchor("tl.actions"),
             shape = shape, tint = dominantColor, backdrop = backdrop
@@ -4281,17 +4280,12 @@ internal fun VideoControlBar(
         }
     }
     val content: @Composable BoxScope.() -> Unit = {
+        // (Play/pause is the big button in the middle of the video now —
+        // see VideoControlsOverlay.)
         Row(
-            Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp, end = 12.dp),
+            Modifier.fillMaxWidth().height(40.dp).padding(start = 14.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier.size(34.dp).clip(CircleShape).clickable { tap(); onPlayPause() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color.White, modifier = Modifier.size(22.dp))
-            }
             Text(clock(dragProgress?.let { (it * durationMs).toLong() } ?: positionMs), color = Color.White, fontSize = 11.sp, maxLines = 1)
             Spacer(Modifier.width(8.dp))
             Track(
@@ -4323,6 +4317,82 @@ internal fun VideoControlBar(
         LiquidGlassSurface(modifier = Modifier.fillMaxWidth().padding(10.dp), shape = shape, tint = dominantColor, backdrop = backdrop, content = content)
     } else {
         Box(Modifier.fillMaxWidth().padding(10.dp).clip(shape).background(Color.Black.copy(alpha = 0.55f)), content = content)
+    }
+}
+
+/**
+ * A video's controls, over it: in the middle, back 10 seconds, play/pause
+ * and forward 10 seconds, in the same compact glass as the bar; along the
+ * bottom, [VideoControlBar]. They come in together — the middle buttons
+ * growing in, the bar rising — and go the same way.
+ */
+@Composable
+internal fun BoxScope.VideoControlsOverlay(
+    visible: Boolean,
+    liquidGlass: Boolean,
+    dominantColor: Color,
+    backdrop: GlassBackdrop?,
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onPlayPause: () -> Unit,
+    /** Jump by this many milliseconds (negative: back). */
+    onSkip: (Long) -> Unit,
+    onSeeking: (Long) -> Unit,
+    onSeekFinish: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + scaleIn(tween(280, easing = FastOutSlowInEasing), initialScale = 0.8f),
+        exit = fadeOut(tween(180)) + scaleOut(tween(200, easing = FastOutSlowInEasing), targetScale = 0.86f),
+        modifier = Modifier.align(Alignment.Center)
+    ) {
+        VideoCenterButtons(liquidGlass, dominantColor, backdrop, isPlaying, onPlayPause, onSkip)
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(280, easing = FastOutSlowInEasing)) { it / 2 },
+        exit = fadeOut(tween(180)) + slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 2 },
+        modifier = Modifier.align(Alignment.BottomCenter)
+    ) {
+        VideoControlBar(
+            liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = backdrop,
+            isPlaying = isPlaying, positionMs = positionMs, durationMs = durationMs,
+            onPlayPause = onPlayPause, onSeeking = onSeeking, onSeekFinish = onSeekFinish
+        )
+    }
+}
+
+/** Where a skip of [delta] ms from [position] lands, within the video
+ *  (its length unknown yet: only kept from going below the start). */
+internal fun videoSkipTarget(position: Long, delta: Long, duration: Long): Long {
+    val t = (position + delta).coerceAtLeast(0L)
+    return if (duration > 0L) t.coerceAtMost(duration) else t
+}
+
+/** Back 10 s · play/pause · forward 10 s: compact glass bubbles, the middle one bigger. */
+@Composable
+private fun VideoCenterButtons(
+    liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    isPlaying: Boolean, onPlayPause: () -> Unit, onSkip: (Long) -> Unit
+) {
+    val tap = rememberHapticTap()
+    @Composable
+    fun Bubble(size: Dp, iconSize: Dp, icon: ImageVector, label: String, onClick: () -> Unit) {
+        val shape = CircleShape
+        val m = Modifier.size(size).clip(shape).clickable { tap(); onClick() }
+        val inner: @Composable BoxScope.() -> Unit = {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(iconSize))
+            }
+        }
+        if (liquidGlass) LiquidGlassSurface(modifier = m, shape = shape, tint = tint, backdrop = backdrop, content = inner)
+        else Box(m.background(Color.Black.copy(alpha = 0.55f)), content = inner)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
+        Bubble(42.dp, 22.dp, Icons.Default.Replay10, "Back 10 seconds") { onSkip(-10_000L) }
+        Bubble(56.dp, 30.dp, if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play") { onPlayPause() }
+        Bubble(42.dp, 22.dp, Icons.Default.Forward10, "Forward 10 seconds") { onSkip(10_000L) }
     }
 }
 
