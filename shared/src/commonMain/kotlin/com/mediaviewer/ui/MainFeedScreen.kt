@@ -1583,6 +1583,12 @@ private fun PostContent(
                         // below can work the same way whether zoomed or not,
                         // rather than being blanket-disabled by zoom level.
                         var stillDx = 0f; var stillDy = 0f
+                        // The wheel only opens for a finger held still: once it
+                        // has strayed past the touch slop from where it went
+                        // down (measured from its actual position, so a drag
+                        // something else consumed, or one that wandered back,
+                        // still counts), this touch never opens the wheel.
+                        var strayed = false
                         var menuOpen = false; var longPressFired = false
                         var prevPinchDist = -1f; var prevCentroid = downPos
                         var pointerCountEverTwo = false
@@ -1615,7 +1621,7 @@ private fun PostContent(
 
                         while (true) {
                             val elapsed = com.mediaviewer.platform.currentTimeMillis() - downTime
-                            if (!menuOpen && !longPressFired && !pointerCountEverTwo && !externallyClaimed &&
+                            if (!menuOpen && !longPressFired && !pointerCountEverTwo && !externallyClaimed && !strayed &&
                                 elapsed >= 450L && abs(stillDx) < 28f && abs(stillDy) < 28f) {
                                 longPressFired = true; haptic(context)
                                 menuCenter = downPos; menuOpen = true
@@ -1634,7 +1640,13 @@ private fun PostContent(
                                         QuickAction.RIGHT        -> if (appMode == AppMode.BLUESKY) onToggleRepost()   else onToggleBookmark()
                                         QuickAction.TOP_RIGHT    -> if (appMode == AppMode.BLUESKY) onSendPost()
                                         QuickAction.BOTTOM_RIGHT -> if (appMode == AppMode.BLUESKY) onQuoteRepost()
-                                        QuickAction.BOTTOM_LEFT  -> if (appMode == AppMode.BLUESKY) onBlockAccount()
+                                        // Your own post: Edit (as in the More menu) where
+                                        // everyone else's has Block.
+                                        QuickAction.BOTTOM_LEFT  -> if (appMode == AppMode.BLUESKY) {
+                                            if (!isOwnPost) onBlockAccount()
+                                            else if (com.mediaviewer.util.Supporter.active) LocalOverlays.editWarningOpen = true
+                                            else com.mediaviewer.util.Supporter.openPage()
+                                        }
                                         QuickAction.TOP_LEFT     -> if (appMode == AppMode.BLUESKY) onDownloadGif()
                                         null -> {}
                                     }
@@ -1733,6 +1745,7 @@ private fun PostContent(
                             } else {
                                 prevPinchDist = -1f
                                 val ch = pressed[0]; val delta = ch.positionChange()
+                                if (!strayed && (ch.position - downPos).getDistance() > viewConfiguration.touchSlop) strayed = true
                                 if (menuOpen) { hoveredAction = getHoveredAction(ch.position, menuCenter!!); ch.consume() }
                                 else if (scale > 1.05f) {
                                     stillDx += delta.x; stillDy += delta.y
@@ -1925,7 +1938,7 @@ private fun PostContent(
         // since both are plain fillMaxSize with no offset) keeps `menuCenter`'s
         // coordinates valid while no longer feeding back into its own source layer.
         val mc = menuCenter
-        if (mc != null) QuickActionMenu(center = mc, hoveredAction = hoveredAction, appMode = appMode, item = item, liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop)
+        if (mc != null) QuickActionMenu(center = mc, hoveredAction = hoveredAction, appMode = appMode, item = item, liquidGlass = liquidGlass, dominantColor = dominantColor, backdrop = glassBackdrop, isOwnPost = isOwnPost)
 
         // Video controls bar: same crash-avoidance reasoning as QuickActionMenu
         // above — it reads the live `glassBackdrop`, so it has to live outside
@@ -2579,7 +2592,7 @@ private fun SentByHeader(
 // ─── Quick Action Menu ────────────────────────────────────────────────────────
 
 @Composable
-private fun QuickActionMenu(center: Offset, hoveredAction: QuickAction?, appMode: AppMode, item: MediaItem, liquidGlass: Boolean, dominantColor: Color, backdrop: GlassBackdrop?) {
+private fun QuickActionMenu(center: Offset, hoveredAction: QuickAction?, appMode: AppMode, item: MediaItem, liquidGlass: Boolean, dominantColor: Color, backdrop: GlassBackdrop?, isOwnPost: Boolean = false) {
     val density = LocalDensity.current
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -2596,7 +2609,8 @@ private fun QuickActionMenu(center: Offset, hoveredAction: QuickAction?, appMode
         Triple(QuickAction.RIGHT,        Icons.Default.Repeat,   if (item.isReposted) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.BOTTOM_RIGHT, Icons.Default.EditNote, if (item.isQuoteReposted) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.BOTTOM,       Icons.Default.Download, if (item.isDownloaded) vividAccent(dominantColor) else Color.White),
-        Triple(QuickAction.BOTTOM_LEFT,  Icons.Default.Block,    if (item.isBlocked) Color(0xFFE0245E) else Color.White),
+        if (isOwnPost) Triple(QuickAction.BOTTOM_LEFT, Icons.Default.Edit, Color.White)
+        else Triple(QuickAction.BOTTOM_LEFT,  Icons.Default.Block,    if (item.isBlocked) Color(0xFFE0245E) else Color.White),
         Triple(QuickAction.LEFT,         Icons.Filled.Bookmark,  if (item.isBookmarked) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.TOP_LEFT,     Icons.Default.Download, if (item.isGifDownloaded) vividAccent(dominantColor) else Color.White) // rendered as "GIF" text, see below
     ) else listOf(

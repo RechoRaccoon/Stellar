@@ -5958,13 +5958,17 @@ fun ProfileStyleTabRow(
     lockedIndex: Int = -1,
     /** A small round picture before each label (a feed's icon), or null. */
     icons: List<String?>? = null,
+    /** A tab this platform can't use: grayed out, ignores taps. */
+    disabledIndex: Int = -1,
     onSelect: (Int) -> Unit
 ) {
     // Landscape's side list: an even list of buttons.
     if (LocalSideList.current) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             labels.forEachIndexed { index, label ->
-                SideListButton(label, index == selectedIndex, liquidGlass, tint, iconUrl = icons?.getOrNull(index), locked = index == lockedIndex) { onSelect(index) }
+                Box(if (index == disabledIndex) Modifier.grayedOut() else Modifier) {
+                    SideListButton(label, index == selectedIndex, liquidGlass, tint, iconUrl = icons?.getOrNull(index), locked = index == lockedIndex) { if (index != disabledIndex) onSelect(index) }
+                }
             }
         }
         return
@@ -5987,7 +5991,7 @@ fun ProfileStyleTabRow(
                         if (liquidGlass) Modifier.glassPanel(true, tint = if (isSelected) tint else tint.copy(alpha = 0.4f), shape = shape)
                         else Modifier.clip(shape).background(if (isSelected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
                     )
-                    .clickable { tap(); onSelect(index) }
+                    .then(if (index == disabledIndex) Modifier.grayedOut() else Modifier.clickable { tap(); onSelect(index) })
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

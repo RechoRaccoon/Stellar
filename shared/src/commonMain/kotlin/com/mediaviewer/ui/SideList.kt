@@ -256,6 +256,9 @@ fun <T> ReorderableSideColumn(
     onHeld: (T?) -> Unit = {},
     onPointer: (androidx.compose.ui.geometry.Offset) -> Unit = {},
     onDropOutside: (T) -> Boolean = { false },
+    /** Whether the held row may trade places with this neighbour (feeds
+     *  stay within the pinned or the unpinned ones). */
+    canPass: (held: T, other: T) -> Boolean = { _, _ -> true },
     row: @Composable (T) -> Unit
 ) {
     // Its own copy of the order, so the rows move as the held one passes
@@ -325,11 +328,11 @@ fun <T> ReorderableSideColumn(
                                 if (i < 0) return@detectDragGesturesAfterLongPress
                                 val below = list.getOrNull(i + 1)
                                 val above = list.getOrNull(i - 1)
-                                if (below != null && offsetY > (heights[key(below)] ?: 0) / 2f + gapPx) {
+                                if (below != null && canPass(item, below) && offsetY > (heights[key(below)] ?: 0) / 2f + gapPx) {
                                     order = list.toMutableList().apply { add(i + 1, removeAt(i)) }
                                     offsetY -= (heights[key(below)] ?: 0) + gapPx
                                     view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)
-                                } else if (above != null && offsetY < -((heights[key(above)] ?: 0) / 2f + gapPx)) {
+                                } else if (above != null && canPass(item, above) && offsetY < -((heights[key(above)] ?: 0) / 2f + gapPx)) {
                                     order = list.toMutableList().apply { add(i - 1, removeAt(i)) }
                                     offsetY += (heights[key(above)] ?: 0) + gapPx
                                     view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK)

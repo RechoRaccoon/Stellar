@@ -2319,9 +2319,21 @@ class BlueskyRepository {
         if (v2Index >= 0) {
             val v2Obj = preferences[v2Index].asJsonObject
             val items = v2Obj.getAsJsonArray("items") ?: com.mediaviewer.json.JsonArray().also { v2Obj.add("items", it) }
-            // Don't add a duplicate if it's somehow already saved.
-            val alreadySaved = items.any { it.isJsonObject && it.asJsonObject.get("value")?.asString == feedUri }
-            if (!alreadySaved) {
+            // Don't add a duplicate if it's somehow already saved — but an
+            // already-saved feed that should be pinned is pinned (and moved
+            // to the front when asked).
+            val existing = items.firstOrNull { it.isJsonObject && it.asJsonObject.get("value")?.asString == feedUri }
+            if (existing != null) {
+                if (pinned || atFront) {
+                    val reordered = com.mediaviewer.json.JsonArray()
+                    val copy = com.mediaviewer.json.JsonObject()
+                    existing.asJsonObject.entrySet().forEach { (k, v) -> copy.add(k, v) }
+                    if (pinned) copy.addProperty("pinned", true)
+                    if (atFront) reordered.add(copy)
+                    items.forEach { if (it !== existing) reordered.add(it) else if (!atFront) reordered.add(copy) }
+                    v2Obj.add("items", reordered)
+                }
+            } else {
                 if (atFront) {
                     val reordered = com.mediaviewer.json.JsonArray()
                     reordered.add(newItem)
@@ -2330,9 +2342,36 @@ class BlueskyRepository {
                 } else items.add(newItem)
             }
         } else {
+            // No v2 list yet: carry over a legacy v1 list (pinned first, then
+            // saved) so adding a feed never makes the others disappear, and
+            // keep the Following timeline that every new account has.
+            val v1 = preferences.firstOrNull {
+                it.isJsonObject && it.asJsonObject.get("\$type")?.asString?.endsWith("savedFeedsPref") == true
+            }?.asJsonObject
+            val v1Pinned = v1?.getAsJsonArray("pinned")?.mapNotNull { runCatching { it.asString }.getOrNull() } ?: emptyList()
+            val v1Saved = v1?.getAsJsonArray("saved")?.mapNotNull { runCatching { it.asString }.getOrNull() } ?: emptyList()
+            val carried = (v1Pinned + v1Saved).distinct().filter { it.startsWith("at://") && it != feedUri }.map { uri ->
+                com.mediaviewer.json.JsonObject().apply {
+                    addProperty("type", if ("/app.bsky.graph.list/" in uri) "list" else "feed")
+                    addProperty("value", uri)
+                    addProperty("pinned", uri in v1Pinned)
+                    addProperty("id", com.mediaviewer.platform.randomUuidString())
+                }
+            }
+            val following = com.mediaviewer.json.JsonObject().apply {
+                addProperty("type", "timeline")
+                addProperty("value", "following")
+                addProperty("pinned", true)
+                addProperty("id", com.mediaviewer.platform.randomUuidString())
+            }
             val newPref = com.mediaviewer.json.JsonObject().apply {
                 addProperty("\$type", "app.bsky.actor.defs#savedFeedsPrefV2")
-                add("items", com.mediaviewer.json.JsonArray().apply { add(newItem) })
+                add("items", com.mediaviewer.json.JsonArray().apply {
+                    if (atFront) add(newItem)
+                    add(following)
+                    carried.forEach { add(it) }
+                    if (!atFront) add(newItem)
+                })
             }
             preferences.add(newPref)
         }

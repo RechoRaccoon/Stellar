@@ -9203,7 +9203,9 @@ class MainViewModel(
                         bskyRepo.addSavedFeed(bskyToken, official.SUPPORTERS_LIST_URI, type = "list", pinned = true, atFront = true)
                             .onSuccess { feedsChanged = true }
                     }
-                    if (welcomeFeedForYou in selected && _availableFeeds.value.none { it.uri == official.FOR_YOU_FEED_URI }) {
+                    // Added pinned — or, when it's already saved, pinned and
+                    // moved to the top (addSavedFeed handles both).
+                    if (welcomeFeedForYou in selected && _availableFeeds.value.none { it.uri == official.FOR_YOU_FEED_URI && it.pinned }) {
                         bskyRepo.addSavedFeed(bskyToken, official.FOR_YOU_FEED_URI, pinned = true, atFront = true)
                             .onSuccess { feedsChanged = true }
                     }

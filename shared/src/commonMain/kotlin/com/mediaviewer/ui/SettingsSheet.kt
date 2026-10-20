@@ -939,7 +939,7 @@ private fun AtProtocolPageContent(
         // The Launchpad swipes sideways between two pages. Hold any button
         // and drag it to rearrange: anywhere on its page, onto the other
         // page (hold it at the side of the pad to turn the page), or into a
-        // third row once a page has two full rows. The order is kept per
+        // new row under a page's full ones (no limit on rows). The order is kept per
         // account on this device (HubLayout.launchpad).
         val launchPager = androidx.compose.foundation.pager.rememberPagerState { com.mediaviewer.util.HubLayout.LAUNCHPAD_PAGES }
         // Landscape: both pages side by side, each in full (no swiping).
@@ -1540,6 +1540,8 @@ private fun AtProtocolPageContent(
             ReorderableSideColumn(
                 items = availableFeeds, key = { it.uri }, onMove = onMoveFeed,
                 modifier = Modifier.fillMaxWidth(),
+                // Pinned feeds move among the pinned, the rest among the rest.
+                canPass = { a, b -> a.pinned == b.pinned },
                 onHeld = { f ->
                     if (f != null) { feedDrag.feed = f; feedDrag.sideActive = true } else feedDrag.reset()
                 },
@@ -3278,10 +3280,13 @@ private fun HubFeedRow(
         val f = drag.feed ?: return
         val x = drag.pointer.x
         val others = latestOrder.filter { it.uri != f.uri }
+        // Pinned feeds come first: a pinned one stays among the pinned, an
+        // unpinned one among the unpinned.
+        val pinnedOthers = others.count { it.pinned }
         val t = others.count { o ->
             val c = coords[o.uri]?.takeIf { it.isAttached } ?: return@count false
             c.localToRoot(Offset(c.size.width / 2f, 0f)).x < x
-        }
+        }.let { if (f.pinned) it.coerceIn(0, pinnedOthers) else it.coerceIn(pinnedOthers, others.size) }
         if (t != drag.targetIndex) {
             if (drag.targetIndex >= 0) view.hubHaptic(HapticFeedbackConstants.CLOCK_TICK)
             drag.targetIndex = t
@@ -3535,6 +3540,11 @@ private fun HubFeedDragGhost(drag: HubFeedDragState, liquidGlass: Boolean, tint:
  *  the plain AnimatedVisibility is used, not a parent Column's scoped one.) */
 @Composable
 private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean, visible: Boolean = feedDrag.active, tint: Color = NeutralGlassTint) {
+    // The held feed is cleared the moment it's let go, while the bubbles are
+    // still fading out: keep the last one's Pin / Unpin so the label doesn't
+    // flip on the way out.
+    var heldPinned by remember { mutableStateOf(false) }
+    feedDrag.feed?.let { heldPinned = it.pinned }
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.6f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f)),
@@ -3547,7 +3557,7 @@ private fun HubRemoveDropTarget(feedDrag: HubFeedDragState, liquidGlass: Boolean
                 modifier = Modifier.onGloballyPositioned { feedDrag.removeBounds = it.boundsInRoot() })
             HubPinBubble(
                 hovered = feedDrag.overPin, liquidGlass = liquidGlass, tint = tint,
-                pinned = feedDrag.feed?.pinned == true,
+                pinned = heldPinned,
                 modifier = Modifier.onGloballyPositioned { feedDrag.pinBounds = it.boundsInRoot() }
             )
         }

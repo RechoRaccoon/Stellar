@@ -179,8 +179,8 @@ object HubLayout {
     }
 
     // ── Launchpad order ──────────────────────────────────────────────────
-    // The Launchpad's buttons, page by page (two pages, up to three rows of
-    // three on each), rearranged by holding a button and dragging it. Kept
+    // The Launchpad's buttons, page by page (two pages, rows of three, as
+    // many rows as a page has buttons for), rearranged by holding a button and dragging it. Kept
     // per account on this device, in this same file (so App Data Export
     // carries it along with the rest of Customize Hub).
 
@@ -197,7 +197,8 @@ object HubLayout {
     const val LP_TIMER = "timer"
     const val LAUNCHPAD_PAGES = 2
     const val LAUNCHPAD_PER_ROW = 3
-    const val LAUNCHPAD_PER_PAGE = 9
+    /** No limit: a page grows a row whenever it needs one. */
+    const val LAUNCHPAD_PER_PAGE = Int.MAX_VALUE
 
     val DEFAULT_LAUNCHPAD: List<List<String>> = listOf(
         listOf(LP_INBOX, LP_PROFILE, LP_DMS, LP_SAVED, LP_HISTORY, LP_FRIENDS),

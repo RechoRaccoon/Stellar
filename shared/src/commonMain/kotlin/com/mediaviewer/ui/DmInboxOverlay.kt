@@ -186,14 +186,14 @@ fun DmInboxOverlay(
         val twoPane = rememberLandscapeWidthDp() >= 760
         // The header row: the DM list's (t = null) or an open chat's.
         @Composable
-        fun Header(t: MainViewModel.DmThreadState?, tint: Color, onBack: () -> Unit) {
+        fun Header(t: MainViewModel.DmThreadState?, tint: Color, showBack: Boolean = true, onBack: () -> Unit) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 val shape = CircleShape
-                Box(
+                if (showBack) Box(
                     Modifier.size(32.dp)
                         .then(if (liquidGlass) Modifier.glassPanel(true, shape = shape, tint = tint) else Modifier.clip(shape).background(Color.White.copy(0.14f)))
                         .clickable(onClick = { tap(); onBack() }),
@@ -321,7 +321,9 @@ fun DmInboxOverlay(
                 SideListEdge(profileTint)
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (thread != null) {
-                        Header(thread, theirTint) { onCloseThread() }
+                        // (No back button here: the chat list's, top left,
+                        // is right beside it.)
+                        Header(thread, theirTint, showBack = false) { onCloseThread() }
                         HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
                         ThreadPane(thread)
                     } else {

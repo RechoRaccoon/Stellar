@@ -223,6 +223,7 @@ fun SearchOverlay(
     val isPosts = state.filter == MainViewModel.SearchFilter.POSTS
     // ── Web Browser tab (supporters) ──
     val isWeb = state.filter == MainViewModel.SearchFilter.WEB
+    val webPlatform = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB
     val supporter = com.mediaviewer.util.Supporter.active
     var webQuery by remember { mutableStateOf("") }
     // The address bar shows the page's current address (every page it
@@ -236,7 +237,7 @@ fun SearchOverlay(
     // are separate and stay).
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { BrowserHome.close() } }
     // A lapsed supporter doesn't stay on the browser tab.
-    LaunchedEffect(isWeb, supporter) { if (isWeb && !supporter) onSelectFilter(MainViewModel.SearchFilter.ACCOUNTS) }
+    LaunchedEffect(isWeb, supporter) { if (isWeb && (!supporter || webPlatform)) onSelectFilter(MainViewModel.SearchFilter.ACCOUNTS) }
     val kindForTab = if (isLiked) taggedKind else postsKind
     val gridScreen = if (isLiked) "search_tagged" else "search_posts"
     val submitSearch: () -> Unit = {
@@ -417,7 +418,9 @@ fun SearchOverlay(
                 liquidGlass = liquidGlass, tint = profileTint,
                 // Web Browser is a supporter benefit: pink for everyone else,
                 // and tapping it opens the Support page.
-                lockedIndex = if (supporter) -1 else tabs.indexOf(MainViewModel.SearchFilter.WEB),
+                lockedIndex = if (supporter || webPlatform) -1 else tabs.indexOf(MainViewModel.SearchFilter.WEB),
+                // A browser inside the browser isn't possible on the web.
+                disabledIndex = if (webPlatform) tabs.indexOf(MainViewModel.SearchFilter.WEB) else -1,
                 onSelect = {
                     if (tabs[it] == MainViewModel.SearchFilter.WEB && !supporter) com.mediaviewer.util.Supporter.openPage()
                     else {

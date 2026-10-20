@@ -249,6 +249,16 @@ fun CommentsSheet(
                     .padding(top = rememberTopCutoutClearance())
             ) {
                 Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth()) {
+                // A grab handle between the two titles: the whole sheet drags
+                // down from this header. (Not in the landscape side list,
+                // which doesn't drag.)
+                if (!sideList) Box(
+                    Modifier.align(Alignment.Center).padding(bottom = 8.dp)
+                        .size(width = 38.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.45f))
+                )
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -266,6 +276,7 @@ fun CommentsSheet(
                             modifier = Modifier.clickable { tap(); showTags = true }
                         )
                     }
+                }
                 }
             }
 
