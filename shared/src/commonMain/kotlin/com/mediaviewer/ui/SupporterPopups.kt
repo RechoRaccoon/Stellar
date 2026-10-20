@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
@@ -168,9 +169,11 @@ internal fun FolderCover(folder: BookmarkFolder?, tint: Color, modifier: Modifie
 }
 
 /**
- * "Add To", for a saved post: your bookmark folders (none to begin with),
- * each tappable to put the post in or take it out, and a row to make a new
- * one with a name and a cover. Folders live only on this device.
+ * "Add To", for a saved post: Bookmarks (Bluesky's own, always first) and
+ * your bookmark folders, each tappable to put the post in or take it out,
+ * and a row to make a new folder with a name and a cover. A post is in
+ * Bookmarks or in folders, not both (see MainViewModel.placeBookmark).
+ * Folders are kept by Private Sync, encrypted, on your PDS.
  */
 @Composable
 fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClose: () -> Unit) {
@@ -189,14 +192,56 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
         }
     }
     val thumb = item.thumbUrl.ifBlank { item.mediaUrl }
+    // (Read from the folders themselves, so it follows every tap here.)
+    val filed = folders.any { item.postUri in it.posts }
+    var inBookmarks by remember(item.postUri) { mutableStateOf(item.isBookmarked && !LocalData.isInAnyBookmarkFolder(item.postUri)) }
+    fun placed(toBookmarks: Boolean) {
+        inBookmarks = toBookmarks
+        LocalOverlays.onPlaceBookmark?.invoke(item, toBookmarks)
+    }
 
     LocalPopup(title = "Add To", liquidGlass = liquidGlass, tint = tint, onClose = onClose, subtitle = "Folders", backdrop = backdrop) {
         Column(
             Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Bookmarks: where a saved post goes unless it's filed in a folder.
+            run {
+                val shape = RoundedCornerShape(16.dp)
+                val on = inBookmarks && !filed
+                Row(
+                    Modifier.fillMaxWidth().clip(shape)
+                        .background(Color.Black.copy(alpha = 0.26f))
+                        .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = if (on) 0.9f else 0.3f), shape)
+                        .clickable {
+                            tap()
+                            if (!on) placed(true)
+                            else { inBookmarks = false; LocalOverlays.onPlaceBookmark?.invoke(item, false) }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
+                            .background(Brush.linearGradient(listOf(lerp(tint, Color.White, 0.15f), lerp(tint, Color.Black, 0.45f)))),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(20.dp)) }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Bookmarks", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Bluesky's own saved posts", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                    }
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape)
+                            .background(if (on) lerp(tint, Color.White, 0.2f) else Color.White.copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(if (on) Icons.Default.Check else Icons.Default.Add, contentDescription = if (on) "In Bookmarks" else "Add", tint = Color.White, modifier = Modifier.size(15.dp))
+                    }
+                }
+            }
             if (folders.isEmpty() && !creating) Text(
-                "No folders yet. Make one to organize your saved posts — folders stay on this device.",
+                "No folders yet. Make one to organize your saved posts; a post filed in a folder moves out of Bookmarks.",
                 color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
             )
@@ -207,7 +252,7 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
                     Modifier.fillMaxWidth().clip(shape)
                         .background(Color.Black.copy(alpha = 0.26f))
                         .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = if (inFolder) 0.9f else 0.3f), shape)
-                        .clickable { tap(); LocalData.toggleInBookmarkFolder(folder.id, item.postUri, thumb) }
+                        .clickable { tap(); LocalData.toggleInBookmarkFolder(folder.id, item.postUri, thumb); placed(false) }
                         .padding(horizontal = 8.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -280,6 +325,7 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
                     {
                         val made = LocalData.createBookmarkFolder(name, cover)
                         LocalData.toggleInBookmarkFolder(made.id, item.postUri, thumb)
+                        placed(false)
                         creating = false; name = ""; cover = null
                     },
                     Modifier.weight(1f), enabled = name.isNotBlank()
@@ -306,7 +352,7 @@ fun ProfileNotePopup(author: AuthorInfo, liquidGlass: Boolean, tint: Color, back
     }
     LocalPopup(title = "Profile Note", liquidGlass = liquidGlass, tint = tint, onClose = onClose, backdrop = backdrop) {
         Text(
-            "Only you can see this. It stays on this device.",
+            "Only you can see this (it syncs to your other devices encrypted).",
             color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         )

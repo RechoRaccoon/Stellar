@@ -86,6 +86,7 @@ fun LocalOverlayHost(
         LocalOverlays.cancelVideoUpload = viewModel::cancelVideoUpload
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
+        LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.savedFeedUris = savedFeedUris
         LocalOverlays.bookmarkFolderId = folderId
     }

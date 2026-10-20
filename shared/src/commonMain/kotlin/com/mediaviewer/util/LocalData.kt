@@ -399,6 +399,12 @@ object LocalData {
         return nowIn
     }
 
+    /** True when [postUri] is in at least one folder. */
+    fun isInAnyBookmarkFolder(postUri: String): Boolean = postUri.isNotBlank() && folderSlot.value.any { postUri in it.posts }
+
+    /** Every post filed in a folder (to show them as saved). */
+    fun postsInBookmarkFolders(): Set<String> = folderSlot.value.flatMapTo(HashSet()) { it.posts }
+
     /** A post that's no longer saved leaves every folder. */
     fun removeFromAllBookmarkFolders(postUri: String) {
         if (folderSlot.value.none { postUri in it.posts }) return

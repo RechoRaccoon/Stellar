@@ -4122,7 +4122,11 @@ class MainViewModel(
         val unblocked = items.filterNot {
             com.mediaviewer.util.BlockedAccounts.isHidden(it.author.did) || com.mediaviewer.util.BlockedAccounts.isHidden(it.sentByAuthor?.did)
         }
-        return if (_hideTextOnlyPosts.value) unblocked.filterNot { it.isTextOnly } else unblocked
+        val shown = if (_hideTextOnlyPosts.value) unblocked.filterNot { it.isTextOnly } else unblocked
+        // A post filed in a bookmark folder is saved, though it's no longer
+        // in Bluesky's own Bookmarks (see placeBookmark).
+        val filed = com.mediaviewer.util.LocalData.postsInBookmarkFolders()
+        return if (filed.isEmpty()) shown else shown.map { if (!it.isBookmarked && it.postUri in filed) it.copy(isBookmarked = true) else it }
     }
 
     // ── Posts opened from another list (Tagged, Search, a profile) ──────
@@ -7281,6 +7285,13 @@ class MainViewModel(
         } else {
             val wasBookmarked = item.isBookmarked
             updateCurrentItem { it.copy(isBookmarked = !wasBookmarked, bookmarkCount = (it.bookmarkCount + if (wasBookmarked) -1 else 1).coerceAtLeast(0)) }
+            // Saved only in folders: unsaving takes it out of them (it isn't
+            // in Bluesky's Bookmarks to remove).
+            if (wasBookmarked && com.mediaviewer.util.LocalData.isInAnyBookmarkFolder(item.postUri)) {
+                com.mediaviewer.util.LocalData.removeFromAllBookmarkFolders(item.postUri)
+                viewModelScope.launch(ioDispatcher) { bskyRepo.removeBookmark(bskyToken, item.postUri) }
+                return
+            }
             viewModelScope.launch(ioDispatcher) {
                 if (wasBookmarked) {
                     bskyRepo.removeBookmark(bskyToken, item.postUri)
@@ -9548,6 +9559,37 @@ class MainViewModel(
     }
 
     // ── Bookmark folders (local) ────────────────────────────────────────
+
+    /**
+     * Where a saved post lives: Bluesky's own Bookmarks (the default), or
+     * one or more of your folders, never both — filing it in a folder takes
+     * it out of Bookmarks. [toBookmarks] true = into Bookmarks (out of every
+     * folder); false = it was just filed or unfiled (LocalData is already
+     * updated): out of Bookmarks while it's in a folder, unsaved once it's
+     * in none.
+     */
+    fun placeBookmark(item: MediaItem, toBookmarks: Boolean) {
+        if (!_bskyLoggedIn.value || item.postUri.isBlank()) return
+        val local = com.mediaviewer.util.LocalData
+        val filed = !toBookmarks && local.isInAnyBookmarkFolder(item.postUri)
+        if (toBookmarks) local.removeFromAllBookmarkFolders(item.postUri)
+        val saved = toBookmarks || filed
+        fun mark(list: List<MediaItem>) = list.map { if (it.postUri == item.postUri) it.copy(isBookmarked = saved) else it }
+        _mediaItems.value = mark(_mediaItems.value)
+        viewModelScope.launch(ioDispatcher) {
+            if (toBookmarks) {
+                var r = bskyRepo.addBookmark(bskyToken, item.postUri, item.postCid)
+                if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) r = bskyRepo.addBookmark(bskyToken, item.postUri, item.postCid)
+            } else {
+                var r = bskyRepo.removeBookmark(bskyToken, item.postUri)
+                if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) r = bskyRepo.removeBookmark(bskyToken, item.postUri)
+            }
+            // Showing Bookmarks: a post filed away leaves the list.
+            if (activeFeedMode == ActiveFeedMode.SAVES && _bookmarkFolderId.value == null && filed) withContext(Dispatchers.Main) {
+                _mediaItems.value = _mediaItems.value.filterNot { it.postUri == item.postUri }
+            }
+        }
+    }
     /** Saved Posts → the folder being shown (null = every saved post). */
     private val _bookmarkFolderId = MutableStateFlow<String?>(null)
     val bookmarkFolderId: StateFlow<String?> = _bookmarkFolderId

@@ -279,15 +279,15 @@ fun GridScreen(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
                 )
-                // Saved Posts (supporters): a bubble per bookmark
-                // folder, like the feed row — tap one to see just
-                // that folder; "All" is every saved post.
+                // Saved Posts (supporters): Bookmarks (Bluesky's own,
+                // always first) and a bubble per bookmark folder, like the
+                // feed row — tap one to see just that folder.
                 val folders = com.mediaviewer.util.LocalData.bookmarkFolders
                 if (specialFeed.displayName == "Saved Posts" && com.mediaviewer.util.Supporter.active && folders.isNotEmpty()) {
                     val openFolder = LocalOverlays.bookmarkFolderId
                     if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
                     ProfileStyleTabRow(
-                        labels = listOf("All") + folders.map { it.name },
+                        labels = listOf("Bookmarks") + folders.map { it.name },
                         selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
                         liquidGlass = liquidGlass, tint = tint
                     ) { i ->
@@ -392,6 +392,11 @@ fun GridScreen(
                         // to the top never overshoots into it; it takes a
                         // second swipe.
                         var armed: Boolean? = null
+                        // A sideways swipe (the folder or feed row scrolling)
+                        // never closes the grid, whatever it drifts down by.
+                        var startX = Float.NaN
+                        var startY = Float.NaN
+                        var sideways = false
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             if (armed == null) armed = !gridState.canScrollBackward
@@ -408,6 +413,11 @@ fun GridScreen(
                             if (pressed.size == 1 && !multiTouch) {
                                 val ch = pressed[0]
                                 val y = ch.position.y
+                                if (startX.isNaN()) { startX = ch.position.x; startY = y }
+                                val dx = kotlin.math.abs(ch.position.x - startX)
+                                val dy = kotlin.math.abs(y - startY)
+                                if (!sideways && dx > viewConfiguration.touchSlop && dx > dy) sideways = true
+                                if (sideways) armed = false
                                 val t = ch.uptimeMillis
                                 if (lastT != 0L && t > lastT) {
                                     val v = (y - lastY) / (t - lastT)

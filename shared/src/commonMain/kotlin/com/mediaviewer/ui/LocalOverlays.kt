@@ -147,4 +147,6 @@ object LocalOverlays {
     /** Saved Posts → the bookmark folder being shown (null = all). */
     var bookmarkFolderId by mutableStateOf<String?>(null)
     var onShowBookmarkFolder: ((String?) -> Unit)? = null
+    /** See MainViewModel.placeBookmark. */
+    var onPlaceBookmark: ((com.mediaviewer.model.MediaItem, Boolean) -> Unit)? = null
 }
