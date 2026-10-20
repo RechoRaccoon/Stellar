@@ -11,6 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -18,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import com.mediaviewer.util.UiToggles
 import kotlinx.coroutines.delay
@@ -137,6 +142,23 @@ private class ShootingStars(seed: Long) {
 
 /** [bottomColor]: a second color the background fades into toward the
  *  bottom (a DM thread: theirs at the top, yours at the bottom). */
+/**
+ * Where a shooting star mustn't show: the glass panels, buttons and bubbles
+ * (they're see-through, so a star passing behind one read as crossing in
+ * front of the UI). Plain bounds in root coordinates, read only while a
+ * star is crossing, so registering them costs a map write per move.
+ */
+internal object SkyOccluders {
+    val rects = HashMap<Any, androidx.compose.ui.geometry.Rect>()
+}
+
+fun Modifier.skyOccluder(): Modifier = composed {
+    if (!LiteGlass.LIVE || !UiToggles.starryBackground) return@composed this
+    val key = remember { Any() }
+    androidx.compose.runtime.DisposableEffect(key) { onDispose { SkyOccluders.rects.remove(key) } }
+    this.onGloballyPositioned { SkyOccluders.rects[key] = it.boundsInRoot() }
+}
+
 @Composable
 fun SpaceSky(color: Color, modifier: Modifier = Modifier, dim: Float = SPACE_BACKGROUND_DIM, bottomColor: Color? = null) {
     val base = remember(color, dim) { dimSpaceColor(color, dim) }
@@ -165,8 +187,10 @@ fun SpaceSky(color: Color, modifier: Modifier = Modifier, dim: Float = SPACE_BAC
             time.floatValue = (com.mediaviewer.platform.nanoTime() - t0) / 1_000_000_000f
         }
     }
+    val origin = remember { floatArrayOf(0f, 0f) }
     Box(
         modifier
+            .onGloballyPositioned { val p = it.positionInRoot(); origin[0] = p.x; origin[1] = p.y }
             // Own layer: see the performance notes above.
             .graphicsLayer { }
             .drawWithCache {
@@ -175,7 +199,7 @@ fun SpaceSky(color: Color, modifier: Modifier = Modifier, dim: Float = SPACE_BAC
                 onDrawBehind {
                     if (fill != null) drawRect(fill) else drawRect(base)
                     drawStars(stars, time.floatValue)
-                    drawShootingStar(shooting, time.floatValue)
+                    drawShootingStar(shooting, time.floatValue, Offset(origin[0], origin[1]))
                 }
             }
     )
@@ -203,10 +227,21 @@ private fun DrawScope.drawStars(s: StarLayout, t: Float) {
     }
 }
 
-private fun DrawScope.drawShootingStar(s: ShootingStars, t: Float) {
+private fun DrawScope.drawShootingStar(s: ShootingStars, t: Float, origin: Offset) {
     if (s.start < 0f) return
     val p = (t - s.start) / s.duration
     if (p < 0f || p > 1f) return
+    // Only over open sky: cut out every glass panel on top of this sky.
+    val cut = androidx.compose.ui.graphics.Path()
+    for (r in SkyOccluders.rects.values) {
+        val local = r.translate(-origin.x, -origin.y)
+        if (local.overlaps(androidx.compose.ui.geometry.Rect(Offset.Zero, size))) cut.addRect(local)
+    }
+    if (cut.isEmpty) drawMeteor(s, p)
+    else clipPath(cut, androidx.compose.ui.graphics.ClipOp.Difference) { drawMeteor(s, p) }
+}
+
+private fun DrawScope.drawMeteor(s: ShootingStars, p: Float) {
     val envelope = sqrt(sin(PI.toFloat() * p).coerceAtLeast(0f))
     val travel = s.travelDp * density
     val head = Offset(s.x0 * size.width + s.dirX * travel * p, s.y0 * size.height + s.dirY * travel * p)

@@ -7072,6 +7072,15 @@ class MainViewModel(
         // Leaving a feed that was opened from a profile's Lists/Feeds tab
         // (swipe down, Back) goes back to that profile, not the Hub.
         if (screen == ScreenState.SETTINGS && isProfileFeedActive()) { closeProfileFeed(); return }
+        // A post opened from a profile's tab (the profile waits, hidden,
+        // behind it): swiping down goes back to that profile.
+        if (screen == ScreenState.SETTINGS && _screenState.value == ScreenState.FEED) {
+            val overlay = _profileOverlay.value
+            if (overlay != null && overlay.hidden && activeFeedMode == ActiveFeedMode.AUTHOR && activeFeedActorDid == overlay.author.did) {
+                _profileOverlay.value = overlay.copy(hidden = false)
+                return
+            }
+        }
         _navDirection.value = when {
             screen == ScreenState.COMMENTS -> 1
             screen == ScreenState.FEED && _screenState.value == ScreenState.COMMENTS -> -1

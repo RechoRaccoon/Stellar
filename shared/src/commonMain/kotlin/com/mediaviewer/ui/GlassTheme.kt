@@ -802,7 +802,9 @@ fun LiquidGlassSurface(
                 if (staticOrigin == null)
                     Modifier.onGloballyPositioned { coords -> trackedOrigin = coords.positionInRoot() }
                 else Modifier
-            ),
+            )
+            // (Shooting stars pass behind the glass, not through it.)
+            .skyOccluder(),
         // Every decorative layer above (backdrop/tint/scrim/rim) already
         // uses matchParentSize(), so centering the actual content here only
         // affects content that doesn't already fill the panel itself — see
