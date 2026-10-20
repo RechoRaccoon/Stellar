@@ -1294,11 +1294,19 @@ class MainViewModel(
         }
     }
 
-    /** Opens the post an Inbox row is about. */
+    /** Opens the post an Inbox row is about. A reply opens as its thread:
+     *  the original post, with its comments open and the reply picked out. */
     fun openInboxPost(uri: String) {
         viewModelScope.launch(ioDispatcher) {
-            val items = bskyRepo.getPostItems(bskyToken, _bskyDid.value, listOf(uri))
+            val root = runCatching { bskyRepo.replyRootOf(bskyToken, _bskyDid.value, uri) }.getOrNull()
+            val rootItems = root?.let { bskyRepo.getPostItems(bskyToken, _bskyDid.value, listOf(it.uri)) }.orEmpty()
+            val items = rootItems.ifEmpty { bskyRepo.getPostItems(bskyToken, _bskyDid.value, listOf(uri)) }
             if (items.isEmpty()) { showToast("Post unavailable"); return@launch }
+            val asThread = rootItems.isNotEmpty()
+            withContext(Dispatchers.Main) {
+                com.mediaviewer.ui.CommentFocus.uri = if (asThread) uri else null
+                com.mediaviewer.ui.CommentFocus.postUri = if (asThread) items.first().postUri else null
+            }
             _currentIndex.value = 0
             feedCursor = null
             activeFeedMode = ActiveFeedMode.FRIENDS
@@ -1307,6 +1315,7 @@ class MainViewModel(
             _navDirection.value = 0
             _inboxOpen.value = false
             _screenState.value = ScreenState.FEED
+            if (asThread) withContext(Dispatchers.Main) { setScreen(ScreenState.COMMENTS) }
         }
     }
 

@@ -68,6 +68,22 @@ import com.mediaviewer.util.rememberHapticTap
  * easing off as it goes ([onDragFractionChanged]); let go past ~20% of the
  * screen (or flick down) and it closes, otherwise it springs back.
  */
+/** A reply opened from elsewhere (the Inbox): the comment to pick out
+ *  when [postUri]'s comments are showing. Set by MainViewModel. */
+object CommentFocus {
+    var uri by mutableStateOf<String?>(null)
+    var postUri by mutableStateOf<String?>(null)
+}
+
+/** [target]'s comment and the ones it sits under, outermost first. */
+private fun pathTo(list: List<CommentItem>, target: String): List<CommentItem>? {
+    for (c in list) {
+        if (c.uri == target) return listOf(c)
+        pathTo(c.replies, target)?.let { return listOf(c) + it }
+    }
+    return null
+}
+
 @Composable
 fun CommentsSheet(
     currentItem: MediaItem?,
@@ -126,6 +142,20 @@ fun CommentsSheet(
     // Each reply level's scroll position (the top level keyed ""), so coming
     // back out of a comment's replies lands where the list was left.
     val listStates = remember(currentItem?.id) { mutableMapOf<String, LazyListState>() }
+    // A reply opened from the Inbox: its level of the thread opens, scrolled
+    // to it, and it's picked out.
+    val focusUri = CommentFocus.uri?.takeIf { currentItem != null && CommentFocus.postUri == currentItem.postUri }
+    LaunchedEffect(focusUri, comments) {
+        val target = focusUri ?: return@LaunchedEffect
+        val path = pathTo(comments, target) ?: return@LaunchedEffect
+        val ancestors = path.dropLast(1)
+        threadStack = ancestors
+        val siblings = ancestors.lastOrNull()?.replies ?: comments
+        val idx = siblings.indexOfFirst { it.uri == target }
+        val state = listStates.getOrPut(ancestors.lastOrNull()?.id ?: "") { LazyListState() }
+        kotlinx.coroutines.delay(80)
+        if (idx >= 0) runCatching { state.animateScrollToItem(idx + if (ancestors.isEmpty()) 0 else 1) }
+    }
 
     // Media attached to the comment being written: up to 4 pictures, or one
     // video / GIF (the same rule as Bluesky posts).
@@ -406,6 +436,7 @@ fun CommentsSheet(
                                         },
                                         dominantColor = dominantColor, backdrop = backdrop,
                                         indented = parent != null,
+                                        highlighted = focusUri != null && comment.uri == focusUri,
                                         onOpenProfile = openProfileOf,
                                         onOpenMedia = { i -> onOpenMedia?.invoke(comment.media, i) ?: run { viewerMedia = comment.media to i } },
                                         onLongPress = if (isOwn(comment)) ({ commentToDelete = comment }) else null
@@ -736,6 +767,8 @@ private fun CommentRow(
     dominantColor: Color = NeutralGlassTint,
     backdrop: GlassBackdrop? = null,
     indented: Boolean = false,
+    /** The reply that was opened (see [CommentFocus]): picked out. */
+    highlighted: Boolean = false,
     onOpenProfile: (CommentItem) -> Unit = {},
     onOpenMedia: (Int) -> Unit = {},
     /** Your own comment held down (anywhere on it, its media too): delete. */
@@ -747,6 +780,7 @@ private fun CommentRow(
         Row(
             modifier = Modifier.fillMaxWidth()
                 .padding(start = if (indented) 20.dp else 0.dp)
+                .then(if (highlighted) Modifier.clip(RoundedCornerShape(12.dp)).background(dominantColor.copy(alpha = 0.22f)) else Modifier)
                 .then(
                     if (onLongPress != null) Modifier.combinedClickable(
                         onClick = { if (comment.replies.isNotEmpty()) { tap(); onOpenThread(comment) } },

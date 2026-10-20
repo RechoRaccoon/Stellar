@@ -740,6 +740,11 @@ class BlueskyRepository {
     }
 
     /** Posts by URI as feed items (the Inbox opening the post it's about). */
+    /** The post a reply belongs under (its thread's root), or null when
+     *  [uri] isn't a reply. */
+    suspend fun replyRootOf(token: String, myDid: String, uri: String): BskyRef? =
+        getPostsByUri(token, myDid, listOf(uri))[uri]?.record?.reply?.root?.takeIf { it.uri.isNotBlank() && it.uri != uri }
+
     suspend fun getPostItems(token: String, myDid: String, uris: List<String>): List<MediaItem> {
         val byUri = getPostsByUri(token, myDid, uris)
         return uris.mapNotNull { byUri[it] }.flatMap { parseFeedItemSafe(BskyFeedItem(post = it)) }

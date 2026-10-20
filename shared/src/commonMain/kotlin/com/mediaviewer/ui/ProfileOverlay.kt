@@ -2842,7 +2842,8 @@ private fun MediaItem.tileAspectRatio(): Float = when {
 private fun MediaItem.estimatedMasonryHeightUnits(): Float = if (isTextOnly && !isEmojiTextshot) {
     val charsPerLine = 32
     val lines = kotlin.math.ceil(text.length.coerceAtLeast(1) / charsPerLine.toFloat())
-    0.22f + lines * 0.16f
+    // (No taller than COMPACT_TEXT_MAX_ASPECT: longer text gets smaller.)
+    minOf(0.22f + lines * 0.16f, COMPACT_TEXT_MAX_ASPECT)
 } else {
     1f / tileAspectRatio()
 }
@@ -2934,8 +2935,10 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
         } else if (item.isTextOnly) {
             // The uploader's own color, dimmed, behind their text.
             val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
-            Box(contentModifier.background(androidx.compose.ui.graphics.lerp(OledBlack, authorTint, 0.35f)).padding(10.dp), contentAlignment = Alignment.Center) {
-                Text(item.text, color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            // A square of their text, centered and sized to fill it (like the
+            // post itself when it's opened).
+            Box(contentModifier.background(androidx.compose.ui.graphics.lerp(OledBlack, authorTint, 0.35f)).padding(8.dp), contentAlignment = Alignment.Center) {
+                FittedPostText(item.text, maxSp = 15f, minSp = 6f, modifier = Modifier.fillMaxSize())
             }
         } else {
             val thumb = item.mediaGroup.firstOrNull()?.thumbUrl?.ifBlank { item.mediaGroup.firstOrNull()?.mediaUrl }
@@ -3417,6 +3420,39 @@ private fun LazyListScope.postsHorizontalVideoRows(
 /** The widths these tiles are laid out at before shrinking to their
  *  column (see shrinkToWidth): about what each gets on a phone in portrait. */
 private val COMPACT_TEXT_REFERENCE = 170.dp
+/** A masonry text bubble's tallest shape (height ÷ width). */
+private const val COMPACT_TEXT_MAX_ASPECT = 1.15f
+
+/**
+ * A text post's words the way the opened post shows them (centered,
+ * medium weight), at the largest size from [maxSp] down to [minSp] that
+ * fits: in the whole box (a square grid tile), or within [maxHeight]
+ * (the text sizes the bubble). Still too long at [minSp]: cut off with "…".
+ */
+@Composable
+internal fun FittedPostText(text: String, maxSp: Float, minSp: Float, modifier: Modifier = Modifier, maxHeight: Dp? = null) {
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+        val density = LocalDensity.current
+        val base = LocalTextStyle.current
+        val widthPx = constraints.maxWidth.coerceAtLeast(1)
+        val heightPx = with(density) { (maxHeight ?: this@BoxWithConstraints.maxHeight).toPx() }
+        fun style(sp: Float) = base.merge(androidx.compose.ui.text.TextStyle(
+            fontSize = sp.sp, lineHeight = (sp * 1.3f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
+        ))
+        val size = remember(text, widthPx, heightPx, base) {
+            var sp = maxSp
+            while (sp > minSp && measurer.measure(androidx.compose.ui.text.AnnotatedString(text), style(sp),
+                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = widthPx)).size.height > heightPx) sp -= 0.5f
+            sp.coerceAtLeast(minSp)
+        }
+        val lines = with(density) { (heightPx / (size * 1.3f).sp.toPx()).toInt().coerceAtLeast(1) }
+        Text(
+            text, style = style(size), color = Color.White.copy(alpha = 0.94f),
+            maxLines = lines, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
 
 /**
  * Landscape grids: how much wider than usual a text post is laid out before
@@ -4228,6 +4264,15 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
                 item.textshotImageUrl, cornerRadius = 12.dp,
                 modifier = (if (blurNsfw) Modifier.blur(36.dp) else Modifier).fillMaxSize()
             )
+        } else if (maxLines == Int.MAX_VALUE) {
+            // A small copy of the opened post: centered, its text shrunk to
+            // keep the bubble no taller than the opened card's shape.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                FittedPostText(
+                    item.text, maxSp = 13f, minSp = 7f, maxHeight = maxWidth * COMPACT_TEXT_MAX_ASPECT,
+                    modifier = (if (blurNsfw) Modifier.blur(36.dp) else Modifier).fillMaxWidth()
+                )
+            }
         } else Text(
             item.text, color = Color.White.copy(0.92f), fontSize = 9.sp, lineHeight = 12.sp,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
