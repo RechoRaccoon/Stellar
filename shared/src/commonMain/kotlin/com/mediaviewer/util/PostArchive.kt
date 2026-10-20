@@ -58,6 +58,12 @@ object PostArchive {
     var posts by mutableStateOf<List<ArchivedPost>>(emptyList())
         private set
 
+    /** Reads the list again (Private Sync just wrote a new one). */
+    fun reload(context: PlatformContext) {
+        prefs = null
+        init(context)
+    }
+
     fun init(context: PlatformContext) {
         if (prefs != null) return
         val p = context.sharedPreferences("post_archive")

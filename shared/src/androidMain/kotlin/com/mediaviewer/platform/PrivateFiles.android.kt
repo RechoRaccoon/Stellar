@@ -88,4 +88,43 @@ actual object PrivateFiles {
     } catch (_: Exception) {
         uri.lastPathSegment
     }
+
+    private fun mediaRoot(context: PlatformContext): File = File(context.applicationContext.filesDir, "local_media")
+
+    actual fun mediaRootUri(context: PlatformContext): String = Uri.fromFile(mediaRoot(context)).toString().trimEnd('/')
+
+    /** A file in either of our folders (never outside them, even via ".."). */
+    private fun syncFile(context: PlatformContext, uri: String): File? {
+        val path = (if (uri.startsWith("file://")) Uri.parse(uri).path else uri) ?: return null
+        val file = File(path).canonicalFile
+        val roots = listOf(root(context), mediaRoot(context)).map { it.canonicalPath + File.separator }
+        return if (roots.any { file.path.startsWith(it) }) file else null
+    }
+
+    actual fun readRange(context: PlatformContext, uri: String, offset: Long, length: Int): ByteArray? = try {
+        val f = syncFile(context, uri)?.takeIf { it.isFile }
+        if (f == null) null else java.io.RandomAccessFile(f, "r").use { raf ->
+            val n = minOf(length.toLong(), (raf.length() - offset).coerceAtLeast(0L)).toInt()
+            val out = ByteArray(n)
+            raf.seek(offset)
+            raf.readFully(out)
+            out
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    actual fun appendBytes(context: PlatformContext, uri: String, bytes: ByteArray, restart: Boolean): Boolean = try {
+        val f = syncFile(context, uri)
+        if (f == null) false else {
+            f.parentFile?.mkdirs()
+            java.io.FileOutputStream(f, !restart).use { it.write(bytes) }
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    actual fun ownSize(context: PlatformContext, uri: String): Long =
+        syncFile(context, uri)?.takeIf { it.isFile }?.length() ?: -1L
 }

@@ -90,4 +90,43 @@ actual object PrivateFiles {
 
     actual fun displayName(context: PlatformContext, uri: PlatformUri): String? =
         MediaBridge.pathOf(uri).substringAfterLast('/').takeIf { it.isNotBlank() }
+
+    private fun mediaRoot(): String = IosPaths.filesDir() + "/local_media"
+
+    actual fun mediaRootUri(context: PlatformContext): String {
+        mkdir(mediaRoot(), 0x1ED.convert())
+        return "file://" + mediaRoot()
+    }
+
+    /** A file in either of our folders (never outside them, even via ".."). */
+    private fun syncPath(uri: String): String? {
+        val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
+        if (path.split('/').any { it == ".." }) return null
+        return path.takeIf { it.startsWith(root() + "/") || it.startsWith(mediaRoot() + "/") }
+    }
+
+    actual fun readRange(context: PlatformContext, uri: String, offset: Long, length: Int): ByteArray? =
+        syncPath(uri)?.let { runCatching { readLocalFileRange(it, offset, length) }.getOrNull() }
+
+    actual fun appendBytes(context: PlatformContext, uri: String, bytes: ByteArray, restart: Boolean): Boolean = try {
+        val path = syncPath(uri)
+        if (path == null) false else {
+            // (Folders first, one level at a time.)
+            var dir = ""
+            path.substringBeforeLast('/').split('/').filter { it.isNotEmpty() }.forEach { part ->
+                dir = "$dir/$part"
+                mkdir(dir, 0x1ED.convert())
+            }
+            appendLocalFile(path, bytes, restart).also { if (it) protect(path) }
+        }
+    } catch (_: Throwable) {
+        false
+    }
+
+    actual fun ownSize(context: PlatformContext, uri: String): Long {
+        val path = syncPath(uri) ?: return -1L
+        if (!NSFileManager.defaultManager.fileExistsAtPath(path)) return -1L
+        val attrs = runCatching { NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null) }.getOrNull() ?: return -1L
+        return (attrs[platform.Foundation.NSFileSize] as? Number)?.toLong() ?: -1L
+    }
 }

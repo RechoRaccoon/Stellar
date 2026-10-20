@@ -1,6 +1,9 @@
 package com.mediaviewer.platform
 
 import kotlinx.atomicfu.locks.ReentrantLock
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.usePinned
 import kotlinx.atomicfu.locks.reentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlin.time.Clock
@@ -29,6 +32,15 @@ actual fun parseIsoOffsetDateTimeMillis(text: String): Long = Instant.parse(text
 
 @OptIn(ExperimentalUuidApi::class)
 actual fun randomUuidString(): String = Uuid.random().toString()
+
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+actual fun secureRandomBytes(count: Int): ByteArray {
+    val out = ByteArray(count)
+    if (count == 0) return out
+    val status = out.usePinned { platform.Security.SecRandomCopyBytes(platform.Security.kSecRandomDefault, count.convert(), it.addressOf(0)) }
+    check(status == 0) { "No secure random bytes ($status)" }
+    return out
+}
 
 private const val HEX = "0123456789ABCDEF"
 

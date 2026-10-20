@@ -16,6 +16,9 @@ import kotlin.wasm.unsafe.withScopedMemoryAllocator
 /** A JavaScript Uint8Array (or any typed array view). */
 external interface JsBytes : JsAny
 
+/** crypto.getRandomValues: throws (no fallback) where it's missing. */
+internal fun jsSecureRandom(n: Int): JsBytes = js("crypto.getRandomValues(new Uint8Array(n))")
+
 private fun jsBytesLength(a: JsBytes): Int = js("a.length")
 
 private fun jsCopyToWasm(src: JsBytes, dstAddr: Int, size: Int): Unit =

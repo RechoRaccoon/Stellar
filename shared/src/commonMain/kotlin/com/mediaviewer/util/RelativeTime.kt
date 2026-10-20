@@ -30,3 +30,7 @@ fun formatRelativeTime(isoTimestamp: String): String {
         }
     }
 }
+
+/** [millis] as an ISO-8601 instant (for [formatRelativeTime]). */
+@OptIn(kotlin.time.ExperimentalTime::class)
+fun isoFromMillis(millis: Long): String = kotlin.time.Instant.fromEpochMilliseconds(millis).toString()

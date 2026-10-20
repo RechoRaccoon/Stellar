@@ -1345,6 +1345,7 @@ internal fun SettingsPageContent(
 
         // ── Data and Privacy ────────────────────────────────────────────
         CollapsibleSection("Data and Privacy", tint) {
+            if (bskyLoggedIn) PrivateSyncBubble(liquidGlass, tint, backdrop)
             if (bskyLoggedIn) {
                 ActionBubble(
                     label = "Blocked Accounts",
@@ -2709,6 +2710,46 @@ private fun OpenLinksSetupDialog(liquidGlass: Boolean, tint: Color, onDismiss: (
             } else {
                 Box(m.clip(shape).background(OffBlack).border(1.dp, tint.copy(alpha = 0.5f), shape)) { Content() }
             }
+        }
+    }
+}
+
+/** Data and Privacy → Private Sync: how it's doing, Sync Now, and the
+ *  Secret Key (hidden until asked for, then copyable). */
+@Composable
+private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val sync = com.mediaviewer.util.PrivateSync
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var reveal by remember { mutableStateOf(false) }
+    val key = remember(sync.state, reveal) { if (reveal) sync.savedSecretKey() else null }
+    val status = when (sync.state) {
+        com.mediaviewer.util.PrivateSync.State.READY -> when {
+            sync.syncing -> "Syncing…"
+            sync.lastError != null -> sync.lastError
+            sync.lastSynced > 0L -> com.mediaviewer.util.formatRelativeTime(com.mediaviewer.util.isoFromMillis(sync.lastSynced)).let { if (it == "just now") "Synced just now" else "Synced $it ago" }
+            else -> "On"
+        }
+        com.mediaviewer.util.PrivateSync.State.OFFLINE -> "Can't reach your PDS right now; trying again soon"
+        com.mediaviewer.util.PrivateSync.State.CHECKING -> "Checking…"
+        com.mediaviewer.util.PrivateSync.State.NEEDS_KEY -> "Waiting for your Secret Key"
+        com.mediaviewer.util.PrivateSync.State.NEEDS_SETUP -> "Not set up yet"
+        com.mediaviewer.util.PrivateSync.State.OFF -> "Off"
+    }
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("Private Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive, Hub and settings, encrypted on your PDS · $status")
+            PillButton("Sync Now", { sync.syncNow() }, enabled = !sync.syncing &&
+                (sync.state == com.mediaviewer.util.PrivateSync.State.READY || sync.state == com.mediaviewer.util.PrivateSync.State.OFFLINE))
+        }
+        if (sync.state == com.mediaviewer.util.PrivateSync.State.READY) {
+            BubbleDivider()
+            BubbleRow {
+                RowLabel("Secret Key", Modifier.weight(1f), sub = if (key == null) "Opens your Private Sync on a new device. Keep it private." else null)
+                if (key != null) PillButton("Copy", { clipboard.setText(androidx.compose.ui.text.AnnotatedString(key)) })
+                Spacer(Modifier.width(6.dp))
+                PillButton(if (reveal) "Hide" else "Show", { reveal = !reveal })
+            }
+            if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyBox(key) }
         }
     }
 }

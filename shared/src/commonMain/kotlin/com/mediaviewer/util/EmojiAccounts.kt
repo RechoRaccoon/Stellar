@@ -27,6 +27,9 @@ object EmojiAccounts {
 
     private fun key(owner: String) = "saved_$owner"
 
+    /** Forgets what's been read (Private Sync just wrote new lists). */
+    fun reload() { lists.clear() }
+
     /** [owner]'s saved accounts (read by Compose: changes recompose). */
     fun saved(owner: String): List<Account> {
         if (owner.isBlank()) return emptyList()

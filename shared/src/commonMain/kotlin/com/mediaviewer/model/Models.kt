@@ -644,7 +644,10 @@ data class BskyPutRecordRequest(
     /** false = skip the PDS's lexicon validation (third-party lexicons
      *  like standard.site that a PDS may know a different revision of).
      *  null = omitted from the JSON, the PDS default. */
-    val validate: Boolean? = null
+    val validate: Boolean? = null,
+    /** Compare-and-swap: the write only goes through while the record's
+     *  current CID is this one (Private Sync). null = omitted. */
+    val swapRecord: String? = null
 )
 
 @Serializable

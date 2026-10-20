@@ -21,6 +21,11 @@ expect fun parseIsoOffsetDateTimeMillis(text: String): Long
 /** java.util.UUID.randomUUID().toString() on Android. */
 expect fun randomUuidString(): String
 
+/** [count] bytes from the platform's cryptographically secure generator
+ *  (SecureRandom, SecRandomCopyBytes, crypto.getRandomValues). Throws
+ *  rather than ever returning weak bytes. */
+expect fun secureRandomBytes(count: Int): ByteArray
+
 /** java.net.URLDecoder.decode(s, "UTF-8") on Android. */
 expect fun urlDecode(text: String): String
 

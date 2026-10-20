@@ -1646,6 +1646,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             modifier = Modifier.zIndex(25f)
         )
         com.mediaviewer.ui.TipOverlay(tint = selfProfileTint, modifier = Modifier.zIndex(30f))
+        // Private Sync's required step after signing in (see PrivateSync).
+        PrivateSyncGate(signedIn = appInitialized && bskyLoggedIn, tint = selfProfileTint)
     }
     }
 

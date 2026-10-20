@@ -17,11 +17,12 @@ import kotlinx.serialization.builtins.serializer
 
 /**
  * Every status you've posted, newest first (the status box's history).
- * Saved on your own PDS — one record per status in [COLLECTION], so it's
- * on every device you sign in on, and public like the status itself — with
- * a copy on this device so it shows at once. A status goes in the moment
- * it's posted; deleting one deletes its record (tried again later if the
- * PDS can't be reached).
+ * Kept on this device and carried to your other devices by Private Sync,
+ * encrypted, so only you can read it.
+ *
+ * Earlier versions saved each status as a public record in [COLLECTION].
+ * Those are read once more, folded into the history, and removed from the
+ * PDS as soon as Private Sync has a copy ([retirePublic]).
  */
 object StatusHistory {
     const val COLLECTION = "com.rechoraccoon.stellar.statusHistory"
@@ -78,9 +79,8 @@ object StatusHistory {
         sync(did)
     }
 
-    /** The PDS's list wins: statuses deleted elsewhere go, ones posted
-     *  elsewhere come in; any posted here that never reached it are sent,
-     *  and deletes that didn't go through are tried again. */
+    /** Folds any old public history records into this device's history
+     *  (once per session), and retries deletes that didn't go through. */
     private fun sync(did: String) {
         if (syncedDid == did) return
         val r = remote ?: return
@@ -89,39 +89,62 @@ object StatusHistory {
             val ok = runCatching {
                 pendingDeletes(did).forEach { rkey -> r.delete(did, rkey); forgetPendingDelete(did, rkey) }
                 val fromPds = r.list(did)
-                val unsent = withContext(Dispatchers.Main) {
-                    if (loadedDid != did) return@withContext emptyList()
-                    val local = entries.filter { it.rkey == null }
-                    entries.clear()
-                    entries.addAll((fromPds + local).sortedByDescending { it.createdAt })
-                    save(did)
-                    local
-                }
-                unsent.forEach { upload(did, it) }
+                if (fromPds.isNotEmpty()) withContext(Dispatchers.Main) { foldIn(did, fromPds) }
             }.isSuccess
             if (!ok) withContext(Dispatchers.Main) { if (syncedDid == did) syncedDid = null }
         }
     }
 
+    private fun foldIn(did: String, fromPds: List<Entry>) {
+        if (loadedDid != did) return
+        val merged = entries.toMutableList()
+        for (e in fromPds) {
+            val i = merged.indexOfFirst { it.sameAs(e) }
+            if (i >= 0) merged[i] = merged[i].copy(rkey = e.rkey) else merged += e
+        }
+        entries.clear()
+        entries.addAll(merged.sortedByDescending { it.createdAt })
+        save(did)
+    }
+
+    private var retiredDid: String? = null
+
+    /** Private Sync has just saved [did]'s history (encrypted): the old
+     *  public copies of it can go. Once per session. */
+    suspend fun retirePublic(did: String) {
+        if (retiredDid == did) return
+        val r = remote ?: return
+        val saved = withContext(Dispatchers.Main) { if (loadedDid == did) entries.toList() else null } ?: return
+        val onPds = r.list(did)
+        retiredDid = did
+        val (kept, missing) = onPds.partition { p -> saved.any { it.sameAs(p) } }
+        // (One that somehow isn't here yet is folded in first and removed
+        // after the next sync has it.)
+        if (missing.isNotEmpty()) { withContext(Dispatchers.Main) { foldIn(did, missing) }; retiredDid = null }
+        for (e in kept) {
+            val rkey = e.rkey ?: continue
+            if (!PrivateSync.WriteBudget.take(1)) { retiredDid = null; break }
+            runCatching { r.delete(did, rkey) }.onSuccess {
+                withContext(Dispatchers.Main) {
+                    val i = entries.indexOfFirst { it.sameAs(e) }
+                    if (i >= 0 && loadedDid == did) { entries[i] = entries[i].copy(rkey = null); save(did) }
+                }
+            }
+        }
+    }
+
+    /** Private Sync wrote a new history: show it. */
+    fun reload(did: String) {
+        if (loadedDid != did) return
+        loadedDid = null
+        load(did)
+    }
+
     fun add(did: String, status: ProfileStatus) {
         if (did.isBlank() || status.text.isBlank()) return
         load(did)
-        val entry = Entry(status.text, status.createdAt, status.expiresAt, emoji = status.emoji)
-        entries.add(0, entry)
+        entries.add(0, Entry(status.text, status.createdAt, status.expiresAt, emoji = status.emoji))
         save(did)
-        scope.launch { runCatching { upload(did, entry) } }
-    }
-
-    /** Saves [entry] to the PDS and keeps its record key. Deleted here in
-     *  the meantime: its new record is deleted too. */
-    private suspend fun upload(did: String, entry: Entry) {
-        val r = remote ?: return
-        val rkey = r.add(did, entry)
-        val stillHere = withContext(Dispatchers.Main) {
-            val i = entries.indexOfFirst { it.sameAs(entry) }
-            if (i >= 0 && loadedDid == did) { entries[i] = entries[i].copy(rkey = rkey); save(did); true } else false
-        }
-        if (!stillHere) runCatching { r.delete(did, rkey) }.onFailure { addPendingDelete(did, rkey) }
     }
 
     fun delete(did: String, entry: Entry) {

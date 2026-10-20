@@ -19,6 +19,10 @@ actual fun parseIsoInstantMillis(text: String): Long = parseIsoMillis(text, requ
 actual fun parseIsoOffsetDateTimeMillis(text: String): Long = parseIsoMillis(text, requireOffset = true)
 
 actual fun randomUuidString(): String = jsRandomUuid()
+actual fun secureRandomBytes(count: Int): ByteArray {
+    require(count in 0..65536)
+    return jsSecureRandom(count).toByteArray()
+}
 
 /** Form decoding ("+" is a space), like java.net.URLDecoder. */
 actual fun urlDecode(text: String): String =

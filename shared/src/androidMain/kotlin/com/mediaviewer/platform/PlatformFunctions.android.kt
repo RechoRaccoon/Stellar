@@ -6,6 +6,8 @@ actual fun nowIsoString(): String = java.time.Instant.now().toString()
 actual fun parseIsoInstantMillis(text: String): Long = java.time.Instant.parse(text).toEpochMilli()
 actual fun parseIsoOffsetDateTimeMillis(text: String): Long = java.time.OffsetDateTime.parse(text).toInstant().toEpochMilli()
 actual fun randomUuidString(): String = java.util.UUID.randomUUID().toString()
+private val secureRandom by lazy { java.security.SecureRandom() }
+actual fun secureRandomBytes(count: Int): ByteArray = ByteArray(count).also { secureRandom.nextBytes(it) }
 actual fun urlDecode(text: String): String = java.net.URLDecoder.decode(text, "UTF-8")
 actual fun urlEncode(text: String): String = java.net.URLEncoder.encode(text, "UTF-8")
 actual fun uriHost(url: String): String? = java.net.URI(url).host

@@ -4260,6 +4260,68 @@ class BlueskyRepository {
         if (!resp.isSuccessful && resp.code() != 404) error("Emoji ${resp.code()}: ${errorBodyText(resp).take(120)}")
     }
 
+    // ── Private Sync (util/PrivateSync.kt): encrypted records + blobs ──
+
+    /** One record of your own, or null when there isn't one. */
+    suspend fun syncGetRecord(token: String, did: String, collection: String, rkey: String): com.mediaviewer.util.PrivateSync.Rec? = withContext(ioDispatcher) {
+        val resp = api.getRecord("Bearer $token", did, collection, rkey)
+        if (!resp.isSuccessful) {
+            val body = errorBodyText(resp)
+            // (A missing record is a 400 "RecordNotFound".)
+            if (resp.code() == 400 && body.contains("RecordNotFound") || resp.code() == 404) return@withContext null
+            error("Sync read ${resp.code()}: ${body.take(120)}")
+        }
+        val env = resp.body() ?: error("Sync read: empty reply")
+        val value = env.value?.toKx() as? kotlinx.serialization.json.JsonObject ?: error("Sync read: no record")
+        com.mediaviewer.util.PrivateSync.Rec(env.uri.substringAfterLast('/'), env.cid.orEmpty(), value)
+    }
+
+    /** Writes a record; with [swap], only while its CID is still that one
+     *  (otherwise [com.mediaviewer.util.PrivateSync.SwapFailed]). Its new CID. */
+    suspend fun syncPutRecord(token: String, did: String, collection: String, rkey: String, record: Map<String, Any>, swap: String?): String = withContext(ioDispatcher) {
+        val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, collection, rkey, record, swapRecord = swap))
+        if (!resp.isSuccessful) {
+            val body = errorBodyText(resp)
+            if (body.contains("InvalidSwap")) throw com.mediaviewer.util.PrivateSync.SwapFailed()
+            error("Sync write ${resp.code()}: ${body.take(120)}")
+        }
+        resp.body()?.cid ?: error("Sync write: empty reply")
+    }
+
+    suspend fun syncListRecords(token: String, did: String, collection: String): List<com.mediaviewer.util.PrivateSync.Rec> = withContext(ioDispatcher) {
+        val out = mutableListOf<com.mediaviewer.util.PrivateSync.Rec>()
+        var cursor: String? = null
+        // (At most 50 pages: a runaway cursor can't loop forever.)
+        repeat(50) {
+            val resp = api.listRecords("Bearer $token", did, collection, 100, cursor)
+            val body = resp.body() ?: error("Sync list ${resp.code()}: ${errorBodyText(resp).take(120)}")
+            body.records.forEach { r ->
+                val v = r.value?.toKx() as? kotlinx.serialization.json.JsonObject ?: return@forEach
+                out += com.mediaviewer.util.PrivateSync.Rec(r.uri.substringAfterLast('/'), r.cid.orEmpty(), v)
+            }
+            cursor = body.cursor?.takeIf { it.isNotBlank() && body.records.isNotEmpty() } ?: return@withContext out
+        }
+        out
+    }
+
+    suspend fun syncDeleteRecord(token: String, did: String, collection: String, rkey: String) = withContext(ioDispatcher) {
+        val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, collection, rkey))
+        if (!resp.isSuccessful && resp.code() != 404) error("Sync delete ${resp.code()}: ${errorBodyText(resp).take(120)}")
+    }
+
+    /** Uploads already-encrypted bytes; the blob, as a record holds it. */
+    suspend fun syncUploadBlob(token: String, bytes: ByteArray): Map<String, Any> = withContext(ioDispatcher) {
+        val mime = "application/octet-stream"
+        val up = api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
+        val blob = up.body()?.blob ?: error("Sync upload ${up.code()}: ${errorBodyText(up).take(120)}")
+        mapOf(
+            "\$type" to "blob",
+            "ref" to mapOf("\$link" to blob.ref.link),
+            "mimeType" to blob.mimeType.ifBlank { mime },
+            "size" to blob.size
+        )
+    }
+
     /** An account's blob (an emoji's picture), from its PDS. */
     suspend fun fetchBlob(did: String, cid: String): ByteArray = withContext(ioDispatcher) {
         val resp = PlainHttp.get(BlueskyBlobResolver.resolveBlobUrl(did, cid))

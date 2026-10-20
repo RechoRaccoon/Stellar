@@ -36,4 +36,24 @@ expect object PrivateFiles {
 
     /** The picked file's name as the system shows it ("airhorn.mp3"), if known. */
     fun displayName(context: PlatformContext, uri: PlatformUri): String?
+
+    // ── Private Sync: files are sent and fetched a piece at a time ──
+    // These work on both of the app's own folders, this one and the
+    // pictures drafts and notes keep (see [mediaRootUri]), and nowhere else.
+
+    /** The "file://…" prefix of the folder drafts' and notes' pictures are
+     *  copied into (LocalPlatform.importMedia), no trailing slash. */
+    fun mediaRootUri(context: PlatformContext): String
+
+    /** Up to [length] bytes of the file at [uri] from [offset] (fewer at
+     *  its end), or null if it isn't one of ours or can't be read. */
+    fun readRange(context: PlatformContext, uri: String, offset: Long, length: Int): ByteArray?
+
+    /** Writes [bytes] at the end of the file at [uri] (made, with its
+     *  folders, if needed; emptied first when [restart]). False if it isn't
+     *  one of ours or the write failed. */
+    fun appendBytes(context: PlatformContext, uri: String, bytes: ByteArray, restart: Boolean): Boolean
+
+    /** Bytes on disk of either folder's file, or -1 when there's none. */
+    fun ownSize(context: PlatformContext, uri: String): Long
 }

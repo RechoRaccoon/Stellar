@@ -6316,6 +6316,30 @@ class MainViewModel(
             override suspend fun add(did: String, entry: com.mediaviewer.util.StatusHistory.Entry) = signedIn { bskyRepo.addStatusHistory(bskyToken, did, entry) }
             override suspend fun delete(did: String, rkey: String) = signedIn { bskyRepo.deleteStatusHistory(bskyToken, did, rkey) }
         }
+        // Private Sync: this device's private data, encrypted, on your PDS.
+        com.mediaviewer.util.PrivateSync.init(platform.context)
+        com.mediaviewer.util.PrivateSync.remote = object : com.mediaviewer.util.PrivateSync.Remote {
+            private suspend fun <T> signedIn(call: suspend () -> T): T {
+                if (!_bskyLoggedIn.value) error("Not signed in")
+                return try { call() } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException || e is com.mediaviewer.util.PrivateSync.SwapFailed) throw e
+                    if (isAuthError(e.message) && refreshBskyTokenIfPossible()) call() else throw e
+                }
+            }
+            override suspend fun get(did: String, collection: String, rkey: String) =
+                signedIn { bskyRepo.syncGetRecord(bskyToken, did, collection, rkey) }
+            override suspend fun put(did: String, collection: String, rkey: String, record: Map<String, Any>, swap: String?) =
+                signedIn { bskyRepo.syncPutRecord(bskyToken, did, collection, rkey, record, swap) }
+            override suspend fun list(did: String, collection: String) = signedIn { bskyRepo.syncListRecords(bskyToken, did, collection) }
+            override suspend fun delete(did: String, collection: String, rkey: String) = signedIn { bskyRepo.syncDeleteRecord(bskyToken, did, collection, rkey) }
+            override suspend fun upload(bytes: ByteArray) = signedIn { bskyRepo.syncUploadBlob(bskyToken, bytes) }
+            override suspend fun blob(did: String, cid: String) = bskyRepo.fetchBlob(did, cid)
+        }
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(_bskyLoggedIn, _bskyDid) { inn, did -> if (inn) did else "" }
+                .distinctUntilChanged()
+                .collect { did -> com.mediaviewer.util.PrivateSync.start(did) }
+        }
         com.mediaviewer.util.ProfileStyles.bannerUploader = { uri, onDone ->
             if (!_bskyLoggedIn.value) onDone(null, "Not signed in")
             else viewModelScope.launch(ioDispatcher) {
