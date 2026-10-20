@@ -73,21 +73,23 @@ import kotlin.coroutines.resumeWithException
 /**
  * Custom video thumbnails on iOS: the same idea as Android's
  * VideoThumbnailStitcher. Bluesky always shows a video's first frame as
- * its thumbnail, so the picked picture is made the first second of the
+ * its thumbnail, so the picked picture is made the first frame of the
  * video itself.
  *
  * Done with Apple's own AVFoundation, in two steps:
  *  1. the picture (centre-cropped to the video's shape) is written as a
- *     one-second clip at the video's size;
- *  2. that clip and the video are joined — the sound moved a second later
+ *     one-frame clip at the video's size;
+ *  2. that clip and the video are joined — the sound moved one frame later
  *     to stay in step — and exported as one mp4.
  * The whole video is re-encoded, like on Android, so a long video takes a
  * little while.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal object IosVideoStitcher {
-    /** How long the picture stays on screen (Android uses the same). */
-    private const val THUMBNAIL_SECONDS = 1
+    /** The picture is one frame long at [CLIP_FPS] (Android does the
+     *  same): frame 0, what Bluesky shows as the thumbnail, and nothing a
+     *  viewer would notice while the video plays. */
+    private const val THUMBNAIL_FRAMES = 1
     private const val CLIP_FPS = 30
 
     suspend fun stitch(videoPath: String, thumbnailPath: String): String = withContext(Dispatchers.IO) {
@@ -117,7 +119,7 @@ internal object IosVideoStitcher {
                 ?: error("Couldn't make the thumbnail clip")
 
             val zero = CMTimeMake(0, 600)
-            val lead = CMTimeMake(THUMBNAIL_SECONDS.toLong(), 1)
+            val lead = CMTimeMake(THUMBNAIL_FRAMES.toLong(), CLIP_FPS)
             val composition = AVMutableComposition.composition()
             val leadVideo = composition.addMutableTrackWithMediaType(AVMediaTypeVideo ?: "vide", kCMPersistentTrackID_Invalid)
                 ?: error("Couldn't set up the export")
@@ -135,7 +137,7 @@ internal object IosVideoStitcher {
             }
 
             // Which picture is on screen when: the clip for the first
-            // second (already upright), then the video, turned the way its
+            // frame (already upright), then the video, turned the way its
             // own note says.
             val leadLayer = AVMutableVideoCompositionLayerInstruction.videoCompositionLayerInstructionWithAssetTrack(leadVideo)
             leadLayer.setTransform(CGAffineTransformMake(1.0, 0.0, 0.0, 1.0, 0.0, 0.0), atTime = zero)
@@ -199,7 +201,7 @@ internal object IosVideoStitcher {
         return out
     }
 
-    /** [picture] as a [THUMBNAIL_SECONDS]-second H.264 clip at [path]. */
+    /** [picture] as a [THUMBNAIL_FRAMES]-frame H.264 clip at [path]. */
     private suspend fun writeClip(picture: UIImage, w: Int, h: Int, path: String) {
         val cgImage = picture.CGImage ?: error("Couldn't read the thumbnail image")
         val writer = AVAssetWriter(uRL = NSURL.fileURLWithPath(path), fileType = AVFileTypeMPEG4, error = null)
@@ -241,8 +243,8 @@ internal object IosVideoStitcher {
                 CVPixelBufferUnlockBaseAddress(buffer, 0u)
                 if (context == null) error("Couldn't make the thumbnail clip")
 
-                // The same frame for the whole second.
-                val frames = THUMBNAIL_SECONDS * CLIP_FPS
+                // The picture, as the clip's one frame.
+                val frames = THUMBNAIL_FRAMES
                 for (i in 0 until frames) {
                     var waited = 0
                     while (!input.readyForMoreMediaData && waited < 2000) { usleep(2000u); waited++ }
@@ -255,7 +257,7 @@ internal object IosVideoStitcher {
             }
         }
         input.markAsFinished()
-        writer.endSessionAtSourceTime(CMTimeMake((THUMBNAIL_SECONDS * CLIP_FPS).toLong(), CLIP_FPS))
+        writer.endSessionAtSourceTime(CMTimeMake(THUMBNAIL_FRAMES.toLong(), CLIP_FPS))
         suspendCancellableCoroutine { cont ->
             writer.finishWritingWithCompletionHandler { if (cont.isActive) cont.resume(Unit) }
         }

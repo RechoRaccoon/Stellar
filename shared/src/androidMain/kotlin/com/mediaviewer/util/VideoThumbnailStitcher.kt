@@ -38,9 +38,10 @@ import kotlin.coroutines.resumeWithException
  * Gradle 8.7 — see the root and app build files).
  */
 object VideoThumbnailStitcher {
-    /** How long the spliced-in thumbnail stays on screen. One second
-     *  guarantees frame 0 is the thumbnail on every player. */
-    private const val THUMBNAIL_DURATION_MS = 1000L
+    /** How long the spliced-in thumbnail stays on screen: a single frame
+     *  at the clip's 30 fps — just enough to be frame 0 (what Bluesky shows
+     *  as the thumbnail) without showing up while the video plays. */
+    private const val THUMBNAIL_DURATION_MS = 33L
 
     /** Returns a new mp4 [Uri] (in the app cache dir) with [thumbnailUri]
      *  as its first frame, or [videoUri] unchanged when [thumbnailUri] is

@@ -289,13 +289,12 @@ object DesktopFfmpeg {
                     SamplingMode.LINEAR, Paint(), true
                 )
                 val frame = argbFrame(DesktopImages.argb(surface.makeImageSnapshot()), w, h)
-                val fps = rec.frameRate
-                val count = fps.toInt().coerceAtLeast(1)
-                for (i in 0 until count) {
-                    rec.timestamp = (i * 1_000_000L / fps).toLong()
-                    rec.record(frame, avutil.AV_PIX_FMT_BGRA)
-                }
-                1_000_000L
+                // One frame: frame 0 (what Bluesky shows as the thumbnail),
+                // too short to notice while the video plays.
+                val fps = rec.frameRate.coerceAtLeast(1.0)
+                rec.timestamp = 0L
+                rec.record(frame, avutil.AV_PIX_FMT_BGRA)
+                (1_000_000L / fps).toLong()
             }
         } catch (t: Throwable) {
             out.delete()
