@@ -456,14 +456,17 @@ fun MainFeedScreen(
     val commentViewerBlur = if (commentViewer != null) 26.dp else 0.dp
 
     // ── Keyboard shortcuts (every version, with a keyboard) ──
-    // Timeline: L / Space like, R repost, B save (bookmark), F follow / unfollow, ← → (or A / D, ↑ ↓) the previous /
-    // next post, E Explore (as pinching in does). Explore: T back to the
+    // Timeline: L / Space like, R repost, Q quote repost, S share, C comments, B save (bookmark),
+    // F follow / unfollow, ← → (or A / D) the previous / next picture of a
+    // multi-picture post and then the previous / next post, ↑ ↓ the previous /
+    // next post straight away, E Explore (as pinching in does). Explore: T back to the
     // timeline, at the post it was on. Only while nothing's open over them;
     // typing in a text field never triggers them (the field takes the keys).
     val keyFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val shortcutsOn = shortcutsEnabled && (screenState == ScreenState.FEED || screenState == ScreenState.COMMENTS || screenState == ScreenState.GRID)
-    LaunchedEffect(screenState, shortcutsEnabled) {
-        if (shortcutsEnabled && (screenState == ScreenState.FEED || screenState == ScreenState.GRID)) runCatching { keyFocus.requestFocus() }
+    // (A popup closing — Add To, Share To, Quote Repost — hands the keys back.)
+    LaunchedEffect(screenState, shortcutsEnabled, popupOpen) {
+        if (shortcutsEnabled && !popupOpen && (screenState == ScreenState.FEED || screenState == ScreenState.GRID)) runCatching { keyFocus.requestFocus() }
     }
     val latestShortcutsOn by rememberUpdatedState(shortcutsOn)
     val latestIndex by rememberUpdatedState(currentIndex)
@@ -492,10 +495,23 @@ fun MainFeedScreen(
                     // (Played by the post on screen, heart animation and all.)
                     Key.L, Key.Spacebar -> { FeedKeys.likes++; true }
                     Key.R -> { onToggleRepost(); true }
+                    Key.Q -> { onQuoteRepost(); true }
+                    Key.S -> { onSendPost(); true }
+                    Key.C -> { onSetScreen(if (state == ScreenState.COMMENTS) ScreenState.FEED else ScreenState.COMMENTS); true }
                     Key.F -> { onToggleFollow(); true }
                     Key.B -> { onToggleBookmark(); true }
-                    Key.DirectionRight, Key.D, Key.DirectionDown -> { onNavigateNext(); true }
-                    Key.DirectionLeft, Key.A, Key.DirectionUp -> { onNavigatePrev(); true }
+                    Key.DirectionRight, Key.D -> {
+                        if (FeedKeys.imageCount > 1 && FeedKeys.imagePage < FeedKeys.imageCount - 1) { FeedKeys.imageStepDir = 1; FeedKeys.imageSteps++ }
+                        else onNavigateNext()
+                        true
+                    }
+                    Key.DirectionLeft, Key.A -> {
+                        if (FeedKeys.imageCount > 1 && FeedKeys.imagePage > FeedKeys.imageFloor) { FeedKeys.imageStepDir = -1; FeedKeys.imageSteps++ }
+                        else onNavigatePrev()
+                        true
+                    }
+                    Key.DirectionDown -> { onNavigateNext(); true }
+                    Key.DirectionUp -> { onNavigatePrev(); true }
                     Key.E -> { onPinchIn(); true }
                     else -> false
                 }
@@ -1384,6 +1400,26 @@ private fun PostContent(
 
     // Back closes the fullscreen image first.
     com.mediaviewer.ui.compat.BackHandler(enabled = viewerIndex != null) { closeViewer() }
+    // The keyboard's ← → step through this post's pictures before moving to
+    // another post (see FeedKeys). A picture grid opens its first picture
+    // full screen, steps through them, and ← from the first closes it again.
+    if (isCurrent) {
+        val keyCount = if (item.isVideo || item.isTextOnly) 1 else item.mediaGroup.size
+        val keyPage = if (isImageGrid && viewerIndex == null) -1 else pagerState.currentPage
+        SideEffect { FeedKeys.imagePage = keyPage; FeedKeys.imageCount = keyCount; FeedKeys.imageFloor = if (isImageGrid) -1 else 0 }
+        val seenSteps = remember { intArrayOf(FeedKeys.imageSteps) }
+        LaunchedEffect(FeedKeys.imageSteps) {
+            if (FeedKeys.imageSteps == seenSteps[0]) return@LaunchedEffect
+            seenSteps[0] = FeedKeys.imageSteps
+            val target = (keyPage + FeedKeys.imageStepDir).coerceIn(-1, (keyCount - 1).coerceAtLeast(0))
+            FeedKeys.imagePage = target
+            when {
+                isImageGrid && target < 0 -> closeViewer()
+                isImageGrid && viewerIndex == null -> openViewer(target.coerceAtLeast(0))
+                else -> postScope.launch { pagerState.animateScrollToPage(target.coerceAtLeast(0)) }
+            }
+        }
+    }
     LaunchedEffect(pagerState, item.id) {
         snapshotFlow { pagerState.currentPage }.collect { page -> if (viewerIndex != null) onSetSubImageIndex(page) }
     }
@@ -4596,6 +4632,15 @@ private fun Modifier.landscapeSideSafe(): Modifier {
 /** Keyboard likes, handed to the post on screen (see PostContent). */
 private object FeedKeys {
     var likes by mutableIntStateOf(0)
+    /** The post on screen's pictures: which one is showing, and how many
+     *  (kept by that post; ← → step through them before moving on). */
+    var imagePage = 0
+    var imageCount = 0
+    /** -1 for a picture grid (-1 = the grid itself, before its first picture). */
+    var imageFloor = 0
+    /** ← / → asked for the previous / next picture (a counter, and which way). */
+    var imageSteps by mutableIntStateOf(0)
+    var imageStepDir = 0
 }
 
 /** Landscape's round buttons at the bottom right: fullscreen (hide the
