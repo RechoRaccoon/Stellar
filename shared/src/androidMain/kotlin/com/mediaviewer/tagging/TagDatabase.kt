@@ -450,7 +450,14 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
      *  and every post and tag remembers which datasets it came from
      *  (post_sources/tag_sources), so [deleteDataset] removes exactly what
      *  only this dataset brought. */
-    fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo {
+    /**
+     * Adds [posts] as one imported dataset. Fast enough for the shared
+     * dataset's hundreds of thousands of tags on a phone: every statement
+     * is compiled once (not once per tag), and a post that wasn't here yet
+     * has its tags written straight in (only one already here has them
+     * merged, keeping the highest score). [onProgress] hears 0–1.
+     */
+    fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit = {}): TagDatasetInfo {
         val id = java.util.UUID.randomUUID().toString()
         val importedAt = System.currentTimeMillis()
         val db = writableDatabase
@@ -461,27 +468,58 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 arrayOf(id, name, importedAt)
             )
             var count = 0
-            val insertStmt = db.compileStatement(
+            val insertPost = db.compileStatement(
                 "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)"
             )
+            val insertSource = db.compileStatement("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)")
+            val insertTag = db.compileStatement("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)")
+            val raiseTag = db.compileStatement("UPDATE media_tags SET confidence = MAX(confidence, ?) WHERE post_uri = ? AND tag_name = ? AND manual = 0")
+            val addTagIfMissing = db.compileStatement(
+                "INSERT INTO media_tags (post_uri, tag_name, confidence) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE post_uri = ? AND tag_name = ?)"
+            )
+            val insertTagSource = db.compileStatement("INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) VALUES (?, ?, ?)")
             try {
-                posts.forEach { post ->
-                    if (post.postUri.isBlank()) return@forEach
-                    insertStmt.clearBindings()
-                    insertStmt.bindString(1, post.postUri)
-                    insertStmt.bindString(2, post.cid)
-                    insertStmt.bindString(3, post.mediaUrl)
-                    insertStmt.bindLong(4, importedAt)
-                    insertStmt.bindString(5, id)
-                    insertStmt.executeInsert()
-                    db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)", arrayOf(post.postUri, id))
+                val total = posts.size.coerceAtLeast(1)
+                posts.forEachIndexed { i, post ->
+                    if (post.postUri.isBlank()) return@forEachIndexed
+                    insertPost.clearBindings()
+                    insertPost.bindString(1, post.postUri)
+                    insertPost.bindString(2, post.cid)
+                    insertPost.bindString(3, post.mediaUrl)
+                    insertPost.bindLong(4, importedAt)
+                    insertPost.bindString(5, id)
+                    val isNew = insertPost.executeInsert() != -1L
+                    insertSource.clearBindings()
+                    insertSource.bindString(1, post.postUri); insertSource.bindString(2, id)
+                    insertSource.executeInsert()
                     count++
-                    post.tags.forEach { (tag, confidence) -> mergeTag(db, post.postUri, tag, confidence, id) }
+                    // (One post's tags once each — the highest score.)
+                    val tags = if (isNew) post.tags.groupBy { it.first }.map { (t, l) -> t to l.maxOf { it.second } } else post.tags
+                    for ((tag, confidence) in tags) {
+                        if (isNew) {
+                            insertTag.clearBindings()
+                            insertTag.bindString(1, post.postUri); insertTag.bindString(2, tag); insertTag.bindDouble(3, confidence.toDouble())
+                            insertTag.executeInsert()
+                        } else {
+                            raiseTag.clearBindings()
+                            raiseTag.bindDouble(1, confidence.toDouble()); raiseTag.bindString(2, post.postUri); raiseTag.bindString(3, tag)
+                            raiseTag.executeUpdateDelete()
+                            addTagIfMissing.clearBindings()
+                            addTagIfMissing.bindString(1, post.postUri); addTagIfMissing.bindString(2, tag); addTagIfMissing.bindDouble(3, confidence.toDouble())
+                            addTagIfMissing.bindString(4, post.postUri); addTagIfMissing.bindString(5, tag)
+                            addTagIfMissing.executeInsert()
+                        }
+                        insertTagSource.clearBindings()
+                        insertTagSource.bindString(1, post.postUri); insertTagSource.bindString(2, tag); insertTagSource.bindString(3, id)
+                        insertTagSource.executeInsert()
+                    }
+                    if (i % 500 == 0) onProgress(i.toFloat() / total)
                 }
             } finally {
-                insertStmt.close()
+                insertPost.close(); insertSource.close(); insertTag.close(); raiseTag.close(); addTagIfMissing.close(); insertTagSource.close()
             }
             db.setTransactionSuccessful()
+            onProgress(1f)
             return TagDatasetInfo(id, name, importedAt, count)
         } finally {
             db.endTransaction()
@@ -506,6 +544,30 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
             "SELECT t.post_uri, t.tag_name, t.confidence FROM media_tags t WHERE t.manual = 1 OR EXISTS " +
                 "(SELECT 1 FROM tag_sources s WHERE s.post_uri = t.post_uri AND s.tag_name = t.tag_name AND s.dataset_id = ?) " +
                 "ORDER BY t.confidence DESC", arrayOf(LOCAL_DATASET_ID)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                tagsByPost.getOrPut(cursor.getString(0)) { mutableListOf() }.add(cursor.getString(1) to cursor.getFloat(2))
+            }
+        }
+        return posts.values.map { it.copy(tags = tagsByPost[it.postUri] ?: emptyList()) }
+    }
+
+    /** One imported dataset's posts with the tags it gave them. */
+    fun datasetPostsForExport(id: String): List<TagExportedPost> {
+        val posts = LinkedHashMap<String, TagExportedPost>()
+        readableDatabase.rawQuery(
+            "SELECT m.post_uri, m.cid, m.media_url FROM liked_media m JOIN post_sources p ON p.post_uri = m.post_uri WHERE p.dataset_id = ?",
+            arrayOf(id)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val uri = cursor.getString(0)
+                posts[uri] = TagExportedPost(uri, cursor.getString(1), cursor.getString(2), emptyList())
+            }
+        }
+        val tagsByPost = HashMap<String, MutableList<Pair<String, Float>>>()
+        readableDatabase.rawQuery(
+            "SELECT t.post_uri, t.tag_name, t.confidence FROM media_tags t JOIN tag_sources s ON s.post_uri = t.post_uri AND s.tag_name = t.tag_name " +
+                "WHERE s.dataset_id = ? ORDER BY t.confidence DESC", arrayOf(id)
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 tagsByPost.getOrPut(cursor.getString(0)) { mutableListOf() }.add(cursor.getString(1) to cursor.getFloat(2))

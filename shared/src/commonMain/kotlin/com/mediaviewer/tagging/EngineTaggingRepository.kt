@@ -270,6 +270,31 @@ private class TagStore(private val engine: TaggerEngine) {
         return TagDatasetInfo(id, name, now, added)
     }
 
+    /** One dataset's posts with the tags it gave them ("" = this device's
+     *  own, hand tags included). */
+    fun exportOne(source: String): List<TagExportedPost> = locked {
+        posts.values.mapNotNull { raw ->
+            val p = raw.normalized()
+            val tags = p.tags.filter { t -> if (source.isEmpty()) t.m || "" in p.sourcesOf(t) else source in p.sourcesOf(t) }
+            if (source !in p.sources && tags.isEmpty()) return@mapNotNull null
+            TagExportedPost(p.uri, p.cid, p.url, tags.sortedByDescending { it.c }.map { it.n to it.c })
+        }
+    }
+
+    /** This device's own tags (the AI's and hand ones) go; what imported
+     *  datasets gave stays. */
+    fun deleteOwn() {
+        locked {
+            for (uri in posts.keys.toList()) {
+                val p = posts.getValue(uri).normalized()
+                val left = p.without("").let { it.copy(tags = it.tags.filterNot { t -> t.m }) }
+                if (left.sources.isEmpty()) posts.remove(uri)
+                else posts[uri] = if (left.set.isEmpty()) left.copy(set = left.sources.first()) else left
+            }
+        }
+        changed(urgent = true)
+    }
+
     fun listDatasets(): List<TagDatasetInfo> = locked {
         datasets.sortedByDescending { it.at }.map { d -> TagDatasetInfo(d.id, d.name, d.at, posts.values.count { d.id in it.sources }) }
     }
@@ -379,8 +404,10 @@ class EngineTaggingRepository(
 
     override suspend fun deleteDatabase() = withContext(ioDispatcher) { store.clear() }
     override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = withContext(ioDispatcher) { store.export(exclude) }
-    override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =
-        withContext(ioDispatcher) { store.import(name, posts) }
+    override suspend fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit): TagDatasetInfo =
+        withContext(ioDispatcher) { store.import(name, posts).also { onProgress(1f) } }
+    override suspend fun exportDataset(id: String?): List<TagExportedPost> = withContext(ioDispatcher) { store.exportOne(id.orEmpty()) }
+    override suspend fun deleteOwnDataset() = withContext(ioDispatcher) { store.deleteOwn() }
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = withContext(ioDispatcher) { store.listDatasets() }
     override suspend fun deleteDataset(id: String) = withContext(ioDispatcher) { store.deleteDataset(id) }
 
@@ -425,6 +452,37 @@ class EngineTaggingRepository(
         e621ApiKey: String,
         concurrency: Int,
         onProgress: (TaggingProgress) -> Unit
+    ) = runTagging(concurrency, onProgress) { tagBatch ->
+        if (isBlueskyMode) {
+            var cursor: String? = null
+            do {
+                if (cancelRequested) break
+                val (items, nextCursor) = bskyRepo.getActorLikes(bskyToken, bskyDid, cursor).getOrNull() ?: break
+                tagBatch(items)
+                cursor = nextCursor
+            } while (cursor != null && !cancelRequested)
+        } else {
+            var page = 1
+            while (!cancelRequested) {
+                val items = e621Repo.getFavorites(e621Username, e621ApiKey, page).getOrNull() ?: break
+                if (items.isEmpty()) break
+                tagBatch(items)
+                page++
+            }
+        }
+    }
+
+    override suspend fun tagPosts(items: List<MediaItem>, concurrency: Int, onProgress: (TaggingProgress) -> Unit) =
+        runTagging(concurrency, onProgress) { tagBatch ->
+            for (chunk in items.chunked(50)) { if (cancelRequested) break; tagBatch(chunk) }
+        }
+
+    /** A tagging run: the model loaded, then [source] hands batches of
+     *  posts to the tagger. */
+    private suspend fun runTagging(
+        concurrency: Int,
+        onProgress: (TaggingProgress) -> Unit,
+        source: suspend (tagBatch: suspend (List<MediaItem>) -> Unit) -> Unit
     ) {
         cancelRequested = false
         val parallelism = concurrency.coerceIn(1, 10)
@@ -472,23 +530,7 @@ class EngineTaggingRepository(
             }
 
             try {
-                if (isBlueskyMode) {
-                    var cursor: String? = null
-                    do {
-                        if (cancelRequested) break
-                        val (items, nextCursor) = bskyRepo.getActorLikes(bskyToken, bskyDid, cursor).getOrNull() ?: break
-                        tagBatch(items)
-                        cursor = nextCursor
-                    } while (cursor != null && !cancelRequested)
-                } else {
-                    var page = 1
-                    while (!cancelRequested) {
-                        val items = e621Repo.getFavorites(e621Username, e621ApiKey, page).getOrNull() ?: break
-                        if (items.isEmpty()) break
-                        tagBatch(items)
-                        page++
-                    }
-                }
+                source { tagBatch(it) }
             } finally {
                 store.flush()
             }

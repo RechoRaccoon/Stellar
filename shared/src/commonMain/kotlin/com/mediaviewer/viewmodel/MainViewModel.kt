@@ -759,13 +759,18 @@ class MainViewModel(
         }
     }
 
-    /** Runs for the whole lifetime of the app: whenever the on-screen post
-     *  changes (in ANY feed/overlay that ultimately renders through the main
-     *  pager), it's recorded into History after a short debounce so a fast
-     *  swipe-through doesn't spam a write for every frame. */
+    /** Runs for the whole lifetime of the app: whenever the post on screen
+     *  in Timeline mode changes, it's recorded into History after a short
+     *  debounce so a fast swipe-through doesn't spam a write for every
+     *  frame. Only a post actually looked at counts: Explore's grid (whose
+     *  "current" post is just the first one, never opened), the Hub, and a
+     *  feed sitting under a profile record nothing. */
     private fun trackHistoryAutomatically() {
         viewModelScope.launch {
-            combine(_mediaItems, _currentIndex) { items, idx -> items.getOrNull(idx) }
+            combine(_mediaItems, _currentIndex, _screenState, _profileOverlay) { items, idx, screen, profile ->
+                val timeline = screen == ScreenState.FEED || screen == ScreenState.COMMENTS
+                if (timeline && (profile == null || profile.hidden)) items.getOrNull(idx) else null
+            }
                 .filterNotNull()
                 .debounce(500)
                 .distinctUntilChangedBy { it.postUri.ifBlank { it.id } }
@@ -785,6 +790,8 @@ class MainViewModel(
         val updated = (listOf(entry) + _history.value.filterNot { it.uri.ifBlank { it.cid } == key }).take(HISTORY_LIMIT)
         _history.value = updated
         viewModelScope.launch { prefs.setHistoryJson(com.mediaviewer.json.StellarJson.default.encodeToString<List<HistoryEntry>>(updated)) }
+        // Tag Media When Viewed: tagged like a liked post.
+        if (com.mediaviewer.util.UiToggles.tagWhenViewed && _appMode.value == AppMode.BLUESKY) enqueueTagging(item)
     }
 
     private fun HistoryEntry.toMediaItem(): MediaItem = MediaItem(
@@ -8025,6 +8032,12 @@ class MainViewModel(
 
     private fun maybeTagOnLike(item: MediaItem) {
         if (!tagPostWhenLiked.value) return
+        enqueueTagging(item)
+    }
+
+    /** One post into the tagging queue (liked or viewed). */
+    private fun enqueueTagging(item: MediaItem) {
+        if (!taggingRepo.isModelReady()) return
         if (item.postUri.isBlank() || !likeTagQueued.add(item.postUri)) return
         _likeTagPending.value = _likeTagPending.value + 1
         if (_likeTagPhase.value == LikeTagPhase.IDLE) {
@@ -8072,6 +8085,43 @@ class MainViewModel(
         taggingRepo.cancel()
     }
 
+    /** Settings → Start Tagging → Viewed Media: every post in History
+     *  (newest first), skipping ones already tagged. */
+    fun startTaggingViewed() {
+        if (_taggingUiState.value.isRunning) return
+        val items = _history.value.map { it.toMediaItem() }.filter { it.postUri.isNotBlank() }
+        if (items.isEmpty()) { showToast("No history yet"); return }
+        _taggingOverlayOpen.value = true
+        _taggingUiState.value = _taggingUiState.value.copy(isRunning = true, isComplete = false, errorMessage = null)
+        viewModelScope.launch(ioDispatcher) {
+            // (History keeps only what's needed to draw a post: read them
+            // again for their pictures' full links, 25 a request.)
+            val fresh = HashMap<String, MediaItem>()
+            items.map { it.postUri }.filter { it.startsWith("at://") }.chunked(25).forEach { chunk ->
+                bskyRepo.getPostsByUris(bskyToken, chunk).getOrNull()?.forEach { fresh[it.postUri] = it }
+            }
+            val toTag = items.map { fresh[it.postUri] ?: it }
+            taggingRepo.tagPosts(toTag, concurrency = taggingPrefetchDepth) { progress -> onTaggingProgress(progress) }
+        }
+    }
+
+    private fun onTaggingProgress(progress: com.mediaviewer.tagging.TaggingProgress) {
+        _taggingUiState.value = TaggingUiState(
+            scanned = progress.scanned,
+            tagged = progress.tagged,
+            datasetBytes = progress.datasetBytes,
+            isRunning = progress.isRunning,
+            isComplete = progress.isComplete,
+            modelState = progress.modelState,
+            errorMessage = (progress.modelState as? TaggerState.Failed)?.message,
+            currentItem = progress.currentItem,
+            lastTaggedItem = progress.lastTaggedItem,
+            lastTags = progress.lastTags
+        )
+        if (progress.tagged > 0) _hasTaggedDataset.value = true
+        if (progress.modelState is TaggerState.Ready) _taggerModelReady.value = true
+    }
+
     /** Settings' "Delete Tagged Post Database" button (item 5). Stops any
      *  in-flight tagging pass first (so it can't keep writing rows back in
      *  while/after the wipe), clears the dataset, then resets every piece
@@ -8086,6 +8136,18 @@ class MainViewModel(
             _hasTaggedDataset.value = false
             _taggingUiState.value = TaggingUiState()
             _importedDatasets.value = emptyList() // clearAll() wipes the datasets table too
+            performLikedTagSearch("")
+        }
+    }
+
+    /** Settings → Your Dataset → Delete: this device's own tags (its AI's
+     *  and hand ones) go; imported datasets stay. */
+    fun deleteOwnTagDataset() {
+        if (_taggingUiState.value.isRunning) taggingRepo.cancel()
+        viewModelScope.launch(ioDispatcher) {
+            taggingRepo.deleteOwnDataset()
+            refreshImportedDatasets()
+            refreshTaggingCounts()
             performLikedTagSearch("")
         }
     }
@@ -8135,15 +8197,14 @@ class MainViewModel(
     val datasetExportState: StateFlow<DatasetExportState> = _datasetExportState
     private var datasetExportResetJob: Job? = null
 
-    fun exportDataset(name: String, uri: com.mediaviewer.platform.PlatformUri) {
+    /** Settings' Export beside a dataset: [datasetId] null = your own. */
+    fun exportDataset(datasetId: String?, name: String, uri: com.mediaviewer.platform.PlatformUri) {
         if (_datasetExportState.value is DatasetExportState.Working) return
         datasetExportResetJob?.cancel()
         _datasetExportState.value = DatasetExportState.Working("Gathering tagged posts…")
         viewModelScope.launch(ioDispatcher) {
             try {
-                // (The shared dataset is left out: it's published already, and
-                // sending it back in would keep a removed dataset's tags alive.)
-                val posts = taggingRepo.exportAllPosts(setOfNotNull(com.mediaviewer.tagging.SharedTagDataset.installedDatasetId()))
+                val posts = taggingRepo.exportDataset(datasetId)
                 _datasetExportState.value = DatasetExportState.Working("Writing ${posts.size} posts…", posts.size)
                 val file = DatasetFile(
                     name = name.ifBlank { "Untitled Dataset" },

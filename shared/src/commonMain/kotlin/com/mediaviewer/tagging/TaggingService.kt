@@ -61,9 +61,19 @@ interface TaggingService {
     suspend fun deleteDatabase()
     /** Every tagged post, leaving out what only the datasets in [exclude] gave. */
     suspend fun exportAllPosts(exclude: Set<String> = emptySet()): List<TagExportedPost>
-    suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo
+    /** [onProgress] hears 0–1 while a big one goes in. */
+    suspend fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit = {}): TagDatasetInfo
     suspend fun listImportedDatasets(): List<TagDatasetInfo>
     suspend fun deleteDataset(id: String)
+    /** One dataset's posts and the tags it gave them: an imported one by
+     *  [id], or (null) this device's own — its AI's tags and hand tags. */
+    suspend fun exportDataset(id: String?): List<TagExportedPost>
+    /** This device's own dataset (its AI's tags and hand tags) goes;
+     *  imported datasets stay. */
+    suspend fun deleteOwnDataset()
+    /** Tags [items] (History's posts, say) the way [tagAllLiked] tags
+     *  likes: posts already tagged are skipped. */
+    suspend fun tagPosts(items: List<MediaItem>, concurrency: Int = 1, onProgress: (TaggingProgress) -> Unit)
     suspend fun tagAllLiked(
         isBlueskyMode: Boolean,
         bskyToken: String,
@@ -109,10 +119,15 @@ object UnavailableTaggingService : TaggingService {
     }
     override suspend fun deleteDatabase() {}
     override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = emptyList()
-    override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =
+    override suspend fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit): TagDatasetInfo =
         throw UnsupportedOperationException("AI Tagging isn't available on this device yet")
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = emptyList()
     override suspend fun deleteDataset(id: String) {}
+    override suspend fun exportDataset(id: String?): List<TagExportedPost> = emptyList()
+    override suspend fun deleteOwnDataset() {}
+    override suspend fun tagPosts(items: List<MediaItem>, concurrency: Int, onProgress: (TaggingProgress) -> Unit) {
+        onProgress(TaggingProgress(0, 0, 0, isRunning = false, isComplete = true, modelState = TaggerState.Failed("AI Tagging isn't available on this device yet")))
+    }
     override suspend fun tagAllLiked(
         isBlueskyMode: Boolean, bskyToken: String, bskyDid: String, e621Username: String, e621ApiKey: String,
         concurrency: Int, onProgress: (TaggingProgress) -> Unit

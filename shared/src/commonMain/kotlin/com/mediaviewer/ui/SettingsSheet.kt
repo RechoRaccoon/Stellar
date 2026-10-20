@@ -208,7 +208,7 @@ fun SettingsSheet(
     onDeleteTaggedDatabase: () -> Unit = {},
     // Import/Export (item 4)
     importedDatasets: List<com.mediaviewer.tagging.TagDatasetInfo> = emptyList(),
-    onExportDataset: (String, com.mediaviewer.platform.PlatformUri) -> Unit = { _, _ -> },
+    onExportDataset: (String?, String, com.mediaviewer.platform.PlatformUri) -> Unit = { _, _, _ -> },
     onImportDataset: (com.mediaviewer.platform.PlatformUri) -> Unit = {},
     onDeleteImportedDataset: (String) -> Unit = {},
     onShowLikes: () -> Unit,
@@ -3138,9 +3138,11 @@ internal fun ExportDatasetNameDialog(
     dominantColor: Color,
     backdrop: GlassBackdrop?,
     onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** What the name starts as (Your Dataset: "(your name)'s Tag Dataset"). */
+    initialName: String = ""
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initialName) }
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = true, dismissOnBackPress = true, usePlatformDefaultWidth = false)

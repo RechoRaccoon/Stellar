@@ -751,6 +751,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 onDownloadAllE621Saved = viewModel::downloadAllE621SavedMedia,
                 onOpenBlockedAccounts = viewModel::openBlockedAccounts,
                 datasetExportState = datasetExportState,
+                onStartTaggingViewed = viewModel::startTaggingViewed,
+                selfDisplayName = selfProfile?.author?.displayName.orEmpty(),
                 userLists = userLists,
                 userListsLoading = userListsLoading,
                 onEnsureUserLists = viewModel::ensureUserListsLoaded,
@@ -776,7 +778,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             taggingScanned            = taggingUiState.scanned,
             taggingTagged             = taggingUiState.tagged,
             onLocallyTagAllLiked      = viewModel::startTaggingAllLiked,
-            onDeleteTaggedDatabase    = viewModel::deleteTaggedDatabase,
+            // (Settings' Delete beside Your Dataset: this device's own tags only.)
+            onDeleteTaggedDatabase    = viewModel::deleteOwnTagDataset,
             importedDatasets          = importedDatasets,
             onExportDataset           = viewModel::exportDataset,
             onImportDataset           = viewModel::importDatasetFromUri,

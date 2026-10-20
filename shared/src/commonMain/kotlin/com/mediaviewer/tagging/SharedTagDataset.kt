@@ -86,10 +86,15 @@ object SharedTagDataset {
             try {
                 // Deleted in Settings meanwhile: it counts as not downloaded.
                 val id = installedDatasetId()
-                if (id != null && service?.listImportedDatasets()?.none { it.id == id } == true) {
+                val sets = service?.listImportedDatasets()
+                if (id != null && sets?.none { it.id == id } == true) {
                     p.edit().remove("dataset_id").remove("version").apply()
                 }
                 val m = fetchManifest()
+                // Installed, but the app was closed before it noted so (a
+                // long install the system stopped): it's taken as is
+                // instead of being offered again and again.
+                if (installedDatasetId() == null) adopt(sets.orEmpty(), m)
                 p.edit().putLong("last_check", now).apply()
                 manifest = m
                 if (m.posts > 0 && m.version != installedVersion()) {
@@ -103,6 +108,20 @@ object SharedTagDataset {
                 checking = false
             }
         }
+    }
+
+    /** Copies of the shared dataset already in the list that this device
+     *  never noted (or leftover duplicates): the newest is kept and noted
+     *  as installed — as this version when it has all its posts — and the
+     *  rest removed. */
+    private suspend fun adopt(sets: List<TagDatasetInfo>, m: Manifest) {
+        val copies = sets.filter { it.name == NAME }.sortedByDescending { it.importedAt }
+        val keep = copies.firstOrNull() ?: return
+        copies.drop(1).forEach { runCatching { service?.deleteDataset(it.id) } }
+        val complete = m.posts > 0 && keep.postCount >= m.posts * 0.98
+        prefs?.edit()?.putString("dataset_id", keep.id)?.apply {
+            if (complete) putString("version", m.version) else putString("version", "partial")
+        }?.apply()
     }
 
     /** "Download" / "Update" / "Try Again". */
@@ -126,12 +145,19 @@ object SharedTagDataset {
                         prompt = Prompt.Downloading((shown.toFloat() / total) * 0.95f, "${mb(shown)} of ${mb(total)}")
                     }
                 }
-                withContext(Dispatchers.Main) { prompt = Prompt.Downloading(0.97f, "Adding it to your tags…") }
+                withContext(Dispatchers.Main) { prompt = Prompt.Downloading(0.95f, "Adding it to your tags…") }
                 val svc = service ?: error("Tagging isn't available")
                 // The new copy goes in before the old one comes out, so
                 // search never goes empty in between.
                 val old = installedDatasetId()
-                val info = svc.importDataset(NAME, posts)
+                var lastShown = -1
+                val info = svc.importDataset(NAME, posts) { f ->
+                    val pct = (f * 100).toInt()
+                    if (pct != lastShown) {
+                        lastShown = pct
+                        scope.launch(Dispatchers.Main) { if (job?.isActive == true) prompt = Prompt.Downloading(0.95f + 0.05f * f, "Adding it to your tags… $pct%") }
+                    }
+                }
                 if (old != null && old != info.id) runCatching { svc.deleteDataset(old) }
                 prefs?.edit()?.putString("dataset_id", info.id)?.putString("version", m.version)?.apply()
                 withContext(Dispatchers.Main) {

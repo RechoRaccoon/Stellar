@@ -58,9 +58,9 @@ fun LocalOverlayHost(
     // (Read here, in the composition, so a change is always passed on.)
     val archiveBusyNow = archiveBusy
     LaunchedEffect(archiveBusyNow) { LocalOverlays.archiveBusy = archiveBusyNow }
-    // Tags can be edited by hand wherever the tagger's dataset is in use.
-    val tagOnLike by viewModel.tagPostWhenLiked.collectAsState()
-    val tagsEditable = viewModel.taggingSupported && tagOnLike
+    // Tags can be added by hand on any Bluesky post — no AI model needed
+    // (they go into this device's own dataset).
+    val tagsEditable = viewModel.taggingSupported
     LaunchedEffect(tagsEditable) { LocalOverlays.canEditTags = tagsEditable }
     val selfDidNow by viewModel.bskyDid.collectAsState()
     LaunchedEffect(selfDidNow) { LocalOverlays.selfDid = selfDidNow }

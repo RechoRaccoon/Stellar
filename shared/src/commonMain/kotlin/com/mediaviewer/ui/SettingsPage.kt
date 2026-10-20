@@ -117,7 +117,11 @@ data class SettingsExtras(
     val onEditHubProfiles: (String, String, List<com.mediaviewer.model.AuthorInfo>) -> Unit = { _, _, _ -> },
     // ── Dev Tools ──
     val onForceRefreshHub: () -> Unit = {},
-    val onPreviewWelcome: () -> Unit = {}
+    val onPreviewWelcome: () -> Unit = {},
+    /** Media Tagging → Start Tagging → Viewed Media (History's posts). */
+    val onStartTaggingViewed: () -> Unit = {},
+    /** Your display name (Your Dataset's export starts as "…'s Tag Dataset"). */
+    val selfDisplayName: String = ""
 )
 
 // ── Shared building blocks ──────────────────────────────────────────────────
@@ -651,7 +655,8 @@ internal fun SettingsPageContent(
     onLocallyTagAllLiked: () -> Unit,
     onDeleteTaggedDatabase: () -> Unit,
     importedDatasets: List<com.mediaviewer.tagging.TagDatasetInfo>,
-    onExportDataset: (String, com.mediaviewer.platform.PlatformUri) -> Unit,
+    /** (dataset id — null = your own, its name, where to save it) */
+    onExportDataset: (String?, String, com.mediaviewer.platform.PlatformUri) -> Unit,
     onImportDataset: (com.mediaviewer.platform.PlatformUri) -> Unit,
     onDeleteImportedDataset: (String) -> Unit,
     combineListsAndPacks: Boolean,
@@ -1168,24 +1173,38 @@ internal fun SettingsPageContent(
         // ── Media Tagging ───────────────────────────────────────────────
         CollapsibleSection("Media Tagging", tint) {
 
-            var showExportNameDialog by remember { mutableStateOf(false) }
-            var pendingExportName by remember { mutableStateOf("") }
+            // Export (beside any dataset, yours included): named first, then
+            // saved wherever the person picks.
+            var exportTarget by remember { mutableStateOf<Pair<String?, String>?>(null) } // (id, starting name)
+            var pendingExport by remember { mutableStateOf<Pair<String?, String>?>(null) } // (id, chosen name)
             val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-                if (uri != null) onExportDataset(pendingExportName, uri)
+                val p = pendingExport
+                if (uri != null && p != null) onExportDataset(p.first, p.second, uri)
+                pendingExport = null
             }
             val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) onImportDataset(uri)
             }
-            // Tap-to-arm confirmation for the destructive delete, same idea as
-            // "Add" -> "Added" elsewhere: a stray tap can't wipe the dataset.
-            var confirmingDelete by remember { mutableStateOf(false) }
-            LaunchedEffect(confirmingDelete) {
-                if (confirmingDelete) {
-                    kotlinx.coroutines.delay(3000)
-                    confirmingDelete = false
+            // Delete (beside any dataset): asked first, like everywhere else.
+            var deleteTarget by remember { mutableStateOf<com.mediaviewer.tagging.TagDatasetInfo?>(null) } // id "" = yours
+            val ownName = extras.selfDisplayName.ifBlank { bskyHandle }.ifBlank { "My" }
+            val exportState = extras.datasetExportState
+            val exportWorking = exportState is MainViewModel.DatasetExportState.Working
+
+            @Composable
+            fun DatasetRow(name: String, posts: Int, onExport: () -> Unit, onDelete: () -> Unit) {
+                BubbleRow {
+                    RowLabel(name, Modifier.weight(1f), sub = "$posts post${if (posts == 1) "" else "s"}")
+                    Text(
+                        "Export", color = if (exportWorking) DimGray else LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 6.dp).clickable(enabled = !exportWorking) { onExport() }
+                    )
+                    Text(
+                        "Delete", color = DangerRed, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 8.dp).clickable(enabled = !taggingRunning) { onDelete() }
+                    )
                 }
             }
-            val hasTaggedData = taggingScanned > 0 || importedDatasets.isNotEmpty()
 
             PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
                 SettingsBubble(liquidGlass, tint, backdrop) {
@@ -1193,41 +1212,74 @@ internal fun SettingsPageContent(
                         RowLabel("Import Dataset", Modifier.weight(1f))
                         PillButton("Import", { importLauncher.launch(arrayOf("application/json")) })
                     }
-                    // Every imported dataset, each removable on its own (the
-                    // on-device dataset isn't listed — its delete is in the AI tagging bubble below).
+                    // Your own dataset first (what this device tagged, and tags
+                    // added by hand), then every imported one — each with its
+                    // own Export and Delete.
+                    if (taggingScanned > 0) {
+                        BubbleDivider()
+                        DatasetRow(
+                            "Your Dataset", taggingScanned,
+                            onExport = { exportTarget = null to "$ownName's Tag Dataset" },
+                            onDelete = { deleteTarget = com.mediaviewer.tagging.TagDatasetInfo("", "Your Dataset", 0L, taggingScanned) }
+                        )
+                    }
                     importedDatasets.forEach { dataset ->
                         BubbleDivider()
-                        BubbleRow {
-                            RowLabel(
-                                dataset.name, Modifier.weight(1f),
-                                sub = "${dataset.postCount} post${if (dataset.postCount == 1) "" else "s"}"
-                            )
-                            Box(
-                                Modifier.size(28.dp).clip(CircleShape).clickable { onDeleteImportedDataset(dataset.id) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Remove ${dataset.name}", tint = DimGray, modifier = Modifier.size(16.dp))
-                            }
+                        DatasetRow(
+                            dataset.name, dataset.postCount,
+                            onExport = { exportTarget = dataset.id to dataset.name },
+                            onDelete = { deleteTarget = dataset }
+                        )
+                    }
+                    AnimatedVisibility(visible = exportState !is MainViewModel.DatasetExportState.Idle) {
+                        when (exportState) {
+                            is MainViewModel.DatasetExportState.Working ->
+                                ExportStatusLine(true, exportState.stage, success = false, tint = tint)
+                            is MainViewModel.DatasetExportState.Done ->
+                                ExportStatusLine(false, "Exported ${exportState.postCount} post${if (exportState.postCount == 1) "" else "s"} — saved to the file you picked.", success = true, tint = tint)
+                            is MainViewModel.DatasetExportState.Failed ->
+                                ExportStatusLine(false, "Export failed: ${exportState.message}", success = false, tint = tint)
+                            MainViewModel.DatasetExportState.Idle -> Spacer(Modifier.height(0.dp))
                         }
                     }
                 }
             }
 
-            if (showExportNameDialog) {
+            exportTarget?.let { (id, startName) ->
                 ExportDatasetNameDialog(
                     liquidGlass = liquidGlass, dominantColor = tint, backdrop = backdrop,
+                    initialName = startName,
                     onConfirm = { name ->
-                        pendingExportName = name
-                        showExportNameDialog = false
-                        val fileSafeName = name.ifBlank { "dataset" }.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "dataset" }
+                        val chosen = name.ifBlank { startName }
+                        pendingExport = id to chosen
+                        exportTarget = null
+                        val fileSafeName = chosen.replace(Regex("[^A-Za-z0-9 _'-]"), "").ifBlank { "dataset" }
                         exportLauncher.launch("$fileSafeName.json")
                     },
-                    onDismiss = { showExportNameDialog = false }
+                    onDismiss = { exportTarget = null }
                 )
             }
+            deleteTarget?.let { target ->
+                androidx.compose.ui.window.Dialog(onDismissRequest = { deleteTarget = null }, properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()) {
+                    Box(Modifier.fillMaxSize()) {
+                        ConfirmPopup(
+                            title = if (target.id.isEmpty()) "Delete Your Dataset?" else "Delete \"${target.name}\"?",
+                            message = if (target.id.isEmpty()) "Every tag this device made, and every tag you added by hand, will be deleted. Imported datasets stay."
+                                else "Its ${target.postCount} post${if (target.postCount == 1) "" else "s"} and their tags will be removed from this device. This can't be undone.",
+                            confirmLabel = "Delete",
+                            liquidGlass = liquidGlass, tint = tint, backdrop = null,
+                            onConfirm = {
+                                if (target.id.isEmpty()) onDeleteTaggedDatabase() else onDeleteImportedDataset(target.id)
+                                deleteTarget = null
+                            },
+                            onDismiss = { deleteTarget = null }
+                        )
+                    }
+                }
+            }
 
-            // The on-device model. Once it's downloaded the button turns into a
-            // grayed-out "Downloaded" and the tagging options open up beneath it.
+            // The on-device model. Datasets and hand-added tags don't need
+            // it: downloading it only brings in the AI's own options below.
             PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
                 SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
@@ -1249,7 +1301,32 @@ internal fun SettingsPageContent(
                                 RowLabel("Tag Media When Liked", Modifier.weight(1f))
                                 CompactSwitch(tagPostWhenLiked, onToggleTagPostWhenLiked)
                             }
-                            if (tagPostWhenLiked) {
+                            BubbleDivider()
+                            BubbleRow {
+                                RowLabel("Tag Media When Viewed", Modifier.weight(1f), sub = "Every post you look at in Timeline mode")
+                                CompactSwitch(com.mediaviewer.util.UiToggles.tagWhenViewed) { com.mediaviewer.util.UiToggles.updateTagWhenViewed(it) }
+                            }
+                            BubbleDivider()
+                            BubbleRow {
+                                RowLabel(
+                                    "Start Tagging", Modifier.weight(1f),
+                                    sub = when {
+                                        taggingRunning -> "$taggingScanned scanned"
+                                        taggingScanned > 0 -> "$taggingTagged tagged"
+                                        else -> null
+                                    }
+                                )
+                                PillButton(
+                                    if (taggingRunning) "…" else "Liked Media", onLocallyTagAllLiked,
+                                    enabled = !taggingRunning && anyLoggedIn
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                PillButton(
+                                    if (taggingRunning) "…" else "Viewed Media", extras.onStartTaggingViewed,
+                                    enabled = !taggingRunning && bskyLoggedIn
+                                )
+                            }
+                            if (tagPostWhenLiked || com.mediaviewer.util.UiToggles.tagWhenViewed) {
                                 BubbleDivider()
                                 BubbleRow {
                                     RowLabel("Show Tagging Status", Modifier.weight(1f))
@@ -1258,60 +1335,6 @@ internal fun SettingsPageContent(
                                     }
                                 }
                             }
-                            BubbleDivider()
-                            BubbleRow {
-                                RowLabel(
-                                    "Tag Previously Liked Media", Modifier.weight(1f),
-                                    sub = when {
-                                        taggingRunning -> "$taggingScanned scanned"
-                                        taggingScanned > 0 -> "$taggingTagged tagged"
-                                        else -> null
-                                    }
-                                )
-                                PillButton(
-                                    if (taggingRunning) "…" else "Tag", onLocallyTagAllLiked,
-                                    enabled = !taggingRunning && anyLoggedIn
-                                )
-                            }
-                        }
-                    }
-                    // Dataset housekeeping lives at the very bottom of this bubble,
-                    // and stays visible whether or not the model is downloaded (an
-                    // imported dataset can exist without it).
-                    if (hasTaggedData) {
-                        BubbleDivider()
-                        val exportState = extras.datasetExportState
-                        val exportWorking = exportState is MainViewModel.DatasetExportState.Working
-                        BubbleRow {
-                            RowLabel("Export Dataset", Modifier.weight(1f))
-                            PillButton(
-                                if (exportWorking) "Exporting…" else "Export",
-                                { pendingExportName = ""; showExportNameDialog = true },
-                                enabled = !exportWorking
-                            )
-                        }
-                        AnimatedVisibility(visible = exportState !is MainViewModel.DatasetExportState.Idle) {
-                            when (exportState) {
-                                is MainViewModel.DatasetExportState.Working ->
-                                    ExportStatusLine(true, exportState.stage, success = false, tint = tint)
-                                is MainViewModel.DatasetExportState.Done ->
-                                    ExportStatusLine(false, "Exported ${exportState.postCount} post${if (exportState.postCount == 1) "" else "s"} — saved to the file you picked.", success = true, tint = tint)
-                                is MainViewModel.DatasetExportState.Failed ->
-                                    ExportStatusLine(false, "Export failed: ${exportState.message}", success = false, tint = tint)
-                                MainViewModel.DatasetExportState.Idle -> Spacer(Modifier.height(0.dp))
-                            }
-                        }
-                        BubbleDivider()
-                        BubbleRow {
-                            RowLabel("Delete Tagged Posts Dataset", Modifier.weight(1f))
-                            PillButton(
-                                if (confirmingDelete) "Really?" else "Delete",
-                                onClick = {
-                                    if (confirmingDelete) { confirmingDelete = false; onDeleteTaggedDatabase() }
-                                    else confirmingDelete = true
-                                },
-                                enabled = !taggingRunning, color = DangerRed
-                            )
                         }
                     }
                 }

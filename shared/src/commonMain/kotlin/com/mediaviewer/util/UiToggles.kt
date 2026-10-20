@@ -21,6 +21,7 @@ object UiToggles {
     private const val KEY_LIKE_ANIMATION = "like_animation"
     private const val KEY_TAGGED_SORT = "tagged_sort"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
+    private const val KEY_TAG_WHEN_VIEWED = "tag_when_viewed"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
     private const val KEY_AUDIO_VISUALIZER = "audio_visualizer"
@@ -76,6 +77,10 @@ object UiToggles {
     /** Settings → Media Tagging → "Show Tagging Status" (under Tag Media When
      *  Liked): the like-tagging queue as a status bubble on the timeline. */
     var showTaggingStatus by mutableStateOf(true)
+        private set
+    /** Settings → Media Tagging → Tag Media When Viewed: every post looked
+     *  at in Timeline mode is tagged (like Tag Media When Liked). */
+    var tagWhenViewed by mutableStateOf(false)
         private set
 
     /** Settings → App Functionality → "Show Translation Status" (under
@@ -364,6 +369,7 @@ object UiToggles {
         likeAnimation = p.getString(KEY_LIKE_ANIMATION, null)?.let { runCatching { LikeAnimation.valueOf(it) }.getOrNull() } ?: LikeAnimation.HEART_3D
         taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
+        tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
@@ -495,6 +501,11 @@ object UiToggles {
     fun updateShowTaggingStatus(enabled: Boolean) {
         showTaggingStatus = enabled
         prefs?.edit()?.putBoolean(KEY_SHOW_TAGGING_STATUS, enabled)?.apply()
+    }
+
+    fun updateTagWhenViewed(enabled: Boolean) {
+        tagWhenViewed = enabled
+        prefs?.edit()?.putBoolean(KEY_TAG_WHEN_VIEWED, enabled)?.apply()
     }
 
     fun updateShowTranslationStatus(enabled: Boolean) {

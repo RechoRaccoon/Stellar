@@ -129,8 +129,13 @@ class TaggingRepository(
     override suspend fun exportAllPosts(exclude: Set<String>): List<TagExportedPost> = withContext(Dispatchers.IO) { db.allPostsForExport(exclude) }
 
     /** Settings' "Import" button, once a file's been picked and parsed. */
-    override suspend fun importDataset(name: String, posts: List<TagExportedPost>): TagDatasetInfo =
-        withContext(Dispatchers.IO) { db.importDataset(name, posts) }
+    override suspend fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit): TagDatasetInfo =
+        withContext(Dispatchers.IO) { db.importDataset(name, posts, onProgress) }
+
+    override suspend fun exportDataset(id: String?): List<TagExportedPost> =
+        withContext(Dispatchers.IO) { if (id == null) db.localPostsForExport() else db.datasetPostsForExport(id) }
+
+    override suspend fun deleteOwnDataset() = withContext(Dispatchers.IO) { db.replaceLocalDataset(emptyList()) }
 
     /** Settings' imported-datasets list, under Import/Export. */
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = withContext(Dispatchers.IO) { db.listImportedDatasets() }
@@ -163,6 +168,39 @@ class TaggingRepository(
         e621ApiKey: String,
         concurrency: Int,
         onProgress: (TaggingProgress) -> Unit
+    ) = runTagging(concurrency, onProgress) { tagBatch ->
+        if (isBlueskyMode) {
+            var cursor: String? = null
+            do {
+                if (cancelRequested) break
+                val result = bskyRepo.getActorLikes(bskyToken, bskyDid, cursor).getOrNull() ?: break
+                val (items, nextCursor) = result
+                tagBatch(items)
+                cursor = nextCursor
+            } while (cursor != null && !cancelRequested)
+        } else {
+            var page = 1
+            while (!cancelRequested) {
+                val items = e621Repo.getFavorites(e621Username, e621ApiKey, page).getOrNull() ?: break
+                if (items.isEmpty()) break
+                tagBatch(items)
+                page++
+            }
+        }
+    }
+
+    /** Tags the given posts (History's) like the likes backlog pass. */
+    override suspend fun tagPosts(items: List<MediaItem>, concurrency: Int, onProgress: (TaggingProgress) -> Unit) =
+        runTagging(concurrency, onProgress) { tagBatch ->
+            for (chunk in items.chunked(50)) { if (cancelRequested) break; tagBatch(chunk) }
+        }
+
+    /** A tagging run: the model loaded, then [source] hands batches of
+     *  posts to [tagBatch] (below). */
+    private suspend fun runTagging(
+        concurrency: Int,
+        onProgress: (TaggingProgress) -> Unit,
+        source: suspend (tagBatch: suspend (List<MediaItem>) -> Unit) -> Unit
     ) {
         cancelRequested = false
         val parallelism = concurrency.coerceIn(1, 10)
@@ -290,24 +328,7 @@ class TaggingRepository(
                 }
             }
 
-            if (isBlueskyMode) {
-                var cursor: String? = null
-                do {
-                    if (cancelRequested) break
-                    val result = bskyRepo.getActorLikes(bskyToken, bskyDid, cursor).getOrNull() ?: break
-                    val (items, nextCursor) = result
-                    tagBatch(items)
-                    cursor = nextCursor
-                } while (cursor != null && !cancelRequested)
-            } else {
-                var page = 1
-                while (!cancelRequested) {
-                    val items = e621Repo.getFavorites(e621Username, e621ApiKey, page).getOrNull() ?: break
-                    if (items.isEmpty()) break
-                    tagBatch(items)
-                    page++
-                }
-            }
+            source { tagBatch(it) }
             onProgress(TaggingProgress(scanned.get(), tagged.get(), db.datasetSizeBytes(), isRunning = false, isComplete = !cancelRequested))
         }
     }

@@ -279,7 +279,7 @@ fun MainFeedScreen(
     onDeleteTaggedDatabase: () -> Unit = {},
     settingsExtras: SettingsExtras = SettingsExtras(),
     importedDatasets: List<com.mediaviewer.tagging.TagDatasetInfo> = emptyList(),
-    onExportDataset: (String, com.mediaviewer.platform.PlatformUri) -> Unit = { _, _ -> },
+    onExportDataset: (String?, String, com.mediaviewer.platform.PlatformUri) -> Unit = { _, _, _ -> },
     onImportDataset: (com.mediaviewer.platform.PlatformUri) -> Unit = {},
     onDeleteImportedDataset: (String) -> Unit = {},
     onShowLikes: () -> Unit,

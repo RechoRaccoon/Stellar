@@ -13,13 +13,9 @@ name: Shared Tag Dataset
 # to update it. The dataset is rebuilt from the files present each time, so
 # a removed file takes away exactly what only it contributed.
 #
-# Runs when that release is edited, once a day as a safety net, or by hand
-# (Actions → Shared Tag Dataset → Run workflow).
+# Runs only by hand, after the release's files are changed (Actions →
+# Shared Tag Dataset → Run workflow).
 on:
-  release:
-    types: [published, edited, created, deleted, released]
-  schedule:
-    - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,7 +28,6 @@ concurrency:
 jobs:
   build:
     name: Merge and publish
-    if: github.event_name != 'release' || github.event.release.tag_name == 'tag-datasets'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
