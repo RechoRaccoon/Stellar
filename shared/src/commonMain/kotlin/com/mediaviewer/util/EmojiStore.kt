@@ -51,6 +51,11 @@ expect class EmojiStore {
     /** Reads the saved library from disk (once). */
     suspend fun load()
 
+    /** Switches to [did]'s own library (each signed-in account has its
+     *  own; the one from before libraries were per account goes to the
+     *  first account signed in). */
+    suspend fun useAccount(did: String)
+
     fun entryFor(c: Char): EmojiEntry?
     fun charFor(entry: EmojiEntry): Char
     fun containsEmoji(text: String): Boolean
@@ -93,3 +98,11 @@ expect class EmojiStore {
         fun get(context: PlatformContext): EmojiStore
     }
 }
+
+/** The folder an account's emoji library lives in, under the emoji folder. */
+internal fun emojiOwnerFolder(did: String): String = did.replace(':', '_').filter { it.isLetterOrDigit() || it == '_' || it == '.' || it == '-' }
+
+/** The picture files an emoji index (index.json's text) lists. */
+internal fun emojiIndexFiles(indexText: String): List<String> =
+    Regex("\"file\"\\s*:\\s*\"([^\"]+)\"").findAll(indexText).map { it.groupValues[1] }
+        .filter { !it.contains('/') && !it.contains('\\') }.toList()

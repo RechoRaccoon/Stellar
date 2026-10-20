@@ -41,9 +41,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun PrivateSyncGate(signedIn: Boolean, tint: Color) {
     val state = PrivateSync.state
-    var showingNewKey by remember { mutableStateOf(false) }
+    // Shown once syncing has started (or started over): the key to take to
+    // the other devices.
+    var keyReady by remember { mutableStateOf(false) }
     val needed = signedIn && (state == PrivateSync.State.NEEDS_SETUP || state == PrivateSync.State.NEEDS_KEY)
-    if (!needed && !showingNewKey) return
+    if (!needed && !keyReady) return
     androidx.compose.ui.window.Dialog(
         onDismissRequest = {},
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false, usePlatformDefaultWidth = false)
@@ -54,13 +56,9 @@ fun PrivateSyncGate(signedIn: Boolean, tint: Color) {
                     .verticalScroll(rememberScrollState())
             ) {
                 when {
-                    showingNewKey -> NewKeyStep(
-                        title = "Your New Secret Key",
-                        body = "Your Private Sync was started over with this device's data. Keep this key somewhere safe; your other devices will ask for it.",
-                        tint = tint, onSaved = { showingNewKey = false }
-                    )
-                    state == PrivateSync.State.NEEDS_SETUP -> SetupStep(tint)
-                    else -> UnlockStep(tint, onStartedOver = { showingNewKey = true })
+                    keyReady -> KeyReadyStep(tint, onContinue = { keyReady = false })
+                    state == PrivateSync.State.NEEDS_SETUP -> SetupStep(tint, onStarted = { keyReady = true })
+                    else -> UnlockStep(tint, onStartedOver = { keyReady = true })
                 }
             }
         }
@@ -68,61 +66,97 @@ fun PrivateSyncGate(signedIn: Boolean, tint: Color) {
 }
 
 @Composable
-private fun SetupStep(tint: Color) {
-    val scope = rememberCoroutineScope()
-    var working by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    NewKeyStep(
-        title = "Private Sync",
-        body = "Your drafts, notes, calendar, bookmark folders, archived posts, Hub layout, Blogs and Reviews lists and settings are saved to your own PDS, encrypted, so they follow you to every device you sign in on.\n\nOnly this Secret Key can open them; not even Stellar can. Keep it somewhere safe (a password manager is ideal). You can see it again any time in Settings → Data and Privacy.",
-        tint = tint, working = working, error = error,
-        onSaved = {
-            working = true; error = null
-            scope.launch {
-                error = PrivateSync.createVault()
-                working = false
-            }
-        }
-    )
-}
+private fun StepTitle(text: String) =
+    Text(text, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
 
 @Composable
-private fun NewKeyStep(
-    title: String, body: String, tint: Color,
-    working: Boolean = false, error: String? = null, onSaved: () -> Unit
-) {
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+private fun StepBody(text: String) =
+    Text(text, color = DimGray, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+
+/** No sync yet: what it is, and Copy Key / Start Syncing. */
+@Composable
+private fun SetupStep(tint: Color, onStarted: () -> Unit) {
+    val scope = rememberCoroutineScope()
     val tap = rememberHapticTap()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var working by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        StepTitle("Private Data Sync")
         Spacer(Modifier.height(10.dp))
-        Text(body, color = DimGray, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(16.dp))
-        SecretKeyBox(PrivateSync.newSecretKey)
+        StepBody("Stellar encrypts your private data (drafts, notes, bookmark folders, archive, Hub layout and settings) and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.")
         Spacer(Modifier.height(10.dp))
-        OutlinedButton(
-            onClick = {
-                tap()
-                clipboard.setText(androidx.compose.ui.text.AnnotatedString(PrivateSync.newSecretKey))
-                copied = true
-            },
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-            modifier = Modifier.fillMaxWidth().height(44.dp)
-        ) { Text(if (copied) "Copied" else "Copy Secret Key") }
-        Spacer(Modifier.height(10.dp))
-        Button(
-            onClick = { tap(); onSaved() },
-            enabled = !working,
-            colors = ButtonDefaults.buttonColors(containerColor = tint),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
-        ) {
-            if (working) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-            else Text("I've Saved It", color = Color.White, fontWeight = FontWeight.SemiBold)
+        StepBody("If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then reload Stellar here and enter the key it gives you.")
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = {
+                    tap()
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(PrivateSync.newSecretKey))
+                    copied = true
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) { Text(if (copied) "Copied" else "Copy Key", maxLines = 1) }
+            Button(
+                onClick = {
+                    tap(); working = true; error = null
+                    scope.launch {
+                        val e = PrivateSync.createVault()
+                        working = false
+                        if (e == null) onStarted() else error = e
+                    }
+                },
+                enabled = !working,
+                colors = ButtonDefaults.buttonColors(containerColor = tint),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) {
+                if (working) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                else Text("Start Syncing", color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
         }
         if (error != null) {
             Spacer(Modifier.height(8.dp))
-            Text(error, color = Color(0xFFFF8A80), fontSize = 12.sp, textAlign = TextAlign.Center)
+            Text(error!!, color = Color(0xFFFF8A80), fontSize = 12.sp, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+/** Syncing has started: enter this key on the other devices (once each). */
+@Composable
+private fun KeyReadyStep(tint: Color, onContinue: () -> Unit) {
+    val tap = rememberHapticTap()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val key = remember { PrivateSync.savedSecretKey() ?: PrivateSync.newSecretKey }
+    var copied by remember { mutableStateOf(false) }
+    var revealed by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        StepTitle("You're Syncing")
+        Spacer(Modifier.height(10.dp))
+        StepBody("To sync another device, open Stellar there and enter this key. You only need to do it once per device. Don't show it to anyone.")
+        Spacer(Modifier.height(18.dp))
+        // Tap to show the key right in the button; tap again to hide it.
+        OutlinedButton(
+            onClick = { tap(); revealed = !revealed },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        ) {
+            if (revealed) Text(key, fontFamily = FontFamily.Monospace, fontSize = 14.sp, letterSpacing = 0.5.sp, textAlign = TextAlign.Center)
+            else Text("Reveal Key")
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = { tap(); clipboard.setText(androidx.compose.ui.text.AnnotatedString(key)); copied = true },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) { Text(if (copied) "Copied" else "Copy Key", maxLines = 1) }
+            Button(
+                onClick = { tap(); onContinue() },
+                colors = ButtonDefaults.buttonColors(containerColor = tint),
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) { Text("Continue", color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1) }
         }
     }
 }
@@ -154,11 +188,11 @@ private fun UnlockStep(tint: Color, onStartedOver: () -> Unit) {
     var confirmStartOver by remember { mutableStateOf(false) }
     Box {
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Unlock Private Sync", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            StepTitle("Private Data Sync")
             Spacer(Modifier.height(10.dp))
             Text(
-                if (PrivateSync.keyChangedElsewhere) "Your Secret Key was changed on another device. Enter the new one to keep syncing."
-                else "This account already has Private Sync. Enter the Secret Key you saved when you set it up, and your drafts, notes, bookmark folders, archive and settings will come over.",
+                if (PrivateSync.keyChangedElsewhere) "Your sync key was changed on another device. Enter the new key to keep syncing."
+                else "Your Stellar data is already syncing from another device. Enter the key from that device to bring it here. You can find it in Settings → Data and Privacy on that device.",
                 color = DimGray, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(16.dp))
@@ -200,7 +234,7 @@ private fun UnlockStep(tint: Color, onStartedOver: () -> Unit) {
         ) { Box(Modifier.fillMaxSize()) {
             ConfirmPopup(
                 title = "Start Over?",
-                message = "A new Secret Key is made and this device's data becomes your Private Sync. What only your other devices had saved there can't be opened anymore; they'll ask for the new key.",
+                message = "This device's data becomes your synced data, with a new key. Anything only your other devices had synced can't be opened anymore, and they'll ask for the new key.",
                 confirmLabel = "Start Over",
                 liquidGlass = false, tint = tint, backdrop = null,
                 onConfirm = {

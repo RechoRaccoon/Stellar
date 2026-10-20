@@ -1769,6 +1769,15 @@ private fun ProfileHeaderSection(
             //  - the avatar's height needs to exactly span from the top of
             //    the display-name pill down to the bottom of the username
             //    pill, whatever those pills' real heights turn out to be.
+            // A taller banner than a phone's (~131 dp, 3:1 across a phone) —
+            // a wide window — gets all of it scaled up together, so the
+            // buttons still run nearly from the banner's top to its bottom
+            // and the avatar still spans the two name pills.
+            val bannerDensity = LocalDensity.current
+            val overlayScale = (bannerHeight / 131.dp).coerceIn(1f, 2.2f)
+            CompositionLocalProvider(
+                LocalDensity provides androidx.compose.ui.unit.Density(bannerDensity.density * overlayScale, bannerDensity.fontScale)
+            ) {
             ProfileBannerOverlayLayout(
                 author = author,
                 liquidGlass = liquidGlass,
@@ -1786,6 +1795,7 @@ private fun ProfileHeaderSection(
                 onOpenStatus = onOpenStatus,
                 onOpenAvatar = onOpenAvatar
             )
+            }
         }
         }
 
@@ -2842,8 +2852,7 @@ private fun MediaItem.tileAspectRatio(): Float = when {
 private fun MediaItem.estimatedMasonryHeightUnits(): Float = if (isTextOnly && !isEmojiTextshot) {
     val charsPerLine = 32
     val lines = kotlin.math.ceil(text.length.coerceAtLeast(1) / charsPerLine.toFloat())
-    // (No taller than COMPACT_TEXT_MAX_ASPECT: longer text gets smaller.)
-    minOf(0.22f + lines * 0.16f, COMPACT_TEXT_MAX_ASPECT)
+    0.22f + lines * 0.16f
 } else {
     1f / tileAspectRatio()
 }
@@ -3428,8 +3437,6 @@ private fun LazyListScope.postsHorizontalVideoRows(
 /** The widths these tiles are laid out at before shrinking to their
  *  column (see shrinkToWidth): about what each gets on a phone in portrait. */
 private val COMPACT_TEXT_REFERENCE = 170.dp
-/** A masonry text bubble's tallest shape (height ÷ width). */
-private const val COMPACT_TEXT_MAX_ASPECT = 1.15f
 
 /**
  * A text post's words the way the opened post shows them (centered,
@@ -4272,15 +4279,6 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
                 item.textshotImageUrl, cornerRadius = 12.dp,
                 modifier = (if (blurNsfw) Modifier.blur(36.dp) else Modifier).fillMaxSize()
             )
-        } else if (maxLines == Int.MAX_VALUE) {
-            // A small copy of the opened post: centered, its text shrunk to
-            // keep the bubble no taller than the opened card's shape.
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                FittedPostText(
-                    item.text, maxSp = 13f, minSp = 7f, maxHeight = maxWidth * COMPACT_TEXT_MAX_ASPECT,
-                    modifier = (if (blurNsfw) Modifier.blur(36.dp) else Modifier).fillMaxWidth()
-                )
-            }
         } else Text(
             item.text, color = Color.White.copy(0.92f), fontSize = 9.sp, lineHeight = 12.sp,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
@@ -6456,6 +6454,10 @@ fun PostResultTile(
         }
         PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> if (gridMode == 0) {
             TextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, onOpen = onClick)
+        } else if (gridMode == 2) {
+            // The square grid: a square bubble, its text centered and sized to fill it.
+            val shape = if (roundedGridTiles) RoundedCornerShape(10.dp) else RoundedCornerShape(0.dp)
+            ThumbBox(item, tint, shape, Modifier.fillMaxWidth().aspectRatio(1f), liquidGlass, playIconSize = 16.dp, rounded = roundedGridTiles, onClick = onClick)
         } else {
             PinterestEntryTile(item, tint, mediaShape, textShape, liquidGlass, onSeedSubImageIndex, onClick)
         }

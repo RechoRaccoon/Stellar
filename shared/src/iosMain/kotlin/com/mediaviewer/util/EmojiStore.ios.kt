@@ -39,11 +39,17 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalForeignApi::class)
 actual class EmojiStore private constructor() {
-    private val dir: String by lazy {
+    private val baseDir: String by lazy {
         (IosPaths.filesDir() + "/emoji").also {
             NSFileManager.defaultManager.createDirectoryAtPath(it, withIntermediateDirectories = true, attributes = null, error = null)
         }
     }
+    /** Whose library is open (see [useAccount]); "" = the shared one. */
+    @Volatile private var owner = ""
+    private val dir: String get() = if (owner.isBlank()) baseDir
+        else ("$baseDir/" + emojiOwnerFolder(owner)).also {
+            NSFileManager.defaultManager.createDirectoryAtPath(it, withIntermediateDirectories = true, attributes = null, error = null)
+        }
     private val indexPath: String get() = "$dir/index.json"
 
     private val lock = Any()
@@ -57,6 +63,31 @@ actual class EmojiStore private constructor() {
     @Volatile private var loaded = false
 
     // ── Loading / saving ────────────────────────────────────────────────
+
+    actual suspend fun useAccount(did: String): Unit = withContext(Dispatchers.IO) {
+        if (did == owner) return@withContext
+        if (did.isNotBlank()) {
+            val target = "$baseDir/" + emojiOwnerFolder(did)
+            // The library from before each account had its own: the first
+            // account signed in keeps it.
+            val old = readLocalFile("$baseDir/index.json")
+            if (old != null && !localFileExists("$target/index.json")) {
+                NSFileManager.defaultManager.createDirectoryAtPath(target, withIntermediateDirectories = true, attributes = null, error = null)
+                emojiIndexFiles(old.decodeToString()).forEach { name ->
+                    val bytes = readLocalFile("$baseDir/$name") ?: return@forEach
+                    if (writeLocalFile("$target/$name", bytes)) runCatching { deleteLocalFile("$baseDir/$name") }
+                }
+                if (writeLocalFile("$target/index.json", old)) runCatching { deleteLocalFile("$baseDir/index.json") }
+            }
+        }
+        synchronizedCompat(lock) {
+            owner = did
+            loaded = false
+            images.clear(); composeImages.clear(); reservedIds.clear()
+        }
+        withContext(Dispatchers.Main) { current = EmojiState(EmojiIndex()) }
+        load()
+    }
 
     actual suspend fun load(): Unit = withContext(Dispatchers.IO) {
         if (loaded) return@withContext

@@ -34,8 +34,10 @@ import kotlinx.serialization.json.longOrNull
  * and stellar-sync://media/… so they mean the same file on every device.
  *
  * Left out on purpose: sign-ins and tokens, caches, where you last were in
- * the app, and settings that belong to one device (its notifications,
- * Battery Saver, the custom font and VRM files).
+ * the app, viewing history, and settings that belong to one device (its
+ * notifications, Battery Saver, loading animation, tagging, Download When
+ * Liked, the custom font and VRM files). The tag database itself (tagged
+ * posts, datasets) is a separate on-device database that's never read here.
  */
 internal object Sections {
     const val PRIVATE_TOKEN = "stellar-sync://private"
@@ -64,11 +66,20 @@ internal object Sections {
         return "history" in n || "viewed" in n || "recent" in n || "seen" in n
     }
 
+    /** Settings each device keeps for itself: its loading animation,
+     *  everything about tagging (the tagger runs on this device's own model
+     *  and dataset) and Download When Liked. */
+    private fun deviceOnly(name: String): Boolean {
+        val n = name.lowercase()
+        return n == "loading_animation" || n == "download_on_like" || "tag" in n
+    }
+
     private fun settingSynced(name: String) =
-        name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) && !name.contains("cache") && !isViewingData(name)
+        name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) && !name.contains("cache") &&
+            !isViewingData(name) && !deviceOnly(name)
 
     private class Prefs(val section: String, val file: String, private val rule: (key: String, did: String) -> Boolean) {
-        fun keep(key: String, did: String) = rule(key, did) && (section == "status" || !isViewingData(key))
+        fun keep(key: String, did: String) = rule(key, did) && (section == "status" || (!isViewingData(key) && !deviceOnly(key)))
     }
 
     private val PREFS = listOf(

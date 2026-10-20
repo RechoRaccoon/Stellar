@@ -163,10 +163,17 @@ private object WebCrashLog {
 
 private fun installCrashHandler(): Unit = js("""{
     const save = (text) => { try { localStorage.setItem('stellar_last_crash', String(text).slice(0, 20000)); } catch (e) {} };
-    window.addEventListener('error', (e) => { if (e && e.error) save((e.error.stack || e.error.message || e.error) + ''); });
+    // (The error's own name and message first: Firefox's stack has neither,
+    // and "RuntimeError: unreachable" vs "out of memory" is the whole clue.)
+    const describe = (x) => {
+        if (!x) return '';
+        const head = ((x.name || 'Error') + ': ' + (x.message || String(x)));
+        return head + '\n' + (x.stack || '');
+    };
+    window.addEventListener('error', (e) => { if (e && e.error) save(describe(e.error)); else if (e && e.message) save(e.message + ' @ ' + (e.filename || '') + ':' + (e.lineno || '')); });
     window.addEventListener('unhandledrejection', (e) => {
         const r = e && e.reason;
-        if (r && r instanceof WebAssembly.RuntimeError) save((r.stack || r.message || r) + '');
+        if (r && r instanceof WebAssembly.RuntimeError) save(describe(r));
     });
 }""")
 private fun readCrash(): String? = js("localStorage.getItem('stellar_last_crash')")

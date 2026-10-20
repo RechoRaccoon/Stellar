@@ -297,11 +297,11 @@ object PrivateSync {
     /** NEEDS_KEY: checks a typed Secret Key; null when it opened the vault. */
     suspend fun unlock(typed: String): String? {
         val account = did
-        val secret = parseSecret(typed) ?: return "A Secret Key is 32 letters and numbers"
+        val secret = parseSecret(typed) ?: return "A sync key is 32 letters and numbers"
         val r = remote ?: return "Not signed in"
         val rec = try { r.get(account, COLLECTION, RKEY) } catch (e: Exception) { return e.message ?: "Couldn't reach your PDS" }
-            ?: return "Your Private Sync is gone; close this and it will be set up again"
-        val key = unwrap(rec.value, secret, account) ?: return "That Secret Key doesn't open your Private Sync"
+            ?: return "Your synced data is gone; reload Stellar to start syncing again"
+        val key = unwrap(rec.value, secret, account) ?: return "That key doesn't match your synced data"
         if (did != account) return null
         prefs?.edit()?.putString(k("secret"), formatSecret(secret))?.commit()
         // (A first sync on this device: nothing synced before, so the merge

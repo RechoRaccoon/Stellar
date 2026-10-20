@@ -929,7 +929,7 @@ private fun DmThreadView(
             fun EmojiButtonContent() {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     // (A star: custom emoji.)
-                    androidx.compose.material3.Text("\u2605", color = Color.White, fontSize = 21.sp, lineHeight = 21.sp)
+                    androidx.compose.material3.Icon(Icons.Default.Star, contentDescription = "Emoji", tint = Color.White, modifier = Modifier.size(22.dp))
                 }
             }
             if (liquidGlass) {

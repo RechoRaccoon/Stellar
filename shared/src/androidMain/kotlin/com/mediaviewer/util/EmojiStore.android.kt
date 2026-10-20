@@ -43,8 +43,11 @@ import kotlin.math.roundToInt
  */
 actual class EmojiStore private constructor(context: Context) {
     private val app = context.applicationContext
-    private val dir = File(app.filesDir, "emoji").apply { mkdirs() }
-    private val indexFile = File(dir, "index.json")
+    private val baseDir = File(app.filesDir, "emoji").apply { mkdirs() }
+    /** Whose library is open (see [useAccount]); "" = the shared one. */
+    @Volatile private var owner = ""
+    private val dir: File get() = if (owner.isBlank()) baseDir else File(baseDir, emojiOwnerFolder(owner)).apply { mkdirs() }
+    private val indexFile: File get() = File(dir, "index.json")
     private val gson = Gson()
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -64,6 +67,28 @@ actual class EmojiStore private constructor(context: Context) {
 
     /** Reads the saved library from disk (once). Blocking file IO — call it
      *  from a background dispatcher. Safe to call repeatedly. */
+    actual suspend fun useAccount(did: String): Unit = withContext(Dispatchers.IO) {
+        if (did == owner) return@withContext
+        if (did.isNotBlank()) {
+            val target = File(baseDir, emojiOwnerFolder(did))
+            val oldIndex = File(baseDir, "index.json")
+            // The library from before each account had its own: the first
+            // account signed in keeps it.
+            if (!File(target, "index.json").exists() && oldIndex.exists()) {
+                target.mkdirs()
+                emojiIndexFiles(oldIndex.readText()).forEach { name -> File(baseDir, name).takeIf { it.exists() }?.renameTo(File(target, name)) }
+                oldIndex.renameTo(File(target, "index.json"))
+            }
+        }
+        synchronized(lock) {
+            owner = did
+            loaded = false
+            bitmapCache.clear(); imageBitmapCache.clear(); reservedIds.clear()
+        }
+        withContext(Dispatchers.Main) { _state = EmojiState(EmojiIndex()) }
+        load()
+    }
+
     actual suspend fun load(): Unit = withContext(Dispatchers.IO) {
         if (loaded) return@withContext
         synchronized(lock) {

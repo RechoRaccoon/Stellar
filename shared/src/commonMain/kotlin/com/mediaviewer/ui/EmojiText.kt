@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
@@ -88,11 +89,14 @@ internal fun DmMessageText(
             append(text.substring(at))
         }
     }
-    val inline = remember(spans, side) {
+    val inline = remember(spans, side, onlyEmoji) {
         spans.mapIndexed { i, s ->
             "emoji$i" to InlineTextContent(Placeholder(side, side, PlaceholderVerticalAlign.TextCenter)) {
-                // (Animated emoji move, and loop.)
-                RemoteEmojiPicture(s.did, s.cid, s.animated, s.name, Modifier.fillMaxSize())
+                // (Animated emoji move, and loop.) Among words, lifted a
+                // little: "text center" counts the font's deep descent, which
+                // left them sitting low next to the letters.
+                RemoteEmojiPicture(s.did, s.cid, s.animated, s.name, Modifier.fillMaxSize()
+                    .then(if (onlyEmoji) Modifier else Modifier.graphicsLayer { translationY = -size.height * 0.1f }))
             }
         }.toMap()
     }

@@ -35,17 +35,7 @@ actual fun AnimatedGifImage(url: String, contentDescription: String?, modifier: 
             runCatching {
                 val resp = PlainHttp.get(url)
                 if (!resp.isSuccessful) return@runCatching null
-                val codec = Codec.makeFromData(Data.makeFromBytes(resp.body))
-                val count = codec.frameCount.coerceIn(1, 90)
-                val infos = codec.framesInfo
-                (0 until count).map { i ->
-                    val bmp = Bitmap()
-                    bmp.allocPixels(codec.imageInfo)
-                    codec.readPixels(bmp, i)
-                    // (Frames with no delay play at the usual 10 fps.)
-                    val ms = infos.getOrNull(i)?.duration ?: 100
-                    bmp.asComposeImageBitmap() to (if (ms < 20) 100 else ms)
-                }
+                decodeGifFrames(resp.body, 90, 20_000_000L)
             }.getOrNull()
         }
         if (decoded != null && decoded.isNotEmpty()) {
@@ -84,16 +74,7 @@ actual fun AnimatedGifBytes(key: String, load: suspend () -> ByteArray?, content
         val bytes = runCatching { load() }.getOrNull() ?: return@LaunchedEffect
         val decoded = withContext(Dispatchers.Default) {
             runCatching {
-                val codec = Codec.makeFromData(Data.makeFromBytes(bytes))
-                val count = codec.frameCount.coerceIn(1, 150)
-                val infos = codec.framesInfo
-                (0 until count).map { i ->
-                    val bmp = Bitmap()
-                    bmp.allocPixels(codec.imageInfo)
-                    codec.readPixels(bmp, i)
-                    val ms = infos.getOrNull(i)?.duration ?: 100
-                    bmp.asComposeImageBitmap() to (if (ms < 20) 100 else ms)
-                }
+                decodeGifFrames(bytes, 150, 1_200_000L)
             }.getOrNull()
         }
         if (decoded != null && decoded.isNotEmpty()) {
@@ -114,4 +95,38 @@ actual fun AnimatedGifBytes(key: String, load: suspend () -> ByteArray?, content
         }
     }
     Image(bitmap = f[index.coerceIn(0, f.lastIndex)].first, contentDescription = contentDescription, modifier = modifier, contentScale = contentScale)
+}
+
+
+/** At most [maxPixels] pixels of decoded frames for one GIF: a long or big
+ *  one keeps every n-th frame (each shown for the frames it stands for),
+ *  so a page full of them can't run the browser out of memory. */
+internal fun gifFrameStep(count: Int, width: Int, height: Int, maxPixels: Long): Int {
+    val perFrame = (width.toLong() * height).coerceAtLeast(1)
+    val fit = (maxPixels / perFrame).coerceAtLeast(1)
+    return ((count + fit - 1) / fit).toInt().coerceAtLeast(1)
+}
+
+internal fun decodeGifFrames(bytes: ByteArray, maxFrames: Int, maxPixels: Long): List<Pair<ImageBitmap, Int>> {
+    val data = Data.makeFromBytes(bytes)
+    val codec = Codec.makeFromData(data)
+    try {
+        val count = codec.frameCount.coerceIn(1, maxFrames)
+        val infos = codec.framesInfo
+        val info = codec.imageInfo
+        val step = gifFrameStep(count, info.width, info.height, maxPixels)
+        return (0 until count step step).map { i ->
+            val bmp = Bitmap()
+            bmp.allocPixels(info)
+            codec.readPixels(bmp, i)
+            // (Frames with no delay play at the usual 10 fps.)
+            var ms = 0
+            for (j in i until minOf(count, i + step)) ms += (infos.getOrNull(j)?.duration ?: 100).let { if (it < 20) 100 else it }
+            bmp.setImmutable()
+            bmp.asComposeImageBitmap() to ms
+        }
+    } finally {
+        codec.close()
+        data.close()
+    }
 }

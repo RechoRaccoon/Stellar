@@ -5258,6 +5258,9 @@ class MainViewModel(
     fun openPostFromProfileTab(items: List<MediaItem>, index: Int) {
         val cur = _profileOverlay.value ?: return
         if (index !in items.indices) return
+        // What the profile was opened over (the Hub, say): where swiping
+        // back to the profile and then leaving it should end up.
+        if (_screenState.value != ScreenState.FEED || screenUnderProfilePost == null) screenUnderProfilePost = _screenState.value
         if (_authorFeedState.value == null) {
             _authorFeedState.value = AuthorFeedSavedState(
                 author       = cur.author,
@@ -5324,6 +5327,10 @@ class MainViewModel(
         val overlay = _profileOverlay.value
         if (overlay != null && overlay.hidden) {
             _profileOverlay.value = overlay.copy(hidden = false)
+            // (Leaving the profile then goes back to where it was opened from.)
+            val under = screenUnderProfilePost
+            screenUnderProfilePost = null
+            if (under != null && under != ScreenState.FEED && under != ScreenState.COMMENTS) { _navDirection.value = 0; _screenState.value = under }
         } else if (_searchHiddenBehindPost.value) {
             _searchHiddenBehindPost.value = false
             _searchOpen.value = true
@@ -5342,6 +5349,13 @@ class MainViewModel(
         val overlay = _profileOverlay.value ?: return
         if (overlay.hidden) return
         if (activeFeedMode == ActiveFeedMode.AUTHOR && activeFeedActorDid == overlay.author.did) {
+            // (The profile was opened over the Hub, say: the post is in the
+            // Timeline, so that's what comes back, and the Hub is remembered.)
+            if (_screenState.value != ScreenState.FEED && _screenState.value != ScreenState.COMMENTS) {
+                screenUnderProfilePost = _screenState.value
+                _navDirection.value = 0
+                _screenState.value = ScreenState.FEED
+            }
             _profileOverlay.value = overlay.copy(hidden = true)
         }
     }
@@ -6360,7 +6374,13 @@ class MainViewModel(
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(_bskyLoggedIn, _bskyDid) { inn, did -> if (inn) did else "" }
                 .distinctUntilChanged()
-                .collect { did -> com.mediaviewer.util.PrivateSync.start(did) }
+                .collect { did ->
+                    com.mediaviewer.util.PrivateSync.start(did)
+                    // Each signed-in account has its own emoji library.
+                    if (did.isNotBlank()) launch(ioDispatcher) {
+                        runCatching { com.mediaviewer.util.EmojiStore.get(platform.context).useAccount(did) }
+                    }
+                }
         }
         com.mediaviewer.util.ProfileStyles.bannerUploader = { uri, onDone ->
             if (!_bskyLoggedIn.value) onDone(null, "Not signed in")
@@ -7076,6 +7096,9 @@ class MainViewModel(
         }
     }
 
+    /** See openPostFromProfileTab. */
+    private var screenUnderProfilePost: ScreenState? = null
+
     fun setScreen(screen: ScreenState) {
         // Leaving a feed that was opened from a profile's Lists/Feeds tab
         // (swipe down, Back) goes back to that profile, not the Hub.
@@ -7086,6 +7109,14 @@ class MainViewModel(
             val overlay = _profileOverlay.value
             if (overlay != null && overlay.hidden && activeFeedMode == ActiveFeedMode.AUTHOR && activeFeedActorDid == overlay.author.did) {
                 _profileOverlay.value = overlay.copy(hidden = false)
+                // Back on the profile: leaving it returns to where it was
+                // opened from, not to its posts in the Timeline.
+                val under = screenUnderProfilePost ?: ScreenState.SETTINGS
+                screenUnderProfilePost = null
+                if (under != ScreenState.FEED && under != ScreenState.COMMENTS) {
+                    _navDirection.value = 0
+                    _screenState.value = under
+                }
                 return
             }
         }

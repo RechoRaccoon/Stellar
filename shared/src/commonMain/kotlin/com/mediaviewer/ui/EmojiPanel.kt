@@ -51,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -169,7 +170,9 @@ internal fun EmojiPanel(
     selfAvatarUrl: String? = null,
     /** The person being messaged (offered at the end of the accounts row). */
     partner: com.mediaviewer.model.AuthorInfo? = null,
-    floating: Boolean = false
+    floating: Boolean = false,
+    /** Floating, but as wide as the space it's given (the status editor). */
+    fillWidth: Boolean = false
 ) {
     val context = com.mediaviewer.ui.compat.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -184,8 +187,10 @@ internal fun EmojiPanel(
     if (selectedFolderId != null && folders.none { it.id == selectedFolderId }) selectedFolderId = null
 
     // Whose emoji are showing: null = your own.
-    var viewing by remember { mutableStateOf<EmojiAccounts.Account?>(null) }
-    var viewingFolder by remember { mutableStateOf<String?>(null) }
+    // (Starts over for each chat and each signed-in account, so another
+    // conversation never shows the last person's emoji.)
+    var viewing by remember(selfDid, partner?.did) { mutableStateOf<EmojiAccounts.Account?>(null) }
+    var viewingFolder by remember(selfDid, partner?.did) { mutableStateOf<String?>(null) }
     val saved = if (showAccounts) EmojiAccounts.saved(selfDid) else emptyList()
     val partnerAccount = partner?.takeIf { showAccounts && it.did.isNotBlank() && it.did != selfDid }?.let {
         EmojiAccounts.Account(it.did, it.handle, it.displayName, it.avatarUrl)
@@ -197,10 +202,17 @@ internal fun EmojiPanel(
         if (s != null && s != p) EmojiAccounts.save(selfDid, p)
     }
     val others = viewing
-    val remote by produceState<List<EmojiCloud.RemoteEmoji>?>(null, others?.did) {
+    // Their library: what was read before shows at once, then a fresh read
+    // (they may have added some since). [remoteFailed]: it couldn't be read.
+    var remoteFailed by remember(others?.did) { mutableStateOf(false) }
+    var remoteRetry by remember(others?.did) { mutableIntStateOf(0) }
+    val remote by produceState<List<EmojiCloud.RemoteEmoji>?>(null, others?.did, remoteRetry) {
         value = null
+        remoteFailed = false
         val did = others?.did ?: return@produceState
-        value = EmojiCloud.libraryOf(did)
+        EmojiCloud.libraryOf(did)?.let { value = it }
+        val fresh = EmojiCloud.libraryOf(did, fresh = true)
+        if (fresh != null) value = fresh else if (value == null) remoteFailed = true
     }
 
     var editingId by remember { mutableStateOf<Int?>(null) }
@@ -362,7 +374,7 @@ internal fun EmojiPanel(
 
     Box(
         modifier
-            .then(if (floating) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier.fillMaxWidth())
+            .then(if (floating && !fillWidth) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier.fillMaxWidth())
             .height(if (compact) EmojiPanelCompactHeight else height)
             .then(
                 if (floating) Modifier.clip(panelShape).background(panelBg.copy(alpha = 0.96f), panelShape)
@@ -562,6 +574,12 @@ internal fun EmojiPanel(
             if (others != null) {
                 val list = remote
                 when {
+                    list == null && remoteFailed -> Box(
+                        Modifier.weight(1f).fillMaxWidth().padding(24.dp).clickable { remoteRetry++ },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Couldn't load their emoji. Tap to try again.", color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                    }
                     list == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 1.5.dp)
                     }

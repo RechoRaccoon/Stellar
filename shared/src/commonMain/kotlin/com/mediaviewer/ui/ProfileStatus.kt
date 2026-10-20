@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
@@ -384,7 +385,7 @@ fun ProfileStatusEditor(
                             val next = (t.text.substring(0, a) + token + t.text.substring(b))
                             if (next.length <= STATUS_MAX_LENGTH) field = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(a + token.length))
                         },
-                        onEditingChange = {}, floating = true
+                        onEditingChange = {}, floating = true, fillWidth = true
                     )
                 }
             }
@@ -416,9 +417,7 @@ fun ProfileStatusEditor(
                     emojiOpen = !emojiOpen; durationOpen = false; historyOpen = false
                     if (emojiOpen) keyboard?.hide() else keyboard?.show()
                 }) {
-                    androidx.compose.material3.Text(
-                        "\u2605", color = if (emojiOpen) Color.White else Color.White.copy(alpha = 0.85f), fontSize = 21.sp, lineHeight = 21.sp
-                    )
+                    Icon(androidx.compose.material.icons.Icons.Default.Star, contentDescription = "Emoji", tint = if (emojiOpen) Color.White else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(22.dp))
                 }
                 Circle(Modifier.clickable { tap(); historyOpen = !historyOpen; durationOpen = false; emojiOpen = false }) {
                     Icon(

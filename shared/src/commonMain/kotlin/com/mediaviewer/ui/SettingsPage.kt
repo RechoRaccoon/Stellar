@@ -2731,20 +2731,20 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
         }
         com.mediaviewer.util.PrivateSync.State.OFFLINE -> "Can't reach your PDS right now; trying again soon"
         com.mediaviewer.util.PrivateSync.State.CHECKING -> "Checking…"
-        com.mediaviewer.util.PrivateSync.State.NEEDS_KEY -> "Waiting for your Secret Key"
+        com.mediaviewer.util.PrivateSync.State.NEEDS_KEY -> "Waiting for your sync key"
         com.mediaviewer.util.PrivateSync.State.NEEDS_SETUP -> "Not set up yet"
         com.mediaviewer.util.PrivateSync.State.OFF -> "Off"
     }
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
-            RowLabel("Private Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive, Hub and settings, encrypted on your PDS · $status")
+            RowLabel("Private Data Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive, Hub and settings, encrypted on your PDS · $status")
             PillButton("Sync Now", { sync.syncNow() }, enabled = !sync.syncing &&
                 (sync.state == com.mediaviewer.util.PrivateSync.State.READY || sync.state == com.mediaviewer.util.PrivateSync.State.OFFLINE))
         }
         if (sync.state == com.mediaviewer.util.PrivateSync.State.READY) {
             BubbleDivider()
             BubbleRow {
-                RowLabel("Secret Key", Modifier.weight(1f), sub = if (key == null) "Opens your Private Sync on a new device. Keep it private." else null)
+                RowLabel("Sync Key", Modifier.weight(1f), sub = if (key == null) "Enter it on a new device to sync it. Never show it to anyone." else null)
                 if (key != null) PillButton("Copy", { clipboard.setText(androidx.compose.ui.text.AnnotatedString(key)) })
                 Spacer(Modifier.width(6.dp))
                 PillButton(if (reveal) "Hide" else "Show", { reveal = !reveal })

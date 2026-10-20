@@ -123,6 +123,8 @@ object EmojiCloud {
     /** Brings this device's library and [did]'s PDS together (see the class doc). */
     suspend fun sync(store: EmojiStore, did: String) = mutex.withLock {
         val r = remote ?: return@withLock
+        // (Only ever [did]'s own library: each account keeps its own.)
+        store.useAccount(did)
         store.load()
         val records = r.list(did)
         val byHash = records.filter { it.hash.isNotBlank() }.groupBy { it.hash }
@@ -271,9 +273,11 @@ object EmojiCloud {
 
     /** [did]'s emoji, from their own PDS (cached for the session; [fresh]
      *  reads again). Empty when they have none or it can't be read. */
-    suspend fun libraryOf(did: String, fresh: Boolean = false): List<RemoteEmoji> {
+    /** [did]'s library (remembered this session; [fresh] reads it again).
+     *  Null when it couldn't be read. */
+    suspend fun libraryOf(did: String, fresh: Boolean = false): List<RemoteEmoji>? {
         if (!fresh) com.mediaviewer.platform.synchronizedCompat(others) { others[did] }?.let { return it }
-        val list = runCatching { readPublic(did) }.getOrNull() ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }.orEmpty()
+        val list = runCatching { readPublic(did) }.getOrNull() ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }
         com.mediaviewer.platform.synchronizedCompat(others) { others[did] = list }
         return list
     }
