@@ -206,14 +206,14 @@ object TipTours {
                 ),
                 stairRight("tl.like", 290, 300, "This is the **like** button. You can also double tap a post to like it."),
                 stairRight("tl.save", 215, 290, "This is the **save** button. Saved posts can be sorted into folders."),
-                stairRight("tl.repost", 140, 250, "This is the **repost** button. It shares the post with your followers."),
-                stairRight("tl.quote", 65, 210, "This is the **quote** button. It reposts with your own text added.")
+                stairRight("tl.repost", 140, 250, "This is the **repost** button. Tap it to repost, or to quote repost with your own text added."),
+                stairRight("tl.quote", 65, 210, "This is the **add to** button. It adds the account to one of your lists.")
             )
         ),
         TipStep(
             highlights = listOf("tl.actions"),
             notes = listOf(
-                stairLeft("tl.more", 290, 300, "This is the **more** button, with options like show more or less like this, add to list, report, and block."),
+                stairLeft("tl.more", 290, 300, "This is the **more** button, with options like show more or less like this, report, and block."),
                 stairLeft("tl.send", 215, 270, "This is the **send** button. You can send the post to someone in your DMs."),
                 stairLeft("tl.gif", 140, 240, "This saves the post's media as a **GIF**."),
                 stairLeft("tl.download", 65, 210, "This is the **download** button. It saves the post's media to your device.")

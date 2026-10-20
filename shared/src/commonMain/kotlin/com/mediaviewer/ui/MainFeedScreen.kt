@@ -1336,6 +1336,9 @@ private fun PostContent(
     // exactly why its live blur backdrop never lined up correctly; see
     // MoreBubbleMenu's own doc comment).
     var moreMenuExpanded by remember(item.id) { mutableStateOf(false) }
+    var repostMenuExpanded by remember(item.id) { mutableStateOf(false) }
+    var repostButtonOrigin by remember(item.id) { mutableStateOf<Offset?>(null) }
+    var repostButtonSize by remember(item.id) { mutableStateOf(IntSize.Zero) }
     var actionBarOrigin  by remember(item.id) { mutableStateOf<Offset?>(null) }
     var actionBarSize    by remember(item.id) { mutableStateOf(IntSize.Zero) }
     // The More button's own bounds: the More bubbles stand right on it.
@@ -2243,12 +2246,17 @@ private fun PostContent(
                     moreMenuExpanded = moreMenuExpanded,
                     onToggleMoreMenu = {
                         moreMenuExpanded = !moreMenuExpanded
+                        if (moreMenuExpanded) repostMenuExpanded = false
                         if (moreMenuExpanded && appMode == AppMode.BLUESKY) onPrefetchListMemberships(item.author.did)
                     },
                     onVisibleBoundsChanged = { origin, size -> actionBarOrigin = origin; actionBarSize = size },
                     onMoreButtonBounds = { origin, size -> moreButtonOrigin = origin; moreButtonSize = size },
                     onLikeButtonCenter = { likeButtonCenterRoot = it },
-                    interactionsBlocked = authorBlocksViewer
+                    interactionsBlocked = authorBlocksViewer,
+                    repostMenuExpanded = repostMenuExpanded,
+                    onToggleRepostMenu = { repostMenuExpanded = !repostMenuExpanded; if (repostMenuExpanded) moreMenuExpanded = false },
+                    onRepostButtonBounds = { origin, size -> repostButtonOrigin = origin; repostButtonSize = size },
+                    onAddTo = onAddAccountToList
                 )
             }
             }
@@ -2321,6 +2329,23 @@ private fun PostContent(
         // grid — never from an outside tap.
         val barOrigin = actionBarOrigin
         val moreOrigin = moreButtonOrigin
+        val repostOrigin = repostButtonOrigin
+        if (barOrigin != null && repostOrigin != null && appMode == AppMode.BLUESKY) {
+            BubbleActionStack(
+                visible = repostMenuExpanded && !uiHidden,
+                anchorOriginRoot = Offset(repostOrigin.x, barOrigin.y),
+                anchorSize = repostButtonSize,
+                containerRootOrigin = postBoxRootOrigin,
+                actions = listOf(
+                    BubbleAction("Quote Repost", icon = QuillIcon, iconTint = if (item.isQuoteReposted) vividAccent(dominantColor) else null) { onQuoteRepost() },
+                    BubbleAction(if (item.isReposted) "Undo Repost" else "Repost", icon = Icons.Default.Repeat,
+                        iconTint = if (item.isReposted) vividAccent(dominantColor) else null) { onToggleRepost() }
+                ),
+                liquidGlass = liquidGlass, tint = dominantColor, backdrop = glassBackdrop,
+                onDismissRequest = { repostMenuExpanded = false },
+                gapAboveAnchor = 6.dp
+            )
+        }
         if (barOrigin != null && moreOrigin != null) {
             MoreBubbleMenu(
                 visible = moreMenuExpanded && !uiHidden,
@@ -2614,7 +2639,7 @@ private fun QuickActionMenu(center: Offset, hoveredAction: QuickAction?, appMode
         Triple(QuickAction.TOP,          Icons.Filled.Favorite,  if (item.isLiked) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.TOP_RIGHT,    Icons.Default.Send,     Color.White),
         Triple(QuickAction.RIGHT,        Icons.Default.Repeat,   if (item.isReposted) vividAccent(dominantColor) else Color.White),
-        Triple(QuickAction.BOTTOM_RIGHT, Icons.Default.EditNote, if (item.isQuoteReposted) vividAccent(dominantColor) else Color.White),
+        Triple(QuickAction.BOTTOM_RIGHT, QuillIcon, if (item.isQuoteReposted) vividAccent(dominantColor) else Color.White),
         Triple(QuickAction.BOTTOM,       Icons.Default.Download, if (item.isDownloaded) vividAccent(dominantColor) else Color.White),
         if (isOwnPost) Triple(QuickAction.BOTTOM_LEFT, Icons.Default.Edit, Color.White)
         else Triple(QuickAction.BOTTOM_LEFT,  Icons.Default.Block,    if (item.isBlocked) Color(0xFFE0245E) else Color.White),
@@ -3733,7 +3758,13 @@ private fun ActionRow(
     /** Where the like button's middle is (root coordinates): the like heart starts there. */
     onLikeButtonCenter: (Offset) -> Unit = {},
     /** The author has blocked you: like / repost / quote are greyed out. */
-    interactionsBlocked: Boolean = false
+    interactionsBlocked: Boolean = false,
+    /** The repost button opens its own little menu (Quote Repost / Repost). */
+    repostMenuExpanded: Boolean = false,
+    onToggleRepostMenu: () -> Unit = {},
+    onRepostButtonBounds: (Offset, IntSize) -> Unit = { _, _ -> },
+    /** Add To (lists), where Quote Repost used to be. */
+    onAddTo: () -> Unit = {}
 ) {
     val blockedTint = Color.White.copy(alpha = 0.28f)
     @Composable
@@ -3781,12 +3812,15 @@ private fun ActionRow(
                 ActionButton(if (item.isBookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                     if (item.isBookmarked) activeTint else Color.White, null, onToggleBookmark)
                 }
-                Box(Modifier.tipAnchor("tl.repost")) {
-                ActionButton(Icons.Default.Repeat,
-                    if (interactionsBlocked) blockedTint else if (item.isReposted) activeTint else Color.White, null, onToggleRepost)
+                // Repost opens a small menu: Quote Repost above, Repost below.
+                Box(Modifier.tipAnchor("tl.repost").onGloballyPositioned { onRepostButtonBounds(it.positionInRoot(), it.size) }) {
+                ActionButton(if (repostMenuExpanded) Icons.Default.Close else Icons.Default.Repeat,
+                    if (interactionsBlocked) blockedTint else if (item.isReposted || item.isQuoteReposted) activeTint else Color.White, null,
+                    if (interactionsBlocked) onToggleRepost else onToggleRepostMenu)
                 }
+                // Add To (lists), where Quote Repost used to be.
                 Box(Modifier.tipAnchor("tl.quote")) {
-                ActionButton(Icons.Default.EditNote, if (interactionsBlocked) blockedTint else if (item.isQuoteReposted) activeTint else Color.White, null, onQuoteRepost)
+                ActionButton(Icons.Filled.PlaylistAdd, Color.White, null, onAddTo)
                 }
                 Box(Modifier.tipAnchor("tl.download")) { ActionButton(Icons.Default.Download, if (item.isDownloaded) activeTint else Color.White, null, onDownload) }
                 Box(Modifier.tipAnchor("tl.gif")) { GifActionButton(onDownloadGif, if (item.isGifDownloaded) activeTint else Color.White) }
@@ -3925,7 +3959,6 @@ private fun MoreBubbleMenu(
             add(BubbleAction("Show more like this", icon = Icons.Default.ThumbUp) { onShowMoreLikeThis() })
             add(BubbleAction("Show less like this", icon = Icons.Default.ThumbDown) { onShowLessLikeThis() })
         }
-        add(BubbleAction("Add account to list", icon = Icons.Filled.PlaylistAdd) { onAddAccountToList() })
         if (!isOwnPost) {
             add(BubbleAction("Report", icon = Icons.Default.Flag) { onReport() })
             add(BubbleAction("Block", icon = Icons.Default.Block) { onBlock() })
