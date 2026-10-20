@@ -4192,6 +4192,25 @@ class BlueskyRepository {
         resp.body
     }
 
+    // ── Custom emoji in a status (the status itself, and its history) ──
+
+    private fun statusEmojiRecord(list: List<com.mediaviewer.util.StatusEmoji>): List<Map<String, Any>> = list.map { e ->
+        buildMap {
+            put("at", e.at); put("did", e.did); put("cid", e.cid); put("name", e.name)
+            if (e.animated) put("animated", true)
+        }
+    }
+
+    private fun parseStatusEmoji(el: kotlinx.serialization.json.JsonElement?): List<com.mediaviewer.util.StatusEmoji> =
+        (el as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { item ->
+            val o = item as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+            fun f(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val at = f("at")?.toIntOrNull() ?: return@mapNotNull null
+            val did = f("did")?.takeIf { it.startsWith("did:") } ?: return@mapNotNull null
+            val cid = f("cid")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            com.mediaviewer.util.StatusEmoji(at, did, cid, f("name").orEmpty(), f("animated") == "true")
+        }
+
     // ── Status history: one record per status posted, on your own PDS ──
 
     /** Every status in [did]'s history (newest first), with each record's key. */
@@ -4209,7 +4228,7 @@ class BlueskyRepository {
                 val words = text("text")?.takeIf { it.isNotBlank() } ?: continue
                 out += com.mediaviewer.util.StatusHistory.Entry(
                     text = words, createdAt = text("createdAt").orEmpty(), expiresAt = text("expiresAt"),
-                    rkey = rec.uri.substringAfterLast('/')
+                    rkey = rec.uri.substringAfterLast('/'), emoji = parseStatusEmoji(value["emoji"])
                 )
             }
             cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
@@ -4225,6 +4244,7 @@ class BlueskyRepository {
             "createdAt" to entry.createdAt.ifBlank { com.mediaviewer.platform.nowIsoString() }
         )
         entry.expiresAt?.let { record["expiresAt"] = it }
+        if (entry.emoji.isNotEmpty()) record["emoji"] = statusEmojiRecord(entry.emoji)
         val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, com.mediaviewer.util.StatusHistory.COLLECTION, record))
         val body = resp.body() ?: error("Status history ${resp.code()}: ${errorBodyText(resp).take(120)}")
         body.uri.substringAfterLast('/')
@@ -4272,7 +4292,10 @@ class BlueskyRepository {
         val status = (value["status"] as? kotlinx.serialization.json.JsonObject)?.let { st ->
             fun field(k: String) = (st[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
             field("text")?.takeIf { it.isNotBlank() }?.let {
-                com.mediaviewer.util.ProfileStatus(it.take(com.mediaviewer.ui.STATUS_MAX_LENGTH), field("createdAt").orEmpty(), field("expiresAt"))
+                com.mediaviewer.util.ProfileStatus(
+                    it.take(com.mediaviewer.ui.STATUS_MAX_LENGTH), field("createdAt").orEmpty(), field("expiresAt"),
+                    emoji = parseStatusEmoji(st["emoji"])
+                )
             }
         }
         return com.mediaviewer.util.ProfileStyle(
@@ -4334,6 +4357,7 @@ class BlueskyRepository {
                     put("text", st.text)
                     put("createdAt", st.createdAt.ifBlank { com.mediaviewer.platform.nowIsoString() })
                     st.expiresAt?.let { put("expiresAt", it) }
+                    if (st.emoji.isNotEmpty()) put("emoji", statusEmojiRecord(st.emoji))
                 }
             }
             record["updatedAt"] = com.mediaviewer.platform.nowIsoString()

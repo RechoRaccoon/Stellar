@@ -1342,8 +1342,30 @@ fun ProfileOverlay(
             )
         }
         val avatarFull = author.avatarUrl
-        if (viewingAvatar && avatarFull != null) {
+        val iconVideoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid
+        if (viewingAvatar && iconVideoCid != null) {
+            // An animated profile picture: its video, full size and looping.
+            // A tap anywhere (or Back) closes it.
+            com.mediaviewer.ui.compat.BackHandler { viewingAvatar = false }
+            BoxWithConstraints(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { viewingAvatar = false },
+                contentAlignment = Alignment.Center
+            ) {
+                val side = minOf(maxWidth, maxHeight) * 0.92f
+                ProfileBannerVideo(
+                    author.did, iconVideoCid, Modifier.size(side),
+                    poster = {
+                        if (avatarFull != null) AsyncImage(
+                            model = avatarFull.replace("/avatar_thumbnail/", "/avatar/"), contentDescription = null,
+                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                )
+            }
+        } else if (viewingAvatar && avatarFull != null) {
             // Like a comment's picture: full screen, the page blurred behind.
+            // (No X: a tap anywhere closes it.)
             CommentMediaViewer(
                 media = listOf(com.mediaviewer.model.CommentMedia(
                     thumbUrl = avatarFull,
@@ -1351,6 +1373,7 @@ fun ProfileOverlay(
                     fullUrl = avatarFull.replace("/avatar_thumbnail/", "/avatar/")
                 )),
                 startIndex = 0, tint = blended, liquidGlass = liquidGlass, backdrop = null,
+                showClose = false,
                 onClose = { viewingAvatar = false }
             )
         }
@@ -1370,14 +1393,24 @@ fun ProfileOverlay(
                     if (err != null) com.mediaviewer.ui.compat.Toast.makeText(null, err, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
                 }
             }
+            val statusScope = rememberCoroutineScope()
+            val statusContext = com.mediaviewer.ui.compat.LocalContext.current
             ProfileStatusEditor(
                 did = author.did,
                 current = ownStyle.status, tint = blended, liquidGlass = liquidGlass,
                 onPost = { text, minutes ->
-                    val status = newProfileStatus(text, minutes)
-                    // Kept on this device too (Archived → Statuses), at once.
-                    com.mediaviewer.util.StatusHistory.add(author.did, status)
-                    save(ownStyle.copy(status = status))
+                    editingStatus = false
+                    statusScope.launch {
+                        // Custom emoji: uploaded (if they aren't yet) and kept
+                        // beside the words.
+                        val store = com.mediaviewer.util.EmojiStore.get(statusContext)
+                        val (words, emoji) = runCatching { com.mediaviewer.util.EmojiCloud.prepareStatus(store, author.did, text) }
+                            .getOrElse { store.toShortcodes(text) to emptyList() }
+                        val status = newProfileStatus(words, minutes, emoji)
+                        // Kept on this device too (Archived → Statuses), at once.
+                        com.mediaviewer.util.StatusHistory.add(author.did, status)
+                        save(ownStyle.copy(status = status))
+                    }
                 },
                 onClear = { save(ownStyle.copy(status = null)) },
                 onDismiss = { editingStatus = false }
@@ -6060,7 +6093,7 @@ fun StatusHistoryTile(
             .pointerInput(entry) { detectTapGestures(onTap = { tap(); onClick() }, onLongPress = { longTap(); onLongPress() }) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Text(entry.text, color = Color.White.copy(0.92f), fontSize = 13.sp, lineHeight = 17.sp)
+        StatusRichText(entry.text, entry.emoji, Color.White.copy(0.92f), 13.sp, 17.sp)
         if (posted != null) {
             Spacer(Modifier.height(6.dp))
             Text(posted, color = DimGray, fontSize = 11.sp)

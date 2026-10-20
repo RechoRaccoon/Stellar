@@ -14,6 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -134,13 +139,94 @@ fun ProfileStatusBubble(status: ProfileStatus?, isOwn: Boolean, tint: Color, onC
             Text("Status", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
         } else {
             // As wide and tall as the room by the picture allows (see the
-            // banner layout), so a longer status gets a bigger bubble.
-            Text(
-                status.text, color = Color.White, fontSize = 12.sp, lineHeight = 15.sp,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-            )
+            // banner layout), so a longer status gets a bigger bubble — and
+            // the words shrink until every one of them fits.
+            FittedStatusText(status, Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
         }
+    }
+}
+
+/** A status's words with its custom emoji drawn in place. */
+@Composable
+fun StatusRichText(
+    text: String, emoji: List<com.mediaviewer.util.StatusEmoji>, color: Color,
+    fontSize: androidx.compose.ui.unit.TextUnit, lineHeight: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier
+) {
+    val (annotated, inline, _) = rememberStatusAnnotated(text, emoji)
+    androidx.compose.material3.Text(annotated, color = color, fontSize = fontSize, lineHeight = lineHeight, inlineContent = inline, modifier = modifier)
+}
+
+/** The size of an emoji in a status, in ems. */
+private const val STATUS_EMOJI_EM = 1.5f
+
+/** A status's words built for drawing: the text, its emoji pictures, and
+ *  where in the text each one sits (for measuring). */
+private data class StatusAnnotated(
+    val text: androidx.compose.ui.text.AnnotatedString,
+    val inline: Map<String, androidx.compose.foundation.text.InlineTextContent>,
+    val spots: List<IntRange>
+)
+
+@Composable
+private fun rememberStatusAnnotated(text: String, emoji: List<com.mediaviewer.util.StatusEmoji>): StatusAnnotated =
+    remember(text, emoji) {
+        val at = emoji.filter { it.at in text.indices }.associateBy { it.at }
+        val spots = ArrayList<IntRange>()
+        val annotated = androidx.compose.ui.text.buildAnnotatedString {
+            text.forEachIndexed { i, c ->
+                val e = at[i]
+                if (e != null) { spots += length until length + 1; appendInlineContent("se$i", c.toString()) }
+                else if (c.toString() != com.mediaviewer.util.EmojiCloud.HIDDEN) append(c)
+            }
+        }
+        val inline = at.map { (i, e) ->
+            "se$i" to androidx.compose.foundation.text.InlineTextContent(
+                androidx.compose.ui.text.Placeholder(
+                    androidx.compose.ui.unit.TextUnit(STATUS_EMOJI_EM, androidx.compose.ui.unit.TextUnitType.Em),
+                    androidx.compose.ui.unit.TextUnit(STATUS_EMOJI_EM, androidx.compose.ui.unit.TextUnitType.Em),
+                    androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter
+                )
+            ) { RemoteEmojiPicture(e.did, e.cid, e.animated, e.name, Modifier.fillMaxSize()) }
+        }.toMap()
+        StatusAnnotated(annotated, inline, spots)
+    }
+
+/** The status in its bubble: as big as 12sp, shrinking (down to 5sp)
+ *  until all of it fits in the room the bubble has. */
+@Composable
+private fun FittedStatusText(status: ProfileStatus, modifier: Modifier = Modifier) {
+    val (annotated, inline, spots) = rememberStatusAnnotated(status.text, status.emoji)
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val maxW = constraints.maxWidth
+        val maxH = constraints.maxHeight
+        val size = remember(annotated, maxW, maxH, density) {
+            val bounded = maxW in 1 until androidx.compose.ui.unit.Constraints.Infinity && maxH in 1 until androidx.compose.ui.unit.Constraints.Infinity
+            if (!bounded) return@remember 12f
+            fun fits(sz: Float): Boolean {
+                val placeholders = spots.map { r ->
+                    androidx.compose.ui.text.AnnotatedString.Range(
+                        androidx.compose.ui.text.Placeholder((sz * STATUS_EMOJI_EM).sp, (sz * STATUS_EMOJI_EM).sp, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter),
+                        r.first, r.last + 1
+                    )
+                }
+                val r = measurer.measure(
+                    annotated, TextStyle(fontSize = sz.sp, lineHeight = (sz * 1.25f).sp), placeholders = placeholders,
+                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = maxW), density = density
+                )
+                return r.size.height <= maxH
+            }
+            if (fits(12f)) return@remember 12f
+            var lo = 5f; var hi = 12f
+            repeat(8) { val mid = (lo + hi) / 2f; if (fits(mid)) lo = mid else hi = mid }
+            lo
+        }
+        androidx.compose.material3.Text(
+            annotated, color = Color.White, fontSize = size.sp, lineHeight = (size * 1.25f).sp,
+            inlineContent = inline, overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -167,7 +253,22 @@ fun ProfileStatusEditor(
     onDismiss: () -> Unit
 ) {
     val tap = rememberHapticTap()
-    var text by remember { mutableStateOf(current?.text.orEmpty()) }
+    // Custom emoji: typed as tokens (drawn over the field), like DMs.
+    val context = LocalContext.current
+    val emojiStore = remember { com.mediaviewer.util.EmojiStore.get(context) }
+    fun editable(t: String, e: List<com.mediaviewer.util.StatusEmoji>) = com.mediaviewer.util.EmojiCloud.editableStatus(emojiStore, did, t, e)
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(editable(current?.text.orEmpty(), current?.emoji.orEmpty()))) }
+    val text = field.text
+    fun setText(t: String) { field = androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(t.length)) }
+    var touched by remember { mutableStateOf(false) }
+    // (The library loads first, so the status's own emoji come back as emoji.)
+    LaunchedEffect(Unit) { emojiStore.load(); if (!touched) setText(editable(current?.text.orEmpty(), current?.emoji.orEmpty())) }
+    val currentEditable = remember(current, emojiStore.state) { current?.let { editable(it.text, it.emoji) } }
+    var emojiOpen by remember { mutableStateOf(false) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val imeBottom = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current)
+    var lastIme by remember { mutableStateOf(0) }
+    LaunchedEffect(imeBottom) { if (imeBottom > lastIme && emojiOpen) emojiOpen = false; lastIme = imeBottom }
     var unit by remember { mutableStateOf(StatusUnit.entries.firstOrNull { it.name == com.mediaviewer.util.UiToggles.statusUnit() } ?: StatusUnit.HOURS) }
     fun savedAmount(u: StatusUnit) = if (u == StatusUnit.NEVER) "0" else com.mediaviewer.util.UiToggles.statusAmount(u.name, u.default).toString()
     var amount by remember { mutableStateOf(savedAmount(unit)) }
@@ -220,7 +321,7 @@ fun ProfileStatusEditor(
                                     val entry = history[i]
                                     StatusHistoryTile(
                                         entry, tint, liquidGlass = false,
-                                        onClick = { text = entry.text.take(STATUS_MAX_LENGTH); historyOpen = false },
+                                        onClick = { touched = true; setText(editable(entry.text, entry.emoji).take(STATUS_MAX_LENGTH)); historyOpen = false },
                                         onLongPress = { pendingDelete = entry }
                                     )
                                 }
@@ -270,53 +371,92 @@ fun ProfileStatusEditor(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().then(swallow), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The box holds the status that's up now: send clears it.
-                val isCurrent = current != null && current.isActive() && text.trim() == current.text
-                fun post() {
-                    val t = text.trim()
-                    if (isCurrent) onClear() else if (t.isNotEmpty()) onPost(t, minutes)
-                }
-                // How long it lasts — where the comment box has its media button.
-                @Composable
-                fun Circle(modifier: Modifier, content: @Composable () -> Unit) {
-                    Box(
-                        modifier.size(46.dp).then(
-                            Modifier.opaqueFill(CircleShape, tint, liquidGlass)
-                        ),
-                        contentAlignment = Alignment.Center
-                    ) { content() }
-                }
-                Circle(Modifier.clickable { tap(); historyOpen = !historyOpen; durationOpen = false }) {
-                    Icon(
-                        Icons.Default.History, contentDescription = "Status history",
-                        tint = if (historyOpen) Color.White else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(20.dp)
+            if (emojiOpen) {
+                Panel(Modifier.fillMaxWidth()) {
+                    EmojiPanel(
+                        store = emojiStore, height = 280.dp, compact = false, liquidGlass = liquidGlass, tint = tint,
+                        onPickEmoji = { entry ->
+                            touched = true
+                            val t = field
+                            val a = t.selection.min.coerceIn(0, t.text.length)
+                            val b = t.selection.max.coerceIn(a, t.text.length)
+                            val token = emojiStore.charFor(entry).toString()
+                            val next = (t.text.substring(0, a) + token + t.text.substring(b))
+                            if (next.length <= STATUS_MAX_LENGTH) field = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(a + token.length))
+                        },
+                        onEditingChange = {}, floating = true
                     )
                 }
-                Circle(Modifier.clickable { tap(); durationOpen = !durationOpen; historyOpen = false }) {
+            }
+            // The box holds the status that's up now: send clears it.
+            val isCurrent = current != null && current.isActive() && currentEditable != null && text.trim() == currentEditable.trim()
+            fun post() {
+                val t = text.trim()
+                if (isCurrent) onClear() else if (t.isNotEmpty()) onPost(t, minutes)
+            }
+            @Composable
+            fun Circle(modifier: Modifier, content: @Composable () -> Unit) {
+                Box(
+                    modifier.size(46.dp).then(
+                        Modifier.opaqueFill(CircleShape, tint, liquidGlass)
+                    ),
+                    contentAlignment = Alignment.Center
+                ) { content() }
+            }
+            // How long it lasts · custom emoji · your past statuses.
+            Row(Modifier.then(swallow), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Circle(Modifier.clickable { tap(); durationOpen = !durationOpen; historyOpen = false; emojiOpen = false }) {
                     Text(
                         if (minutes == 0L) "∞" else "$amountValue${unit.short}",
                         color = Color.White, fontSize = if (minutes == 0L) 18.sp else 12.sp, fontWeight = FontWeight.Bold, maxLines = 1
                     )
                 }
+                Circle(Modifier.clickable {
+                    tap()
+                    emojiOpen = !emojiOpen; durationOpen = false; historyOpen = false
+                    if (emojiOpen) keyboard?.hide() else keyboard?.show()
+                }) {
+                    androidx.compose.material3.Text(
+                        "\u2605", color = if (emojiOpen) Color.White else Color.White.copy(alpha = 0.85f), fontSize = 21.sp, lineHeight = 21.sp
+                    )
+                }
+                Circle(Modifier.clickable { tap(); historyOpen = !historyOpen; durationOpen = false; emojiOpen = false }) {
+                    Icon(
+                        Icons.Default.History, contentDescription = "Status history",
+                        tint = if (historyOpen) Color.White else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth().then(swallow), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val fieldShape = RoundedCornerShape(24.dp)
                 Box(
-                    Modifier.weight(1f).height(46.dp).then(
+                    Modifier.weight(1f).heightIn(min = 46.dp, max = 112.dp).verticalScroll(rememberScrollState()).then(
                         Modifier.opaqueFill(fieldShape, tint, liquidGlass)
-                    ).padding(horizontal = 16.dp),
+                    ).padding(horizontal = 16.dp, vertical = 13.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
                     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-                    BasicTextField(
-                        value = text, onValueChange = { text = it.replace('\n', ' ').take(STATUS_MAX_LENGTH) },
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
-                        cursorBrush = SolidColor(Color.White),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { post() }),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus)
-                    )
+                    var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                    val emojiState = emojiStore.state
+                    val transformation = remember(emojiStore, emojiState) { emojiVisualTransformation(emojiStore) }
+                    Box(Modifier.fillMaxWidth()) {
+                        BasicTextField(
+                            value = field,
+                            onValueChange = { v ->
+                                touched = true
+                                field = v.copy(text = v.text.replace('\n', ' ').take(STATUS_MAX_LENGTH))
+                            },
+                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+                            cursorBrush = SolidColor(Color.White),
+                            visualTransformation = transformation,
+                            onTextLayout = { layout = it },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { post() }),
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                        )
+                        EmojiFieldOverlay(text, layout, emojiStore)
+                    }
                     if (text.isEmpty()) Text("What's on your mind?", color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp)
                 }
                 Circle(Modifier.clickable(enabled = isCurrent || text.isNotBlank()) { tap(); post() }) {
@@ -350,10 +490,12 @@ private fun Modifier.opaqueFill(shape: Shape, tint: Color, liquidGlass: Boolean)
         .then(if (liquidGlass) Modifier.border(1.dp, lerp(tint, Color.White, 0.35f).copy(alpha = 0.7f), shape) else Modifier)
 
 /** A new status lasting [minutes] (0 = until it's changed). */
-fun newProfileStatus(text: String, minutes: Long): ProfileStatus {
+fun newProfileStatus(text: String, minutes: Long, emoji: List<com.mediaviewer.util.StatusEmoji> = emptyList()): ProfileStatus {
     val now = com.mediaviewer.platform.currentTimeMillis()
+    val kept = text.take(STATUS_MAX_LENGTH)
     return ProfileStatus(
-        text = text.take(STATUS_MAX_LENGTH),
+        text = kept,
+        emoji = emoji.filter { it.at < kept.length },
         createdAt = com.mediaviewer.util.isoStringOf(now),
         expiresAt = if (minutes <= 0L) null else com.mediaviewer.util.isoStringOf(now + minutes * 60_000L)
     )

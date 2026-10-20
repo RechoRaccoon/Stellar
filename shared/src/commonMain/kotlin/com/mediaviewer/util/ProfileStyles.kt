@@ -48,13 +48,23 @@ data class ProfileStyle(
 @Serializable
 data class BannerVideo(val cid: String, val mimeType: String = "video/mp4", val size: Long = 0L)
 
+/** A custom emoji in a status: [at] is its place in the text (the index
+ *  of the invisible character it stands on, see EmojiCloud.HIDDEN), the
+ *  rest says where its picture is (an emoji record's blob). */
+@Serializable
+data class StatusEmoji(val at: Int, val did: String, val cid: String, val name: String = "", val animated: Boolean = false)
+
 /**
  * A temporary status. [expiresAt] (ISO 8601) is when it clears itself; null
  * means it stays until it's changed. Every app hides it once that time has
  * passed — whether or not the owner's app has cleared the record yet.
  */
 @Serializable
-data class ProfileStatus(val text: String, val createdAt: String = "", val expiresAt: String? = null) {
+data class ProfileStatus(
+    val text: String, val createdAt: String = "", val expiresAt: String? = null,
+    /** Custom emoji in [text] (each one stands on an invisible character). */
+    val emoji: List<StatusEmoji> = emptyList()
+) {
     fun expiresAtMillis(): Long? = expiresAt?.let { runCatching { com.mediaviewer.platform.parseIsoInstantMillis(it) }.getOrNull() }
     fun isActive(nowMillis: Long = com.mediaviewer.platform.currentTimeMillis()): Boolean {
         if (text.isBlank()) return false
@@ -168,9 +178,11 @@ object ProfileStyles {
      * again on the next open. A failed read (offline) is tried again on the
      * next open, never on its own.
      */
-    fun refresh(did: String?) {
+    fun refresh(did: String?, force: Boolean = false) {
         if (did.isNullOrBlank() || !lookupAllowed(did)) return
         val fetch = fetcher ?: return
+        // (The profile's own Refresh button reads it again now.)
+        if (force) synchronizedRemove(did)
         if (!synchronizedAdd(did)) return
         scope.launch {
             val result = runCatching { fetch(did) }
@@ -185,13 +197,13 @@ object ProfileStyles {
             if (style != null && !style.isDefault) {
                 styles[did] = style
                 if (own) { persistOwn(did, style); scheduleStatusClear(did, style) } else cacheOther(did, style)
-            } else if (own && kept != null && !kept.isDefault) {
-                // Yours is saved on this device but the server has
-                // none: the device's copy stays, and is sent again.
-                saver?.invoke(kept) { }
             } else {
+                // (Yours too: this device only keeps what was last saved
+                // successfully, so a record that's gone was changed on
+                // another device — the server's answer wins, and a stale
+                // copy here is never sent back over it.)
                 styles.remove(did)
-                if (!own) cacheOther(did, null)
+                if (own) { clearJob?.cancel(); persistOwn(did, null) } else cacheOther(did, null)
             }
         }.onFailure {
             // Offline or the PDS didn't answer: asked again the next time
@@ -272,14 +284,33 @@ object ProfileStyles {
             // Tried again (a minute apart) while it fails — offline, not
             // signed in yet at startup — so the record never keeps it.
             repeat(30) {
+                // What the server holds now: another of your devices may
+                // have set a newer status since this one last looked. Only
+                // the very status that ran out is cleared, and from the
+                // server's copy — never by writing this device's older one.
+                val server = fetcher?.let { f -> runCatching { f(did) } }
+                var replaced: ProfileStyle? = null
                 val error = withContext(Dispatchers.Main) {
                     val now = styles[did] ?: return@withContext null
                     if (now.status != status) return@withContext null
+                    val remote = server?.getOrNull()
+                    if (server != null && server.isSuccess && remote?.status != status) {
+                        // Changed elsewhere: take the server's copy instead.
+                        if (remote != null && !remote.isDefault) { styles[did] = remote; persistOwn(did, remote); replaced = remote }
+                        else { styles.remove(did); persistOwn(did, null) }
+                        return@withContext null
+                    }
+                    val base = if (server != null && server.isSuccess && remote != null) remote else now
                     val save = saver ?: return@withContext "No saver yet"
                     kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
-                        save(now.copy(status = null)) { err -> if (cont.isActive) cont.resumeWith(Result.success(err)) }
+                        save(base.copy(status = null)) { err -> if (cont.isActive) cont.resumeWith(Result.success(err)) }
                     }
-                } ?: return@launch
+                }
+                if (error == null) {
+                    // (A newer status from elsewhere gets its own clear-up.)
+                    replaced?.let { r -> withContext(Dispatchers.Main) { scheduleStatusClear(did, r) } }
+                    return@launch
+                }
                 kotlinx.coroutines.delay(if (error == "No saver yet") 5_000L else 60_000L)
             }
         }

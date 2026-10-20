@@ -226,6 +226,44 @@ object EmojiCloud {
         return Prepared(out.toString(), facets, store.toShortcodes(text))
     }
 
+    // ── Statuses ──
+
+    /** A status typed with emoji (private-use tokens) as it's saved: each
+     *  emoji an invisible character with its place and picture beside it
+     *  (uploaded to [did]'s PDS first if needed; one that can't be is kept
+     *  as ":name:"). */
+    suspend fun prepareStatus(store: EmojiStore, did: String, text: String): Pair<String, List<StatusEmoji>> {
+        if (!store.containsEmoji(text)) return text to emptyList()
+        val out = StringBuilder()
+        val emoji = ArrayList<StatusEmoji>()
+        for (c in text) {
+            val entry = store.entryFor(c)
+            if (entry == null) { out.append(c); continue }
+            val up = ensureUploaded(store, did, entry)
+            if (up == null) { out.append(':').append(entry.name).append(':'); continue }
+            emoji += StatusEmoji(out.length, did, up.cid, entry.name, entry.animated)
+            out.append(HIDDEN)
+        }
+        return out.toString() to emoji
+    }
+
+    /** A saved status back as it's typed: each of your own emoji that's
+     *  still in your library as its token, any other as ":name:". */
+    fun editableStatus(store: EmojiStore, did: String, text: String, emoji: List<StatusEmoji>): String {
+        if (emoji.isEmpty()) return text.replace(HIDDEN, "")
+        val byCid = uploaded(did).entries.associate { (hash, up) -> up.cid to hash }
+        val at = emoji.associateBy { it.at }
+        val out = StringBuilder()
+        text.forEachIndexed { i, c ->
+            val e = at[i]
+            if (e == null || c.toString() != HIDDEN) { if (c.toString() != HIDDEN) out.append(c); return@forEachIndexed }
+            val hash = if (e.did == did) byCid[e.cid] else null
+            val entry = hash?.let { h -> store.state.index.emojis.firstOrNull { hashFor(store, it) == h } }
+            if (entry != null) out.append(store.charFor(entry)) else out.append(':').append(e.name.ifBlank { "emoji" }).append(':')
+        }
+        return out.toString()
+    }
+
     // ── Other people's emoji ──
 
     /** Libraries read this session, by account. */

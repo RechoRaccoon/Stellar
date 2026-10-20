@@ -32,7 +32,9 @@ object StatusHistory {
         val createdAt: String,
         val expiresAt: String? = null,
         /** Its record's key on the PDS; null until it's been saved there. */
-        val rkey: String? = null
+        val rkey: String? = null,
+        /** Custom emoji in [text] (see ProfileStatus.emoji). */
+        val emoji: List<StatusEmoji> = emptyList()
     ) {
         /** The same status, whether or not it has been saved yet. */
         fun sameAs(other: Entry) = text == other.text && createdAt == other.createdAt
@@ -104,7 +106,7 @@ object StatusHistory {
     fun add(did: String, status: ProfileStatus) {
         if (did.isBlank() || status.text.isBlank()) return
         load(did)
-        val entry = Entry(status.text, status.createdAt, status.expiresAt)
+        val entry = Entry(status.text, status.createdAt, status.expiresAt, emoji = status.emoji)
         entries.add(0, entry)
         save(did)
         scope.launch { runCatching { upload(did, entry) } }

@@ -4577,6 +4577,8 @@ class MainViewModel(
         refreshContentPrefs(force = true)
         tapHaptic()
         val did = cur.author.did
+        // Their status and profile style are read again too.
+        com.mediaviewer.util.ProfileStyles.refresh(did, force = true)
         _profileOverlay.value = cur.copy(refreshing = true)
         if (cur.selectedTab == ProfileTab.LISTS_FEEDS) loadProfileLists(force = true)
         // A sorted Posts tab re-reads the account's numbers too.
