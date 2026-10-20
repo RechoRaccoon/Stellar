@@ -114,7 +114,15 @@ object PollFormat {
 }
 
 
-enum class PostKindFilter { ALL, IMAGES, TEXT_POSTS, HORIZONTAL_VIDEOS, VERTICAL_VIDEOS }
+/**
+ * What kinds of post a list shows. Profiles offer All, Media and Text Posts
+ * ([PROFILE_POST_KINDS]); Media and Text Posts each narrow further with the
+ * pill at the row's right ([facetsOf]): Both / Images / Videos, and
+ * Both / Posts / Polls. Horizontal and Vertical Videos (and their own
+ * layouts) are kept for search and for bringing back later.
+ * (New kinds go at the end: a post's kinds are kept as bits by position.)
+ */
+enum class PostKindFilter { ALL, IMAGES, TEXT_POSTS, HORIZONTAL_VIDEOS, VERTICAL_VIDEOS, MEDIA, VIDEOS, TEXT_ONLY, POLLS }
 
 fun PostKindFilter.matches(item: MediaItem) = when (this) {
     PostKindFilter.ALL              -> true
@@ -122,6 +130,48 @@ fun PostKindFilter.matches(item: MediaItem) = when (this) {
     PostKindFilter.TEXT_POSTS        -> item.isTextOnly
     PostKindFilter.HORIZONTAL_VIDEOS -> item.isHorizontalVideo
     PostKindFilter.VERTICAL_VIDEOS   -> item.isVerticalVideo
+    PostKindFilter.MEDIA             -> !item.isTextOnly
+    PostKindFilter.VIDEOS            -> item.isVideo
+    PostKindFilter.TEXT_ONLY         -> item.isTextOnly && !item.isPoll
+    PostKindFilter.POLLS             -> item.isTextOnly && item.isPoll
+}
+
+/** A profile's post kinds, in their row. */
+val PROFILE_POST_KINDS = listOf(PostKindFilter.ALL, PostKindFilter.MEDIA, PostKindFilter.TEXT_POSTS)
+
+/** Search's and the grid's post kinds (as before). */
+val CLASSIC_POST_KINDS = listOf(
+    PostKindFilter.ALL, PostKindFilter.IMAGES, PostKindFilter.TEXT_POSTS, PostKindFilter.HORIZONTAL_VIDEOS, PostKindFilter.VERTICAL_VIDEOS
+)
+
+/** Which of [PROFILE_POST_KINDS] a kind is part of. */
+fun PostKindFilter.profileParent(): PostKindFilter = when (this) {
+    PostKindFilter.ALL -> PostKindFilter.ALL
+    PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> PostKindFilter.TEXT_POSTS
+    else -> PostKindFilter.MEDIA
+}
+
+/** The pill's choices for a profile kind (none for All); the first is "Both". */
+fun facetsOf(parent: PostKindFilter): List<PostKindFilter> = when (parent) {
+    PostKindFilter.MEDIA -> listOf(PostKindFilter.MEDIA, PostKindFilter.IMAGES, PostKindFilter.VIDEOS)
+    PostKindFilter.TEXT_POSTS -> listOf(PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS)
+    else -> emptyList()
+}
+
+/** Whether a post with these kind bits (one per kind's position) shows
+ *  under this kind — working out the newer kinds from the older bits for
+ *  posts noted before they existed. */
+fun PostKindFilter.matchesBits(kinds: Int): Boolean {
+    fun has(k: PostKindFilter) = kinds and (1 shl k.ordinal) != 0
+    if (has(this)) return true
+    val noted = kinds and ((1 shl PostKindFilter.MEDIA.ordinal) - 1).inv() != 0
+    if (noted) return false
+    return when (this) {
+        PostKindFilter.MEDIA -> has(PostKindFilter.IMAGES) || has(PostKindFilter.HORIZONTAL_VIDEOS) || has(PostKindFilter.VERTICAL_VIDEOS)
+        PostKindFilter.VIDEOS -> has(PostKindFilter.HORIZONTAL_VIDEOS) || has(PostKindFilter.VERTICAL_VIDEOS)
+        PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> has(PostKindFilter.TEXT_POSTS)
+        else -> false
+    }
 }
 
 

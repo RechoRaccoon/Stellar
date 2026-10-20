@@ -205,7 +205,15 @@ private fun PostKindFilter.label() = when (this) {
     PostKindFilter.TEXT_POSTS         -> "Text Posts"
     PostKindFilter.HORIZONTAL_VIDEOS  -> "Horizontal Videos"
     PostKindFilter.VERTICAL_VIDEOS    -> "Vertical Videos"
+    PostKindFilter.MEDIA              -> "Media"
+    PostKindFilter.VIDEOS             -> "Videos"
+    PostKindFilter.TEXT_ONLY          -> "Posts"
+    PostKindFilter.POLLS              -> "Polls"
 }
+
+/** A choice in the pill at the sub-filter row's right: its first option
+ *  (the whole kind) reads "Both". */
+private fun PostKindFilter.facetLabel() = if (this == PostKindFilter.MEDIA || this == PostKindFilter.TEXT_POSTS) "Both" else label()
 // Not private: Search's Titles tab (SearchOverlay.kt) reuses this exact
 // enum/label/bucketing for its own sub-filter row, per spec ("subtabs...
 // just like in the profile tabs").
@@ -236,8 +244,9 @@ private val sharedGridModes = mutableStateMapOf<Pair<MainViewModel.ProfileTab, P
 // can hold every sub-tab's choice; PostKindFilter.isMasonryKind()/
 // isListKind() below decide which of the two meanings applies when reading
 // it back.
-private fun PostKindFilter.isMasonryKind() = this == PostKindFilter.ALL || this == PostKindFilter.IMAGES
-private fun PostKindFilter.isListKind() = this == PostKindFilter.TEXT_POSTS
+private fun PostKindFilter.isMasonryKind() = this == PostKindFilter.ALL || this == PostKindFilter.IMAGES ||
+    this == PostKindFilter.MEDIA || this == PostKindFilter.VIDEOS
+private fun PostKindFilter.isListKind() = this == PostKindFilter.TEXT_POSTS || this == PostKindFilter.TEXT_ONLY || this == PostKindFilter.POLLS
 
 /** Small custom vector icons for the Grid button — none of these shapes
  *  (uneven 2-col / uneven 3-col / dots+lines list) exist in the Material
@@ -827,7 +836,11 @@ fun ProfileOverlay(
             // reads as its own bounded section rather than floating
             // directly under the header.
             if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-            val availableTabs = MainViewModel.ProfileTab.entries.filter { it in state.availableTabs }
+            // Backlog lives inside Reviews now (the pill on its filter row):
+            // one Reviews tab when there's either.
+            val availableTabs = MainViewModel.ProfileTab.entries.filter { it in state.availableTabs }.let { tabs ->
+                if (MainViewModel.ProfileTab.REVIEWS in tabs) tabs - MainViewModel.ProfileTab.BACKLOG else tabs
+            }
             val subFilterTabState = state.tabStates[state.selectedTab]
             // Item (this session): the icon-only tab row is disabled
             // (see classicProfileTabRow's doc comment above) — the
@@ -842,7 +855,9 @@ fun ProfileOverlay(
                 // preferred it to the new icon row below.
                 Box(Modifier.fillMaxWidth().tipAnchor("profile.tabs")) {
                 ProfileTabsRow(
-                    tabs = availableTabs, selected = state.selectedTab,
+                    tabs = availableTabs,
+                    selected = if (state.selectedTab == MainViewModel.ProfileTab.BACKLOG && MainViewModel.ProfileTab.BACKLOG !in availableTabs)
+                        MainViewModel.ProfileTab.REVIEWS else state.selectedTab,
                     liquidGlass = liquidGlass, tint = blended, onSelect = onSelectTab
                 )
                 }
@@ -867,14 +882,7 @@ fun ProfileOverlay(
                         // Every post type is always offered; an empty one
                         // looks further down the profile (see
                         // emptyAfterFilterLoadMore).
-                        val visiblePostFilters = PostKindFilter.entries
-                        if (visiblePostFilters.size > 1) {
-                            ProfileSubFilterRow(
-                                options = visiblePostFilters, selected = postKindFilter,
-                                liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
-                                onSelect = onSelectPostKindFilter
-                            )
-                        }
+                        PostKindRowWithFacets(postKindFilter, liquidGlass, blended, onSelectPostKindFilter)
                     }
                     // Feature request #5: Reposts/Likes now use the
                     // exact same PostKindFilter sub-tabs as Posts
@@ -889,14 +897,7 @@ fun ProfileOverlay(
                         // covers both Reposts and Likes, keyed by
                         // whichever is selected).
                         val remembered = state.seededSubtabs[state.selectedTab] ?: emptySet()
-                        val visiblePostFilters = PostKindFilter.entries
-                        if (visiblePostFilters.size > 1) {
-                            ProfileSubFilterRow(
-                                options = visiblePostFilters, selected = postKindFilter,
-                                liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
-                                onSelect = onSelectPostKindFilter
-                            )
-                        }
+                        PostKindRowWithFacets(postKindFilter, liquidGlass, blended, onSelectPostKindFilter)
                     }
                     MainViewModel.ProfileTab.REVIEWS -> {
                         val loadedReviews = subFilterTabState?.reviews ?: emptyList()
@@ -908,7 +909,10 @@ fun ProfileOverlay(
                         ProfileSubFilterRow(
                             options = visibleReviewFilters, selected = reviewKindFilter,
                             liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
-                            onSelect = onSelectReviewKindFilter
+                            onSelect = onSelectReviewKindFilter,
+                            trailing = if (MainViewModel.ProfileTab.BACKLOG in state.availableTabs) ({
+                                FacetPill(listOf("Reviews", "Backlog"), 0, liquidGlass, blended) { if (it == 1) onSelectTab(MainViewModel.ProfileTab.BACKLOG) }
+                            }) else null
                         )
                     }
                     MainViewModel.ProfileTab.BACKLOG -> {
@@ -921,7 +925,10 @@ fun ProfileOverlay(
                         ProfileSubFilterRow(
                             options = visibleBacklogFilters, selected = reviewKindFilter,
                             liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
-                            onSelect = onSelectReviewKindFilter
+                            onSelect = onSelectReviewKindFilter,
+                            trailing = if (MainViewModel.ProfileTab.REVIEWS in state.availableTabs) ({
+                                FacetPill(listOf("Reviews", "Backlog"), 1, liquidGlass, blended) { if (it == 0) onSelectTab(MainViewModel.ProfileTab.REVIEWS) }
+                            }) else null
                         )
                     }
                     MainViewModel.ProfileTab.MUSIC_HISTORY -> {
@@ -2327,6 +2334,60 @@ private fun ProfileGlassPill(
     }
 }
 
+/** The Posts / Reposts / Likes kind row: All, Media, Text Posts — and, for
+ *  Media and Text Posts, the round pill at the right (Both / Images /
+ *  Videos, Both / Posts / Polls). */
+@Composable
+private fun PostKindRowWithFacets(selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit) {
+    val parent = selected.profileParent()
+    val facets = facetsOf(parent)
+    ProfileSubFilterRow(
+        options = PROFILE_POST_KINDS, selected = parent,
+        liquidGlass = liquidGlass, tint = tint, labelOf = { it.label() },
+        onSelect = { if (it != parent) onSelect(it) },
+        trailing = if (facets.isEmpty()) null else ({
+            FacetPill(facets.map { it.facetLabel() }, facets.indexOf(selected).coerceAtLeast(0), liquidGlass, tint) { onSelect(facets[it]) }
+        })
+    )
+}
+
+/**
+ * Side-by-side choices in one fully round bubble, split by thin lines —
+ * set apart from the ordinary filter chips beside it.
+ */
+@Composable
+private fun FacetPill(labels: List<String>, selected: Int, liquidGlass: Boolean, tint: Color, onSelect: (Int) -> Unit) {
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(50)
+    // (The side list: a row of its own, full width.)
+    val side = LocalSideList.current
+    Row(
+        Modifier.then(if (side) Modifier.fillMaxWidth() else Modifier).height(IntrinsicSize.Min)
+            .then(
+                if (liquidGlass) Modifier.glassPanel(true, tint = tint.copy(alpha = 0.7f), shape = shape)
+                else Modifier.clip(shape).background(Color.White.copy(0.08f))
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.22f), shape)
+            .clip(shape),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        labels.forEachIndexed { i, label ->
+            if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 5.dp).background(Color.White.copy(alpha = 0.25f)))
+            val on = i == selected
+            Box(
+                Modifier.then(if (side) Modifier.weight(1f) else Modifier)
+                    .background(if (on) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { tap(); onSelect(i) }
+                    .padding(horizontal = 11.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = if (on) Color.White else DimGray, fontSize = 11.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+            }
+        }
+    }
+}
+
 @Composable
 private fun ProfileTabsRow(
     tabs: List<MainViewModel.ProfileTab>, selected: MainViewModel.ProfileTab, liquidGlass: Boolean, tint: Color,
@@ -2397,6 +2458,10 @@ private fun PostKindFilter.icon() = when (this) {
     PostKindFilter.TEXT_POSTS        -> Icons.Filled.Chat
     PostKindFilter.HORIZONTAL_VIDEOS -> Icons.Filled.CropLandscape
     PostKindFilter.VERTICAL_VIDEOS   -> Icons.Filled.CropPortrait
+    PostKindFilter.MEDIA             -> Icons.Filled.Photo
+    PostKindFilter.VIDEOS            -> Icons.Filled.Videocam
+    PostKindFilter.TEXT_ONLY         -> Icons.Filled.Chat
+    PostKindFilter.POLLS             -> Icons.Filled.Chat
 }
 private fun MediaKindFilter.icon() = when (this) {
     MediaKindFilter.ALL    -> Icons.Filled.Apps
@@ -6081,8 +6146,8 @@ fun PostKindSubTabRow(
     onSelect: (PostKindFilter) -> Unit
 ) {
     val visible = remember(items, selected, showAll) {
-        if (showAll) PostKindFilter.entries
-        else PostKindFilter.entries.filter { it == selected || it == PostKindFilter.ALL || items.any { item -> it.matches(item) } }
+        if (showAll) CLASSIC_POST_KINDS
+        else CLASSIC_POST_KINDS.filter { it == selected || it == PostKindFilter.ALL || items.any { item -> it.matches(item) } }
     }
     if (visible.size > 1) {
         ProfileSubFilterRow(
@@ -6172,12 +6237,12 @@ fun LazyListScope.sharedPostResults(
     // Portrait column counts; landscape adds columns as the window widens.
     fun lanes(portrait: Int) = if (wideDp > 0) Landscape.postLanes(portrait, wideDp) else portrait
     when (filter) {
-        PostKindFilter.ALL, PostKindFilter.IMAGES -> when (gridMode) {
+        PostKindFilter.ALL, PostKindFilter.IMAGES, PostKindFilter.MEDIA, PostKindFilter.VIDEOS -> when (gridMode) {
             2 -> profileMediaGridRows(items, loading, tint, liquidGlass, tap, onLoadMore, match, roundedGridTiles, onSeedSubImageIndex, columns = lanes(3))
             1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(3))
             else -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(2))
         }
-        PostKindFilter.TEXT_POSTS -> when (gridMode) {
+        PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> when (gridMode) {
             2 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(3))
             1 -> postsPinterestGridRows(items, loading, tint, liquidGlass, tap, onSeedSubImageIndex, onLoadMore, match, columns = lanes(2))
             else -> postsTextRows(items, loading, liquidGlass, tint, tap, onLoadMore, match, columns = lanes(1))
@@ -6290,12 +6355,12 @@ fun resultsLayoutSpec(filter: PostKindFilter, storedGridMode: Int, roundedGridTi
 }
 
 private fun portraitResultsLayoutSpec(filter: PostKindFilter, gridMode: Int, roundedGridTiles: Boolean): ResultsLayoutSpec = when (filter) {
-    PostKindFilter.ALL, PostKindFilter.IMAGES -> when (gridMode) {
+    PostKindFilter.ALL, PostKindFilter.IMAGES, PostKindFilter.MEDIA, PostKindFilter.VIDEOS -> when (gridMode) {
         2 -> if (roundedGridTiles) ResultsLayoutSpec(3, 4.dp, 4.dp) else ResultsLayoutSpec(3, 0.dp, 0.dp)
         1 -> ResultsLayoutSpec(3, 6.dp, 6.dp)
         else -> ResultsLayoutSpec(2, 6.dp, 6.dp)
     }
-    PostKindFilter.TEXT_POSTS -> when (gridMode) {
+    PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> when (gridMode) {
         2 -> ResultsLayoutSpec(3, 6.dp, 6.dp)
         1 -> ResultsLayoutSpec(2, 6.dp, 6.dp)
         else -> ResultsLayoutSpec(1, 10.dp, 12.dp)
@@ -6325,7 +6390,7 @@ fun PostResultTile(
         return
     }
     when (filter) {
-        PostKindFilter.ALL, PostKindFilter.IMAGES -> if (gridMode == 2) {
+        PostKindFilter.ALL, PostKindFilter.IMAGES, PostKindFilter.MEDIA, PostKindFilter.VIDEOS -> if (gridMode == 2) {
             val shape = if (roundedGridTiles) RoundedCornerShape(10.dp) else RoundedCornerShape(0.dp)
             val cell = Modifier.fillMaxWidth().aspectRatio(1f)
             if (item.mediaGroup.size > 1) {
@@ -6336,7 +6401,7 @@ fun PostResultTile(
         } else {
             PinterestEntryTile(item, tint, mediaShape, textShape, liquidGlass, onSeedSubImageIndex, onClick)
         }
-        PostKindFilter.TEXT_POSTS -> if (gridMode == 0) {
+        PostKindFilter.TEXT_POSTS, PostKindFilter.TEXT_ONLY, PostKindFilter.POLLS -> if (gridMode == 0) {
             TextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, onOpen = onClick)
         } else {
             PinterestEntryTile(item, tint, mediaShape, textShape, liquidGlass, onSeedSubImageIndex, onClick)

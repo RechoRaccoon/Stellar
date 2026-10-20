@@ -11,6 +11,7 @@ import com.mediaviewer.repository.RockskyRepository
 import com.mediaviewer.repository.StreamplaceRepository
 import com.mediaviewer.repository.WikipediaRepository
 import com.mediaviewer.ui.PostKindFilter
+import com.mediaviewer.ui.matchesBits
 import com.mediaviewer.ui.ReviewKindFilter
 import com.mediaviewer.ui.matches
 import com.mediaviewer.ui.matchesReview
@@ -5081,8 +5082,8 @@ class MainViewModel(
                     return@launch
                 }
                 profileSortKind = _profileOverlay.value?.postKindFilter ?: com.mediaviewer.ui.PostKindFilter.ALL
-                val bit = 1 shl profileSortKind.ordinal
-                val matching = entries.filter { it.kinds and bit != 0 }
+                val kind = profileSortKind
+                val matching = entries.filter { kind.matchesBits(it.kinds) }
                 profileSortedOrder = when (sort) {
                     0 -> matching.sortedByDescending { it.likes }
                     1 -> matching.sortedByDescending { it.reposts }
