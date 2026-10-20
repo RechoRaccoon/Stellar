@@ -1644,6 +1644,10 @@ private fun PostContent(
                         // no page swipe, no long-press menu — for the rest
                         // of this touch.
                         var externallyClaimed = false
+                        // In the full-screen image viewer the picture pager
+                        // takes sideways drags; a mostly-downward one (even if
+                        // the pager started on it) still closes the viewer.
+                        var viewerDx = 0f; var viewerDy = 0f
 
                         while (true) {
                             val elapsed = com.mediaviewer.platform.currentTimeMillis() - downTime
@@ -1677,13 +1681,17 @@ private fun PostContent(
                                         null -> {}
                                     }
                                     menuCenter = null; hoveredAction = null
+                                } else if (scale <= 1.05f && externallyClaimed && viewerIndex != null) {
+                                    if (viewerDy > 64f && viewerDy > abs(viewerDx) * 1.5f) closeViewer()
                                 } else if (scale <= 1.05f && !externallyClaimed) {
+                                    // (Up and down win a near-diagonal swipe: the comments
+                                    // and closing a picture were too easy to miss.)
                                     when {
-                                        abs(dx) > 80f && abs(dx) > abs(dy) * 1.2f -> handleHorizontalSwipe(dx)
-                                        abs(dy) > 80f && abs(dy) > abs(dx) * 1.2f ->
+                                        abs(dy) > 64f && abs(dy) >= abs(dx) * 0.9f ->
                                             if (dy < 0) onSwipeUp()
                                             else if (viewerIndex != null) closeViewer()
                                             else onSwipeDown()
+                                        abs(dx) > 80f && abs(dx) > abs(dy) * 1.1f -> handleHorizontalSwipe(dx)
                                     }
                                 }
                                 if (scale <= 1.02f) { scale = 1f; offset = Offset.Zero }
@@ -1777,7 +1785,11 @@ private fun PostContent(
                                     stillDx += delta.x; stillDy += delta.y
                                     offset = clampOffset(offset + delta, scale); ch.consume()
                                 }
-                                else if (ch.isConsumed) { externallyClaimed = true }
+                                else if (ch.isConsumed) {
+                                    externallyClaimed = true
+                                    val moved = ch.position - ch.previousPosition
+                                    viewerDx += moved.x; viewerDy += moved.y
+                                }
                                 else {
                                     dx += delta.x; dy += delta.y
                                     stillDx += delta.x; stillDy += delta.y
@@ -4564,6 +4576,8 @@ private fun Modifier.landscapeBarPinch(
             util.setLandscapeBarScale(if (locked) 1f else raw, save)
             if (locked && !wasLocked) onSnap()
         }
+        kotlinx.coroutines.coroutineScope {
+        var glide: kotlinx.coroutines.Job? = null
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -4572,8 +4586,22 @@ private fun Modifier.landscapeBarPinch(
                 when {
                     event.type == PointerEventType.Scroll -> {
                         if (onBar && event.keyboardModifiers.isCtrlPressed && change.scrollDelta.y != 0f) {
-                            raw *= (1f - change.scrollDelta.y * 0.08f)
-                            show(save = true)
+                            // One wheel notch is ±1 on desktop but ~±100 in a
+                            // browser (and touchpads send many small steps):
+                            // the same few percent per notch everywhere, and
+                            // glided to rather than jumped.
+                            val d = change.scrollDelta.y.let { if (kotlin.math.abs(it) > 8f) it / 100f else it }.coerceIn(-3f, 3f)
+                            raw = (raw * kotlin.math.exp(-d * 0.06f)).coerceIn(util.LANDSCAPE_BAR_MIN_SCALE, util.LANDSCAPE_BAR_MAX_SCALE)
+                            val locked = kotlin.math.abs(raw - 1f) < 0.04f
+                            val target = if (locked) 1f else raw
+                            if (locked && util.landscapeBarScale != 1f) onSnap()
+                            glide?.cancel()
+                            glide = launch {
+                                androidx.compose.animation.core.animate(util.landscapeBarScale, target, animationSpec = tween(120)) { v, _ ->
+                                    util.setLandscapeBarScale(v, false)
+                                }
+                                util.setLandscapeBarScale(target, true)
+                            }
                             change.consume()
                         }
                     }
@@ -4596,6 +4624,7 @@ private fun Modifier.landscapeBarPinch(
                     }
                 }
             }
+        }
         }
     }
 

@@ -2980,7 +2980,10 @@ private fun SwipeableThumbBox(
     item: MediaItem, tint: Color, shape: RoundedCornerShape, modifier: Modifier, liquidGlass: Boolean,
     onSeedSubImageIndex: (String, Int) -> Unit, onClick: () -> Unit, rounded: Boolean = true
 ) {
-    val pagerState = rememberPagerState(pageCount = { item.mediaGroup.size })
+    // Keyed by the post: the masonry's tiles aren't, so when a page loads
+    // a tile can be handed another post, and an unkeyed pager kept the old
+    // post's page (clamped to this one's last picture).
+    val pagerState = key(item.id) { rememberPagerState(pageCount = { item.mediaGroup.size }) }
     // Every image of the post is fetched as soon as the tile appears (not
     // only once it's swiped to), so paging through them is instant.
     val preloadContext = com.mediaviewer.ui.compat.LocalContext.current
