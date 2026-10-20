@@ -22,6 +22,7 @@ object UiToggles {
     private const val KEY_TAGGED_SORT = "tagged_sort"
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_TAG_WHEN_VIEWED = "tag_when_viewed"
+    private const val KEY_SQUARE_CORNERS = "square_corners"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
     private const val KEY_AUDIO_VISUALIZER = "audio_visualizer"
@@ -81,6 +82,10 @@ object UiToggles {
     /** Settings → Media Tagging → Tag Media When Viewed: every post looked
      *  at in Timeline mode is tagged (like Tag Media When Liked). */
     var tagWhenViewed by mutableStateOf(false)
+        private set
+    /** Settings → UI Customization → Squared-Off Corners: every rounded
+     *  corner in the app is square (see ui/theme/Shapes.kt). */
+    var squareCorners by mutableStateOf(false)
         private set
 
     /** Settings → App Functionality → "Show Translation Status" (under
@@ -370,6 +375,7 @@ object UiToggles {
         taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
+        squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
@@ -501,6 +507,11 @@ object UiToggles {
     fun updateShowTaggingStatus(enabled: Boolean) {
         showTaggingStatus = enabled
         prefs?.edit()?.putBoolean(KEY_SHOW_TAGGING_STATUS, enabled)?.apply()
+    }
+
+    fun updateSquareCorners(enabled: Boolean) {
+        squareCorners = enabled
+        prefs?.edit()?.putBoolean(KEY_SQUARE_CORNERS, enabled)?.apply()
     }
 
     fun updateTagWhenViewed(enabled: Boolean) {

@@ -64,6 +64,11 @@ fun MediaViewerTheme(customFontFamily: FontFamily? = null, content: @Composable 
     MaterialTheme(
         colorScheme = ColorScheme,
         typography = typographyFor(customFontFamily),
+        // (Squared-Off Corners: Material's own buttons and menus too.)
+        shapes = if (com.mediaviewer.util.UiToggles.squareCorners) androidx.compose.material3.Shapes(
+            extraSmall = RoundedCornerShape(0), small = RoundedCornerShape(0), medium = RoundedCornerShape(0),
+            large = RoundedCornerShape(0), extraLarge = RoundedCornerShape(0)
+        ) else androidx.compose.material3.Shapes(),
         content = content
     )
 }

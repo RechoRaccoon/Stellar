@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.CircleShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect

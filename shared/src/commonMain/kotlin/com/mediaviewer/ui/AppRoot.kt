@@ -1469,7 +1469,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navBarSpace).padding(bottom = 48.dp), contentAlignment = Alignment.BottomCenter) {
                 Column(
                     Modifier.padding(horizontal = 32.dp)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                        .clip(com.mediaviewer.ui.theme.RoundedCornerShape(20.dp))
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1480,7 +1480,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                     )
                     Spacer(Modifier.height(10.dp))
                     Box(
-                        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                        Modifier.clip(com.mediaviewer.ui.theme.RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.16f))
                             .clickable {
                                 slowLoading = false

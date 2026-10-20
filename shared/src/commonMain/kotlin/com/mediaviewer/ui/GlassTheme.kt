@@ -1,6 +1,6 @@
 package com.mediaviewer.ui
 
-import androidx.compose.foundation.shape.CircleShape
+import com.mediaviewer.ui.theme.CircleShape
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 
@@ -16,7 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -1091,7 +1091,7 @@ fun GlassDropdownMenu(
 @Composable
 fun ScrollToTopGlassBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
     val tap = com.mediaviewer.util.rememberHapticTap()
-    val shape = androidx.compose.foundation.shape.CircleShape
+    val shape = com.mediaviewer.ui.theme.CircleShape
     val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
     val icon: @Composable () -> Unit = {
         androidx.compose.material3.Icon(

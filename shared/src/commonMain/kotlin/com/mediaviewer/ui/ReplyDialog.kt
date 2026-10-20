@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*

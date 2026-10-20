@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable

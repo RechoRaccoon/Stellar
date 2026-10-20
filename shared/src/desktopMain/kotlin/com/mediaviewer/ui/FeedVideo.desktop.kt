@@ -139,6 +139,6 @@ internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier,
 actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val key = remember { Any() }
     // (Drawn by Compose here, so rounding is just a clip.)
-    val m = if (cornerPercent > 0) modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(cornerPercent)) else modifier
+    val m = if (cornerPercent > 0) modifier.clip(com.mediaviewer.ui.theme.RoundedCornerShape(cornerPercent)) else modifier
     DesktopVideoSurface(player as DesktopVideoPlayer, m, backdropKey = key, fill = fill)
 }

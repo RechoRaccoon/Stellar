@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect

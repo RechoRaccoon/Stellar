@@ -6,8 +6,8 @@ import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.CircleShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text

@@ -14,8 +14,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mediaviewer.ui.theme.CircleShape
+import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -131,7 +131,7 @@ data class SettingsExtras(
  *  brightness, instead of a fixed green. */
 private val LocalSettingsAccent = androidx.compose.runtime.compositionLocalOf { VoteGreen }
 
-private val BubbleShape = RoundedCornerShape(14.dp)
+private val BubbleShape get() = RoundedCornerShape(14.dp)
 private val DangerRed = Color(0xFFEF5350)
 
 /** The section titles' color: the same reflected profile color every rim on
@@ -1106,6 +1106,8 @@ internal fun SettingsPageContent(
                 }
             }
 
+            // Every rounded corner in the app made square.
+            ToggleBubble("Squared-Off Corners", com.mediaviewer.util.UiToggles.squareCorners, { com.mediaviewer.util.UiToggles.updateSquareCorners(it) }, liquidGlass, tint, backdrop)
             ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
             ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         }

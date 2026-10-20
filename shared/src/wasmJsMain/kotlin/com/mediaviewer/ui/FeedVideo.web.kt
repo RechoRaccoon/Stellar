@@ -76,6 +76,6 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Bool
     val web = player as WebVideoPlayer
     androidx.compose.runtime.SideEffect { web.setLook(fill, cornerPercent) }
     // (The page cuts a hole for the video; clipping the hole rounds it.)
-    val m = if (cornerPercent > 0) modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(cornerPercent)) else modifier
+    val m = if (cornerPercent > 0) modifier.clip(com.mediaviewer.ui.theme.RoundedCornerShape(cornerPercent)) else modifier
     WebVideoSurface(web, m, backdropKey = key)
 }
