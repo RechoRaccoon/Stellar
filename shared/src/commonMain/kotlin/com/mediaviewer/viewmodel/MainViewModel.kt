@@ -648,7 +648,25 @@ class MainViewModel(
         val parent: ProfileOverlayState? = null
     )
 
-    private val _profileOverlay = MutableStateFlow<ProfileOverlayState?>(null)
+    /**
+     * The open profile. Many background loads (tabs, probes) each copy the
+     * state they read and write it back; one that read it just before the
+     * full profile arrived used to write it back without it — the bio gone
+     * and the loading screen left waiting. Once a profile's details are in,
+     * a write for the same profile without them keeps them.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi::class)
+    private class ProfileOverlayFlow(private val inner: MutableStateFlow<ProfileOverlayState?>) : StateFlow<ProfileOverlayState?> by inner {
+        override var value: ProfileOverlayState?
+            get() = inner.value
+            set(next) {
+                val cur = inner.value
+                inner.value = if (next != null && cur != null && next.author.did == cur.author.did &&
+                    cur.profile != null && next.profile == null
+                ) next.copy(profile = cur.profile, loadingProfile = false) else next
+            }
+    }
+    private val _profileOverlay = ProfileOverlayFlow(MutableStateFlow(null))
     val profileOverlay: StateFlow<ProfileOverlayState?> = _profileOverlay
 
     // ── Own profile preview (for the Settings "Profile" button) ────────────────
@@ -4362,19 +4380,27 @@ class MainViewModel(
         isRefresh: Boolean = false, onProfileFetched: () -> Unit = {}
     ) {
         viewModelScope.launch(ioDispatcher) {
-            var result = bskyRepo.getFullProfile(bskyToken, author.did)
+            // (A request that never answers mustn't hold the loading screen
+            // up: it's given 15 seconds, then tried once more.)
+            suspend fun fetch() = kotlinx.coroutines.withTimeoutOrNull(15_000) { bskyRepo.getFullProfile(bskyToken, author.did) }
+                ?: Result.failure(IllegalStateException("Profile timed out"))
+            var result = fetch()
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
-                if (refreshBskyTokenIfPossible()) result = bskyRepo.getFullProfile(bskyToken, author.did)
-            }
+                if (refreshBskyTokenIfPossible()) result = fetch()
+            } else if (result.isFailure) result = fetch()
             // Guarded on the same did so a slow request can never stamp
             // this profile's data onto a different overlay that has since
             // replaced it.
-            val curNow = _profileOverlay.value
-            if (curNow != null && curNow.author.did == author.did) {
-                result.onSuccess { data ->
-                    _profileOverlay.value = curNow.copy(profile = data, loadingProfile = false, author = data.author)
-                }.onFailure {
-                    _profileOverlay.value = curNow.copy(loadingProfile = false)
+            // (Read and written in one step on the main thread, so nothing
+            // written meanwhile is lost.)
+            withContext(Dispatchers.Main) {
+                val curNow = _profileOverlay.value
+                if (curNow != null && curNow.author.did == author.did) {
+                    result.onSuccess { data ->
+                        _profileOverlay.value = curNow.copy(profile = data, loadingProfile = false, author = data.author)
+                    }.onFailure {
+                        _profileOverlay.value = curNow.copy(loadingProfile = false)
+                    }
                 }
             }
             onProfileFetched()
