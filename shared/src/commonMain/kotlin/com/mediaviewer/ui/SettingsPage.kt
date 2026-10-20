@@ -1189,7 +1189,7 @@ internal fun SettingsPageContent(
             }
             // Delete (beside any dataset): asked first, like everywhere else.
             var deleteTarget by remember { mutableStateOf<com.mediaviewer.tagging.TagDatasetInfo?>(null) } // id "" = yours
-            val ownName = extras.selfDisplayName.ifBlank { bskyHandle }.ifBlank { "My" }
+            val ownName = extras.selfDisplayName.ifBlank { bskyHandle }
             val exportState = extras.datasetExportState
             val exportWorking = exportState is MainViewModel.DatasetExportState.Working
 
@@ -1221,7 +1221,7 @@ internal fun SettingsPageContent(
                         BubbleDivider()
                         DatasetRow(
                             "Your Dataset", taggingScanned,
-                            onExport = { exportTarget = null to "$ownName's Tag Dataset" },
+                            onExport = { exportTarget = null to if (ownName.isBlank()) "My Tag Dataset" else "$ownName's Tag Dataset" },
                             onDelete = { deleteTarget = com.mediaviewer.tagging.TagDatasetInfo("", "Your Dataset", 0L, taggingScanned) }
                         )
                     }

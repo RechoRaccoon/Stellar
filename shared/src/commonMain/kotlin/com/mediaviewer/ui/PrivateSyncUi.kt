@@ -74,10 +74,7 @@ private fun SetupStep(tint: Color) {
     var error by remember { mutableStateOf<String?>(null) }
     NewKeyStep(
         title = "Private Sync",
-        body = "Your drafts, notes, calendar, bookmark folders, archived posts, Hub layout, Blogs and Reviews lists and settings are " +
-            "saved to your own PDS, encrypted, so they follow you to every device you sign in on.\n\n" +
-            "Only this Secret Key can open them; not even Stellar can. Keep it somewhere safe (a password manager is ideal). " +
-            "You can see it again any time in Settings → Data and Privacy.",
+        body = "Your drafts, notes, calendar, bookmark folders, archived posts, Hub layout, Blogs and Reviews lists and settings are saved to your own PDS, encrypted, so they follow you to every device you sign in on.\n\nOnly this Secret Key can open them; not even Stellar can. Keep it somewhere safe (a password manager is ideal). You can see it again any time in Settings → Data and Privacy.",
         tint = tint, working = working, error = error,
         onSaved = {
             working = true; error = null
@@ -161,8 +158,7 @@ private fun UnlockStep(tint: Color, onStartedOver: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Text(
                 if (PrivateSync.keyChangedElsewhere) "Your Secret Key was changed on another device. Enter the new one to keep syncing."
-                else "This account already has Private Sync. Enter the Secret Key you saved when you set it up, and your drafts, notes, " +
-                    "bookmark folders, archive and settings will come over.",
+                else "This account already has Private Sync. Enter the Secret Key you saved when you set it up, and your drafts, notes, bookmark folders, archive and settings will come over.",
                 color = DimGray, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(16.dp))
@@ -204,8 +200,7 @@ private fun UnlockStep(tint: Color, onStartedOver: () -> Unit) {
         ) { Box(Modifier.fillMaxSize()) {
             ConfirmPopup(
                 title = "Start Over?",
-                message = "A new Secret Key is made and this device's data becomes your Private Sync. " +
-                    "What only your other devices had saved there can't be opened anymore; they'll ask for the new key.",
+                message = "A new Secret Key is made and this device's data becomes your Private Sync. What only your other devices had saved there can't be opened anymore; they'll ask for the new key.",
                 confirmLabel = "Start Over",
                 liquidGlass = false, tint = tint, backdrop = null,
                 onConfirm = {

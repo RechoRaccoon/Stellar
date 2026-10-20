@@ -551,3 +551,28 @@ Blob {0}
 Emoji upload {0}: {1}
 Emoji {0}: {1}
 com.rechoraccoon.stellar.richtext.facet#emoji
+!!(window.__stellarViz && window.__stellarViz.an)
+(() => { const S = window.__stellarViz; if (!S || !S.an) return null; S.an.getByteFrequencyData(S.data); return S.data; })()
+(window.__stellarViz && window.__stellarViz.rate) || 48000
+AAAP1/
+crypto.getRandomValues(new Uint8Array(n))
+kek|{0}
+stellar-sync-data|v1|{0}|{1}|{2}|{3}
+stellar-sync-file|v1|{0}|{1}|{2}
+stellar-sync-key|v1|{0}
+stereo mix
+wave out
+what u hear
+what you hear
+cable output
+monitor of
+XXXX-XXXX-XXXX-…
+No secure random bytes ({0})
+Sync delete {0}: {1}
+Sync list {0}: {1}
+Sync read {0}: {1}
+Sync read: empty reply
+Sync read: no record
+Sync upload {0}: {1}
+Sync write {0}: {1}
+Sync write: empty reply

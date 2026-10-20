@@ -29,6 +29,7 @@ import platform.AVFoundation.AVLayerVideoGravityResizeAspect
 import platform.AVFoundation.AVLayerVideoGravityResizeAspectFill
 import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.muted
+import platform.AVFoundation.volume
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
 import platform.AVFoundation.AVPlayerItemStatusReadyToPlay
 import platform.AVFoundation.AVPlayerLayer
