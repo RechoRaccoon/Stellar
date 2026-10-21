@@ -1483,6 +1483,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 !searchOpen && !dmInboxOpen && !inboxOpen && !taggingOverlayOpen && playingLive == null &&
                     (profileVisible || screenState == ScreenState.SETTINGS)))
             val openProfile = profileOverlay
+            // (Read here too: the notch now sits outside the app box that declares it.)
+            val dmHiddenBehindFeed by viewModel.dmHiddenBehindFeed.collectAsState()
             val notchTint = if (vrmModeOpen || cameraModeOpen || composePostOpen) {
                 val selfAvatar = selfProfile?.author?.avatarUrl
                 com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
