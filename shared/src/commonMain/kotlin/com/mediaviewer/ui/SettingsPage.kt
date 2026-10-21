@@ -1512,7 +1512,7 @@ internal fun SettingsPageContent(
                                 modifier = Modifier.clickable { layoutMenu = true }
                             )
                             DropdownMenu(expanded = layoutMenu, onDismissRequest = { layoutMenu = false }) {
-                                (1..3).forEach { option ->
+                                (1..com.mediaviewer.util.UiToggles.PROFILE_LAYOUTS).forEach { option ->
                                     DropdownMenuItem(
                                         text = { Text("Layout $option", fontWeight = if (option == currentLayout) FontWeight.SemiBold else FontWeight.Normal) },
                                         onClick = { com.mediaviewer.util.UiToggles.updateProfileLayout(option); layoutMenu = false }

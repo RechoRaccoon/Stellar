@@ -126,6 +126,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalDensity
@@ -1008,7 +1009,7 @@ fun ProfileOverlay(
             // (Profile Layouts 2 and 3: no gap — the banner runs up to the
             // screen's top edge, behind the camera.)
             contentPadding = PaddingValues(
-                top = if (rememberLandscape() || com.mediaviewer.util.UiToggles.profileLayout == 1) rememberTopCutoutClearance() else 0.dp,
+                top = if (com.mediaviewer.util.UiToggles.profileLayout == 1) rememberTopCutoutClearance() else 0.dp,
                 bottom = WindowInsets.navBarSpace.asPaddingValues().calculateBottomPadding() + 16.dp + 76.dp
             ),
             modifier = Modifier.weight(1f).fillMaxHeight()
@@ -1033,7 +1034,7 @@ fun ProfileOverlay(
                     onResolveActor = onResolveActor,
                     onOpenStatus = { editingStatus = true },
                     onOpenAvatar = { if (author.avatarUrl != null) viewingAvatar = true },
-                    layout = if (sideways) 1 else com.mediaviewer.util.UiToggles.profileLayout
+                    layout = com.mediaviewer.util.UiToggles.profileLayout
                 )
             }
 
@@ -1252,12 +1253,14 @@ fun ProfileOverlay(
         // app-level pixel transition now owns this loading window.)
 
         // ── Scroll-to-top bubble — appears once scrolled past the tabs ──
+        // (Level with the fixed Back / Follow row: its touch area is bigger
+        // than the bubble, so it starts that much higher.)
         AnimatedVisibility(
             visible = pastTabs,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = rememberTopCutoutClearance())
-                .padding(top = 8.dp),
+                .offset(y = profileFixedRowGap(com.mediaviewer.util.UiToggles.profileLayout) - SCROLL_TOP_HIT_EXTRA),
             enter = fadeIn(tween(if (reducedAnimations) 0 else 180)) + scaleIn(initialScale = 0.8f),
             exit = fadeOut(tween(if (reducedAnimations) 0 else 180)) + scaleOut(targetScale = 0.8f)
         ) {
@@ -1273,15 +1276,18 @@ fun ProfileOverlay(
         // side list's first row instead.)
         // Profile Layouts 2 and 3: the row sits right under the camera
         // (like the Hub's search bar), with Follow / Edit at its right.
-        if (!rememberLandscape()) {
-            val layout = com.mediaviewer.util.UiToggles.profileLayout
+        val fixedLandscape = rememberLandscape()
+        val fixedLayout = com.mediaviewer.util.UiToggles.profileLayout
+        if (!fixedLandscape || fixedLayout != 1) {
+            val layout = fixedLayout
             Row(
                 Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .padding(top = rememberTopCutoutClearance())
-                    .padding(top = if (layout == 1) 8.dp else 0.dp, start = 12.dp, end = 12.dp),
+                    .padding(top = profileFixedRowGap(layout), start = 12.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
+                // (Landscape: Back is the side list's first row.)
+                if (!fixedLandscape) ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
                 Spacer(Modifier.weight(1f))
                 if (layout != 1) {
                     val own = selfDid.isNotBlank() && author.did == selfDid
@@ -1695,9 +1701,24 @@ private fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
     }
 }
 
+/** How far below the camera's clearance the fixed Back / Follow row sits. */
+private fun profileFixedRowGap(layout: Int): Dp = if (layout == 1) 8.dp else 0.dp
+
+/** How much bigger than its bubble, on each side, the scroll-to-top
+ *  button's touch area is. */
+private val SCROLL_TOP_HIT_EXTRA = 9.dp
+
 @Composable
-private fun ScrollToTopBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null, onClick: () -> Unit) =
-    ScrollToTopGlassBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onClick)
+private fun ScrollToTopBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop? = null, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    Box(
+        Modifier.size(38.dp + SCROLL_TOP_HIT_EXTRA * 2)
+            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { tap(); onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        ScrollToTopGlassBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onClick)
+    }
+}
 
 /** Intercepts the system back gesture/button while the overlay is up. */
 @Composable
@@ -1872,6 +1893,15 @@ private fun ProfileHeaderSection(
             else -> {}
         }
         }
+        if (layout == 4) {
+            ProfileCompactIdentity(
+                author = author, profile = profile, loadingProfile = loadingProfile,
+                liquidGlass = liquidGlass, avatarColor = avatarColor, linkColor = linkColor, isOwnProfile = isOwnProfile,
+                isSupporter = isSupporter, onOpenSupportPage = onOpenSupportPage,
+                onOpenMention = onOpenMention, onResolveActor = onResolveActor,
+                onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar
+            )
+        }
 
         // ── Profile note (supporters; private, on this device) ──
         // Above the "Listening to" line and the bio, in YOUR own profile
@@ -1934,13 +1964,14 @@ private fun ProfileHeaderSection(
         }
 
         // ── Bio ──
-        val bio = profile?.description.orEmpty()
+        // (Layout 4: the bio and counts are beside the picture instead.)
+        val bio = if (layout == 4) "" else profile?.description.orEmpty()
         if (bio.isNotBlank()) {
             LinkableBioText(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = PROFILE_EDGE, vertical = 12.dp)
             )
-        } else if (loadingProfile) {
+        } else if (loadingProfile && layout != 4) {
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.CenterStart) {
                 CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
             }
@@ -1949,7 +1980,7 @@ private fun ProfileHeaderSection(
         }
 
         // ── Counts ──
-        if (profile != null) {
+        if (profile != null && layout != 4) {
             ShrinkToFitRow(
                 // Feature request #2: matched to the bio's own top gap
                 // (bio's `vertical = 12.dp` padding) so the space below the
@@ -2211,7 +2242,9 @@ private fun ProfileBannerOverlayLayout(
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar
             )
-        }.first().measure(loose)
+        }.first().measure(androidx.compose.ui.unit.Constraints.fixed(namesHeight, namesHeight))
+        // (Always its own square: measured within a short row's height it
+        // was squeezed into an oval.)
 
         val stackHeight = followH + namesHeight
         val width = constraints.maxWidth
@@ -2260,13 +2293,14 @@ private fun ProfileBannerOverlayLayout(
 
 /** Profile Layout 2: the height of the row under the banner holding the
  *  picture and name pills. */
-private val PROFILE_LAYOUT2_ROW = 104.dp
+private val PROFILE_LAYOUT2_ROW = 124.dp
 
 /**
- * Profile Layout 3: the display name, the picture and the handle, centered
- * one above the other — the picture's middle on the banner's bottom edge,
- * the name on the banner above it, the handle under it. Its height runs
- * from the banner's top to the handle's bottom (place it over the banner).
+ * Profile Layout 3: the picture centered on the banner's bottom edge, the
+ * display name to its left and the handle to its right — both under the
+ * banner, level with the picture's lower half. Its height runs from the
+ * banner's top to the bottom of whichever of them reaches lowest (place it
+ * over the banner).
  */
 @Composable
 private fun ProfileIdentityCentered(
@@ -2276,13 +2310,9 @@ private fun ProfileIdentityCentered(
 ) {
     val avatarSize = 88.dp
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
-        val loose = androidx.compose.ui.unit.Constraints(maxWidth = constraints.maxWidth)
-        val gap = 6.dp.roundToPx()
+        val gap = 8.dp.roundToPx()
+        val edge = PROFILE_EDGE.roundToPx()
         val w = constraints.maxWidth
-        val name = subcompose("name") {
-            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 15.sp, bold = true, backdrop = backdrop,
-                modifier = Modifier.copyOnTap(author.displayName))
-        }.first().measure(loose)
         val avatar = subcompose("avatar") {
             ProfileAvatarGlass(
                 url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
@@ -2290,30 +2320,114 @@ private fun ProfileIdentityCentered(
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar
             )
-        }.first().measure(loose)
+        }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
+        // Each side gets the room between the picture and the screen's edge.
+        val side = ((w - avatar.width) / 2 - gap - edge).coerceAtLeast(0)
+        val sideConstraints = androidx.compose.ui.unit.Constraints(maxWidth = side)
+        val name = subcompose("name") {
+            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 13.sp, bold = true, backdrop = null,
+                modifier = Modifier.copyOnTap(author.displayName))
+        }.first().measure(sideConstraints)
         val handle = subcompose("handle") {
-            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 12.sp, bold = false, backdrop = null,
+            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 11.sp, bold = false, backdrop = null,
                 modifier = Modifier.copyOnTap("@${author.handle}"))
-        }.first().measure(loose)
+        }.first().measure(sideConstraints)
         val bannerPx = bannerHeight.roundToPx()
-        val avatarTop = bannerPx - avatar.height / 2
-        val nameY = (avatarTop - gap - name.height).coerceAtLeast(0)
-        val handleY = avatarTop + avatar.height + gap
-        val totalH = handleY + handle.height + gap
         val avatarX = (w - avatar.width) / 2
+        val avatarTop = bannerPx - avatar.height / 2
+        // Level with the middle of the picture's lower half.
+        val lowerMid = bannerPx + avatar.height / 4
+        val nameY = (lowerMid - name.height / 2).coerceAtLeast(bannerPx + gap / 2)
+        val handleY = (lowerMid - handle.height / 2).coerceAtLeast(bannerPx + gap / 2)
+        val bottom = maxOf(avatarTop + avatar.height, nameY + name.height, handleY + handle.height) + gap
         // The status bubble: its pointer just over the picture's top-right.
         val tipX = avatarX + (avatar.width * 0.80f).toInt()
         val tipY = avatarTop + (avatar.height * 0.20f).toInt()
         val statusPlaceable = subcompose("status") {
             ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
         }.firstOrNull()?.measure(
-            androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX - PROFILE_EDGE.roundToPx()).coerceAtLeast(0), maxHeight = tipY.coerceAtLeast(0))
+            androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX - edge).coerceAtLeast(0), maxHeight = tipY.coerceAtLeast(0))
         )
-        layout(w, totalH) {
-            name.placeRelative((w - name.width) / 2, nameY)
+        layout(w, bottom) {
+            name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
-            handle.placeRelative((w - handle.width) / 2, handleY)
+            handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
+        }
+    }
+}
+
+/**
+ * Profile Layout 4: compact, with the banner shown whole above it. The
+ * picture is tucked up over the banner's bottom edge at the left; beside
+ * it, the display name (big), the handle, the status, the counts and the
+ * bio, one under the other.
+ */
+@Composable
+private fun ProfileCompactIdentity(
+    author: AuthorInfo, profile: com.mediaviewer.model.ProfileData?, loadingProfile: Boolean,
+    liquidGlass: Boolean, avatarColor: Color, linkColor: Color, isOwnProfile: Boolean,
+    isSupporter: Boolean, onOpenSupportPage: () -> Unit,
+    onOpenMention: (String) -> Unit, onResolveActor: suspend (String) -> String?,
+    onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
+) {
+    val avatarSize = 92.dp
+    val lift = 34.dp
+    Row(
+        Modifier.fillMaxWidth().padding(start = PROFILE_EDGE + 4.dp, end = PROFILE_EDGE + 4.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Lifted so its top third sits over the banner (and takes that much
+        // less room below it).
+        Box(
+            Modifier.layout { measurable, constraints ->
+                val p = measurable.measure(constraints)
+                val up = lift.roundToPx()
+                layout(p.width, (p.height - up).coerceAtLeast(0)) { p.place(0, -up) }
+            }
+        ) {
+            ProfileAvatarGlass(
+                url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = null,
+                shape = profileIconShape(author.did),
+                videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
+                onClick = onOpenAvatar
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp,
+                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.copyOnTap(author.displayName)
+            )
+            Text(
+                "@${author.handle}", color = androidx.compose.ui.graphics.lerp(linkColor, Color.White, 0.45f), fontSize = 13.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.copyOnTap("@${author.handle}")
+            )
+            val status = com.mediaviewer.util.ProfileStyles.statusOf(author.did)
+            if (status != null || isOwnProfile) {
+                Box(Modifier.padding(top = 4.dp).heightIn(max = 72.dp)) {
+                    ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
+                }
+            }
+            if (profile != null) {
+                ShrinkToFitRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    CountStat(profile.postsCount, "Posts")
+                    CountStat(profile.followersCount, "Followers")
+                    CountStat(profile.followsCount, "Following")
+                    if (isSupporter) SupporterBadge(onClick = onOpenSupportPage)
+                }
+            }
+            val bio = profile?.description.orEmpty()
+            if (bio.isNotBlank()) {
+                LinkableBioText(
+                    text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                )
+            } else if (loadingProfile) {
+                CircularProgressIndicator(Modifier.padding(top = 10.dp).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
+            }
         }
     }
 }

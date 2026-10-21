@@ -1998,5 +1998,7 @@
 "Your data is encrypted with this new key and the old copy is gone. Your other devices will ask for it the next time they sync. Don't show it to anyone.": "你的数据已用这个新密钥加密，旧副本已不存在。你的其他设备会在下次同步时要求输入它。不要给任何人看。",
 "Your sync key was changed on another device": "你的同步密钥已在另一台设备上更改",
 "Layout {0}": "布局 {0}",
-"Profile Layout": "个人资料布局"
+"Profile Layout": "个人资料布局",
+"Unsave": "取消保存",
+"Unsaved": "已取消保存"
 }

@@ -89,12 +89,14 @@ object UiToggles {
      *  and the camera notch bubble stay round. */
     var squareCorners by mutableStateOf(false)
         private set
-    /** Settings → Dev Tools → Profile Layout (portrait profiles):
+    /** Settings → Dev Tools → Profile Layout (portrait and landscape):
      *  1 — the name pills, picture and Follow over the banner;
      *  2 — the banner from the very top of the screen, its picture and name
      *      pills in a row of their own under it, Follow up by Back;
-     *  3 — like 2, but the name above the picture, which sits centered on
-     *      the banner's bottom edge, and the handle below it. */
+     *  3 — like 2, but the picture centered on the banner's bottom edge,
+     *      the name to its left and the handle to its right, under the banner;
+     *  4 — like 2, compact: the picture tucked up against the banner, the
+     *      name, handle, status, counts and bio beside it. */
     var profileLayout by mutableStateOf(1)
         private set
 
@@ -386,7 +388,7 @@ object UiToggles {
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
-        profileLayout = p.getInt(KEY_PROFILE_LAYOUT, 1).coerceIn(1, 3)
+        profileLayout = p.getInt(KEY_PROFILE_LAYOUT, 1).coerceIn(1, PROFILE_LAYOUTS)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
@@ -520,8 +522,10 @@ object UiToggles {
         prefs?.edit()?.putBoolean(KEY_SHOW_TAGGING_STATUS, enabled)?.apply()
     }
 
+    const val PROFILE_LAYOUTS = 4
+
     fun updateProfileLayout(layout: Int) {
-        profileLayout = layout.coerceIn(1, 3)
+        profileLayout = layout.coerceIn(1, PROFILE_LAYOUTS)
         prefs?.edit()?.putInt(KEY_PROFILE_LAYOUT, profileLayout)?.apply()
     }
 

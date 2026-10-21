@@ -1998,5 +1998,7 @@
 "Your data is encrypted with this new key and the old copy is gone. Your other devices will ask for it the next time they sync. Don't show it to anyone.": "I tuoi dati sono cifrati con questa nuova chiave e la vecchia copia non c'è più. Gli altri tuoi dispositivi te la chiederanno alla prossima sincronizzazione. Non mostrarla a nessuno.",
 "Your sync key was changed on another device": "La tua chiave di sincronizzazione è stata cambiata su un altro dispositivo",
 "Layout {0}": "Layout {0}",
-"Profile Layout": "Layout del profilo"
+"Profile Layout": "Layout del profilo",
+"Unsave": "Rimuovi",
+"Unsaved": "Rimosso"
 }

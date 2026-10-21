@@ -403,17 +403,6 @@ internal fun EmojiPanel(
             .onGloballyPositioned { panelOrigin = it.positionInRoot() }
             // Swallow taps so they never fall through to what's behind.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
-            // …and every other touch too: whatever the panel's own pieces
-            // didn't use is used up here, so a swipe in it can never reach
-            // the chat (where a sideways swipe on a message replies to it).
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
-                        event.changes.forEach { if (!it.isConsumed) it.consume() }
-                    }
-                }
-            }
             .then(if (compact || floating) Modifier else Modifier.windowInsetsPadding(WindowInsets.navBarSpace))
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -433,12 +422,16 @@ internal fun EmojiPanel(
                     }
                 ) { PillLabel(if (importing) "Importing…" else "Import", selected = !importing) }
             } else {
-                // Someone else's: Save keeps them in the accounts row.
+                // Someone else's: Save keeps them in the accounts row; Unsave
+                // takes them out again.
                 val isSaved = EmojiAccounts.isSaved(selfDid, acct.did)
                 PanelPill(
                     liquidGlass = liquidGlass, tint = tint, shape = tabShape,
-                    onClick = { if (!isSaved) { EmojiAccounts.save(selfDid, acct); showPlatformToast("Saved") } }
-                ) { PillLabel(if (isSaved) "Saved" else "Save", selected = !isSaved) }
+                    onClick = {
+                        if (isSaved) { EmojiAccounts.remove(selfDid, acct.did); showPlatformToast("Unsaved") }
+                        else { EmojiAccounts.save(selfDid, acct); showPlatformToast("Saved") }
+                    }
+                ) { PillLabel(if (isSaved) "Unsave" else "Save", selected = true) }
             }
         }
 

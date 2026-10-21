@@ -1,5 +1,6 @@
 package com.mediaviewer.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
 import com.mediaviewer.platform.PlatformUri as Uri
 
 import com.mediaviewer.platform.PlatformUri
@@ -213,7 +214,11 @@ fun EditProfileDialog(
                     ) {
                         val bannerModel: Any? = newBanner ?: profile?.bannerUrl
                         if (bannerModel != null) {
-                            AsyncImage(model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            // The whole banner, as the profile shows it (never
+                            // cropped), over a dim copy of itself.
+                            AsyncImage(model = bannerModel, contentDescription = null, contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.35f })
+                            AsyncImage(model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                         }
                         EditPictureBadge()
                     }
@@ -222,7 +227,9 @@ fun EditProfileDialog(
                     fun VideoSlot(
                         modifier: Modifier, shape: androidx.compose.ui.graphics.Shape, cornerPercent: Int,
                         picked: com.mediaviewer.platform.PlatformUri?, saved: com.mediaviewer.util.BannerVideo?,
-                        onPick: () -> Unit, onRemove: () -> Unit
+                        onPick: () -> Unit, onRemove: () -> Unit,
+                        /** The whole video, fitted (the banner); false fills the slot (the icon). */
+                        fit: Boolean = false
                     ) {
                         Box(
                             modifier.clip(shape).background(fieldColor).border(1.dp, tint.copy(0.5f), shape)
@@ -230,9 +237,9 @@ fun EditProfileDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             when {
-                                picked != null -> LoopingVideoPreview(picked, Modifier.fillMaxSize(), fill = true, cornerPercent = cornerPercent)
+                                picked != null -> LoopingVideoPreview(picked, Modifier.fillMaxSize(), fill = !fit, cornerPercent = cornerPercent)
                                 saved != null -> ProfileBannerVideo(
-                                    author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent,
+                                    author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent, fill = !fit,
                                     poster = { Box(Modifier.fillMaxSize().background(fieldColor)) }
                                 )
                             }
@@ -259,7 +266,8 @@ fun EditProfileDialog(
                         Modifier.weight(1f).height(rowH), bannerSlotShape, 0,
                         newBannerVideo, style.bannerVideo,
                         onPick = { pickingIcon = false; pickVideo.launch(videosOnly) },
-                        onRemove = { newBannerVideo = null; style = style.copy(bannerVideo = null) }
+                        onRemove = { newBannerVideo = null; style = style.copy(bannerVideo = null) },
+                        fit = true
                     )
                 }
             }
