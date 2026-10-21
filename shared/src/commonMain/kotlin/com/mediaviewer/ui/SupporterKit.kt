@@ -1,5 +1,7 @@
 package com.mediaviewer.ui
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -123,7 +125,7 @@ fun LocalPopup(
     BackHandler(onBack = onClose)
     // With the keyboard up it sits just above it, instead of keeping its
     // usual margin there (that left a big gap between it and the keys).
-    val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    val keyboardUp = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 480f)) }
     Box(
