@@ -92,6 +92,7 @@ fun LocalOverlayHost(
         LocalOverlays.cancelVideoUpload = viewModel::cancelVideoUpload
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
+        LocalOverlays.openPublicFolder = viewModel::openPublicFolder
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView

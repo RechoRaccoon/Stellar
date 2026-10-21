@@ -156,6 +156,8 @@ object LocalOverlays {
      *  Archived page, put an archived post back, delete one for good. */
     var archiveCurrentPost: (() -> Unit)? = null
     var openArchive: (() -> Unit)? = null
+    /** A profile's public folder tapped (Collections → Folders). */
+    var openPublicFolder: ((com.mediaviewer.util.PublicFolders.Folder) -> Unit)? = null
     var restoreArchivedPost: (() -> Unit)? = null
     var deleteArchivedPost: (() -> Unit)? = null
     var archiveBusy by mutableStateOf(false)

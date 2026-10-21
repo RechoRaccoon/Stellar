@@ -5135,6 +5135,18 @@ class BlueskyRepository {
         resp.body()?.uri ?: error("CreateRecord ${resp.code()}")
     }
 
+    /** Public folders (see PublicFolders): written under the folder's own id. */
+    suspend fun putPublicFolder(token: String, did: String, rkey: String, record: Map<String, Any>): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, com.mediaviewer.util.PublicFolders.COLLECTION, rkey, record, validate = false))
+            if (!resp.isSuccessful) error("Folder ${resp.code()}: ${errorBodyText(resp).take(120)}")
+        }
+    }
+
+    suspend fun deletePublicFolder(token: String, did: String, rkey: String): Result<Unit> = withContext(ioDispatcher) {
+        deleteRecord(token, did, com.mediaviewer.util.PublicFolders.COLLECTION, rkey)
+    }
+
     private suspend fun deleteRecord(token: String, did: String, collection: String, rkey: String): Result<Unit> = runCatching {
         val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, collection, rkey))
         if (!resp.isSuccessful) error("DeleteRecord ${resp.code()}")

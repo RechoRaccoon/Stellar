@@ -483,3 +483,68 @@ fun SupporterConfetti(playKey: Any, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** The Collections tab's Folders choice (a profile's public folders), kept
+ *  beside the list-kind filter while the profile is open. */
+object CollectionsTab {
+    var showFolders by androidx.compose.runtime.mutableStateOf(false)
+}
+
+/**
+ * A profile's public bookmark folders (see PublicFolders), one row each
+ * like a feed: its cover, its name and how many posts; tap to see them.
+ * [header]: under All, a small "FOLDERS" title above them.
+ */
+internal fun LazyListScope.profileFolderRows(
+    folders: List<com.mediaviewer.util.PublicFolders.Folder>,
+    header: Boolean, liquidGlass: Boolean, tint: Color, wideDp: Int = 0
+) {
+    if (folders.isEmpty()) {
+        item(key = "folders_empty") {
+            Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                Text("No public folders yet", color = DimGray, fontSize = 13.sp)
+            }
+        }
+        return
+    }
+    if (header) item(key = "folders_header") {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("FOLDERS", color = lerp(tint, Color.White, 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Spacer(Modifier.size(8.dp))
+            Box(Modifier.weight(1f).height(0.5.dp).background(Color.White.copy(alpha = 0.10f)))
+            Spacer(Modifier.size(8.dp))
+            Text("${folders.size}", color = DimGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    landscapeGridRows(folders, Landscape.textCardLanes(wideDp), key = { "folder_${it.did}_${it.rkey}" }, spacing = 0.dp) { folder, cell ->
+        val tap = rememberHapticTap()
+        val shape = RoundedCornerShape(16.dp)
+        Row(
+            cell.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                .glassPanel(liquidGlass, tint = tint.copy(alpha = 0.45f), shape = shape)
+                .clickable { tap(); LocalOverlays.openPublicFolder?.invoke(folder) }
+                .padding(start = 8.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val coverShape = RoundedCornerShape(11.dp)
+            Box(
+                Modifier.size(44.dp).clip(coverShape)
+                    .background(Brush.linearGradient(listOf(lerp(tint, Color.White, 0.15f), lerp(tint, Color.Black, 0.45f)))),
+                contentAlignment = Alignment.Center
+            ) {
+                if (folder.cover != null) AsyncImage(
+                    model = folder.cover, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(coverShape)
+                ) else Text(folder.name.take(1).uppercase(), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(folder.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${folder.posts.size} post${if (folder.posts.size == 1) "" else "s"}", color = DimGray, fontSize = 11.sp)
+            }
+        }
+    }
+}

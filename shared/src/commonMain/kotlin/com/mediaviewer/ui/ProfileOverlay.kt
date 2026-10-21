@@ -179,7 +179,7 @@ private fun MainViewModel.ProfileTab.label(): String = when (this) {
     // comment/call site.
     MainViewModel.ProfileTab.MUSIC_HISTORY -> "Music History"
     // Always the far-right tab.
-    MainViewModel.ProfileTab.LISTS_FEEDS -> "Lists/Feeds"
+    MainViewModel.ProfileTab.LISTS_FEEDS -> "Collections"
 }
 
 // ─── Profile tabs sub-filter row ────────────────────────────────────────────
@@ -559,7 +559,7 @@ fun ProfileOverlay(
     // this profile is opened each session, and reused after that.
     LaunchedEffect(author.did) { com.mediaviewer.util.ProfileStyles.refresh(author.did) }
     // Picked posts don't outlive the profile they were picked on.
-    DisposableEffect(author.did) { onDispose { PostSelection.clear() } }
+    DisposableEffect(author.did) { onDispose { PostSelection.clear(); CollectionsTab.showFolders = false } }
 
     BackHandler(onClose)
 
@@ -950,13 +950,23 @@ fun ProfileOverlay(
                         )
                     }
                     MainViewModel.ProfileTab.LISTS_FEEDS -> {
-                        // "All", then one per kind (null = All).
-                        ProfileSubFilterRow<com.mediaviewer.model.ProfileListKind?>(
-                            options = listOf<com.mediaviewer.model.ProfileListKind?>(null) + com.mediaviewer.model.ProfileListKind.entries,
-                            selected = state.listKindFilter,
+                        // "All", "Folders" (their public folders), then one per kind.
+                        val options = listOf("all", "folders") + com.mediaviewer.model.ProfileListKind.entries.map { it.name }
+                        ProfileSubFilterRow(
+                            options = options,
+                            selected = if (CollectionsTab.showFolders) "folders" else state.listKindFilter?.name ?: "all",
                             liquidGlass = liquidGlass, tint = blended,
-                            labelOf = { it?.label ?: "All" },
-                            onSelect = onSelectProfileListKind
+                            labelOf = { key ->
+                                when (key) {
+                                    "all" -> "All"
+                                    "folders" -> "Folders"
+                                    else -> com.mediaviewer.model.ProfileListKind.valueOf(key).label
+                                }
+                            },
+                            onSelect = { key ->
+                                CollectionsTab.showFolders = key == "folders"
+                                onSelectProfileListKind(com.mediaviewer.model.ProfileListKind.entries.firstOrNull { it.name == key })
+                            }
                         )
                     }
                     else -> {}
@@ -2983,6 +2993,12 @@ private fun LazyListScope.profileResultsContent(
     // Lists/Feeds keeps its own state (not a ProfileTabState) and has its
     // own loading/empty rows.
     if (state.selectedTab == MainViewModel.ProfileTab.LISTS_FEEDS) {
+        // Their public folders: on their own under Folders, first under All.
+        val folders = com.mediaviewer.util.PublicFolders.byAccount[state.author.did].orEmpty()
+        if (CollectionsTab.showFolders || (state.listKindFilter == null && folders.isNotEmpty())) {
+            profileFolderRows(folders, header = !CollectionsTab.showFolders, liquidGlass = liquidGlass, tint = profileTint, wideDp = wideDp)
+            if (CollectionsTab.showFolders) return
+        }
         profileListsRows(
             state = state, liquidGlass = liquidGlass, tint = profileTint,
             savedFeedUris = savedFeedUris, listActions = listActions,
@@ -6564,6 +6580,11 @@ fun ProfileStyleTabRow(
     icons: List<String?>? = null,
     /** A tab this platform can't use: grayed out, ignores taps. */
     disabledIndex: Int = -1,
+    /** A small icon at a tab's right end (a folder's lock or world), and
+     *  what it does: tapped in landscape's side list, the tab pressed and
+     *  held in portrait. */
+    trailingIcons: List<androidx.compose.ui.graphics.vector.ImageVector?>? = null,
+    onTrailing: ((Int) -> Unit)? = null,
     onSelect: (Int) -> Unit
 ) {
     // Landscape's side list: an even list of buttons.
@@ -6571,7 +6592,17 @@ fun ProfileStyleTabRow(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             labels.forEachIndexed { index, label ->
                 Box(if (index == disabledIndex) Modifier.grayedOut() else Modifier) {
-                    SideListButton(label, index == selectedIndex, liquidGlass, tint, iconUrl = icons?.getOrNull(index), locked = index == lockedIndex) { if (index != disabledIndex) onSelect(index) }
+                    val end = trailingIcons?.getOrNull(index)
+                    SideListButton(
+                        label, index == selectedIndex, liquidGlass, tint, iconUrl = icons?.getOrNull(index), locked = index == lockedIndex,
+                        trailing = if (end == null || onTrailing == null) null else ({
+                            val endTap = rememberHapticTap()
+                            Box(
+                                Modifier.fillMaxHeight().width(44.dp).clickable { endTap(); onTrailing(index) },
+                                contentAlignment = Alignment.Center
+                            ) { Icon(end, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp)) }
+                        })
+                    ) { if (index != disabledIndex) onSelect(index) }
                 }
             }
         }
@@ -6595,7 +6626,13 @@ fun ProfileStyleTabRow(
                         if (liquidGlass) Modifier.glassPanel(true, tint = if (isSelected) tint else tint.copy(alpha = 0.4f), shape = shape)
                         else Modifier.clip(shape).background(if (isSelected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
                     )
-                    .then(if (index == disabledIndex) Modifier.grayedOut() else Modifier.clickable { tap(); onSelect(index) })
+                    .then(
+                        if (index == disabledIndex) Modifier.grayedOut()
+                        else if (onTrailing != null && trailingIcons?.getOrNull(index) != null) Modifier.combinedClickable(
+                            onClick = { tap(); onSelect(index) }, onLongClick = { tap(); onTrailing(index) }
+                        )
+                        else Modifier.clickable { tap(); onSelect(index) }
+                    )
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -6609,6 +6646,10 @@ fun ProfileStyleTabRow(
                     Text(label, color = if (isSelected || index == lockedIndex) Color.White else DimGray, fontSize = 13.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
                         modifier = Modifier.supporterShine(index == lockedIndex))
+                    trailingIcons?.getOrNull(index)?.let { end ->
+                        Spacer(Modifier.width(6.dp))
+                        Icon(end, contentDescription = null, tint = Color.White.copy(alpha = if (isSelected) 0.9f else 0.55f), modifier = Modifier.size(13.dp))
+                    }
                 }
             }
         }

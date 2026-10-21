@@ -6358,6 +6358,17 @@ class MainViewModel(
             _hasTaggedDataset.value = true
             viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
         }
+        // Public bookmark folders: one plain record each on your own PDS.
+        com.mediaviewer.util.PublicFolders.remote = object : com.mediaviewer.util.PublicFolders.Remote {
+            override val did: String get() = _bskyDid.value
+            private suspend fun signedIn(call: suspend () -> Result<Unit>) {
+                if (!_bskyLoggedIn.value) error("Not signed in")
+                val r = call()
+                if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) call().getOrThrow() else r.getOrThrow()
+            }
+            override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putPublicFolder(bskyToken, _bskyDid.value, rkey, record) }
+            override suspend fun delete(rkey: String) = signedIn { bskyRepo.deletePublicFolder(bskyToken, _bskyDid.value, rkey) }
+        }
         // Status history lives on your own PDS (one record per status).
         com.mediaviewer.util.StatusHistory.remote = object : com.mediaviewer.util.StatusHistory.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {
@@ -6476,6 +6487,47 @@ class MainViewModel(
         _navDirection.value = 0
         _isLoading.value = false
         _screenState.value = ScreenState.GRID
+    }
+
+    /** A profile's public folder (Collections → Folders): its posts in
+     *  Explore's layout, in the folder's own order. The page underneath
+     *  comes back when it's left. */
+    fun openPublicFolder(folder: com.mediaviewer.util.PublicFolders.Folder) {
+        if (!_bskyLoggedIn.value) return
+        tapHaptic()
+        if (profileFeedReturn == null || !isProfileFeedActive()) {
+            profileFeedReturn = ProfileFeedReturn(
+                _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
+                activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
+            )
+        }
+        val pseudo = AuthorInfo(folder.did, PROFILE_FEED_HANDLE_PREFIX + "stellar-folder://" + folder.rkey, folder.name, null)
+        val cur = _authorFeedState.value
+        _authorFeedState.value = cur?.copy(author = pseudo) ?: AuthorFeedSavedState(
+            author = pseudo, items = _mediaItems.value, currentIndex = _currentIndex.value,
+            cursor = feedCursor, feedUri = _selectedFeedUri.value
+        )
+        feedLoadGeneration++
+        val generation = feedLoadGeneration
+        feedCursor = null
+        isLoadingMore = false
+        activeFeedMode = ActiveFeedMode.EXTERNAL
+        activeFeedActorDid = null
+        externalFeedUri = null
+        _mediaItems.value = emptyList()
+        _currentIndex.value = 0
+        _navDirection.value = 0
+        _isLoading.value = true
+        _screenState.value = ScreenState.GRID
+        viewModelScope.launch(ioDispatcher) {
+            val result = bskyRepo.getPostsByUris(bskyToken, folder.posts)
+            if (generation != feedLoadGeneration) return@launch
+            val order = folder.posts.withIndex().associate { (i, u) -> u to i }
+            _mediaItems.value = filterHidden(result.getOrNull().orEmpty())
+                .distinctBy { it.postUri }
+                .sortedBy { order[it.postUri] ?: Int.MAX_VALUE }
+            _isLoading.value = false
+        }
     }
 
     /** "Add to Profile" on an archived post: it goes back up as it was. */
@@ -9080,15 +9132,18 @@ class MainViewModel(
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = bskyRepo.getProfileLists(bskyToken, did)
             }
+            // Their public folders count too (Collections → Folders).
+            val folders = runCatching { com.mediaviewer.util.PublicFolders.load(did, fresh = force) }.getOrDefault(emptyList())
             val now = _profileOverlay.value?.takeIf { it.author.did == did } ?: return@launch
             val updated = result.fold(
                 onSuccess = { entries ->
                     // The tab comes and goes with its content, like Blogs/Vods.
-                    val tabs = if (entries.isEmpty()) now.availableTabs - ProfileTab.LISTS_FEEDS else now.availableTabs + ProfileTab.LISTS_FEEDS
+                    val none = entries.isEmpty() && folders.isEmpty()
+                    val tabs = if (none) now.availableTabs - ProfileTab.LISTS_FEEDS else now.availableTabs + ProfileTab.LISTS_FEEDS
                     now.copy(
                         lists = ProfileListsState(loaded = true, entries = entries),
                         availableTabs = tabs,
-                        selectedTab = if (now.selectedTab == ProfileTab.LISTS_FEEDS && entries.isEmpty()) ProfileTab.POSTS else now.selectedTab
+                        selectedTab = if (now.selectedTab == ProfileTab.LISTS_FEEDS && none) ProfileTab.POSTS else now.selectedTab
                     )
                 },
                 // Couldn't check: whatever was cached stays.

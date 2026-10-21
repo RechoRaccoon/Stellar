@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
@@ -208,6 +210,8 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
     var creating by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var cover by remember { mutableStateOf<String?>(null) }
+    // New folders are private (the lock) unless switched to public.
+    var makePublic by remember { mutableStateOf(false) }
     var armed by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(armed) { if (armed != null) { kotlinx.coroutines.delay(3000); armed = null } }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -349,17 +353,23 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                 }
                 Spacer(Modifier.width(8.dp))
                 LocalTextField(name, { name = it.take(60) }, "Folder name", tint, Modifier.weight(1f), capitalization = KeyboardCapitalization.Words)
+                Spacer(Modifier.width(6.dp))
+                FolderPrivacyToggle(makePublic, tint) { makePublic = !makePublic }
             }
+            Text(
+                if (makePublic) "Public: anyone can see this folder on your profile." else "Private: encrypted, only you can see it.",
+                color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+            )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LocalPillButton("Cancel", liquidGlass, tint, { creating = false; name = ""; cover = null }, Modifier.weight(1f))
+                LocalPillButton("Cancel", liquidGlass, tint, { creating = false; name = ""; cover = null; makePublic = false }, Modifier.weight(1f))
                 LocalPillButton(
                     "Create", liquidGlass, tint,
                     {
-                        val made = LocalData.createBookmarkFolder(name, cover)
+                        val made = LocalData.createBookmarkFolder(name, cover, public = makePublic)
                         toggleAll(made.id, false)
                         placed(false)
-                        creating = false; name = ""; cover = null
+                        creating = false; name = ""; cover = null; makePublic = false
                     },
                     Modifier.weight(1f), enabled = name.isNotBlank()
                 )
@@ -581,4 +591,24 @@ private fun BuilderLabel(text: String) {
         text, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 4.dp)
     )
+}
+
+
+/** A folder's Private (lock, encrypted) / Public (world, on your PDS for
+ *  anyone) switch, beside its name. */
+@Composable
+fun FolderPrivacyToggle(public: Boolean, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    Box(
+        modifier.size(40.dp).clip(CircleShape)
+            .background(if (public) lerp(tint, Color.White, 0.2f).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f))
+            .clickable { tap(); onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (public) Icons.Default.Public else Icons.Default.Lock,
+            contentDescription = if (public) "Public" else "Private",
+            tint = Color.White, modifier = Modifier.size(18.dp)
+        )
+    }
 }

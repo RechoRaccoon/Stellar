@@ -94,7 +94,10 @@ data class BookmarkFolder(
     val posts: List<String> = emptyList(),
     val createdAt: Long = 0L,
     /** When a post was last added to it. */
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    /** Public (the world icon): also kept, unencrypted, on your PDS for
+     *  anyone to see (see PublicFolders). Private (the lock) by default. */
+    val public: Boolean = false
 )
 
 @Serializable
@@ -374,9 +377,10 @@ object LocalData {
     /** Folders, the one a post was added to most recently first. */
     val bookmarkFolders: List<BookmarkFolder> get() = folderSlot.value.sortedByDescending { maxOf(it.updatedAt, it.createdAt) }
 
-    fun createBookmarkFolder(name: String, cover: String?): BookmarkFolder {
-        val folder = BookmarkFolder(id = newId(), name = name.trim().take(60), cover = cover, createdAt = currentTimeMillis())
+    fun createBookmarkFolder(name: String, cover: String?, public: Boolean = false): BookmarkFolder {
+        val folder = BookmarkFolder(id = newId(), name = name.trim().take(60), cover = cover, createdAt = currentTimeMillis(), public = public)
         folderSlot.save(prefs, folderSlot.value + folder)
+        if (public) PublicFolders.publish(folder)
         return folder
     }
 
@@ -384,9 +388,26 @@ object LocalData {
         folderSlot.save(prefs, folderSlot.value.map {
             if (it.id != id) it else it.copy(name = name?.trim()?.take(60)?.ifBlank { null } ?: it.name, cover = cover ?: it.cover)
         })
+        republish(id)
     }
 
-    fun deleteBookmarkFolder(id: String) { folderSlot.save(prefs, folderSlot.value.filterNot { it.id == id }) }
+    fun deleteBookmarkFolder(id: String) {
+        val was = folderSlot.value.firstOrNull { it.id == id }
+        folderSlot.save(prefs, folderSlot.value.filterNot { it.id == id })
+        if (was?.public == true) PublicFolders.unpublish(id)
+    }
+
+    /** Private ↔ Public: a public folder's copy goes up on your PDS; a
+     *  private one's comes down. */
+    fun setBookmarkFolderPublic(id: String, public: Boolean) {
+        folderSlot.save(prefs, folderSlot.value.map { if (it.id == id) it.copy(public = public) else it })
+        if (public) republish(id) else PublicFolders.unpublish(id)
+    }
+
+    /** A public folder's PDS copy follows each change to it. */
+    private fun republish(id: String) {
+        folderSlot.value.firstOrNull { it.id == id && it.public }?.let { PublicFolders.publish(it) }
+    }
 
     /** Adds or removes [postUri] in a folder. Returns true if it's now in it. */
     fun toggleInBookmarkFolder(id: String, postUri: String, thumb: String?): Boolean {
@@ -396,6 +417,7 @@ object LocalData {
             else if (postUri in f.posts) f.copy(posts = f.posts - postUri)
             else { nowIn = true; f.copy(posts = listOf(postUri) + f.posts, cover = f.cover ?: thumb?.takeIf { it.isNotBlank() }, updatedAt = currentTimeMillis()) }
         })
+        republish(id)
         return nowIn
     }
 
@@ -408,7 +430,9 @@ object LocalData {
     /** A post that's no longer saved leaves every folder. */
     fun removeFromAllBookmarkFolders(postUri: String) {
         if (folderSlot.value.none { postUri in it.posts }) return
+        val touched = folderSlot.value.filter { postUri in it.posts }.map { it.id }
         folderSlot.save(prefs, folderSlot.value.map { if (postUri in it.posts) it.copy(posts = it.posts - postUri) else it })
+        touched.forEach { republish(it) }
     }
 
     // ── Profile notes ────────────────────────────────────────────────────

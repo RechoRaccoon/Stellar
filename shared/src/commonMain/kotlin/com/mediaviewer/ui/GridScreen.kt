@@ -10,6 +10,8 @@ import androidx.compose.foundation.rememberScrollState
 import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
@@ -292,7 +294,26 @@ fun GridScreen(
                     ProfileStyleTabRow(
                         labels = listOf("Bookmarks") + folders.map { it.name },
                         selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
-                        liquidGlass = liquidGlass, tint = tint
+                        liquidGlass = liquidGlass, tint = tint,
+                        // Each folder's lock (private, encrypted) or world
+                        // (public, on your profile); switching asks first.
+                        trailingIcons = listOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) + folders.map {
+                            if (it.public) Icons.Default.Public else Icons.Default.Lock
+                        },
+                        onTrailing = { i ->
+                            folders.getOrNull(i - 1)?.let { f ->
+                                LocalOverlays.confirm = if (f.public) ConfirmRequest(
+                                    "Make \"${f.name}\" Private?",
+                                    "It comes off your profile and is kept encrypted, so only you can see it.",
+                                    "Make Private", tint, destructive = false
+                                ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, false) }
+                                else ConfirmRequest(
+                                    "Make \"${f.name}\" Public?",
+                                    "Its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.",
+                                    "Make Public", tint, destructive = false
+                                ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, true) }
+                            }
+                        }
                     ) { i ->
                         LocalOverlays.onShowBookmarkFolder?.invoke(if (i == 0) null else folders.getOrNull(i - 1)?.id)
                     }
