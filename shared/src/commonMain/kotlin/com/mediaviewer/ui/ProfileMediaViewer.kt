@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -28,7 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,9 +63,12 @@ fun ProfileMediaViewer(
     tint: Color,
     liquidGlass: Boolean,
     onDownload: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    /** Take the shape from the picture once it's shown (a banner's). */
+    measureImage: Boolean = false
 ) {
     com.mediaviewer.ui.compat.BackHandler(onBack = onClose)
+    var measured by remember(imageUrl) { mutableStateOf<Float?>(null) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     // When a pinch (or wheel zoom) last happened: a tap right after one
@@ -101,7 +107,7 @@ fun ProfileMediaViewer(
             },
         contentAlignment = Alignment.Center
     ) {
-        val a = aspect.coerceIn(0.2f, 8f)
+        val a = (measured ?: aspect).coerceIn(0.2f, 8f)
         val w = minOf(maxWidth * 0.94f, maxHeight * 0.8f * a)
         val h = w / a
         Box(
@@ -110,7 +116,13 @@ fun ProfileMediaViewer(
             }
         ) {
             val poster: @Composable () -> Unit = {
-                if (imageUrl != null) AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                if (imageUrl != null) AsyncImage(
+                    model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(),
+                    onSuccess = { st ->
+                        val sz = st.painter.intrinsicSize
+                        if (measureImage && sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) measured = sz.width / sz.height
+                    }
+                )
             }
             if (videoCid != null) ProfileBannerVideo(did, videoCid, Modifier.fillMaxSize(), poster = poster, fill = false)
             else poster()
@@ -142,6 +154,13 @@ private fun DownloadPill(liquidGlass: Boolean, tint: Color, onClick: () -> Unit,
             Text("Download", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
     }
-    if (liquidGlass) LiquidGlassSurface(modifier = modifier, shape = shape, tint = tint) { content() }
-    else Box(modifier.clip(shape).background(Color.Black.copy(alpha = 0.55f))) { content() }
+    // (The page under it is already blurred, and the profile's backdrop only
+    // holds its banner, so the glass is filled in here: tinted, frosted,
+    // with its rim — not just an outline over the page.)
+    val fill = Modifier.clip(shape).background(
+        Brush.verticalGradient(listOf(lerp(tint, Color.Black, 0.25f).copy(alpha = 0.72f), lerp(tint, Color.Black, 0.5f).copy(alpha = 0.72f))),
+        shape
+    )
+    if (liquidGlass) LiquidGlassSurface(modifier = modifier.then(fill), shape = shape, tint = tint) { content() }
+    else Box(modifier.then(fill).border(1.dp, lerp(tint, Color.White, 0.4f).copy(alpha = 0.6f), shape)) { content() }
 }

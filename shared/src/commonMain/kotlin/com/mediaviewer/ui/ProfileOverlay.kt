@@ -1465,17 +1465,11 @@ fun ProfileOverlay(
             )
         } else if (viewingBanner) {
             val banner = profile?.bannerUrl
-            var bannerShape by remember(banner) { mutableStateOf(com.mediaviewer.ui.BANNER_VIDEO_ASPECT) }
-            val viewerContext = com.mediaviewer.ui.compat.LocalContext.current
-            if (banner != null) LaunchedEffect(banner) {
-                val coil = viewerContext.coilContext
-                val img = (runCatching { coil3.SingletonImageLoader.get(coil).execute(coil3.request.ImageRequest.Builder(coil).data(banner).build()) }
-                    .getOrNull() as? coil3.request.SuccessResult)?.image
-                if (img != null && img.width > 0 && img.height > 0) bannerShape = img.width.toFloat() / img.height
-            }
+            // (Its shape comes from the picture as it's drawn: decoding it a
+            // second time just to measure it is what held the page up.)
             ProfileMediaViewer(
                 did = author.did, imageUrl = banner, videoCid = style?.bannerVideo?.cid,
-                aspect = if (style?.bannerVideo != null) com.mediaviewer.ui.BANNER_VIDEO_ASPECT else bannerShape,
+                aspect = com.mediaviewer.ui.BANNER_VIDEO_ASPECT, measureImage = style?.bannerVideo == null,
                 tint = blended, liquidGlass = liquidGlass,
                 onDownload = { LocalOverlays.downloadProfileMedia?.invoke(author.did, banner, style?.bannerVideo?.cid, "banner") },
                 onClose = { viewingBanner = false }
