@@ -2359,9 +2359,10 @@ private fun ProfileIdentityCentered(
 
 /**
  * Profile Layout 4: compact, with the banner shown whole above it. The
- * picture is tucked up over the banner's bottom edge at the left; beside
- * it, the display name (big), the handle, the status, the counts and the
- * bio, one under the other.
+ * picture is tucked up over the banner's bottom edge at the left, its status
+ * floating above its top-right; beside it, just under the banner, the
+ * display name (one line, shrunk to fit), the handle and the counts — all
+ * ending above the picture's bottom. The bio runs the full width under them.
  */
 @Composable
 private fun ProfileCompactIdentity(
@@ -2371,64 +2372,75 @@ private fun ProfileCompactIdentity(
     onOpenMention: (String) -> Unit, onResolveActor: suspend (String) -> String?,
     onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
 ) {
-    val avatarSize = 92.dp
-    val lift = 34.dp
-    Row(
-        Modifier.fillMaxWidth().padding(start = PROFILE_EDGE + 4.dp, end = PROFILE_EDGE + 4.dp, top = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        // Lifted so its top third sits over the banner (and takes that much
-        // less room below it).
-        Box(
-            Modifier.layout { measurable, constraints ->
-                val p = measurable.measure(constraints)
-                val up = lift.roundToPx()
-                layout(p.width, (p.height - up).coerceAtLeast(0)) { p.place(0, -up) }
-            }
-        ) {
+    val avatarSize = 96.dp
+    val lift = 30.dp
+    val side = PROFILE_EDGE + 4.dp
+    androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(horizontal = side)) { constraints ->
+        val w = constraints.maxWidth
+        val gap = 12.dp.roundToPx()
+        val up = lift.roundToPx()
+        val avatar = subcompose("avatar") {
             ProfileAvatarGlass(
                 url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = null,
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar
             )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp,
-                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.copyOnTap(author.displayName)
-            )
-            Text(
-                "@${author.handle}", color = androidx.compose.ui.graphics.lerp(linkColor, Color.White, 0.45f), fontSize = 13.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.copyOnTap("@${author.handle}")
-            )
-            val status = com.mediaviewer.util.ProfileStyles.statusOf(author.did)
-            if (status != null || isOwnProfile) {
-                Box(Modifier.padding(top = 4.dp).heightIn(max = 72.dp)) {
-                    ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
+        }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
+        val info = subcompose("info") {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                ShrinkToFitRow(Modifier.fillMaxWidth()) {
+                    Text(
+                        author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                        modifier = Modifier.copyOnTap(author.displayName)
+                    )
+                }
+                ShrinkToFitRow(Modifier.fillMaxWidth()) {
+                    Text(
+                        "@${author.handle}", color = androidx.compose.ui.graphics.lerp(linkColor, Color.White, 0.45f), fontSize = 13.sp,
+                        maxLines = 1, softWrap = false,
+                        modifier = Modifier.copyOnTap("@${author.handle}")
+                    )
+                }
+                if (profile != null) {
+                    ShrinkToFitRow(Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                        CountStat(profile.postsCount, "Posts")
+                        CountStat(profile.followersCount, "Followers")
+                        CountStat(profile.followsCount, "Following")
+                        if (isSupporter) SupporterBadge(onClick = onOpenSupportPage)
+                    }
                 }
             }
-            if (profile != null) {
-                ShrinkToFitRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                    CountStat(profile.postsCount, "Posts")
-                    CountStat(profile.followersCount, "Followers")
-                    CountStat(profile.followsCount, "Following")
-                    if (isSupporter) SupporterBadge(onClick = onOpenSupportPage)
-                }
-            }
-            val bio = profile?.description.orEmpty()
-            if (bio.isNotBlank()) {
-                LinkableBioText(
-                    text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                )
-            } else if (loadingProfile) {
-                CircularProgressIndicator(Modifier.padding(top = 10.dp).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
-            }
+        }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0)))
+        // The picture's bottom, measured from the banner's bottom edge.
+        val avatarBottom = avatar.height - up
+        val infoY = 6.dp.roundToPx()
+        val height = maxOf(avatarBottom, infoY + info.height + 4.dp.roundToPx())
+        // The status bubble: its pointer a little above and right of the
+        // picture's top-right, floating over the banner.
+        val tipX = (avatar.width * 0.86f).toInt()
+        val tipY = -up + (avatar.height * 0.08f).toInt()
+        val status = com.mediaviewer.util.ProfileStyles.statusOf(author.did)
+        val statusPlaceable = if (status == null && !isOwnProfile) null else subcompose("status") {
+            ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
+        }.firstOrNull()?.measure(
+            androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX).coerceAtLeast(0), maxHeight = 80.dp.roundToPx())
+        )
+        layout(w, height) {
+            avatar.placeRelative(0, -up)
+            info.placeRelative(avatar.width + gap, infoY)
+            statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
+    }
+    val bio = profile?.description.orEmpty()
+    if (bio.isNotBlank()) {
+        LinkableBioText(
+            text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
+            modifier = Modifier.fillMaxWidth().padding(start = side, end = side, top = 10.dp, bottom = 4.dp)
+        )
+    } else if (loadingProfile) {
+        CircularProgressIndicator(Modifier.padding(start = side, top = 10.dp).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
     }
 }
 
