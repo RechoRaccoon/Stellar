@@ -226,6 +226,8 @@ fun LocalOverlayHost(
             onLoadLists = viewModel::loadListsForBuilder,
             onResolveList = viewModel::resolveListForBuilder,
             onResolveAccount = viewModel::resolveAccountForBuilder,
+            onSuggestTags = viewModel::suggestTagsForBuilder,
+            selfDid = selfDidNow,
             // A feed that's open while it's edited reloads with its new contents;
             // one made or edited from the Hub is (and stays) a Hub row.
             onSaved = { saved ->

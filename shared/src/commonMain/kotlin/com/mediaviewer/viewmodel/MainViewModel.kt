@@ -10046,6 +10046,17 @@ class MainViewModel(
         }
     }
 
+    /** Feed Builder → Tags: tags from the tag database starting with (or
+     *  close to) what's typed. */
+    fun suggestTagsForBuilder(typed: String, onDone: (List<String>) -> Unit) {
+        viewModelScope.launch(ioDispatcher) {
+            val vocabulary = tagVocabularyCache ?: (taggingRepo.tagVocabulary() + taggingRepo.datasetTagNames()).distinct()
+                .also { tagVocabularyCache = it }
+            val ideas = TagSuggestionProvider.suggest(typed.lowercase().replace(' ', '_'), vocabulary)
+            withContext(Dispatchers.Main) { onDone(ideas) }
+        }
+    }
+
     /** Your own lists, for the Feed Builder's picker. */
     fun loadListsForBuilder() {
         if (_userLists.value.isNotEmpty() || !_bskyLoggedIn.value) return

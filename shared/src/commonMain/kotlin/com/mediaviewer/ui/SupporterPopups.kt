@@ -419,10 +419,16 @@ fun ProfileNotePopup(author: AuthorInfo, liquidGlass: Boolean, tint: Color, back
 // ── Feed Builder ────────────────────────────────────────────────────────
 
 /**
- * Hub → the "+" after the feeds: build a feed out of your lists, any list
- * by link, specific accounts and/or hashtags, and choose what it shows
- * (text posts, images, horizontal and vertical videos). The feed exists
- * only on this device; its posts are read from Bluesky's AppView.
+ * The Feed Builder: a feed (and, from the Hub or a profile's Home tab, a
+ * row) made from any mix of sources — your lists, any list by its link,
+ * accounts, hashtags, tags from the tag database and bookmark folders —
+ * then which kinds of posts it shows, their order, and how its row looks.
+ * Laid out as cards, top to bottom in the order it's built: name, sources,
+ * what to show, order, layout.
+ *
+ * [onlyPublicFolders] (a profile's Home tab): only public folders can be
+ * added, since the Home tab is public. [onSave] saves somewhere other than
+ * this device's feeds (the Home tab's own records); [onDelete] likewise.
  */
 @Composable
 fun FeedBuilderPopup(
@@ -436,7 +442,13 @@ fun FeedBuilderPopup(
     onResolveAccount: (String, (LocalFeedSource?, String?) -> Unit) -> Unit,
     onSaved: (LocalFeed) -> Unit,
     onDeleted: (LocalFeed) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSuggestTags: (String, (List<String>) -> Unit) -> Unit = { _, done -> done(emptyList()) },
+    selfDid: String = "",
+    onlyPublicFolders: Boolean = false,
+    onSave: ((LocalFeed) -> LocalFeed)? = null,
+    onDelete: ((LocalFeed) -> Unit)? = null,
+    title: String = "Feed Builder"
 ) {
     val tap = rememberHapticTap()
     val editing = initial.id.isNotBlank()
@@ -446,14 +458,25 @@ fun FeedBuilderPopup(
     var images by remember { mutableStateOf(initial.images) }
     var hVideos by remember { mutableStateOf(initial.horizontalVideos) }
     var vVideos by remember { mutableStateOf(initial.verticalVideos) }
-    // Which "add" panel is open: lists, link, account or hashtag.
+    var polls by remember { mutableStateOf(initial.polls) }
+    var sort by remember { mutableStateOf(initial.sort) }
+    var style by remember { mutableStateOf(initial.style) }
+    var rowCount by remember { mutableStateOf(initial.rows.coerceIn(1, 3)) }
+    // Which "add" panel is open.
     var adding by remember { mutableStateOf("lists") }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var tagIdeas by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { onLoadLists() }
     LaunchedEffect(confirmDelete) { if (confirmDelete) { kotlinx.coroutines.delay(3000); confirmDelete = false } }
+    // Tags: what's typed so far, completed from the tag database as it's typed.
+    LaunchedEffect(adding, input) {
+        if (adding != "tag" || input.isBlank()) { tagIdeas = emptyList(); return@LaunchedEffect }
+        kotlinx.coroutines.delay(150)
+        onSuggestTags(input.trim()) { tagIdeas = it.take(8) }
+    }
 
     fun add(source: LocalFeedSource) {
         if (sources.none { it.kind == source.kind && it.value == source.value }) sources = sources + source
@@ -467,121 +490,210 @@ fun FeedBuilderPopup(
                 val tag = t.removePrefix("#").filter { it.isLetterOrDigit() || it == '_' }
                 if (tag.isNotEmpty()) { add(LocalFeedSource("hashtag", tag, "#$tag")); input = "" }
             }
+            "tag" -> { val tag = t.lowercase().replace(' ', '_'); add(LocalFeedSource("tag", tag, tag.replace('_', ' '))); input = "" }
             "link" -> { busy = true; onResolveList(t) { src, err -> busy = false; if (src != null) { add(src); input = "" } else error = err } }
             "account" -> { busy = true; onResolveAccount(t) { src, err -> busy = false; if (src != null) { add(src); input = "" } else error = err } }
         }
     }
+    val accent = lerp(tint, Color.White, 0.45f)
 
-    LocalPopup(title = "Feed Builder", liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 620.dp, backdrop = backdrop) {
+    @Composable
+    fun Card(heading: String, sub: String? = null, content: @Composable () -> Unit) {
+        val shape = RoundedCornerShape(18.dp)
         Column(
-            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().clip(shape).background(Color.Black.copy(alpha = 0.22f))
+                .border(1.dp, lerp(tint, Color.White, 0.2f).copy(alpha = 0.25f), shape)
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            LocalTextField(name, { name = it.take(40) }, "Feed name", tint, capitalization = KeyboardCapitalization.Words)
+            Text(heading, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            if (sub != null) Text(sub, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, lineHeight = 14.sp)
+            content()
+        }
+    }
+    @Composable
+    fun Chips(content: @Composable () -> Unit) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+    }
 
-            BuilderLabel("In this feed")
-            if (sources.isEmpty()) Text(
-                "Nothing yet — add lists, accounts or hashtags below.",
-                color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp
-            )
-            sources.forEach { src ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.26f))
-                        .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        when (src.kind) { "list" -> "List"; "account" -> "Account"; else -> "Hashtag" },
-                        color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, modifier = Modifier.width(58.dp)
-                    )
-                    Text(
-                        src.label.ifBlank { src.value }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-                    )
-                    Box(
-                        Modifier.size(26.dp).clip(CircleShape).clickable { tap(); sources = sources - src },
-                        contentAlignment = Alignment.Center
-                    ) { Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp)) }
-                }
-            }
+    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop) {
+        Column(
+            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            LocalTextField(name, { name = it.take(40) }, "Name it", tint, capitalization = KeyboardCapitalization.Words)
 
-            BuilderLabel("Add")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                LocalChip("My Lists", adding == "lists", tint, { adding = "lists"; error = null })
-                LocalChip("List Link", adding == "link", tint, { adding = "link"; input = ""; error = null })
-                LocalChip("Account", adding == "account", tint, { adding = "account"; input = ""; error = null })
-                LocalChip("Hashtag", adding == "hashtag", tint, { adding = "hashtag"; input = ""; error = null })
-            }
-            if (adding == "lists") {
-                if (myLists.isEmpty()) Text("You don't have any lists yet.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-                myLists.forEach { list ->
-                    val added = sources.any { it.kind == "list" && it.value == list.uri }
+            // ── Sources ──
+            Card("Posts From", if (sources.isEmpty()) "Add where its posts come from. Mix as many as you like." else null) {
+                sources.forEach { src ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                            .background(if (added) lerp(tint, Color.White, 0.1f).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.2f))
-                            .clickable {
-                                tap()
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f))
+                            .padding(start = 10.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            when (src.kind) {
+                                "list" -> "List"; "account" -> "Account"; "hashtag" -> "Hashtag"; "tag" -> "Tag"
+                                else -> "Folder"
+                            },
+                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(62.dp)
+                        )
+                        Text(
+                            src.label.ifBlank { src.value }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                        )
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape).clickable { tap(); sources = sources - src },
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp)) }
+                    }
+                }
+                Chips {
+                    LocalChip("My Lists", adding == "lists", tint, { adding = "lists"; error = null })
+                    LocalChip("Accounts", adding == "account", tint, { adding = "account"; input = ""; error = null })
+                    LocalChip("Hashtags", adding == "hashtag", tint, { adding = "hashtag"; input = ""; error = null })
+                    LocalChip("Tags", adding == "tag", tint, { adding = "tag"; input = ""; error = null })
+                    LocalChip("Folders", adding == "folders", tint, { adding = "folders"; error = null })
+                    LocalChip("List Link", adding == "link", tint, { adding = "link"; input = ""; error = null })
+                }
+                when (adding) {
+                    "lists" -> {
+                        if (myLists.isEmpty()) Text("You don't have any lists yet.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                        myLists.forEach { list ->
+                            val added = sources.any { it.kind == "list" && it.value == list.uri }
+                            PickRow(list.name, added, tint) {
                                 sources = if (added) sources.filterNot { it.kind == "list" && it.value == list.uri }
                                 else sources + LocalFeedSource("list", list.uri, list.name)
                             }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(list.name, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Icon(
-                            if (added) Icons.Default.Check else Icons.Default.Add, contentDescription = null,
-                            tint = Color.White.copy(alpha = if (added) 1f else 0.6f), modifier = Modifier.size(16.dp)
+                        }
+                    }
+                    "folders" -> {
+                        val folders = LocalData.bookmarkFolders.filter { !onlyPublicFolders || it.public }
+                        if (folders.isEmpty()) Text(
+                            if (onlyPublicFolders) "No public folders yet. Make one public in Saved Posts." else "No folders yet. Make one from Saved Posts.",
+                            color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp
                         )
+                        folders.forEach { f ->
+                            // A public one is added by its public address, so
+                            // anyone shown this feed sees its posts too.
+                            val src = if (f.public && selfDid.isNotBlank()) LocalFeedSource("publicFolder", "$selfDid/${f.id}", f.name)
+                                else LocalFeedSource("folder", f.id, f.name)
+                            val added = sources.any { (it.kind == "folder" && it.value == f.id) || (it.kind == "publicFolder" && it.value.endsWith("/" + f.id)) }
+                            PickRow(f.name, added, tint, icon = if (f.public) Icons.Default.Public else Icons.Default.Lock) {
+                                sources = if (added) sources.filterNot { (it.kind == "folder" && it.value == f.id) || (it.kind == "publicFolder" && it.value.endsWith("/" + f.id)) }
+                                else sources + src
+                            }
+                        }
+                    }
+                    else -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LocalTextField(
+                                input, { input = it; error = null },
+                                when (adding) {
+                                    "link" -> "https://bsky.app/profile/…/lists/…"
+                                    "account" -> "handle.bsky.social"
+                                    "tag" -> "A tag, like red_fox"
+                                    else -> "hashtag"
+                                },
+                                tint, Modifier.weight(1f), capitalization = KeyboardCapitalization.None
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            LocalPillButton(if (busy) "…" else "Add", liquidGlass, tint, { submitInput() }, enabled = input.isNotBlank() && !busy)
+                        }
+                        if (adding == "tag" && tagIdeas.isNotEmpty()) Chips {
+                            tagIdeas.forEach { idea ->
+                                LocalChip(idea.replace('_', ' '), false, tint, { add(LocalFeedSource("tag", idea, idea.replace('_', ' '))); input = "" })
+                            }
+                        }
+                        error?.let { Text(it, color = Color(0xFFFF6B8A), fontSize = 12.sp) }
                     }
                 }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LocalTextField(
-                        input, { input = it; error = null },
-                        when (adding) {
-                            "link" -> "https://bsky.app/profile/…/lists/…"
-                            "account" -> "handle.bsky.social"
-                            else -> "hashtag"
-                        },
-                        tint, Modifier.weight(1f), capitalization = KeyboardCapitalization.None
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    LocalPillButton(if (busy) "…" else "Add", liquidGlass, tint, { submitInput() }, enabled = input.isNotBlank() && !busy)
-                }
-                error?.let { Text(it, color = Color(0xFFFF6B8A), fontSize = 12.sp) }
             }
 
-            BuilderLabel("Show")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                LocalChip("Text Posts", textPosts, tint, { textPosts = !textPosts })
-                LocalChip("Images", images, tint, { images = !images })
-                LocalChip("Horizontal Videos", hVideos, tint, { hVideos = !hVideos })
-                LocalChip("Vertical Videos", vVideos, tint, { vVideos = !vVideos })
+            // ── What it shows ──
+            Card("Show") {
+                Chips {
+                    LocalChip("Text Posts", textPosts, tint, { textPosts = !textPosts })
+                    LocalChip("Images", images, tint, { images = !images })
+                    LocalChip("Horizontal Videos", hVideos, tint, { hVideos = !hVideos })
+                    LocalChip("Vertical Videos", vVideos, tint, { vVideos = !vVideos })
+                    LocalChip("Polls", polls, tint, { polls = !polls })
+                }
+            }
+
+            // ── Order ──
+            Card("Order") {
+                Chips {
+                    listOf("recent" to "Most Recent", "likes" to "Most Liked", "reposts" to "Most Reposted", "replies" to "Most Replies")
+                        .forEach { (id, label) -> LocalChip(label, sort == id, tint, { sort = id }) }
+                }
+            }
+
+            // ── Layout ──
+            Card("Layout", "How it looks as a row.") {
+                Chips {
+                    listOf(
+                        "natural" to "As Posted", "square" to "Squares", "tiktok" to "Tall (TikTok)",
+                        "youtube" to "Wide (YouTube)", "avatars" to "Profile Pictures"
+                    ).forEach { (id, label) -> LocalChip(label, style == id, tint, { style = id }) }
+                }
+                if (style != "avatars") Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Rows", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp))
+                    (1..3).forEach { n -> LocalChip("$n", rowCount == n, tint, { rowCount = n }) }
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (editing) LocalPillButton(
                 if (confirmDelete) "Delete?" else "Delete", liquidGlass, tint,
-                { if (confirmDelete) { LocalData.deleteLocalFeed(initial.id); onDeleted(initial); onClose() } else confirmDelete = true },
+                {
+                    if (confirmDelete) {
+                        if (onDelete != null) onDelete(initial) else LocalData.deleteLocalFeed(initial.id)
+                        onDeleted(initial); onClose()
+                    } else confirmDelete = true
+                },
                 Modifier.weight(1f), destructive = true
             )
             LocalPillButton(
-                if (editing) "Save Feed" else "Create Feed", liquidGlass, tint,
+                if (editing) "Save" else "Create", liquidGlass, tint,
                 {
-                    val saved = LocalData.saveLocalFeed(
-                        initial.copy(
-                            name = name.ifBlank { "My Feed" }, sources = sources,
-                            textPosts = textPosts, images = images, horizontalVideos = hVideos, verticalVideos = vVideos
-                        )
+                    val feed = initial.copy(
+                        name = name.ifBlank { "My Feed" }, sources = sources,
+                        textPosts = textPosts, images = images, horizontalVideos = hVideos, verticalVideos = vVideos,
+                        polls = polls, sort = sort, style = style, rows = rowCount
                     )
+                    val saved = if (onSave != null) onSave(feed) else LocalData.saveLocalFeed(feed)
                     onSaved(saved)
                     onClose()
                 },
                 Modifier.weight(if (editing) 1.4f else 1f),
-                enabled = sources.isNotEmpty() && (textPosts || images || hVideos || vVideos)
+                enabled = sources.isNotEmpty() && (textPosts || images || hVideos || vVideos || polls)
             )
         }
+    }
+}
+
+/** One pickable line in the Feed Builder (a list, a folder): tap to add or take out. */
+@Composable
+private fun PickRow(label: String, added: Boolean, tint: Color, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (added) lerp(tint, Color.White, 0.1f).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.05f))
+            .clickable { tap(); onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Icon(
+            if (added) Icons.Default.Check else Icons.Default.Add, contentDescription = null,
+            tint = Color.White.copy(alpha = if (added) 1f else 0.6f), modifier = Modifier.size(16.dp)
+        )
     }
 }
 
