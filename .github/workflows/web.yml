@@ -78,6 +78,25 @@ jobs:
           touch "$DIST/.nojekyll"
           du -sh "$DIST"
 
+      # Each build's app files get names of their own (the commit's), so a
+      # browser can never keep running an older build from its cache:
+      # the page (cached for minutes at most) asks for this build's script,
+      # and the script for this build's binary.
+      - name: Name the files after this build
+        run: |
+          DIST=webApp/build/dist/wasmJs/productionExecutable
+          V="${GITHUB_SHA::8}"
+          for W in $(grep -o '"[^"]*\.wasm"' "$DIST/stellar.js" | tr -d '"' | sed 's#^\./##' | sort -u); do
+            N="${W%.wasm}-$V.wasm"
+            mv "$DIST/$W" "$DIST/$N"
+            sed -i "s#\"\./$W\"#\"./$N\"#g; s#\"$W\"#\"$N\"#g" "$DIST/stellar.js"
+            test -s "$DIST/$N"
+          done
+          mv "$DIST/stellar.js" "$DIST/stellar-$V.js"
+          sed -i "s#'stellar.js'#'stellar-$V.js'#" "$DIST/index.html"
+          grep -q "stellar-$V.js" "$DIST/index.html"
+          grep -o '"[^"]*\.wasm"' "$DIST/stellar-$V.js" | sort -u
+
       - name: Upload site
         uses: actions/upload-artifact@v4
         with:
