@@ -47,8 +47,8 @@ import com.mediaviewer.util.rememberHapticTap
 
 /**
  * A profile's picture or banner, full screen over the blurred page: the
- * picture (or, when they have one, its video) as big as it fits. Pinch,
- * double-tap or scroll the mouse wheel to zoom in, drag to look around; a
+ * picture (or, when they have one, its video) as big as it fits. Pinch
+ * or scroll the mouse wheel to zoom in, drag to look around; a
  * tap closes it only when it isn't zoomed in (and never as part of a
  * pinch). Download, near the bottom, saves what's showing — the video
  * when there is one, else the full-size picture.
@@ -86,9 +86,10 @@ fun ProfileMediaViewer(
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
             .pointerInput(Unit) {
+                // (No double-tap zoom: waiting to see if a second tap comes
+                // is what held every close back. Pinch or the wheel zoom.)
                 detectTapGestures(
-                    onTap = { if (scale <= 1.01f && now() - lastZoomMs > 300) onClose() },
-                    onDoubleTap = { if (scale > 1.01f) zoomTo(1f) else zoomTo(2.5f) }
+                    onTap = { if (scale <= 1.01f && now() - lastZoomMs > 300) onClose() }
                 )
             }
             .pointerInput(Unit) {
