@@ -1240,7 +1240,7 @@ private fun SearchAllResults(
     val nothing = state.accounts.isEmpty() && state.posts.isEmpty() && state.allTagged.isEmpty() &&
         state.feeds.isEmpty() && state.starterPacks.isEmpty()
     if (nothing) { EmptyResultsText(); return }
-    val accent = lerp(tint, Color.White, 0.5f)
+    val accent = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.5f)
 
     @Composable
     fun Header(title: String, sub: String? = null, onAll: (() -> Unit)?) {
