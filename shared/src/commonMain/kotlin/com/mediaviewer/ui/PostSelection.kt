@@ -4,23 +4,18 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Gif
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
@@ -31,9 +26,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
@@ -45,7 +43,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.model.MediaItem
-import com.mediaviewer.ui.compat.navBarSpace
 import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import com.mediaviewer.util.rememberHapticTap
@@ -55,7 +52,7 @@ import com.mediaviewer.util.rememberHapticTap
  * post, or right-click it, and it's picked — washed and outlined in your
  * own profile color, with its number — and from then on a tap picks or
  * drops posts instead of opening them. The order they were picked in is
- * kept, and every action on them ([SelectionActionBar]) goes in that order.
+ * kept, and every action on them ([SelectionBarButtons]) goes in that order.
  * Dropping the last one (or the bar's X, or Back) ends it.
  */
 object PostSelection {
@@ -78,14 +75,22 @@ object PostSelection {
     internal var claimed: androidx.compose.ui.input.pointer.PointerId? = null
 }
 
+/** Whether post tiles here can be picked: profile pages and Saved Posts
+ *  only (not the Hub, Explore or Search). */
+val LocalPostSelectable = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /**
  * A post tile, watched for selection mode (see [PostSelection]): press and
  * hold, or a right-click, picks it; while picking, a tap picks or drops it
  * instead of opening it (the tile's own tap never sees it). Otherwise the
  * tile's own taps, swipes and holds are left alone. Draws the picked look —
- * your color over it, outlined, with its number — on top.
+ * your color over the whole tile, its thumbnail included, in the tile's
+ * own [shape] (rounded or square, as Settings has it), outlined, with its
+ * number — on top. Does nothing where tiles can't be picked
+ * ([LocalPostSelectable]).
  */
-fun Modifier.postSelectable(item: MediaItem): Modifier = composed {
+fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Modifier = composed {
+    if (!LocalPostSelectable.current) return@composed this
     val view = com.mediaviewer.ui.compat.rememberPlatformView()
     val tint = lerp(rememberSelfTint(null, NeutralGlassTint), Color.White, 0.2f)
     val order = PostSelection.orderOf(item)
@@ -136,12 +141,15 @@ fun Modifier.postSelectable(item: MediaItem): Modifier = composed {
         .drawWithContent {
             drawContent()
             if (order > 0) {
-                drawRect(tint.copy(alpha = 0.3f))
+                // Over everything the tile draws (its picture too), in its own shape.
+                val outline = shape.createOutline(size, layoutDirection, this)
+                drawOutline(outline, tint.copy(alpha = 0.32f))
                 val w = 3.dp.toPx()
-                drawRect(tint, topLeft = Offset(w / 2, w / 2), size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w), style = Stroke(w))
+                val inner = shape.createOutline(androidx.compose.ui.geometry.Size(size.width - w, size.height - w), layoutDirection, this)
+                translate(w / 2, w / 2) { drawOutline(inner, tint, style = Stroke(w)) }
                 // Its number, in a badge at the top right.
                 val r = 11.dp.toPx()
-                val c = Offset(size.width - r - 6.dp.toPx(), r + 6.dp.toPx())
+                val c = Offset(size.width - r - 7.dp.toPx(), r + 7.dp.toPx())
                 drawCircle(tint, radius = r, center = c)
                 val label = measurer.measure(order.toString(), TextStyle(color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold))
                 drawText(label, topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f))
@@ -149,56 +157,86 @@ fun Modifier.postSelectable(item: MediaItem): Modifier = composed {
         }
 }
 
+/** What selection mode's buttons do (set by LocalOverlayHost, which has the
+ *  ViewModel): each is the app's own action, run on every picked post in
+ *  the order they were picked. */
+class SelectionActions(
+    val selfDid: String,
+    val onSave: (List<MediaItem>) -> Unit,
+    val onDownload: (List<MediaItem>, Boolean) -> Unit,
+    val onShare: (List<MediaItem>) -> Unit,
+    val onArchive: (List<MediaItem>) -> Unit,
+    val onDelete: (List<MediaItem>) -> Unit
+)
+
 /**
- * Selection mode's bar, in place of the page's own: Save (into a folder,
- * chosen first), Download, Download as GIF, Share, and — when every picked
- * post is your own — Archive and Delete. Each acts on all of them, in the
- * order they were picked; the X ends selection mode.
+ * Selection mode's buttons, in place of an interaction bar's own (the bar
+ * itself stays — same pill, same place): Save, Download, Download as GIF and
+ * Share, with the very icons the post's own bar uses, and — when every picked
+ * post is yours — Archive and Delete, with the icons the post's More menu
+ * uses. The count and Cancel are at the top of the page instead (see
+ * [SelectionCountBubble]).
  */
 @Composable
-fun SelectionActionBar(
-    tint: Color, liquidGlass: Boolean, selfDid: String,
-    onSave: (List<MediaItem>) -> Unit,
-    onDownload: (List<MediaItem>, Boolean) -> Unit,
-    onShare: (List<MediaItem>) -> Unit,
-    onArchive: (List<MediaItem>) -> Unit,
-    onDelete: (List<MediaItem>) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (!PostSelection.active) return
+fun SelectionBarButtons(iconSize: androidx.compose.ui.unit.Dp = 20.dp) {
+    val actions = LocalOverlays.selection ?: return
     com.mediaviewer.ui.compat.BackHandler(onBack = { PostSelection.clear() })
     val tap = rememberHapticTap()
     val picked = PostSelection.selected.toList()
-    val allMine = selfDid.isNotBlank() && picked.all { it.author.did == selfDid && it.postUri.isNotBlank() }
-    val shape = RoundedCornerShape(26.dp)
-    Row(
-        modifier.windowInsetsPadding(WindowInsets.navBarSpace).padding(bottom = 12.dp)
-            .glassPanel(liquidGlass, tint = tint, shape = shape)
-            .then(if (liquidGlass) Modifier else Modifier.border(1.dp, tint.copy(alpha = 0.5f), shape))
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        @Composable
-        fun Action(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
-            Box(
-                Modifier.size(46.dp).clip(CircleShape).clickable { tap(); onClick() },
-                contentAlignment = Alignment.Center
-            ) { Icon(icon, contentDescription = label, tint = if (danger) Color(0xFFFF6B8A) else Color.White, modifier = Modifier.size(22.dp)) }
-        }
-        com.mediaviewer.i18n.Text(
-            "${picked.size}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 10.dp)
-        )
-        Action(Icons.Default.Bookmark, "Save") { onSave(picked) }
-        Action(Icons.Default.Download, "Download") { onDownload(picked, false); PostSelection.clear() }
-        Action(Icons.Default.Gif, "Download as GIF") { onDownload(picked, true); PostSelection.clear() }
-        Action(Icons.AutoMirrored.Filled.Send, "Share") { onShare(picked) }
-        if (allMine) {
-            Action(Icons.Default.Archive, "Archive") { onArchive(picked) }
-            Action(Icons.Default.Delete, "Delete", danger = true) { onDelete(picked) }
-        }
-        Box(Modifier.size(width = 1.dp, height = 26.dp).background(Color.White.copy(alpha = 0.2f)))
-        Action(Icons.Default.Close, "Done") { PostSelection.clear() }
+    val allMine = actions.selfDid.isNotBlank() && picked.all { it.author.did == actions.selfDid && it.postUri.isNotBlank() }
+    @Composable
+    fun Btn(label: String, onClick: () -> Unit, content: @Composable () -> Unit) {
+        Box(
+            Modifier.size(width = 40.dp, height = 44.dp).clip(CircleShape).clickable { tap(); onClick() },
+            contentAlignment = Alignment.Center
+        ) { content() }
     }
+    Btn("Save", { actions.onSave(picked) }) {
+        Icon(Icons.Outlined.BookmarkBorder, contentDescription = "Save", tint = Color.White, modifier = Modifier.size(iconSize))
+    }
+    Btn("Download", { actions.onDownload(picked, false); PostSelection.clear() }) {
+        Icon(Icons.Default.Download, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(iconSize))
+    }
+    Btn("Download as GIF", { actions.onDownload(picked, true); PostSelection.clear() }) {
+        com.mediaviewer.i18n.Text("GIF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+    Btn("Share", { actions.onShare(picked) }) {
+        Icon(Icons.Default.Send, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(iconSize))
+    }
+    if (allMine) {
+        Btn("Archive", { actions.onArchive(picked) }) {
+            Icon(Icons.Default.Inventory2, contentDescription = "Archive", tint = Color.White, modifier = Modifier.size(iconSize))
+        }
+        Btn("Delete", { actions.onDelete(picked) }) {
+            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(iconSize))
+        }
+    }
+}
+
+/** Selection mode's count, where the page's Follow / Edit button sits: the
+ *  same pill, saying how many are picked. */
+@Composable
+fun SelectionCountBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val shape = RoundedCornerShape(50)
+    val n = PostSelection.selected.size
+    val content: @Composable () -> Unit = {
+        Box(Modifier.height(30.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            com.mediaviewer.i18n.Text("$n Selected", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+    if (liquidGlass) LiquidGlassSurface(modifier = Modifier.height(30.dp), shape = shape, tint = tint, backdrop = backdrop) { content() }
+    else Box(Modifier.height(30.dp).clip(shape).background(Color.White.copy(0.14f))) { content() }
+}
+
+/** Selection mode's Cancel, where the page's Back button sits: the same
+ *  round button, with an X. */
+@Composable
+fun SelectionCancelBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, size: androidx.compose.ui.unit.Dp = 38.dp) {
+    val tap = rememberHapticTap()
+    val base = Modifier.size(size).clip(CircleShape).clickable { tap(); PostSelection.clear() }
+    val icon: @Composable () -> Unit = {
+        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+    if (liquidGlass) LiquidGlassSurface(modifier = base, shape = CircleShape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) { icon() }
+    else Box(base.background(Color.Black.copy(0.6f)), contentAlignment = Alignment.Center) { icon() }
 }

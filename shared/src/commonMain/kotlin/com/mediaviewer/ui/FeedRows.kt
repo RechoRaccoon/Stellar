@@ -122,7 +122,10 @@ fun BuiltFeedRow(
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
     FeedRowTitle(title, tint, leftTitle, onEdit)
-    if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)
+    // (A feed row's posts aren't picked, even on a profile's Home tab.)
+    androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
+        if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)
+    }
     if (feed.blogs || feed.reviews) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile)
 }
 

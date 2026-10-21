@@ -784,7 +784,8 @@ fun ProfileOverlay(
         }
     }
     val isSupporter = com.mediaviewer.util.StellarSupporters.isSupporter(author.did)
-    CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
+    // (A profile's posts can be picked — see PostSelection.)
+    CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw, LocalPostSelectable provides true) {
     Box(Modifier.fillMaxSize()) {
     // Item 19: the whole page blurs behind the edit popup.
     Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else if (viewingAvatar || viewingBanner) 26.dp else 0.dp)) {
@@ -1164,8 +1165,8 @@ fun ProfileOverlay(
         var profileRootOrigin by remember { mutableStateOf<Offset?>(null) }
         var profileSortOpen by remember(author.did) { mutableStateOf(false) }
         var profileSortBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
-        // (Picking posts: selection mode's own bar takes its place.)
-        if ((profile != null || !state.loadingProfile) && !editingStatus && !PostSelection.active) {
+        // (Picking posts: the same bar shows selection's buttons.)
+        if ((profile != null || !state.loadingProfile) && !editingStatus) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = if (configuration.width > configuration.height) rememberSideListWidth() else 0.dp).windowInsetsPadding(WindowInsets.navBarSpace)) {
                 ProfileInteractionBar(
                     liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
@@ -1327,7 +1328,8 @@ fun ProfileOverlay(
         // (like the Hub's search bar), with Follow / Edit at its right.
         val fixedLandscape = rememberLandscape()
         val fixedLayout = com.mediaviewer.util.UiToggles.profileLayout
-        if (!fixedLandscape || fixedLayout != 1) {
+        val selecting = PostSelection.active
+        if (!fixedLandscape || fixedLayout != 1 || selecting) {
             val layout = fixedLayout
             Row(
                 Modifier.align(Alignment.TopStart).fillMaxWidth()
@@ -1335,10 +1337,14 @@ fun ProfileOverlay(
                     .padding(top = profileFixedRowGap(layout), start = 12.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Picking posts: Back becomes Cancel (an X), and Follow / Edit
+                // becomes the count.
+                if (selecting) SelectionCancelBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop)
                 // (Landscape: Back is the side list's first row.)
-                if (!fixedLandscape) ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
+                else if (!fixedLandscape) ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
                 Spacer(Modifier.weight(1f))
-                if (layout != 1) {
+                if (selecting) SelectionCountBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop)
+                else if (layout != 1) {
                     val own = selfDid.isNotBlank() && author.did == selfDid
                     if (own) {
                         EditGlassBubble(liquidGlass = liquidGlass, tint = blended, onClick = { editingProfile = true }, backdrop = backdrop)
@@ -1617,6 +1623,8 @@ private fun ProfileInteractionBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)
         ) {
+            // Picking posts: the same bar, with selection's buttons instead.
+            if (PostSelection.active) { SelectionBarButtons(iconSize); return@Row }
             // Refresh — always the leftmost button. Spins while a reload is
             // in flight (dimmed instead when animations are reduced); taps
             // are ignored until it finishes. Haptic comes from the ViewModel.
@@ -2269,7 +2277,8 @@ private fun ProfileBannerOverlayLayout(
         val namesHeight = displayNamePlaceable.height + nameGapPx + usernamePlaceable.height
 
         val followPlaceable = subcompose("follow") {
-            if (!showFollow) Box(Modifier) else if (isOwnProfile) {
+            // (Picking posts: the count is at the top of the page instead.)
+            if (!showFollow || PostSelection.active) Box(Modifier) else if (isOwnProfile) {
                 // Item 19: the same pencil the blog editor uses, as a round
                 // bubble the size of the X on the left (and level with it).
                 EditGlassBubble(liquidGlass = liquidGlass, tint = bannerColor, onClick = onEditProfile, backdrop = backdrop)
@@ -3329,7 +3338,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
     Box(
         modifier
             .clip(shape)
-            .postSelectable(item)
+            .postSelectable(item, shape)
             .then(if (previewUrl != null) Modifier.videoPreviewTrigger { previewing = it } else Modifier)
             // A subtle fill behind the image (rather than nothing) so a post
             // whose thumbnail fails to resolve — a dead link, a repost of
@@ -3438,7 +3447,7 @@ private fun SwipeableThumbBox(
     Box(
         modifier
             .clip(shape)
-            .postSelectable(item)
+            .postSelectable(item, shape)
             .background(Color.White.copy(alpha = 0.05f))
             // Fix (per feedback): flat tiles when the "Rounded grid tiles"
             // setting is off — same treatment as ThumbBox.
@@ -3895,7 +3904,7 @@ private fun TimelineShapedTextTile(item: MediaItem, liquidGlass: Boolean, tint: 
                     else Modifier.clip(shape).background(Color.White.copy(0.06f))
                 )
                 .clip(shape)
-                .postSelectable(item)
+                .postSelectable(item, shape)
                 .clickable { tap(); onOpen() }
                 .padding(horizontal = 18.dp, vertical = 26.dp),
             contentAlignment = Alignment.Center
@@ -4692,7 +4701,7 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
     Box(
         modifier
             .fillMaxWidth()
-            .postSelectable(item)
+            .postSelectable(item, shape)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
@@ -4740,7 +4749,7 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
     Box(
         Modifier
             .fillMaxWidth()
-            .postSelectable(item)
+            .postSelectable(item, shape)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
@@ -6829,6 +6838,8 @@ fun ResultsInteractionBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)
         ) {
+            // Picking posts: the same bar, with selection's buttons instead.
+            if (PostSelection.active) { SelectionBarButtons(iconSize); return@Row }
             Box(
                 Modifier.size(44.dp).tipAnchor(refreshAnchor).clip(CircleShape).clickable { if (!refreshing) { tap(); onRefresh() } },
                 contentAlignment = Alignment.Center

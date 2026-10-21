@@ -220,6 +220,11 @@ fun GridScreen(
     }
     // Picked posts don't outlive the page they were picked on.
     DisposableEffect(Unit) { onDispose { PostSelection.clear() } }
+    // A profile's own posts (opened from it) and Saved Posts can be picked;
+    // the Explore feeds, From Friends and History can't.
+    val selectablePage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let {
+        !it.isSpecialFeed() || it.displayName == "Saved Posts"
+    } == true
     DisposableEffect(memoryScope) {
         onDispose {
             val a = middleAnchor(gridState)
@@ -513,6 +518,8 @@ fun GridScreen(
             ) { i ->
                 val item = matched[i]
                 val tile: @Composable () -> Unit = {
+                    // (Only a profile's posts, or Saved Posts, can be picked.)
+                    androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides selectablePage) {
                     PostResultTile(
                         item = item, filter = kind, gridMode = gridMode, tint = tint,
                         liquidGlass = liquidGlass, roundedGridTiles = roundedGridTiles,
@@ -530,6 +537,7 @@ fun GridScreen(
                             }
                         }
                     )
+                    }
                 }
                 // From Friends: who sent it, and what they said, on the tile.
                 // A quote repost shows its quoter and their words the same way.
@@ -546,8 +554,8 @@ fun GridScreen(
         }
         } // Row (side list + grid)
     }
-        // (Picking posts: selection mode's own bar takes its place.)
-        if (!PostSelection.active) ResultsInteractionBar(
+        // (Picking posts: the same bar shows selection's buttons.)
+        ResultsInteractionBar(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             refreshing = isLoading, animateRefresh = !reducedAnimations,
             onRefresh = onRefresh,

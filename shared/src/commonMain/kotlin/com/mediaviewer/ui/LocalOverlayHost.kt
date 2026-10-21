@@ -167,28 +167,29 @@ fun LocalOverlayHost(
     }
 
     // ── Selection mode's bar (over the page whose posts are picked) ──
-    if (PostSelection.active) Box(Modifier.fillMaxSize().zIndex(10.5f), contentAlignment = Alignment.BottomCenter) {
-        SelectionActionBar(
-            tint = tint, liquidGlass = liquidGlass, selfDid = selfDidNow,
-            onSave = { LocalOverlays.bookmarkFolderForMany = it },
-            onDownload = { items, gif -> viewModel.downloadItems(items, gif) },
-            onShare = { viewModel.openSendPopupFor(it); PostSelection.clear() },
-            onArchive = { items ->
-                LocalOverlays.confirm = ConfirmRequest(
-                    "Archive ${items.size} Post${if (items.size == 1) "" else "s"}?",
-                    "Archives the selected posts and threads.",
-                    "Archive", tint, destructive = false
-                ) { viewModel.archiveItems(items); PostSelection.clear() }
-            },
-            onDelete = { items ->
-                LocalOverlays.confirm = ConfirmRequest(
-                    "Delete ${items.size} Post${if (items.size == 1) "" else "s"}?",
-                    "They'll be deleted from your profile for good.",
-                    "Delete", tint
-                ) { viewModel.deleteItems(items); PostSelection.clear() }
-            }
-        )
-    }
+    // Selection mode's buttons (in the page's own interaction bar — see
+    // SelectionBarButtons): the app's own Save, Download, GIF, Share,
+    // Archive and Delete, on every picked post.
+    LocalOverlays.selection = SelectionActions(
+        selfDid = selfDidNow,
+        onSave = { LocalOverlays.bookmarkFolderForMany = it },
+        onDownload = { items, gif -> viewModel.downloadItems(items, gif) },
+        onShare = { viewModel.openSendPopupFor(it); PostSelection.clear() },
+        onArchive = { items ->
+            LocalOverlays.confirm = ConfirmRequest(
+                "Archive ${items.size} Post${if (items.size == 1) "" else "s"}?",
+                "Archives the selected posts and threads.",
+                "Archive", tint, destructive = false
+            ) { viewModel.archiveItems(items); PostSelection.clear() }
+        },
+        onDelete = { items ->
+            LocalOverlays.confirm = ConfirmRequest(
+                "Delete ${items.size} Post${if (items.size == 1) "" else "s"}?",
+                "They'll be deleted from your profile for good.",
+                "Delete", tint
+            ) { viewModel.deleteItems(items); PostSelection.clear() }
+        }
+    )
 
     // ── Popups ──
     LocalOverlays.confirm?.let { req ->
