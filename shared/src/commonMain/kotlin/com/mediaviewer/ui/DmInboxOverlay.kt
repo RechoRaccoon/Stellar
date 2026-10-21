@@ -520,6 +520,7 @@ private fun DmThreadView(
     var emojiPanelOpen by remember { mutableStateOf(false) }
     var emojiTabEditing by remember { mutableStateOf(false) }
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val dmFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val imeDensity = androidx.compose.ui.platform.LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(imeDensity)
     var keyboardPx by remember { mutableStateOf(rememberedKeyboardPx) }
@@ -932,6 +933,10 @@ private fun DmThreadView(
                     keyboardController?.show()
                 } else {
                     emojiPanelOpen = true
+                    // (The field lets go of focus, not just the keyboard: still
+                    // focused, the keyboard came back whenever something in the
+                    // menu took focus for a moment — and closed the menu.)
+                    dmFocusManager.clearFocus()
                     keyboardController?.hide()
                 }
             }

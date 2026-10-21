@@ -212,9 +212,6 @@ private fun PostKindFilter.label() = when (this) {
     PostKindFilter.POLLS              -> "Polls"
 }
 
-/** A choice in the pill at the sub-filter row's right: its first option
- *  (the whole kind) reads "Both". */
-private fun PostKindFilter.facetLabel() = if (this == PostKindFilter.MEDIA || this == PostKindFilter.TEXT_POSTS) "Both" else label()
 // Not private: Search's Titles tab (SearchOverlay.kt) reuses this exact
 // enum/label/bucketing for its own sub-filter row, per spec ("subtabs...
 // just like in the profile tabs").
@@ -366,7 +363,9 @@ private fun <T> ProfileSubFilterRow(
                             else Modifier.clip(shape).background(if (isSelected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
                         )
                         .clickable { tap(); onSelect(option) }
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                        .height(FILTER_CHIP_HEIGHT)
+                        .padding(horizontal = 9.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(labelOf(option), color = if (isSelected) Color.White else DimGray, fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
@@ -380,7 +379,8 @@ private fun <T> ProfileSubFilterRow(
         if (trailing != null) {
             Spacer(Modifier.width(8.dp))
             trailing()
-            Spacer(Modifier.width(12.dp))
+            // (Its right edge lines up with the posts', as the chips' left does.)
+            Spacer(Modifier.width(PROFILE_EDGE))
         }
     }
 }
@@ -1005,8 +1005,10 @@ fun ProfileOverlay(
             // not layout padding — so it's there at rest, but once you scroll
             // the banner slides up behind the notch and off the top instead
             // of being cut off at the gap's edge.
+            // (Profile Layouts 2 and 3: no gap — the banner runs up to the
+            // screen's top edge, behind the camera.)
             contentPadding = PaddingValues(
-                top = rememberTopCutoutClearance(),
+                top = if (rememberLandscape() || com.mediaviewer.util.UiToggles.profileLayout == 1) rememberTopCutoutClearance() else 0.dp,
                 bottom = WindowInsets.navBarSpace.asPaddingValues().calculateBottomPadding() + 16.dp + 76.dp
             ),
             modifier = Modifier.weight(1f).fillMaxHeight()
@@ -1030,7 +1032,8 @@ fun ProfileOverlay(
                     onOpenMention = onOpenMention,
                     onResolveActor = onResolveActor,
                     onOpenStatus = { editingStatus = true },
-                    onOpenAvatar = { if (author.avatarUrl != null) viewingAvatar = true }
+                    onOpenAvatar = { if (author.avatarUrl != null) viewingAvatar = true },
+                    layout = if (sideways) 1 else com.mediaviewer.util.UiToggles.profileLayout
                 )
             }
 
@@ -1268,13 +1271,29 @@ fun ProfileOverlay(
         // ── Back: fixed (it doesn't scroll away), the size of the scroll-to-top
         // arrow, just under the camera notch at the far left. (Landscape: the
         // side list's first row instead.)
+        // Profile Layouts 2 and 3: the row sits right under the camera
+        // (like the Hub's search bar), with Follow / Edit at its right.
         if (!rememberLandscape()) {
-            Box(
-                Modifier.align(Alignment.TopStart)
+            val layout = com.mediaviewer.util.UiToggles.profileLayout
+            Row(
+                Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .padding(top = rememberTopCutoutClearance())
-                    .padding(top = 8.dp, start = 12.dp)
+                    .padding(top = if (layout == 1) 8.dp else 0.dp, start = 12.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 ProfileBackBubble(liquidGlass = liquidGlass, tint = blended, backdrop = backdrop, onClick = onClose)
+                Spacer(Modifier.weight(1f))
+                if (layout != 1) {
+                    val own = selfDid.isNotBlank() && author.did == selfDid
+                    if (own) {
+                        EditGlassBubble(liquidGlass = liquidGlass, tint = blended, onClick = { editingProfile = true }, backdrop = backdrop)
+                    } else {
+                        FollowButton(
+                            isFollowing = author.isFollowing, liquidGlass = liquidGlass, tint = blended, onClick = onToggleFollow,
+                            backdrop = backdrop, isMutual = profile?.followedByMe == true, enabled = profile?.blocksYou != true
+                        )
+                    }
+                }
             }
         }
 
@@ -1419,6 +1438,7 @@ fun ProfileOverlay(
             ProfileStatusEditor(
                 did = author.did,
                 current = ownStyle.status, tint = blended, liquidGlass = liquidGlass,
+                selfAvatarUrl = author.avatarUrl,
                 onPost = { text, minutes ->
                     editingStatus = false
                     statusScope.launch {
@@ -1712,7 +1732,9 @@ private fun ProfileHeaderSection(
     /** Your own profile: the status bubble opens the status box. */
     onOpenStatus: () -> Unit = {},
     /** The profile picture was tapped: show it full screen. */
-    onOpenAvatar: () -> Unit = {}
+    onOpenAvatar: () -> Unit = {},
+    /** Settings → Dev Tools → Profile Layout (1 in landscape). */
+    layout: Int = 1
 ) {
     Column(Modifier.fillMaxWidth()) {
         // ── Banner ──
@@ -1806,7 +1828,7 @@ private fun ProfileHeaderSection(
             // in landscape — so they never run past the banner's edges, at
             // any width.
             val overlayHeight = if (rememberLandscape()) bannerHeight * 0.75f else bannerHeight
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(overlayHeight).scaleToHeight(BANNER_OVERLAY_REFERENCE)) {
+            if (layout == 1) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(overlayHeight).scaleToHeight(BANNER_OVERLAY_REFERENCE)) {
             ProfileBannerOverlayLayout(
                 author = author,
                 liquidGlass = liquidGlass,
@@ -1825,6 +1847,29 @@ private fun ProfileHeaderSection(
                 onOpenAvatar = onOpenAvatar
             )
             }
+        }
+        when (layout) {
+            // Layout 2: the picture and name pills in a row of their own
+            // under the banner (Follow / Edit is up by Back).
+            2 -> Box(Modifier.padding(top = bannerHeight).fillMaxWidth().height(PROFILE_LAYOUT2_ROW)) {
+                ProfileBannerOverlayLayout(
+                    author = author, liquidGlass = liquidGlass, bannerColor = bannerColor, avatarColor = avatarColor,
+                    isOwnProfile = isOwnProfile, backdrop = null,
+                    onToggleFollow = onToggleFollow, onClose = onClose, onEditProfile = onEditProfile,
+                    status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
+                    onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar,
+                    showFollow = false
+                )
+            }
+            // Layout 3: the name above the picture, which sits centered on
+            // the banner's bottom edge, and the handle under it.
+            3 -> ProfileIdentityCentered(
+                author = author, liquidGlass = liquidGlass, bannerColor = bannerColor, avatarColor = avatarColor,
+                isOwnProfile = isOwnProfile, bannerHeight = bannerHeight, backdrop = bannerBackdrop,
+                status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
+                onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar
+            )
+            else -> {}
         }
         }
 
@@ -2109,7 +2154,9 @@ private fun ProfileBannerOverlayLayout(
     onEditProfile: () -> Unit = {},
     status: com.mediaviewer.util.ProfileStatus? = null,
     onOpenStatus: () -> Unit = {},
-    onOpenAvatar: () -> Unit = {}
+    onOpenAvatar: () -> Unit = {},
+    /** False (Profile Layout 2): Follow / Edit sits up by Back instead. */
+    showFollow: Boolean = true
 ) {
     // (Back is a fixed button of its own now — see ProfileBackBubble — and
     // landscape's is the side list's first row.)
@@ -2139,7 +2186,7 @@ private fun ProfileBannerOverlayLayout(
         val namesHeight = displayNamePlaceable.height + nameGapPx + usernamePlaceable.height
 
         val followPlaceable = subcompose("follow") {
-            if (isOwnProfile) {
+            if (!showFollow) Box(Modifier) else if (isOwnProfile) {
                 // Item 19: the same pencil the blog editor uses, as a round
                 // bubble the size of the X on the left (and level with it).
                 EditGlassBubble(liquidGlass = liquidGlass, tint = bannerColor, onClick = onEditProfile, backdrop = backdrop)
@@ -2147,6 +2194,9 @@ private fun ProfileBannerOverlayLayout(
                 FollowButton(isFollowing = author.isFollowing, liquidGlass = liquidGlass, tint = bannerColor, onClick = onToggleFollow, backdrop = backdrop, isMutual = isMutual, enabled = followEnabled, modifier = Modifier.tipAnchor("profile.follow"))
             }
         }.first().measure(loose)
+        // (Its room in the stack: none when it's elsewhere.)
+        val followH = if (showFollow) followPlaceable.height + gap.roundToPx() else 0
+        val followW = if (showFollow) followPlaceable.width else 0
 
         val closePlaceable = subcompose("close") {
             CloseGlassBubble(liquidGlass = liquidGlass, tint = bannerColor, onClick = onClose, backdrop = backdrop)
@@ -2163,18 +2213,18 @@ private fun ProfileBannerOverlayLayout(
             )
         }.first().measure(loose)
 
-        val stackHeight = followPlaceable.height + gapPx + namesHeight
+        val stackHeight = followH + namesHeight
         val width = constraints.maxWidth
         val height = constraints.maxHeight
 
         // The status bubble: up and to the right of the avatar, never as
         // far as the follow button and name pills on the other side.
-        val statusRoom = (width - avatarPlaceable.width - maxOf(followPlaceable.width, displayNamePlaceable.width) - gapPx * 2).coerceAtLeast(0)
+        val statusRoom = (width - avatarPlaceable.width - maxOf(followW, displayNamePlaceable.width) - gapPx * 2).coerceAtLeast(0)
         // Its pointer's tip sits just inside the picture's top-right edge
         // (45° round from the top); it can grow up to the banner's top.
         val stackYEstimate = ((constraints.maxHeight - stackHeight) / 2).coerceAtLeast(0)
         val tipX = (avatarPlaceable.width * 0.80f).toInt()
-        val tipY = stackYEstimate + followPlaceable.height + gapPx + (avatarPlaceable.height * 0.20f).toInt()
+        val tipY = stackYEstimate + followH + (avatarPlaceable.height * 0.20f).toInt()
         val statusMaxH = (tipY + inset.roundToPx()).coerceAtLeast(0)
         // (It may grow over the name pills when a long status needs the room.)
         val statusPreferred = (statusRoom + avatarPlaceable.width - tipX).coerceAtLeast(0)
@@ -2188,8 +2238,8 @@ private fun ProfileBannerOverlayLayout(
         layout(width, height) {
             // Follow button + name pills, centered vertically as one group, far right.
             val stackY = ((height - stackHeight) / 2).coerceAtLeast(0)
-            followPlaceable.placeRelative(width - followPlaceable.width, stackY)
-            val namesY = stackY + followPlaceable.height + gapPx
+            if (showFollow) followPlaceable.placeRelative(width - followPlaceable.width, stackY)
+            val namesY = stackY + followH
             displayNamePlaceable.placeRelative(width - displayNamePlaceable.width, namesY)
             usernamePlaceable.placeRelative(
                 width - usernamePlaceable.width,
@@ -2208,9 +2258,72 @@ private fun ProfileBannerOverlayLayout(
     }
 }
 
+/** Profile Layout 2: the height of the row under the banner holding the
+ *  picture and name pills. */
+private val PROFILE_LAYOUT2_ROW = 104.dp
+
+/**
+ * Profile Layout 3: the display name, the picture and the handle, centered
+ * one above the other — the picture's middle on the banner's bottom edge,
+ * the name on the banner above it, the handle under it. Its height runs
+ * from the banner's top to the handle's bottom (place it over the banner).
+ */
+@Composable
+private fun ProfileIdentityCentered(
+    author: AuthorInfo, liquidGlass: Boolean, bannerColor: Color, avatarColor: Color, isOwnProfile: Boolean,
+    bannerHeight: Dp, backdrop: GlassBackdrop?,
+    status: com.mediaviewer.util.ProfileStatus?, onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
+) {
+    val avatarSize = 88.dp
+    androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
+        val loose = androidx.compose.ui.unit.Constraints(maxWidth = constraints.maxWidth)
+        val gap = 6.dp.roundToPx()
+        val w = constraints.maxWidth
+        val name = subcompose("name") {
+            ProfileGlassPill(text = author.displayName, liquidGlass = liquidGlass, tint = bannerColor, fontSize = 15.sp, bold = true, backdrop = backdrop,
+                modifier = Modifier.copyOnTap(author.displayName))
+        }.first().measure(loose)
+        val avatar = subcompose("avatar") {
+            ProfileAvatarGlass(
+                url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
+                shape = profileIconShape(author.did),
+                videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
+                onClick = onOpenAvatar
+            )
+        }.first().measure(loose)
+        val handle = subcompose("handle") {
+            ProfileGlassPill(text = "@${author.handle}", liquidGlass = liquidGlass, tint = bannerColor.copy(alpha = 0.8f), fontSize = 12.sp, bold = false, backdrop = null,
+                modifier = Modifier.copyOnTap("@${author.handle}"))
+        }.first().measure(loose)
+        val bannerPx = bannerHeight.roundToPx()
+        val avatarTop = bannerPx - avatar.height / 2
+        val nameY = (avatarTop - gap - name.height).coerceAtLeast(0)
+        val handleY = avatarTop + avatar.height + gap
+        val totalH = handleY + handle.height + gap
+        val avatarX = (w - avatar.width) / 2
+        // The status bubble: its pointer just over the picture's top-right.
+        val tipX = avatarX + (avatar.width * 0.80f).toInt()
+        val tipY = avatarTop + (avatar.height * 0.20f).toInt()
+        val statusPlaceable = subcompose("status") {
+            ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
+        }.firstOrNull()?.measure(
+            androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX - PROFILE_EDGE.roundToPx()).coerceAtLeast(0), maxHeight = tipY.coerceAtLeast(0))
+        )
+        layout(w, totalH) {
+            name.placeRelative((w - name.width) / 2, nameY)
+            avatar.placeRelative(avatarX, avatarTop)
+            handle.placeRelative((w - handle.width) / 2, handleY)
+            statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
+        }
+    }
+}
+
 /** How far a profile's header (banner pieces, bio, stats, tab rows) sits
  *  from the screen's sides: about as close as its posts. */
 internal val PROFILE_EDGE = 6.dp
+
+/** The height of a filter chip (All, Media…) and of the Images / Videos pill beside them. */
+private val FILTER_CHIP_HEIGHT = 24.dp
 
 /** The height a profile banner's buttons and name pills are laid out at
  *  before they're scaled to the banner (see scaleToHeight). */
@@ -2388,18 +2501,21 @@ private fun ProfileGlassPill(
 }
 
 /** The Posts / Reposts / Likes kind row: All, Media, Text Posts — and, for
- *  Media and Text Posts, the round pill at the right (Both / Images /
- *  Videos, Both / Posts / Polls). */
+ *  Media, the round pill at the right: Images / Videos. Neither picked
+ *  shows both; picking one shows just that; tapping the picked one again
+ *  (or Media) goes back to both. */
 @Composable
 private fun PostKindRowWithFacets(selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit) {
     val parent = selected.profileParent()
-    val facets = facetsOf(parent)
+    val facets = if (parent == PostKindFilter.MEDIA) listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS) else emptyList()
     ProfileSubFilterRow(
         options = PROFILE_POST_KINDS, selected = parent,
         liquidGlass = liquidGlass, tint = tint, labelOf = { it.label() },
-        onSelect = { if (it != parent) onSelect(it) },
+        onSelect = { if (it != selected) onSelect(it) },
         trailing = if (facets.isEmpty()) null else ({
-            FacetPill(facets.map { it.facetLabel() }, facets.indexOf(selected).coerceAtLeast(0), liquidGlass, tint) { onSelect(facets[it]) }
+            FacetPill(facets.map { it.label() }, facets.indexOf(selected), liquidGlass, tint) { i ->
+                onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
+            }
         })
     )
 }
@@ -2415,7 +2531,7 @@ private fun FacetPill(labels: List<String>, selected: Int, liquidGlass: Boolean,
     // (The side list: a row of its own, full width.)
     val side = LocalSideList.current
     Row(
-        Modifier.then(if (side) Modifier.fillMaxWidth() else Modifier).height(IntrinsicSize.Min)
+        Modifier.then(if (side) Modifier.fillMaxWidth() else Modifier).height(FILTER_CHIP_HEIGHT)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = tint.copy(alpha = 0.7f), shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.08f))
@@ -2431,7 +2547,8 @@ private fun FacetPill(labels: List<String>, selected: Int, liquidGlass: Boolean,
                 Modifier.then(if (side) Modifier.weight(1f) else Modifier)
                     .background(if (on) Color.White.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { tap(); onSelect(i) }
-                    .padding(horizontal = 11.dp, vertical = 4.dp),
+                    .fillMaxHeight()
+                    .padding(horizontal = 11.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(label, color = if (on) Color.White else DimGray, fontSize = 11.sp,
@@ -2893,10 +3010,10 @@ private fun MediaItem.tileAspectRatio(): Float = when {
  *  just needs to be roughly proportional to how tall that bubble will
  *  actually end up, not exact. */
 private fun MediaItem.estimatedMasonryHeightUnits(): Float = if (isTextOnly && !isEmojiTextshot) {
-    // (The opened post's card, ~370 dp wide: at least 160 dp tall, its
-    // 19 sp lines plus padding past that — see TimelineShapedTextTile.)
+    // (The opened post's card, ~370 dp wide: its 19 sp lines plus
+    // padding — see TimelineShapedTextTile.)
     val lines = kotlin.math.ceil(text.length.coerceAtLeast(1) / 26f) + text.count { it == '\n' }
-    (maxOf(160f, lines * 26f + 52f) / 370f).coerceAtMost(1.6f)
+    ((lines * 26f + 52f) / 370f).coerceAtMost(1.6f)
 } else {
     1f / tileAspectRatio()
 }
@@ -3047,7 +3164,11 @@ private fun SwipeableThumbBox(
     // Keyed by the post: the masonry's tiles aren't, so when a page loads
     // a tile can be handed another post, and an unkeyed pager kept the old
     // post's page (clamped to this one's last picture).
-    val pagerState = key(item.id) { rememberPagerState(pageCount = { item.mediaGroup.size }) }
+    // (Plain remember, not rememberPagerState's saved state: a page saved for
+    // one tile came back on others — clamped to their last picture — so every
+    // multi-image tile on a profile jumped to its last image.)
+    val pageCount by androidx.compose.runtime.rememberUpdatedState(item.mediaGroup.size)
+    val pagerState = remember(item.id) { androidx.compose.foundation.pager.PagerState(currentPage = 0) { pageCount } }
     // Every image of the post is fetched as soon as the tile appears (not
     // only once it's swiped to), so paging through them is instant.
     val preloadContext = com.mediaviewer.ui.compat.LocalContext.current
@@ -3494,8 +3615,8 @@ private fun LazyListScope.postsHorizontalVideoRows(
  *  text as its title, who posted it, and its likes/replies. */
 /**
  * A text post in a Pinterest-style grid: the very card the post is when
- * it's opened (Timeline's TextOnlyPostCard — its width, its 160 dp least
- * height, its 19 sp centered words shrinking only when they'd run past the
+ * it's opened (Timeline's TextOnlyPostCard — its width, its padding, its
+ * 19 sp centered words shrinking only when they'd run past the
  * room between the author row and the bars), shrunk as a whole to fit the
  * column. So it's the same shape there as here — usually much shorter than
  * a plain bubble of the same words.
@@ -3512,7 +3633,8 @@ private fun TimelineShapedTextTile(item: MediaItem, liquidGlass: Boolean, tint: 
     val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
     Box(Modifier.fillMaxWidth().shrinkToWidth(cardWidth)) {
         Box(
-            Modifier.fillMaxWidth().heightIn(min = 160.dp)
+            // (No least height: the opened card wraps its words too.)
+            Modifier.fillMaxWidth()
                 .then(
                     if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = shape)
                     else Modifier.clip(shape).background(Color.White.copy(0.06f))

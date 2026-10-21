@@ -287,6 +287,7 @@ private enum class StatusUnit(val minutes: Long, val short: String, val label: S
 fun ProfileStatusEditor(
     did: String,
     current: ProfileStatus?, tint: Color, liquidGlass: Boolean,
+    selfAvatarUrl: String? = null,
     onPost: (text: String, minutes: Long) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit
@@ -305,6 +306,8 @@ fun ProfileStatusEditor(
     val currentEditable = remember(current, emojiStore.state) { current?.let { editable(it.text, it.emoji) } }
     var emojiOpen by remember { mutableStateOf(false) }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val statusFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val statusFieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val imeBottom = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current)
     var lastIme by remember { mutableStateOf(0) }
     LaunchedEffect(imeBottom) { if (imeBottom > lastIme && emojiOpen) emojiOpen = false; lastIme = imeBottom }
@@ -423,7 +426,10 @@ fun ProfileStatusEditor(
                             val next = (t.text.substring(0, a) + token + t.text.substring(b))
                             if (next.length <= STATUS_MAX_LENGTH) field = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(a + token.length))
                         },
-                        onEditingChange = {}, floating = true, fillWidth = true
+                        onEditingChange = {}, floating = true, fillWidth = true,
+                        // (Your accounts row too, as in DMs: Import sits there,
+                        // clear of the folders.)
+                        showAccounts = true, selfDid = did, selfAvatarUrl = selfAvatarUrl
                     )
                 }
             }
@@ -453,7 +459,8 @@ fun ProfileStatusEditor(
                 Circle(Modifier.clickable {
                     tap()
                     emojiOpen = !emojiOpen; durationOpen = false; historyOpen = false
-                    if (emojiOpen) keyboard?.hide() else keyboard?.show()
+                    if (emojiOpen) { statusFocusManager.clearFocus(); keyboard?.hide() }
+                    else { runCatching { statusFieldFocus.requestFocus() }; keyboard?.show() }
                 }) {
                     Icon(androidx.compose.material.icons.Icons.Default.Star, contentDescription = "Emoji", tint = if (emojiOpen) Color.White else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(22.dp))
                 }
@@ -472,7 +479,7 @@ fun ProfileStatusEditor(
                     ).padding(horizontal = 16.dp, vertical = 13.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+                    val focus = statusFieldFocus
                     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
                     var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                     val emojiState = emojiStore.state

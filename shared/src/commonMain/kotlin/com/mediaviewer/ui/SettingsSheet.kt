@@ -892,7 +892,7 @@ private fun AtProtocolPageContent(
         }
         }
         if (!hubSidebar) {
-            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
+            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             Spacer(Modifier.height(6.dp))
         }
     // At the very bottom of the Hub, a further swipe up returns to the

@@ -1498,6 +1498,30 @@ internal fun SettingsPageContent(
                         CompactSwitch(com.mediaviewer.util.LocalData.batterySaver) { com.mediaviewer.util.LocalData.updateBatterySaver(it) }
                     }
                 }
+                // How a profile's top is laid out in portrait (see
+                // UiToggles.profileLayout).
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    var layoutMenu by remember { mutableStateOf(false) }
+                    val currentLayout = com.mediaviewer.util.UiToggles.profileLayout
+                    BubbleRow {
+                        RowLabel("Profile Layout", Modifier.weight(1f))
+                        Box {
+                            Text(
+                                "Layout $currentLayout",
+                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { layoutMenu = true }
+                            )
+                            DropdownMenu(expanded = layoutMenu, onDismissRequest = { layoutMenu = false }) {
+                                (1..3).forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text("Layout $option", fontWeight = if (option == currentLayout) FontWeight.SemiBold else FontWeight.Normal) },
+                                        onClick = { com.mediaviewer.util.UiToggles.updateProfileLayout(option); layoutMenu = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 // Frame rate beside the camera cutout — see DebugOverlay.
                 ToggleBubble(
                     "FPS Overlay", com.mediaviewer.util.UiToggles.debugOverlay,

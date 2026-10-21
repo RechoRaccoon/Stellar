@@ -218,7 +218,6 @@ internal fun EmojiPanel(
 
     var editingId by remember { mutableStateOf<Int?>(null) }
     var editValue by remember { mutableStateOf(TextFieldValue("")) }
-    var importMenuOpen by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var ask by remember { mutableStateOf<EmojiAsk?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -246,17 +245,10 @@ internal fun EmojiPanel(
         }
     }
 
-    // Photos and videos (a video or animated GIF becomes an animated
-    // emoji), a file, or (Android) every picture in a folder. They land in
-    // the selected tab.
+    // Photos and videos, as many as you like (a video or animated GIF
+    // becomes an animated emoji). They land in the selected tab.
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris ->
         if (uris.isNotEmpty()) runImport { store.importImages(uris, selectedFolderId) }
-    }
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runImport { store.importImages(listOf(uri), selectedFolderId) }
-    }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) runImport { store.importTree(uri, selectedFolderId) }
     }
 
     // ── Press, hold and drag ──
@@ -431,36 +423,15 @@ internal fun EmojiPanel(
         fun ImportOrSave() {
             val acct = others
             if (acct == null) {
-                Box {
-                    PanelPill(
-                        liquidGlass = liquidGlass, tint = tint, shape = tabShape,
-                        onClick = { if (!importing) importMenuOpen = true }
-                    ) { PillLabel(if (importing) "Importing…" else "Import", selected = !importing) }
-                    if (importMenuOpen) {
-                        Popup(
-                            popupPositionProvider = ImportMenuPosition,
-                            onDismissRequest = { importMenuOpen = false },
-                            properties = PopupProperties(focusable = true)
-                        ) {
-                            Column(Modifier.width(196.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ImportMenuItem("Import photos & videos") {
-                                    importMenuOpen = false
-                                    mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                                }
-                                ImportMenuItem("Import file") {
-                                    importMenuOpen = false
-                                    filePicker.launch(arrayOf("image/*", "video/*"))
-                                }
-                                if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.ANDROID) {
-                                    ImportMenuItem("Import folder") {
-                                        importMenuOpen = false
-                                        folderPicker.launch(null)
-                                    }
-                                }
-                            }
-                        }
+                // Straight to your photos and videos: pick as many as you
+                // like and they're all added (a video or GIF becomes an
+                // animated emoji).
+                PanelPill(
+                    liquidGlass = liquidGlass, tint = tint, shape = tabShape,
+                    onClick = {
+                        if (!importing) mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                     }
-                }
+                ) { PillLabel(if (importing) "Importing…" else "Import", selected = !importing) }
             } else {
                 // Someone else's: Save keeps them in the accounts row.
                 val isSaved = EmojiAccounts.isSaved(selfDid, acct.did)
@@ -877,31 +848,3 @@ private fun EditableTabName(value: TextFieldValue, onValueChange: (TextFieldValu
     )
 }
 
-@Composable
-private fun ImportMenuItem(label: String, onClick: () -> Unit) {
-    val tap = rememberHapticTap()
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        Modifier.fillMaxWidth().clip(shape).background(Color(0xFF1E1E22))
-            .border(1.dp, Color.White.copy(alpha = 0.14f), shape)
-            .clickable { tap(); onClick() },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Text(
-            label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
-    }
-}
-
-/** Opens the Import menu just under its button, right-aligned to it (or
- *  above it when there's no room below). */
-private object ImportMenuPosition : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize
-    ): IntOffset {
-        val below = anchorBounds.bottom + 8
-        val y = if (below + popupContentSize.height > windowSize.height) (anchorBounds.top - 8 - popupContentSize.height).coerceAtLeast(0) else below
-        return IntOffset((anchorBounds.right - popupContentSize.width).coerceAtLeast(0), y)
-    }
-}

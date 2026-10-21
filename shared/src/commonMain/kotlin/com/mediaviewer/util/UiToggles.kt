@@ -23,6 +23,7 @@ object UiToggles {
     private const val KEY_SHOW_TAGGING_STATUS = "show_tagging_status"
     private const val KEY_TAG_WHEN_VIEWED = "tag_when_viewed"
     private const val KEY_SQUARE_CORNERS = "square_corners"
+    private const val KEY_PROFILE_LAYOUT = "profile_layout"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
     private const val KEY_AUDIO_VISUALIZER = "audio_visualizer"
@@ -87,6 +88,14 @@ object UiToggles {
      *  corner in the app is square (see ui/theme/Shapes.kt) — profile icons
      *  and the camera notch bubble stay round. */
     var squareCorners by mutableStateOf(false)
+        private set
+    /** Settings → Dev Tools → Profile Layout (portrait profiles):
+     *  1 — the name pills, picture and Follow over the banner;
+     *  2 — the banner from the very top of the screen, its picture and name
+     *      pills in a row of their own under it, Follow up by Back;
+     *  3 — like 2, but the name above the picture, which sits centered on
+     *      the banner's bottom edge, and the handle below it. */
+    var profileLayout by mutableStateOf(1)
         private set
 
     /** Settings → App Functionality → "Show Translation Status" (under
@@ -377,6 +386,7 @@ object UiToggles {
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
+        profileLayout = p.getInt(KEY_PROFILE_LAYOUT, 1).coerceIn(1, 3)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
             ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
@@ -508,6 +518,11 @@ object UiToggles {
     fun updateShowTaggingStatus(enabled: Boolean) {
         showTaggingStatus = enabled
         prefs?.edit()?.putBoolean(KEY_SHOW_TAGGING_STATUS, enabled)?.apply()
+    }
+
+    fun updateProfileLayout(layout: Int) {
+        profileLayout = layout.coerceIn(1, 3)
+        prefs?.edit()?.putInt(KEY_PROFILE_LAYOUT, profileLayout)?.apply()
     }
 
     fun updateSquareCorners(enabled: Boolean) {

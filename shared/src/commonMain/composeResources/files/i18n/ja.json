@@ -1996,5 +1996,7 @@
 "This device has no sync key": "このデバイスには同期キーがありません",
 "Your data is encrypted again with a new key and the old copy is deleted. Your other devices will need the new key.": "データは新しいキーで暗号化し直され、古いコピーは削除されます。他のデバイスでは新しいキーが必要になります。",
 "Your data is encrypted with this new key and the old copy is gone. Your other devices will ask for it the next time they sync. Don't show it to anyone.": "データはこの新しいキーで暗号化され、古いコピーは削除されました。他のデバイスは次に同期するときにこのキーを求めます。誰にも見せないでください。",
-"Your sync key was changed on another device": "同期キーが別のデバイスで変更されました"
+"Your sync key was changed on another device": "同期キーが別のデバイスで変更されました",
+"Layout {0}": "レイアウト {0}",
+"Profile Layout": "プロフィールのレイアウト"
 }

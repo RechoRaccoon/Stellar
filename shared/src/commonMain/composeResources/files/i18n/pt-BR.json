@@ -1996,5 +1996,7 @@
 "This device has no sync key": "Este dispositivo não tem chave de sincronização",
 "Your data is encrypted again with a new key and the old copy is deleted. Your other devices will need the new key.": "Seus dados são criptografados de novo com uma nova chave e a cópia antiga é apagada. Seus outros dispositivos vão precisar da nova chave.",
 "Your data is encrypted with this new key and the old copy is gone. Your other devices will ask for it the next time they sync. Don't show it to anyone.": "Seus dados estão criptografados com esta nova chave e a cópia antiga não existe mais. Seus outros dispositivos vão pedir por ela na próxima sincronização. Não mostre a ninguém.",
-"Your sync key was changed on another device": "Sua chave de sincronização foi alterada em outro dispositivo"
+"Your sync key was changed on another device": "Sua chave de sincronização foi alterada em outro dispositivo",
+"Layout {0}": "Layout {0}",
+"Profile Layout": "Layout do perfil"
 }

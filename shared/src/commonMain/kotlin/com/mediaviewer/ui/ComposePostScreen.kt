@@ -725,6 +725,8 @@ fun ComposePostScreen(
             keyboardController?.show()
         } else {
             emojiPanelOpen = true
+            // (Focus goes too, so the keyboard can't come back and close it.)
+            focusManager.clearFocus()
             keyboardController?.hide()
         }
     }

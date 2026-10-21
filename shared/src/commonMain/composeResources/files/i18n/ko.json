@@ -1996,5 +1996,7 @@
 "This device has no sync key": "이 기기에는 동기화 키가 없어요",
 "Your data is encrypted again with a new key and the old copy is deleted. Your other devices will need the new key.": "데이터가 새 키로 다시 암호화되고 이전 사본은 삭제돼요. 다른 기기에는 새 키가 필요해요.",
 "Your data is encrypted with this new key and the old copy is gone. Your other devices will ask for it the next time they sync. Don't show it to anyone.": "데이터가 이 새 키로 암호화되었고 이전 사본은 삭제되었어요. 다른 기기는 다음 동기화 때 이 키를 물어볼 거예요. 아무에게도 보여주지 마세요.",
-"Your sync key was changed on another device": "다른 기기에서 동기화 키가 변경되었어요"
+"Your sync key was changed on another device": "다른 기기에서 동기화 키가 변경되었어요",
+"Layout {0}": "레이아웃 {0}",
+"Profile Layout": "프로필 레이아웃"
 }
