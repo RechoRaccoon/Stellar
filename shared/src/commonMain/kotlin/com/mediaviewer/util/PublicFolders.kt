@@ -38,6 +38,8 @@ object PublicFolders {
         suspend fun delete(rkey: String)
     }
     var remote: Remote? = null
+    /** Tells the person a folder couldn't be published (set by the ViewModel). */
+    var onError: ((String) -> Unit)? = null
 
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val pending = HashMap<String, Job>()
@@ -59,25 +61,38 @@ object PublicFolders {
         )
         // (Only a picture that's already public: never a file from this device.)
         folder.cover?.takeIf { it.startsWith("https://") }?.let { record["cover"] = it }
-        later(folder.id) { r.put(folder.id, record) }
-        val mine = byAccount[r.did]
-        if (mine != null) byAccount[r.did] = mine.filterNot { it.rkey == folder.id } +
-            Folder(folder.id, r.did, folder.name, folder.posts, record["cover"] as? String, folder.updatedAt)
+        later(folder.id, "Couldn't publish \"${folder.name}\"") { r.put(folder.id, record) }
+        byAccount[r.did] = mine(r.did)
+    }
+
+    /** Your own public folders, straight from this device: they show on your
+     *  profile (and in your Home feeds) at once, whatever the PDS has yet. */
+    private fun mine(did: String): List<Folder> = LocalData.bookmarkFolders.filter { it.public }.map { f ->
+        Folder(f.id, did, f.name, f.posts, f.cover?.takeIf { it.startsWith("https://") }, maxOf(f.updatedAt, f.createdAt))
     }
 
     /** Takes [id]'s public copy down (it went private, or was deleted). */
     fun unpublish(id: String) {
         val r = remote ?: return
-        later(id) { r.delete(id) }
-        byAccount[r.did]?.let { list -> byAccount[r.did] = list.filterNot { it.rkey == id } }
+        later(id, "Couldn't make that folder private on your PDS") { r.delete(id) }
+        byAccount[r.did] = mine(r.did).filterNot { it.rkey == id }
     }
 
-    private fun later(id: String, write: suspend () -> Unit) {
+    private fun later(id: String, failure: String, write: suspend () -> Unit) {
         com.mediaviewer.platform.synchronizedCompat(pending) {
             pending.remove(id)?.cancel()
             pending[id] = scope.launch {
                 delay(1500)
-                if (PrivateSync.WriteBudget.take(1)) runCatching { write() }
+                // (A failed write is tried twice more, then said out loud —
+                // it used to be dropped silently, so a folder could stay off
+                // your profile with nothing to show why.)
+                var last: Throwable? = null
+                for (attempt in 0 until 3) {
+                    if (!PrivateSync.WriteBudget.take(1)) { last = IllegalStateException("Too many writes this hour"); break }
+                    last = runCatching { write() }.exceptionOrNull() ?: break
+                    delay(4000L * (attempt + 1))
+                }
+                last?.let { e -> onError?.invoke("$failure: ${e.message ?: "unknown error"}") }
                 com.mediaviewer.platform.synchronizedCompat(pending) { pending.remove(id) }
             }
         }
@@ -86,6 +101,7 @@ object PublicFolders {
     /** [did]'s public folders, newest first, straight from their own PDS
      *  (remembered this session; [fresh] reads again). */
     suspend fun load(did: String, fresh: Boolean = false): List<Folder> {
+        if (did == remote?.did) return mine(did).also { byAccount[did] = it }
         if (!fresh) byAccount[did]?.let { return it }
         val list = runCatching { read(did) }.getOrNull() ?: return byAccount[did].orEmpty()
         byAccount[did] = list

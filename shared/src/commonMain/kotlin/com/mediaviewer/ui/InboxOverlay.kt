@@ -21,6 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -143,6 +147,12 @@ fun InboxOverlay(
                 }
                 else -> {
                     val listState = rememberLazyListState()
+                    // Opens at the top every time: newer notifications that
+                    // arrive after it opens would otherwise push the list down
+                    // (a list keeps its place on the item it showed first).
+                    // Once it's been touched, it's left where it's put.
+                    var touched by remember { mutableStateOf(false) }
+                    LaunchedEffect(items.firstOrNull()?.key) { if (!touched) listState.scrollToItem(0) }
                     LaunchedEffect(listState, items.size, loading) {
                         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
                             .collect { last -> if (last >= items.size - 5) onLoadMore() }
@@ -150,7 +160,9 @@ fun InboxOverlay(
                     // (Landscape: the cards in a column of a comfortable width.)
                     val side = rememberLandscapeSidePadding()
                     LazyColumn(
-                        Modifier.fillMaxSize(), state = listState,
+                        Modifier.fillMaxSize().pointerInput(Unit) {
+                            awaitEachGesture { awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial); touched = true }
+                        }, state = listState,
                         contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 12.dp, bottom = 40.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {

@@ -6430,6 +6430,7 @@ class MainViewModel(
             override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putProfileHomeFeed(bskyToken, _bskyDid.value, rkey, record) }
             override suspend fun delete(rkey: String) = signedIn { bskyRepo.deleteProfileHomeFeed(bskyToken, _bskyDid.value, rkey) }
         }
+        com.mediaviewer.util.PublicFolders.onError = { msg -> _errorMessage.value = msg }
         // Status history lives on your own PDS (one record per status).
         com.mediaviewer.util.StatusHistory.remote = object : com.mediaviewer.util.StatusHistory.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {
@@ -7879,6 +7880,7 @@ class MainViewModel(
         viewModelScope.launch(ioDispatcher) {
             com.mediaviewer.util.PostArchive.init(platform.context)
             var done = 0
+            var replies = 0
             val gone = HashSet<String>()
             for (item in mine) {
                 // (A reply already archived with its parent above is skipped.)
@@ -7890,14 +7892,20 @@ class MainViewModel(
                 r.onSuccess { archived ->
                     withContext(Dispatchers.Main) { com.mediaviewer.util.PostArchive.add(archived) }
                     gone += item.postUri; archived.thread.forEach { gone += it.uri }
-                    done++
+                    done++; replies += archived.thread.size
                 }.onFailure { _errorMessage.value = "Couldn't archive a post: ${it.message}" }
                 // (Gently: each archive is several reads and writes on your PDS.)
                 kotlinx.coroutines.delay(400)
             }
             withContext(Dispatchers.Main) { dropPosts(gone) }
             _archiveBusy.value = false
-            showToast("$done post${if (done == 1) "" else "s"} archived")
+            // (Same wording as archiving one post, counting the replies that went with them.)
+            showToast(when {
+                done == 1 && replies == 0 -> "Post archived"
+                done == 1 -> "Post and $replies replies archived"
+                replies == 0 -> "$done posts archived"
+                else -> "$done posts and $replies replies archived"
+            })
             withContext(Dispatchers.Main) { refreshProfileAfterEdit() }
         }
     }
@@ -9951,8 +9959,10 @@ class MainViewModel(
         val out = ArrayList<MediaItem>()
         var rounds = 0
         // A page can filter down to nothing (e.g. a videos-only feed): keep
-        // reading a little further rather than showing an empty feed.
-        while (out.size < 12 && rounds < 4 && cursors.any { it != "!" }) {
+        // reading a little further rather than showing an empty feed — but
+        // as soon as a round has anything to show, it's shown (waiting for a
+        // full page made rows take several round trips to appear).
+        while ((out.isEmpty() || (rounds == 0)) && rounds < 4 && cursors.any { it != "!" }) {
             rounds++
             val pages = coroutineScope {
                 sources.mapIndexed { i, src ->
@@ -9996,7 +10006,21 @@ class MainViewModel(
 
     /** The posts a link-based source holds: a tag's matches in the tag
      *  database, one of your folders, or someone's public folder. */
-    private suspend fun feedSourceUris(src: com.mediaviewer.util.LocalFeedSource): List<String> = when (src.kind) {
+    private suspend fun feedSourceUris(src: com.mediaviewer.util.LocalFeedSource): List<String> {
+        // (A tag search, or someone else's folder off their PDS, is read once
+        // per 10 minutes, not again for every page. Your own folders are on
+        // this device, and are read fresh so a post you just saved shows.)
+        if (src.kind == "folder" || (src.kind == "publicFolder" && src.value.startsWith(_bskyDid.value + "/"))) return readFeedSourceUris(src)
+        val key = src.kind + ":" + src.value
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        com.mediaviewer.platform.synchronizedCompat(sourceUriCache) { sourceUriCache[key] }?.takeIf { now - it.first < 10 * 60_000L }?.let { return it.second }
+        val uris = readFeedSourceUris(src)
+        com.mediaviewer.platform.synchronizedCompat(sourceUriCache) { sourceUriCache[key] = now to uris }
+        return uris
+    }
+    private val sourceUriCache = HashMap<String, Pair<Long, List<String>>>()
+
+    private suspend fun readFeedSourceUris(src: com.mediaviewer.util.LocalFeedSource): List<String> = when (src.kind) {
         "tag" -> runCatching { taggingRepo.search(src.value) }.getOrDefault(emptyList())
         "folder" -> com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == src.value }?.posts.orEmpty()
         "publicFolder" -> {

@@ -4619,18 +4619,29 @@ class BlueskyRepository {
      *  down (a reply by someone else ends that branch): the self-thread
      *  chains hanging off the post. Parents before their replies. */
     private suspend fun ownRepliesUnder(token: String, did: String, uri: String): List<String> {
-        val resp = api.getPostThread("Bearer $token", uri, 1000)
-        val root = resp.body()?.thread ?: return emptyList()
         val out = ArrayList<String>()
-        fun walk(view: BskyThreadView) {
-            for (r in view.replies.orEmpty()) {
-                val post = r.post ?: continue
-                if (post.author.did != did || post.uri.isBlank() || post.uri in out) continue
-                out += post.uri
-                walk(r)
+        val seen = HashSet<String>()
+        // A thread read only reaches so deep (the AppView cuts a long chain
+        // short — a 40-post chain came back as 10), so wherever one of your
+        // replies has replies the read didn't include, it's read again from
+        // there, until the whole chain is in.
+        val pending = ArrayDeque<String>().apply { add(uri) }
+        var reads = 0
+        while (pending.isNotEmpty() && reads < 60) {
+            val from = pending.removeFirst()
+            reads++
+            val root = runCatching { api.getPostThread("Bearer $token", from, 1000).body()?.thread }.getOrNull() ?: continue
+            fun walk(view: BskyThreadView) {
+                val replies = view.replies.orEmpty()
+                val mine = replies.mapNotNull { r -> r.post?.takeIf { it.author.did == did && it.uri.isNotBlank() }?.let { r to it } }
+                for ((r, post) in mine) {
+                    if (!seen.add(post.uri)) continue
+                    out += post.uri
+                    if (r.replies.isNullOrEmpty() && (post.replyCount ?: 0) > 0) pending.addLast(post.uri) else walk(r)
+                }
             }
+            walk(root)
         }
-        walk(root)
         return out
     }
 

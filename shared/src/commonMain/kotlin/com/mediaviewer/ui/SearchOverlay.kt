@@ -1268,7 +1268,8 @@ private fun SearchAllResults(
             contentPadding = PaddingValues(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(items.size, key = { "all_thumb_" + items[it].id }) { i ->
+            // (Keyed by place too: two posts can share one picture, and so an id.)
+            items(items.size, key = { "all_thumb_${it}_" + items[it].id }) { i ->
                 val item = items[i]
                 val shape = RoundedCornerShape(14.dp)
                 Box(
@@ -1310,7 +1311,8 @@ private fun SearchAllResults(
                         val a = state.accounts[i].author
                         val ring = rememberAuthorProfileTint(a.did, a.avatarUrl)
                         Column(
-                            Modifier.width(78.dp).clip(RoundedCornerShape(14.dp)).clickable { tap(); onOpenAccount(a) }.padding(vertical = 4.dp),
+                            // (No padding under it: the gap to the next row matches the others'.)
+                            Modifier.width(78.dp).clip(RoundedCornerShape(14.dp)).clickable { tap(); onOpenAccount(a) }.padding(top = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
@@ -1328,7 +1330,7 @@ private fun SearchAllResults(
                                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)
                             )
                             Text(
-                                "@" + a.handle, color = DimGray, fontSize = 10.sp,
+                                "@" + a.handle, color = DimGray, fontSize = 10.sp, lineHeight = 12.sp,
                                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
@@ -1338,16 +1340,16 @@ private fun SearchAllResults(
         }
         if (state.posts.isNotEmpty()) {
             item(key = "all_posts_h") { Header("Posts", onAll = { onSeeAll(MainViewModel.SearchFilter.POSTS) }) }
-            item(key = "all_posts") { Thumbs(state.posts.take(20), onOpenPost) }
+            item(key = "all_posts") { Thumbs(state.posts.distinctBy { it.postUri.ifBlank { it.id } }.take(20), onOpenPost) }
         }
         val tag = state.allTag
         if (tag != null && state.allTagged.isNotEmpty()) {
             item(key = "all_tagged_h") { Header("Tagged", sub = tag.replace('_', ' '), onAll = { onOpenTag(tag) }) }
-            item(key = "all_tagged") { Thumbs(state.allTagged) { onOpenTag(tag) } }
+            item(key = "all_tagged") { Thumbs(state.allTagged.distinctBy { it.postUri.ifBlank { it.id } }) { onOpenTag(tag) } }
         }
         if (state.feeds.isNotEmpty()) {
             item(key = "all_feeds_h") { Header("Feeds", onAll = if (state.feeds.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.FEEDS) }) else null) }
-            state.feeds.take(3).forEach { feed ->
+            state.feeds.distinctBy { it.uri }.take(3).forEach { feed ->
                 item(key = "all_feed_" + feed.uri) {
                     val entry = remember(feed) {
                         com.mediaviewer.model.ProfileListEntry(
@@ -1371,7 +1373,7 @@ private fun SearchAllResults(
         }
         if (state.starterPacks.isNotEmpty()) {
             item(key = "all_packs_h") { Header("Starter Packs", onAll = if (state.starterPacks.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.STARTER_PACKS) }) else null) }
-            state.starterPacks.take(3).forEach { pack ->
+            state.starterPacks.distinctBy { it.uri }.take(3).forEach { pack ->
                 item(key = "all_pack_" + pack.uri) {
                     val entry = remember(pack) {
                         com.mediaviewer.model.ProfileListEntry(
