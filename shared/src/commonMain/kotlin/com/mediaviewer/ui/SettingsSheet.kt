@@ -1543,10 +1543,12 @@ private fun AtProtocolPageContent(
                     }
                 }
             ) { feed ->
-                Box(Modifier.fillMaxWidth()) {
-                    SideListButton(
-                        feed.displayName, selected = feed.uri == highlightedFeedUri && !authorChipSelected,
-                        liquidGlass = liquidGlass, tint = dominantColor, iconUrl = feed.avatarUrl, small = true
+                Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    // The Hub's own feed chip (the size the feeds are
+                    // everywhere else), a whole row wide.
+                    FeedChip(
+                        feed.displayName, feed.avatarUrl, isSelected = feed.uri == highlightedFeedUri && !authorChipSelected,
+                        liquidGlass = liquidGlass, dominantColor = dominantColor, modifier = Modifier.fillMaxWidth()
                     ) { onSelectFeed(feed.uri) }
                     // Pin / unpin, at the far right.
                     val pinned = feed.pinned
@@ -1582,7 +1584,9 @@ private fun AtProtocolPageContent(
             PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
-                ButtonsSection()
+                // (The Launchpad at its normal size: drawn smaller to fit a
+                // narrow side list, never squeezed.)
+                Box(Modifier.fillMaxWidth().fitMinWidth(HUB_SIDEBAR_NORMAL_WIDTH)) { Column { ButtonsSection() } }
                 SidebarFeeds()
                 Spacer(Modifier.height(8.dp))
             }
@@ -1591,7 +1595,7 @@ private fun AtProtocolPageContent(
                 HubRemoveDropTarget(feedDrag, liquidGlass, visible = feedDrag.sideActive, tint = dominantColor)
             }
             Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(top = 6.dp)) { HubSizeSlider(dominantColor) }
-            Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
+            Box(Modifier.fillMaxWidth().fitMinWidth(HUB_SIDEBAR_NORMAL_WIDTH).padding(horizontal = 4.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
         }
         SideListEdge(dominantColor)
     }
@@ -3672,3 +3676,7 @@ internal fun HubRowHeader(label: String, tint: Color) {
         HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
     }
 }
+
+/** The width the Hub's Launchpad and Timeline / Explore bar are laid out
+ *  at in the landscape side list (their portrait size; see fitMinWidth). */
+private val HUB_SIDEBAR_NORMAL_WIDTH = 330.dp

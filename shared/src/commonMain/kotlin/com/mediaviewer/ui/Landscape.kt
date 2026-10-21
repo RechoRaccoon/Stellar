@@ -265,6 +265,33 @@ fun Modifier.sideListScaled(): Modifier = this
     .drawnAtScale { com.mediaviewer.util.UiToggles.sideListScale }
 
 /**
+ * Lays the content out at least [min] wide: in a narrower space it keeps
+ * its normal size and proportions and is drawn smaller as a whole to fit
+ * (rather than squeezed — buttons crushing their labels); in a space at
+ * least that wide it's laid out as usual, so widening never enlarges it.
+ */
+fun Modifier.fitMinWidth(min: androidx.compose.ui.unit.Dp): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val minPx = min.roundToPx()
+        val w = constraints.maxWidth
+        if (w == androidx.compose.ui.unit.Constraints.Infinity || w >= minPx) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val s = w.toFloat() / minPx
+            val p = measurable.measure(constraints.copy(minWidth = minPx, maxWidth = minPx, minHeight = 0,
+                maxHeight = if (constraints.maxHeight == androidx.compose.ui.unit.Constraints.Infinity) constraints.maxHeight else (constraints.maxHeight / s).toInt()))
+            layout(w, (p.height * s).toInt()) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = s; scaleY = s
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
+
+/**
  * Lays the content out as if it had 1/[scale] of the room and draws it
  * [scale] times as big, from the top left — so everything in it grows or
  * shrinks together and still fills exactly the same space. Read in layout,

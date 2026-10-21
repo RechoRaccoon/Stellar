@@ -586,3 +586,6 @@ Stellar-emojis.zip
 simpleOSFeed_{0}.{1}
 Range
 bytes=0-15
+Noto Sans Bamum
+Noto Sans Symbols
+Noto Sans Symbols 2

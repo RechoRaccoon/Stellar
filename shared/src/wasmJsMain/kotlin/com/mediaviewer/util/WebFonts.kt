@@ -24,6 +24,14 @@ object WebFonts {
     val LATIN = WebFont("Noto Sans", "NotoSans-Regular.ttf")
     val LATIN_BOLD = WebFont("Noto Sans Bold", "NotoSans-Bold.ttf")
     val EMOJI = WebFont("Noto Color Emoji", "NotoColorEmoji.ttf")
+    /** Symbols people put in their names (★ ✮ ⛧ ♰ …) and the Bamum
+     *  Supplement letters some use as decorations (𖤐), which Noto Sans
+     *  itself doesn't have — small fonts, loaded with the rest. */
+    val SYMBOLS = listOf(
+        WebFont("Noto Sans Symbols", "NotoSansSymbols-Regular.ttf"),
+        WebFont("Noto Sans Symbols 2", "NotoSansSymbols2-Regular.ttf"),
+        WebFont("Noto Sans Bamum", "NotoSansBamum-Regular.ttf"),
+    )
     private val CJK = mapOf(
         "ja" to WebFont("Noto Sans CJK JP", "NotoSansCJKjp-Regular.otf"),
         "ko" to WebFont("Noto Sans CJK KR", "NotoSansCJKkr-Regular.otf"),

@@ -90,6 +90,8 @@ private fun WebFontsLoader() {
             snapshotFlow { Translations.language.code }.collect { code -> if (WebFonts.isCjk(code)) use(WebFonts.cjkFor(code)) }
         }
         use(WebFonts.EMOJI)
+        // (Small: the symbols and decorations in people's names, like 𖤐.)
+        WebFonts.SYMBOLS.forEach { use(it) }
         // (Everything else a little later, so the first screen isn't kept waiting.)
         delay(4_000)
         use(WebFonts.LATIN_BOLD)
