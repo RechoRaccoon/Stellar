@@ -167,6 +167,9 @@ fun LocalOverlayHost(
     }
 
     // ── Selection mode's bar (over the page whose posts are picked) ──
+    val roundedTiles by viewModel.squareGridRounded.collectAsState()
+    androidx.compose.runtime.SideEffect { LocalOverlays.roundedGridTiles = roundedTiles }
+
     // Selection mode's buttons (in the page's own interaction bar — see
     // SelectionBarButtons): the app's own Save, Download, GIF, Share,
     // Archive and Delete, on every picked post.
@@ -237,7 +240,7 @@ fun LocalOverlayHost(
             onlyPublicFolders = LocalOverlays.feedBuilderForHome,
             onSave = if (LocalOverlays.feedBuilderForHome) com.mediaviewer.util.ProfileHome::save else null,
             onDelete = if (LocalOverlays.feedBuilderForHome) ({ f -> com.mediaviewer.util.ProfileHome.delete(f.id) }) else null,
-            title = if (LocalOverlays.feedBuilderForHome) "Home Tab Feed" else "Feed Builder",
+            title = if (LocalOverlays.feedBuilderForHome) "Home Tab Feed" else "Feed Creator",
             // A feed that's open while it's edited reloads with its new contents;
             // one made or edited from the Hub is (and stays) a Hub row.
             onSaved = { saved ->

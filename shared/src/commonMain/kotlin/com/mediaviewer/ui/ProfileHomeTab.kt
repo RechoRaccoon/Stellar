@@ -61,10 +61,10 @@ internal fun LazyListScope.profileHomeRows(
     onOpenPost: (String, Int) -> Unit
 ) {
     val customizing = own && ProfileHomeTab.customizing[did] == true
-    if (feeds.isEmpty()) item(key = "home_empty") {
+    // (Your own empty Home tab is just its Create button.)
+    if (feeds.isEmpty() && !own) item(key = "home_empty") {
         Text(
-            if (own) "Feeds you add to your Home tab show first on your profile, for everyone to see."
-            else "Nothing here yet",
+            "Nothing here yet",
             color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 24.dp)
         )
@@ -83,23 +83,24 @@ internal fun LazyListScope.profileHomeRows(
                     onLoad = { LocalOverlays.loadFeedRow?.invoke(key, feed, false) },
                     onLoadMore = { LocalOverlays.loadFeedRow?.invoke(key, feed, true) },
                     onOpenPost = { i -> onOpenPost(key, i) },
-                    onOpenProfile = { a -> LocalOverlays.openProfile?.invoke(a) },
-                    onEdit = if (own) ({ openHomeBuilder(feed) }) else null
+                    onOpenProfile = { a -> LocalOverlays.openProfile?.invoke(a) }
+                    // (Editing is in Customize Home Tab, like Customize Hub.)
                 )
             }
         }
     }
     if (own) item(key = "home_customize") {
+        // Buttons their own size, centered (not stretched across the page).
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
         ) {
             if (customizing || feeds.isEmpty()) LocalPillButton(
-                "Add Feed", liquidGlass, tint, { openHomeBuilder(LocalFeed()) }, Modifier.weight(1f)
+                "Create", liquidGlass, tint, { openHomeBuilder(LocalFeed()) }
             )
             if (feeds.isNotEmpty()) LocalPillButton(
                 if (customizing) "Done" else "Customize Home Tab", liquidGlass, tint,
-                { ProfileHomeTab.customizing[did] = !customizing }, Modifier.weight(1f)
+                { ProfileHomeTab.customizing[did] = !customizing }
             )
         }
     }

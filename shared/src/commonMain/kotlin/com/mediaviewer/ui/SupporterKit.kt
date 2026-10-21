@@ -116,17 +116,23 @@ fun LocalPopup(
     /** A live backdrop to blur (a page that records one); without it the
      *  popup relies on whatever is behind it already being blurred. */
     backdrop: GlassBackdrop? = null,
+    /** False: only the X (or Back) closes it, not a tap outside. */
+    dismissOnOutsideTap: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
+    // With the keyboard up it sits just above it, instead of keeping its
+    // usual margin there (that left a big gap between it and the keys).
+    val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 480f)) }
     Box(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (dismissOnOutsideTap) onClose() }
             .imePadding()
-            .padding(horizontal = 14.dp, vertical = 40.dp),
+            .padding(horizontal = 14.dp)
+            .padding(top = 40.dp, bottom = if (keyboardUp) 8.dp else 40.dp),
         contentAlignment = Alignment.Center
     ) {
         PopupSheetSurface(

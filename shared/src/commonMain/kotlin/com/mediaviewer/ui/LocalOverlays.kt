@@ -72,6 +72,9 @@ object LocalOverlays {
     var feedBuilderForHome by mutableStateOf(false)
     /** Opens someone's profile (a Home tab row's picture). */
     var openProfile: ((AuthorInfo) -> Unit)? = null
+    /** Settings → rounded square-grid tiles (for tiles drawn outside the
+     *  pages that are handed it, like built feed rows). */
+    var roundedGridTiles by mutableStateOf(false)
     /** Selection mode's actions (see SelectionBarButtons). */
     var selection: SelectionActions? = null
     /** Opens a blog / review shown in a built feed's row (as the Hub does). */

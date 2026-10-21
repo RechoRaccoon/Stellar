@@ -2438,7 +2438,16 @@ internal fun CustomizeHubSection(
                     }
                     HubRowBubble(
                         row = row, handle = handle, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                        onEdit = if (row.isProfiles) ({ editingProfilesRow = row }) else null
+                        // A built feed's edit (the round pencil) is here, not on the Hub's row.
+                        onEdit = when {
+                            row.isProfiles -> ({ editingProfilesRow = row })
+                            row.isFeed -> ({
+                                com.mediaviewer.util.LocalData.localFeed(com.mediaviewer.util.LocalData.LOCAL_FEED_PREFIX + row.feedId)?.let { feed ->
+                                    LocalOverlays.feedBuilderForHub = true; LocalOverlays.feedBuilder = feed
+                                }
+                            })
+                            else -> null
+                        }
                     )
                 }
             }

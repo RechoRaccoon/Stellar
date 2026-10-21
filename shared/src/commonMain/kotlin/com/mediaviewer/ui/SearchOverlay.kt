@@ -1272,9 +1272,10 @@ private fun SearchAllResults(
             items(items.size, key = { "all_thumb_${it}_" + items[it].id }) { i ->
                 val item = items[i]
                 val shape = RoundedCornerShape(14.dp)
+                val itemTint = if (item.isTextOnly) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
                 Box(
                     Modifier.size(width = size, height = size * 1.25f).clip(shape)
-                        .background(Color.White.copy(alpha = 0.06f))
+                        .then(if (item.isTextOnly) Modifier.textPostFill(itemTint, shape) else Modifier.background(Color.White.copy(alpha = 0.06f)))
                         .clickable { tap(); onOpen(item) }
                 ) {
                     val thumb = item.thumbUrl.ifBlank { item.mediaUrl }

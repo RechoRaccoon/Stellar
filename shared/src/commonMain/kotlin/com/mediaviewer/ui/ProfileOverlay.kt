@@ -3377,10 +3377,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
             Box(contentModifier.background(OledBlack).padding(5.dp)) {
                 Box(
                     Modifier.fillMaxSize()
-                        .then(
-                            if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = bubbleShape)
-                            else Modifier.clip(bubbleShape).background(androidx.compose.ui.graphics.lerp(OledBlack, authorTint, 0.35f))
-                        )
+                        .textPostFill(authorTint, bubbleShape)
                         .clip(bubbleShape)
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
@@ -3993,7 +3990,12 @@ private fun VideoCard(item: MediaItem, tint: Color, liquidGlass: Boolean, modifi
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(item.author.displayName.ifBlank { item.author.handle }, color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${item.likeCount} likes · ${item.replyCount} replies", color = DimGray, fontSize = 12.sp, maxLines = 1)
+                // Likes and when it was posted, like a video site's card.
+                val date = item.createdAt?.let { com.mediaviewer.util.formatRelativeTime(it) }.orEmpty()
+                Text(
+                    if (date.isNotBlank()) "${item.likeCount} likes · $date" else "${item.likeCount} likes",
+                    color = DimGray, fontSize = 12.sp, maxLines = 1
+                )
             }
         }
     }
@@ -4061,10 +4063,7 @@ fun HubPostTile(item: MediaItem, tint: Color, liquidGlass: Boolean, height: Dp, 
         val tap = rememberHapticTap()
         Box(
             Modifier.width(hubPostTileWidth(item, height)).height(height)
-                .then(
-                    if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = shape)
-                    else Modifier.clip(shape).background(Color.White.copy(0.06f))
-                )
+                .textPostFill(authorTint, shape)
                 .clip(shape)
                 .clickable { tap(); onClick() }
                 .padding(10.dp)

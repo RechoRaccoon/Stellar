@@ -448,7 +448,7 @@ fun FeedBuilderPopup(
     onlyPublicFolders: Boolean = false,
     onSave: ((LocalFeed) -> LocalFeed)? = null,
     onDelete: ((LocalFeed) -> Unit)? = null,
-    title: String = "Feed Builder"
+    title: String = "Feed Creator"
 ) {
     val tap = rememberHapticTap()
     val editing = initial.id.isNotBlank()
@@ -518,7 +518,8 @@ fun FeedBuilderPopup(
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { content() }
     }
 
-    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop) {
+    // (Only the X closes it: a stray tap outside would lose the feed.)
+    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop, dismissOnOutsideTap = false) {
         Column(
             Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -572,7 +573,7 @@ fun FeedBuilderPopup(
                     "folders" -> {
                         val folders = LocalData.bookmarkFolders.filter { !onlyPublicFolders || it.public }
                         if (folders.isEmpty()) Text(
-                            if (onlyPublicFolders) "No public folders yet. Make one public in Saved Posts." else "No folders yet. Make one from Saved Posts.",
+                            if (onlyPublicFolders) "No public folders yet" else "No folders yet",
                             color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp
                         )
                         folders.forEach { f ->
@@ -637,8 +638,8 @@ fun FeedBuilderPopup(
             Card("Layout", "How it looks as a row.") {
                 Chips {
                     listOf(
-                        "natural" to "As Posted", "square" to "Squares", "tiktok" to "Tall (TikTok)",
-                        "youtube" to "Wide (YouTube)", "avatars" to "Profile Pictures"
+                        "natural" to "As Posted", "square" to "Squares", "tiktok" to "Portrait",
+                        "youtube" to "Horizontal", "avatars" to "Profiles Only"
                     ).forEach { (id, label) -> LocalChip(label, style == id, tint, { style = id }) }
                 }
                 if (style != "avatars") Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -657,7 +658,8 @@ fun FeedBuilderPopup(
                         onDeleted(initial); onClose()
                     } else confirmDelete = true
                 },
-                Modifier.weight(1f), destructive = true
+                // (In the popup's own color, not red.)
+                Modifier.weight(1f)
             )
             LocalPillButton(
                 if (editing) "Save" else "Create", liquidGlass, tint,

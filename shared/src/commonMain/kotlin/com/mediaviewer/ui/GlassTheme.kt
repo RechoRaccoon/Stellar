@@ -691,6 +691,18 @@ fun glassRimBrush(tint: Color, rimIntensity: Float, vibrantSecondary: Boolean, e
  * on some buttons (a hard flash to white then a cut to transparent). The glass
  * is now just a still, clear tinted surface with a bright rim.
  */
+/**
+ * A text post's card off the Timeline (Explore's grids, Hub rows, Search):
+ * filled with its author's color the way the Timeline's text card reads —
+ * the glass panel alone is so faint over black that those cards looked
+ * plain black — with the glass rim.
+ */
+fun Modifier.textPostFill(tint: Color, shape: Shape): Modifier = composed {
+    this.clip(shape)
+        .background(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(com.mediaviewer.ui.theme.OledBlack, tint, 0.34f), androidx.compose.ui.graphics.lerp(com.mediaviewer.ui.theme.OledBlack, tint, 0.22f))))
+        .border(1.dp, glassRimBrush(tint, LocalGlassRimIntensity.current, LocalGlassRimVibrantSecondary.current, edgeAlpha = 0.85f, midAlpha = 0.5f), shape)
+}
+
 fun Modifier.glassPanel(
     liquidGlass: Boolean,
     tint: Color = NeutralGlassTint,

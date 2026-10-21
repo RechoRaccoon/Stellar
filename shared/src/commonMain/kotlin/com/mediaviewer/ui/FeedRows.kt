@@ -95,12 +95,21 @@ fun FeedRowTitle(label: String, tint: Color, left: Boolean, onEdit: (() -> Unit)
     }
 }
 
-/** How tall one row of a built feed's tiles is, by its style. */
+/** How tall one row of a built feed's tiles is, by its style — the size
+ *  the profile's own tiles are on a phone (its 3-across grids). */
 private fun styleHeight(style: String): Dp = when (style) {
-    "tiktok" -> 230.dp
-    "youtube" -> 190.dp
-    "square" -> 140.dp
+    "tiktok" -> 196.dp
+    "youtube" -> 172.dp
+    "square" -> 120.dp
     else -> 150.dp
+}
+
+/** The gap between tiles, as on the profile's own layout of that kind. */
+private fun styleSpacing(style: String): Dp = when (style) {
+    "square" -> if (LocalOverlays.roundedGridTiles) 4.dp else 0.dp
+    "tiktok" -> 4.dp
+    "youtube" -> 12.dp
+    else -> 6.dp
 }
 
 /**
@@ -236,7 +245,7 @@ private fun BuiltFeedPosts(
             (info.totalItemsCount > 0 && last >= info.totalItemsCount - 4) || !gridState.canScrollForward
         }.collect { near -> if (near && state?.postsCursor != null) latestMore() }
     }
-    val spacing = 10.dp
+    val spacing = styleSpacing(feed.style)
     LazyHorizontalGrid(
         rows = GridCells.Fixed(rows), state = gridState,
         modifier = Modifier.fillMaxWidth().height(tileH * rows + spacing * (rows - 1)),
@@ -254,45 +263,35 @@ private fun BuiltFeedPosts(
     }
 }
 
-/** One post in a built feed's row, in its [style] (see [LocalFeed.style]). */
+/**
+ * One post in a built feed's row, in its [style] (see [LocalFeed.style]),
+ * drawn with the profile page's own tile for that layout so they look the
+ * same: "square" its square grid, "tiktok" (Portrait) its Vertical Videos,
+ * "youtube" (Horizontal) its video card (picture, the author's icon, the
+ * text, likes and date), "natural" its Pinterest tile.
+ */
 @Composable
 private fun BuiltFeedTile(post: MediaItem, style: String, height: Dp, liquidGlass: Boolean, onClick: () -> Unit) {
-    val tap = rememberHapticTap()
     val tint = rememberAuthorProfileTint(post.author.did, post.author.avatarUrl)
-    if (style == "natural") { HubPostTile(post, tint, liquidGlass, height, onClick); return }
-    val shape = RoundedCornerShape(14.dp)
-    val thumb = post.thumbUrl.ifBlank { post.mediaUrl.orEmpty() }
-    @Composable
-    fun Picture(m: Modifier) {
-        Box(m.clip(shape).background(lerp(tint, Color.Black, 0.6f))) {
-            if (!post.isTextOnly && thumb.isNotBlank()) {
-                AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                if (post.isVideo) Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(28.dp))
-            } else Text(
-                post.text, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 8,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp)
+    when (style) {
+        "square" -> Box(Modifier.size(height)) {
+            PostResultTile(
+                item = post, filter = PostKindFilter.ALL, gridMode = 2, tint = tint, liquidGlass = liquidGlass,
+                roundedGridTiles = LocalOverlays.roundedGridTiles, onSeedSubImageIndex = { _, _ -> }, onClick = onClick
             )
         }
-    }
-    when (style) {
-        "youtube" -> {
-            val w = height * 1.2f
-            Column(Modifier.width(w).height(height).clip(shape).clickable { tap(); onClick() }) {
-                Picture(Modifier.fillMaxWidth().height(w * 9f / 16f))
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    post.text.ifBlank { post.author.displayName }, color = Color.White, fontSize = 12.sp, lineHeight = 15.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    post.author.displayName.ifBlank { post.author.handle }, color = DimGray, fontSize = 11.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
+        "tiktok" -> Box(Modifier.width(height * 9f / 16f).height(height)) {
+            PostResultTile(
+                item = post, filter = PostKindFilter.VERTICAL_VIDEOS, gridMode = 0, tint = tint, liquidGlass = liquidGlass,
+                roundedGridTiles = LocalOverlays.roundedGridTiles, onSeedSubImageIndex = { _, _ -> }, onClick = onClick
+            )
         }
-        "tiktok" -> Box(Modifier.width(height * 9f / 16f).height(height).clickable { tap(); onClick() }) {
-            Picture(Modifier.fillMaxSize())
+        "youtube" -> Box(Modifier.width(200.dp).height(height)) {
+            PostResultTile(
+                item = post, filter = PostKindFilter.HORIZONTAL_VIDEOS, gridMode = 0, tint = tint, liquidGlass = liquidGlass,
+                roundedGridTiles = LocalOverlays.roundedGridTiles, onSeedSubImageIndex = { _, _ -> }, videoCards = true, onClick = onClick
+            )
         }
-        else -> Box(Modifier.size(height).clickable { tap(); onClick() }) { Picture(Modifier.fillMaxSize()) }
+        else -> HubPostTile(post, tint, liquidGlass, height, onClick)
     }
 }

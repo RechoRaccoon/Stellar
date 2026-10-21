@@ -1601,11 +1601,43 @@ private fun AtProtocolPageContent(
     var customizing by remember { mutableStateOf(false) }
     var customizeStart by remember { mutableStateOf<Pair<List<com.mediaviewer.util.HubLayout.Row>, Boolean>?>(null) }
     com.mediaviewer.ui.compat.BackHandler(enabled = customizing) { customizing = false }
+    // The Customize Hub button: the last thing in the Hub, under its rows
+    // (and under the list while customizing, saying Save or Cancel) — part
+    // of the page, not floating over it.
+    @Composable
+    fun CustomizeHubButton() {
+        if (!bskyLoggedIn) return
+        val edited = customizeStart?.let { (rows, left) ->
+            rows != com.mediaviewer.util.HubLayout.rows || left != com.mediaviewer.util.UiToggles.hubLeftTitles
+        } == true
+        val label = if (!customizing) "Customize Hub" else if (edited) "Save" else "Cancel"
+        val tap = rememberHapticTap()
+        val shape = RoundedCornerShape(22.dp)
+        Box(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 14.dp), contentAlignment = Alignment.Center) {
+            val m = Modifier.height(44.dp)
+                .clip(shape).clickable {
+                    tap()
+                    if (customizing) { customizing = false; customizeStart = null }
+                    else {
+                        customizeStart = com.mediaviewer.util.HubLayout.rows to com.mediaviewer.util.UiToggles.hubLeftTitles
+                        customizing = true
+                    }
+                }
+            @Composable
+            fun ButtonLabel() {
+                Box(Modifier.fillMaxHeight().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+                    Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop) { ButtonLabel() }
+            else Box(m.background(androidx.compose.ui.graphics.lerp(dominantColor, Color.Black, 0.35f)).border(1.dp, dominantColor.copy(alpha = 0.7f), shape)) { ButtonLabel() }
+        }
+    }
     Box(Modifier.weight(1f).fillMaxHeight()) {
     if (customizing) {
         Column(
             Modifier.fillMaxSize().clipToBounds().verticalScroll(rememberScrollState())
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 84.dp)
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
         ) {
             CustomizeHubSection(
                 extras = settingsExtras, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
@@ -1613,6 +1645,7 @@ private fun AtProtocolPageContent(
                 // settings on the right, like Settings.
                 split = rememberLandscape()
             )
+            CustomizeHubButton()
         }
     } else
     Column(
@@ -1645,8 +1678,7 @@ private fun AtProtocolPageContent(
                 }
             }
             .verticalScroll(hubScroll)
-            // (Clear of the floating Customize Hub button.)
-            .padding(bottom = 72.dp)
+            .padding(bottom = 16.dp)
     ) {
         // Livestreams is its own row in Customize Hub now (it only shows
         // while someone you follow is live).
@@ -1685,8 +1717,8 @@ private fun AtProtocolPageContent(
                                 onLoad = { LocalOverlays.loadFeedRow?.invoke(key, feed, false) },
                                 onLoadMore = { LocalOverlays.loadFeedRow?.invoke(key, feed, true) },
                                 onOpenPost = { index -> onOpenHubListPost(key, feed.name.ifBlank { row.label }, index) },
-                                onOpenProfile = onOpenProfile,
-                                onEdit = { LocalOverlays.feedBuilderForHub = true; LocalOverlays.feedBuilder = feed }
+                                onOpenProfile = onOpenProfile
+                                // (Edited from Customize Hub, not here.)
                             )
                         }
                     } else if (row.id == com.mediaviewer.util.HubLayout.WIDGET_EVENTS) {
@@ -1777,33 +1809,9 @@ private fun AtProtocolPageContent(
         }
         }
         Spacer(Modifier.height(8.dp))
+        CustomizeHubButton()
     }
-    if (bskyLoggedIn) {
-        val edited = customizeStart?.let { (rows, left) ->
-            rows != com.mediaviewer.util.HubLayout.rows || left != com.mediaviewer.util.UiToggles.hubLeftTitles
-        } == true
-        val label = if (!customizing) "Customize Hub" else if (edited) "Save" else "Cancel"
-        val tap = rememberHapticTap()
-        val shape = RoundedCornerShape(22.dp)
-        val m = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).height(44.dp)
-            .clip(shape).clickable {
-                tap()
-                if (customizing) { customizing = false; customizeStart = null }
-                else {
-                    customizeStart = com.mediaviewer.util.HubLayout.rows to com.mediaviewer.util.UiToggles.hubLeftTitles
-                    customizing = true
-                }
-            }
-        @Composable
-        fun ButtonLabel() {
-            Box(Modifier.fillMaxHeight().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
-                Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop) { ButtonLabel() }
-        else Box(m.background(androidx.compose.ui.graphics.lerp(dominantColor, Color.Black, 0.35f)).border(1.dp, dominantColor.copy(alpha = 0.7f), shape)) { ButtonLabel() }
-    }
-    } // Box (the rows, or Customize Hub, and its button)
+    } // Box (the rows, or Customize Hub)
     } // Row (landscape side list + the rows)
     } // fixed search bar + scrolling content
 
@@ -3527,7 +3535,7 @@ private fun HubFeedRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.Add, contentDescription = "Feed Builder", tint = Color.White,
+                Icons.Default.Add, contentDescription = "Feed Creator", tint = Color.White,
                 modifier = Modifier.size(17.dp).supporterShine(!supporter)
             )
         }
