@@ -360,8 +360,10 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
                     fontWeight = FontWeight.Light, maxLines = 2, textAlign = TextAlign.End,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    preview?.let { "= $it" } ?: " ", color = accent.copy(alpha = 0.85f), fontSize = 18.sp,
+                // (Only while there's a result to preview: an empty line
+                // kept for it left a gap under the number.)
+                if (preview != null) Text(
+                    "= $preview", color = accent.copy(alpha = 0.85f), fontSize = 18.sp,
                     maxLines = 1, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()
                 )
             }

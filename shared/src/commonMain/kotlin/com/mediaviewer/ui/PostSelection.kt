@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +74,11 @@ object PostSelection {
 
     /** The touch the outermost selectable tile under it took (see postSelectable). */
     internal var claimed: androidx.compose.ui.input.pointer.PointerId? = null
+
+    /** Saved Posts, with a folder open: a post held until it's picked and
+     *  then moved is dragged instead — this hears where it is (in root
+     *  coordinates) as it moves. Null where posts can't be reordered. */
+    var reorder: ((MediaItem, Offset) -> Unit)? = null
 }
 
 /** Whether post tiles here can be picked: profile pages and Saved Posts
@@ -96,11 +102,14 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
     val order = PostSelection.orderOf(item)
     val measurer = rememberTextMeasurer()
     val latest by androidx.compose.runtime.rememberUpdatedState(item)
+    // (Where the tile is, to tell a drag where the finger is on screen.)
+    val coords = androidx.compose.runtime.remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
     fun pick() {
         runCatching { view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS) }
         PostSelection.toggle(latest)
     }
     this
+        .onGloballyPositioned { coords[0] = it }
         .pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -126,12 +135,22 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                 } == null
                 if (moved) return@awaitEachGesture
                 if (held) {
+                    // Saved Posts: held from outside selection mode, picking
+                    // it and then moving drags it to a new place instead.
+                    val reorder = PostSelection.reorder.takeIf { !selecting }
                     pick()
+                    var dragging = false
                     // The rest of this touch is selection's: the tile doesn't open.
                     while (true) {
                         val ev = awaitPointerEvent(PointerEventPass.Initial)
                         ev.changes.forEach { it.consume() }
-                        if (ev.changes.none { it.pressed }) break
+                        val c = ev.changes.firstOrNull { it.id == down.id }
+                        if (c == null || !c.pressed) break
+                        if (reorder != null && (dragging || (c.position - down.position).getDistance() > viewConfiguration.touchSlop)) {
+                            // (A drag, not a pick: the post goes back to unpicked.)
+                            if (!dragging) { dragging = true; PostSelection.clear() }
+                            coords[0]?.takeIf { it.isAttached }?.let { reorder(latest, it.localToRoot(c.position)) }
+                        }
                     }
                 } else if (selecting) {
                     up?.let { it.consume(); PostSelection.toggle(latest) }

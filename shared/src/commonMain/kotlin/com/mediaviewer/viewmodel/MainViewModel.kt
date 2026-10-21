@@ -483,7 +483,7 @@ class MainViewModel(
                 val entry = CachedProfileTabs(
                     availableTabs = state.availableTabs.map { it.name }.toSet(),
                     // (A sorted Posts tab keeps the cached newest-first batch.)
-                    posts = if (state.postSort in 0..3) (profileTabCache[state.author.did]?.posts ?: emptyList())
+                    posts = if (state.postSort.isIndexSort()) (profileTabCache[state.author.did]?.posts ?: emptyList())
                         else state.tabStates[ProfileTab.POSTS]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
                     reposts = state.tabStates[ProfileTab.REPOSTS]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
                     likes = state.tabStates[ProfileTab.LIKES]?.items?.take(PROFILE_TAB_CACHE_ITEM_LIMIT) ?: emptyList(),
@@ -611,7 +611,8 @@ class MainViewModel(
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
         /** Posts tab order: 0 most liked, 1 most reposted, 2 most saved,
-         *  3 most comments, 4 newest (Bluesky's own order, the default). */
+         *  3 most comments, 4 newest (Bluesky's own order, the default),
+         *  5 oldest first. */
         val postSort: Int = 4,
         /** While a sorted Posts tab is reading the account's posts: how
          *  many so far. */
@@ -878,6 +879,7 @@ class MainViewModel(
         // arrive.
         _currentIndex.value = 0
         _bookmarkFolderId.value = null
+        _savedSort.value = 4; savedOrder = emptyList()
         enterSpecialFeed("Saved Posts")
         feedLoadGeneration++
         val generation = feedLoadGeneration
@@ -4695,7 +4697,7 @@ class MainViewModel(
         _profileOverlay.value = cur.copy(refreshing = true)
         if (cur.selectedTab == ProfileTab.LISTS_FEEDS) loadProfileLists(force = true)
         // A sorted Posts tab re-reads the account's numbers too.
-        if (cur.postSort in 0..3) resetProfileIndex(did)
+        if (cur.postSort.isIndexSort()) resetProfileIndex(did)
         val profileDone = kotlinx.coroutines.CompletableDeferred<Unit>()
         launchProfileLoads(cur.author, cur.selectedTab, isRefresh = true) { profileDone.complete(Unit) }
         viewModelScope.launch {
@@ -5008,7 +5010,7 @@ class MainViewModel(
         val job = viewModelScope.launch(ioDispatcher) {
             fun showProgress() {
                 val o = _profileOverlay.value ?: return
-                if (o.author.did == did && o.postSort in 0..3 && o.sortProgress != null) {
+                if (o.author.did == did && o.postSort.isIndexSort() && o.sortProgress != null) {
                     _profileOverlay.value = o.copy(sortProgress = com.mediaviewer.platform.synchronizedCompat(idx) { idx.entries.size })
                 }
             }
@@ -5128,7 +5130,7 @@ class MainViewModel(
         if (kind == profileSortKind) return
         profileSortKind = kind
         val cur = _profileOverlay.value ?: return
-        if (cur.postSort in 0..3) loadSortedProfilePosts(reset = true)
+        if (cur.postSort.isIndexSort()) loadSortedProfilePosts(reset = true)
     }
 
     private fun loadSortedProfilePosts(reset: Boolean) {
@@ -5167,7 +5169,9 @@ class MainViewModel(
                     0 -> matching.sortedByDescending { it.likes }
                     1 -> matching.sortedByDescending { it.reposts }
                     2 -> matching.sortedByDescending { it.saves }
-                    else -> matching.sortedByDescending { it.replies }
+                    3 -> matching.sortedByDescending { it.replies }
+                    // Oldest first: the account's posts from the very first.
+                    else -> matching.sortedBy { if (it.createdMs > 0) it.createdMs else Long.MAX_VALUE }
                 }.map { it.uri }
                 profileSortedShown = 0
             }
@@ -5203,7 +5207,7 @@ class MainViewModel(
         if (tab == ProfileTab.BLOGS || tab == ProfileTab.REVIEWS || tab == ProfileTab.BACKLOG || tab == ProfileTab.VODS || tab == ProfileTab.MUSIC_HISTORY) return
         // Lists/Feeds has its own loader (not MediaItem pages either).
         if (tab == ProfileTab.LISTS_FEEDS) { loadProfileLists(force = false); return }
-        if (tab == ProfileTab.POSTS && (_profileOverlay.value?.postSort ?: 4) in 0..3) { loadSortedProfilePosts(reset); return }
+        if (tab == ProfileTab.POSTS && (_profileOverlay.value?.postSort ?: 4).isIndexSort()) { loadSortedProfilePosts(reset); return }
         val cur = _profileOverlay.value ?: return
         val did = cur.author.did
         val existing = cur.tabStates[tab] ?: ProfileTabState()
@@ -8903,7 +8907,7 @@ class MainViewModel(
         // A sort by counts or date needs every match's numbers: the ones
         // never fetched are fetched once now (just the numbers, 25 a
         // request), and kept, so after the first time this is instant.
-        if (bluesky && sort in 0..4) {
+        if (bluesky && (sort in 0..4 || sort == 6)) {
             val missing = com.mediaviewer.util.TaggedStats.missing(uris)
             if (missing.isNotEmpty()) {
                 var done = 0
@@ -10246,12 +10250,54 @@ class MainViewModel(
     private val _bookmarkFolderId = MutableStateFlow<String?>(null)
     val bookmarkFolderId: StateFlow<String?> = _bookmarkFolderId
 
+    // ── Saved Posts › Sort ──
+    /** 0 most liked, 1 most reposted, 2 most saved, 3 most comments,
+     *  4 newest saved (the folder's own order, the default), 5 oldest saved. */
+    private val _savedSort = MutableStateFlow(4)
+    val savedSort: StateFlow<Int> = _savedSort
+    /** The posts' saved order, to go back to (ids, newest saved first). */
+    private var savedOrder: List<String> = emptyList()
+
+    /** Re-orders the Saved Posts on screen (and the Timeline behind them). */
+    fun setSavedSort(sort: Int) {
+        val cur = _mediaItems.value
+        // (Posts loaded since the last sort keep their place after the rest.)
+        if (_savedSort.value == 4 || savedOrder.isEmpty()) savedOrder = cur.map { it.id }
+        else savedOrder = savedOrder + cur.map { it.id }.filterNot { it in savedOrder }
+        _savedSort.value = sort
+        val rank = savedOrder.withIndex().associate { it.value to it.index }
+        _mediaItems.value = when (sort) {
+            0 -> cur.sortedByDescending { it.likeCount }
+            1 -> cur.sortedByDescending { it.repostCount }
+            2 -> cur.sortedByDescending { it.bookmarkCount }
+            3 -> cur.sortedByDescending { it.replyCount }
+            5 -> cur.sortedByDescending { rank[it.id] ?: -1 }
+            else -> cur.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+        }
+        _currentIndex.value = 0
+    }
+
+    /** Saved Posts: [item] dragged onto [target]'s place in the open folder
+     *  (the folder keeps the new order). */
+    fun moveSavedPost(item: MediaItem, target: MediaItem) {
+        val id = _bookmarkFolderId.value ?: return
+        if (item.id == target.id) return
+        val list = _mediaItems.value.toMutableList()
+        val from = list.indexOfFirst { it.id == item.id }
+        val to = list.indexOfFirst { it.id == target.id }
+        if (from < 0 || to < 0) return
+        list.add(to, list.removeAt(from))
+        _mediaItems.value = list
+        com.mediaviewer.util.LocalData.reorderBookmarkFolder(id, list.map { it.postUri }.filter { it.isNotBlank() })
+    }
+
     fun showBookmarkFolder(id: String?) {
         val folder = com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == id }
         if (folder == null) { showSaves(); return }
         if (!_bskyLoggedIn.value) return
         tapHaptic()
         _bookmarkFolderId.value = folder.id
+        _savedSort.value = 4; savedOrder = emptyList()
         feedLoadGeneration++
         val generation = feedLoadGeneration
         feedCursor = null
@@ -10465,3 +10511,7 @@ private const val HUB_LIST_BATCH = 12
 private const val HUB_LIST_MEMBER_CAP = 40
 
 private typealias ProfileEntry = com.mediaviewer.repository.BlueskyRepository.ProfilePostEntry
+
+/** A Posts tab order read from the account's post index (all but 4,
+ *  newest, which is Bluesky's own order). */
+internal fun Int.isIndexSort(): Boolean = this in 0..3 || this == 5

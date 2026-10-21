@@ -104,6 +104,8 @@ object TaggedStats {
                 else -> 0L
             }
         }
+        // 6: oldest uploaded first (posts with no date known go last).
+        if (sort == 6) return alive.sortedBy { stats[it]?.createdMs?.takeIf { c -> c > 0 } ?: Long.MAX_VALUE }
         return if (sort !in 0..4) alive else alive.sortedByDescending { key(it) }
     }
 }

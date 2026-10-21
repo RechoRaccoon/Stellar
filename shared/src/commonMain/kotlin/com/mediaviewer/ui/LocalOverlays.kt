@@ -31,9 +31,14 @@ class ConfirmRequest(
     val confirmLabel: String,
     val tint: androidx.compose.ui.graphics.Color,
     val destructive: Boolean = true,
+    /** Non-null: a text field (a rename…) starting with this; what's typed
+     *  is [text] when it's confirmed. */
+    val input: String? = null,
+    val inputPlaceholder: String = "",
     val onConfirm: suspend () -> Unit
 ) {
     var busy by mutableStateOf(false)
+    var text by mutableStateOf(input.orEmpty())
 }
 
 /** One floating web page (Search → Web Browser → Popout). */
@@ -72,6 +77,8 @@ object LocalOverlays {
     var feedBuilderForHome by mutableStateOf(false)
     /** Opens someone's profile (a Home tab row's picture). */
     var openProfile: ((AuthorInfo) -> Unit)? = null
+    /** Back out of the Timeline / Explore (what the system Back does there). */
+    var backFromFeed: (() -> Unit)? = null
     /** Settings → rounded square-grid tiles (for tiles drawn outside the
      *  pages that are handed it, like built feed rows). */
     var roundedGridTiles by mutableStateOf(false)
@@ -192,6 +199,11 @@ object LocalOverlays {
     var savedFeedUris by mutableStateOf<Set<String>>(emptySet())
     /** Saved Posts → the bookmark folder being shown (null = all). */
     var bookmarkFolderId by mutableStateOf<String?>(null)
+    /** Saved Posts › Sort (see MainViewModel.setSavedSort) and dragging a
+     *  post onto another's place in a folder (MainViewModel.moveSavedPost). */
+    var savedSort by mutableStateOf(4)
+    var setSavedSort: ((Int) -> Unit)? = null
+    var moveSavedPost: ((MediaItem, MediaItem) -> Unit)? = null
     var onShowBookmarkFolder: ((String?) -> Unit)? = null
     /** The tagging status pill tapped: Search › Tagged, over the timeline. */
     var onOpenTagged: (() -> Unit)? = null

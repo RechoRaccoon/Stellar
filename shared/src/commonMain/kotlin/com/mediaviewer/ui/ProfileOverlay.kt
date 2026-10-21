@@ -96,6 +96,7 @@ import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Album
@@ -229,7 +230,11 @@ private fun PostKindFilter.label() = when (this) {
 // layout choice applies to every profile's same tab/sub-tab and survives
 // profile switches. (mutableStateMapOf is a @Composable-free runtime API —
 // safe at top level — and Compose still observes reads/writes to it.)
-private val sharedGridModes = mutableStateMapOf<Pair<MainViewModel.ProfileTab, PostKindFilter>, Int>()
+// Now one choice for the whole app (not per tab, sub-tab or page): every
+// picture layout (Pinterest 2, Pinterest 3, square grid) shares one, every
+// text-post layout another — keyed only by which of the two it is.
+private val sharedGridModes = mutableStateMapOf<Boolean, Int>()
+private fun gridModeKey(filter: PostKindFilter): Boolean = filter.isListKind()
 // Which trio applies depends on the sub-tab's own natural shape:
 //  - Image-like sub-tabs (All/Images) cycle 2-col masonry -> 3-col
 //    "experimental" masonry (previously Settings-only) -> the uniform
@@ -637,7 +642,7 @@ fun ProfileOverlay(
     // Fix (per feedback): grid-mode choices are shared across profiles —
     // see the file-level sharedGridModes above; keyed by (tab, filter)
     // only, no author.did.
-    fun gridModeFor(tab: MainViewModel.ProfileTab, filter: PostKindFilter): Int = sharedGridModes[tab to filter] ?: 0
+    fun gridModeFor(@Suppress("UNUSED_PARAMETER") tab: MainViewModel.ProfileTab, filter: PostKindFilter): Int = sharedGridModes[gridModeKey(filter)] ?: 0
     val density = LocalDensity.current
     val configuration = com.mediaviewer.ui.compat.rememberScreenSizeDp()
 
@@ -722,7 +727,7 @@ fun ProfileOverlay(
     }
 
     fun onGridButtonTap() {
-        val key = state.selectedTab to postKindFilter
+        val key = gridModeKey(postKindFilter)
         val curMode = sharedGridModes[key] ?: 0
         // (Landscape: two layouts, see effectiveGridMode.)
         val sideways = configuration.width > configuration.height
@@ -1261,7 +1266,8 @@ fun ProfileOverlay(
                         "Most reposted" to Icons.Filled.Repeat,
                         "Most saved" to Icons.Filled.Bookmark,
                         "Most comments" to Icons.Filled.ChatBubble,
-                        "Newest" to Icons.Filled.Schedule
+                        "Newest" to Icons.Filled.Schedule,
+                        "Oldest first" to Icons.Filled.History
                     )
                     BubbleActionStack(
                         visible = profileSortOpen,
@@ -1747,7 +1753,7 @@ private fun ProfileInteractionBar(
 }
 
 @Composable
-private fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
+internal fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
     val tap = rememberHapticTap()
     val shape = CircleShape
     val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
@@ -6574,13 +6580,11 @@ private fun ShrinkToFitTitleBubble(text: String, liquidGlass: Boolean, tint: Col
 // Refresh/Grid interaction bar profile pages use, exposed for the two other
 // places that show lists of posts, so all three look and behave alike.
 
-/** Grid-layout choice per (screen, sub-tab), remembered for the session like
- *  profiles' own [sharedGridModes]. */
-private val sharedResultGridModes = mutableStateMapOf<Pair<String, PostKindFilter>, Int>()
-
-fun resultsGridMode(screen: String, filter: PostKindFilter): Int = sharedResultGridModes[screen to filter] ?: 0
+/** The grid-layout choice here: the same one profiles use (see
+ *  [sharedGridModes]) — one for the whole app, whatever the page. */
+fun resultsGridMode(@Suppress("UNUSED_PARAMETER") screen: String, filter: PostKindFilter): Int = sharedGridModes[gridModeKey(filter)] ?: 0
 fun cycleResultsGridMode(screen: String, filter: PostKindFilter, landscape: Boolean = false) {
-    sharedResultGridModes[screen to filter] = nextGridMode(filter, resultsGridMode(screen, filter), landscape)
+    sharedGridModes[gridModeKey(filter)] = nextGridMode(filter, resultsGridMode(screen, filter), landscape)
 }
 
 /**
@@ -6621,6 +6625,8 @@ fun ProfileStyleTabRow(
      *  held in portrait. */
     trailingIcons: List<androidx.compose.ui.graphics.vector.ImageVector?>? = null,
     onTrailing: ((Int) -> Unit)? = null,
+    /** A tab pressed and held (Saved Posts: rename that folder). */
+    onLongPress: ((Int) -> Unit)? = null,
     onSelect: (Int) -> Unit
 ) {
     // Landscape's side list: an even list of buttons.
@@ -6664,6 +6670,9 @@ fun ProfileStyleTabRow(
                     )
                     .then(
                         if (index == disabledIndex) Modifier.grayedOut()
+                        else if (onLongPress != null) Modifier.combinedClickable(
+                            onClick = { tap(); onSelect(index) }, onLongClick = { tap(); onLongPress(index) }
+                        )
                         else if (onTrailing != null && trailingIcons?.getOrNull(index) != null) Modifier.combinedClickable(
                             onClick = { tap(); onSelect(index) }, onLongClick = { tap(); onTrailing(index) }
                         )

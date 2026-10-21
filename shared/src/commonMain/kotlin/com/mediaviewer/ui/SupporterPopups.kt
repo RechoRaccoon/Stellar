@@ -629,7 +629,7 @@ fun FeedBuilderPopup(
             // ── Order ──
             Card("Order") {
                 Chips {
-                    listOf("recent" to "Most Recent", "likes" to "Most Liked", "reposts" to "Most Reposted", "replies" to "Most Replies")
+                    listOf("recent" to "Most Recent", "oldest" to "Oldest First", "likes" to "Most Liked", "reposts" to "Most Reposted", "replies" to "Most Replies")
                         .forEach { (id, label) -> LocalChip(label, sort == id, tint, { sort = id }) }
                 }
             }

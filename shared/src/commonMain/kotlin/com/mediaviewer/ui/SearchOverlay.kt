@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
@@ -770,7 +771,8 @@ fun SearchOverlay(
                     "Most saved" to Icons.Filled.Bookmark,
                     "Most comments" to Icons.Filled.ChatBubble,
                     "Most recently uploaded" to Icons.Filled.Schedule,
-                    "Most recently tagged" to Icons.Filled.LocalOffer
+                    "Most recently tagged" to Icons.Filled.LocalOffer,
+                    "Oldest first" to Icons.Filled.History
                 )
                 BubbleActionStack(
                     visible = sortOpen,

@@ -791,7 +791,10 @@ fun MainFeedScreen(
                     reducedAnimations = reducedAnimations,
                     // Pulling down while already at the top opens the Hub.
                     onSwipeDown     = { onSetScreen(ScreenState.SETTINGS) },
-                    onPinchIn       = onGridPinchIn
+                    onPinchIn       = onGridPinchIn,
+                    // (The same as the system Back: out of Explore, a profile's
+                    // feed, Saved Posts or From Friends.)
+                    onBack          = { LocalOverlays.backFromFeed?.invoke() }
                 )
             }
         }

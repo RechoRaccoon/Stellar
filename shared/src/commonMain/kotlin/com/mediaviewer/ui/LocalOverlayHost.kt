@@ -57,6 +57,8 @@ fun LocalOverlayHost(
     // highlighting the old one.)
     val folderIdNow = folderId
     LaunchedEffect(folderIdNow) { LocalOverlays.bookmarkFolderId = folderIdNow }
+    val savedSortNow by viewModel.savedSort.collectAsState()
+    LaunchedEffect(savedSortNow) { LocalOverlays.savedSort = savedSortNow }
     val dmHidden by viewModel.dmHiddenBehindFeed.collectAsState()
     val myLists by viewModel.userLists.collectAsState()
     val selectedFeed by viewModel.selectedFeedUri.collectAsState()
@@ -92,10 +94,13 @@ fun LocalOverlayHost(
         LocalOverlays.cancelVideoUpload = viewModel::cancelVideoUpload
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
+        LocalOverlays.setSavedSort = viewModel::setSavedSort
+        LocalOverlays.moveSavedPost = viewModel::moveSavedPost
         LocalOverlays.openPublicFolder = viewModel::openPublicFolder
         LocalOverlays.loadFeedRow = { key, feed, more -> viewModel.loadFeedRow(key, feed, more) }
         LocalOverlays.feedRows = viewModel.hubLists
         LocalOverlays.openProfile = { viewModel.openProfile(it) }
+        LocalOverlays.backFromFeed = viewModel::backFromFeed
         LocalOverlays.openMutualBlog = viewModel::openMutualBlog
         LocalOverlays.openMutualReview = viewModel::openMutualReview
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
@@ -202,6 +207,7 @@ fun LocalOverlayHost(
                 title = req.title, message = req.message, confirmLabel = req.confirmLabel,
                 liquidGlass = liquidGlass, tint = req.tint, backdrop = backdrop,
                 destructive = req.destructive, busy = req.busy,
+                input = req.input?.let { req.text }, onInputChange = { req.text = it }, inputPlaceholder = req.inputPlaceholder,
                 onConfirm = {
                     req.busy = true
                     confirmScope.launch {

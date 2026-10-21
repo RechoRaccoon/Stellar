@@ -11,6 +11,14 @@ import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
@@ -142,7 +150,9 @@ fun GridScreen(
     /** Pulled down while already scrolled to the very top. */
     onSwipeDown: () -> Unit = {},
     /** Pinched in (fingers closing): leaves a feed opened from a profile. */
-    onPinchIn: () -> Unit = {}
+    onPinchIn: () -> Unit = {},
+    /** The Back button at the top left (the same one profiles have). */
+    onBack: (() -> Unit)? = null
 ) {
     val tap = rememberHapticTap()
     var localTags  by remember(e621SearchTags) { mutableStateOf(e621SearchTags) }
@@ -225,6 +235,28 @@ fun GridScreen(
     val selectablePage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let {
         !it.isSpecialFeed() || it.displayName == "Saved Posts"
     } == true
+    val savedPostsPage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let { it.isSpecialFeed() && it.displayName == "Saved Posts" } == true
+    var savedSortOpen by remember { mutableStateOf(false) }
+    var savedSortBounds by remember { mutableStateOf<Pair<androidx.compose.ui.geometry.Offset, androidx.compose.ui.unit.IntSize>?>(null) }
+    var savedSortRoot by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    // Saved Posts, a folder open, in its own order: a post held and moved
+    // is dragged onto the place of whichever post it's over (see
+    // PostSelection.reorder).
+    val gridOrigin = remember { arrayOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val reorderable = savedPostsPage && LocalOverlays.bookmarkFolderId != null && LocalOverlays.savedSort == 4
+    androidx.compose.runtime.DisposableEffect(reorderable) {
+        PostSelection.reorder = if (!reorderable) null else { item, root ->
+            val p = root - gridOrigin[0]
+            val over = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                val o = info.offset; val sz = info.size
+                p.x >= o.x && p.x < o.x + sz.width && p.y >= o.y && p.y < o.y + sz.height
+            }
+            val targetId = (over?.key as? String)?.removePrefix(POST_KEY_PREFIX)
+            val target = targetId?.let { id -> latestItems.firstOrNull { it.id == id } }
+            if (target != null && target.id != item.id) LocalOverlays.moveSavedPost?.invoke(item, target)
+        }
+        onDispose { PostSelection.reorder = null }
+    }
     DisposableEffect(memoryScope) {
         onDispose {
             val a = middleAnchor(gridState)
@@ -301,22 +333,23 @@ fun GridScreen(
                         selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
                         liquidGlass = liquidGlass, tint = tint,
                         // Each folder's lock (private, encrypted) or world
-                        // (public, on your profile); switching asks first.
+                        // (public, on your profile), shown on its tab; the
+                        // switch itself is the bar's button at the far right.
                         trailingIcons = listOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) + folders.map {
                             if (it.public) Icons.Default.Public else Icons.Default.Lock
                         },
-                        onTrailing = { i ->
+                        // Pressed and held: rename it.
+                        onLongPress = { i ->
                             folders.getOrNull(i - 1)?.let { f ->
-                                LocalOverlays.confirm = if (f.public) ConfirmRequest(
-                                    "Make \"${f.name}\" Private?",
-                                    "It comes off your profile and is kept encrypted, so only you can see it.",
-                                    "Make Private", tint, destructive = false
-                                ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, false) }
-                                else ConfirmRequest(
-                                    "Make \"${f.name}\" Public?",
-                                    "Its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.",
-                                    "Make Public", tint, destructive = false
-                                ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, true) }
+                                var req: ConfirmRequest? = null
+                                req = ConfirmRequest(
+                                    "Rename Folder", "", "Rename", tint, destructive = false,
+                                    input = f.name, inputPlaceholder = "Folder name"
+                                ) {
+                                    val name = req?.text?.trim().orEmpty()
+                                    if (name.isNotEmpty()) com.mediaviewer.util.LocalData.updateBookmarkFolder(f.id, name = name)
+                                }
+                                LocalOverlays.confirm = req
                             }
                         }
                     ) { i ->
@@ -398,6 +431,7 @@ fun GridScreen(
             horizontalArrangement = Arrangement.spacedBy(spec.spacing),
             verticalItemSpacing = spec.spacing,
             modifier = Modifier
+                .onGloballyPositioned { gridOrigin[0] = it.positionInRoot() }
                 .weight(1f).fillMaxHeight()
                 // Pinch OUT (fingers spreading apart) — the opposite of
                 // the pinch-in that opened the grid — goes back to the
@@ -490,7 +524,8 @@ fun GridScreen(
                     ))
                     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
                 }) {
-                    Spacer(Modifier.height(topClearance))
+                    // (Room for the fixed Back button above the first row.)
+                    Spacer(Modifier.height(topClearance + if (onBack != null) 44.dp else 0.dp))
                     if (!sideways) HeaderRows()
                     Spacer(Modifier.height(4.dp))
                 }
@@ -565,8 +600,97 @@ fun GridScreen(
                 cycleResultsGridMode(gridScreen, kind, landscape = wideDp > 0)
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),
-            refreshAnchor = "ex.refresh", gridAnchor = "ex.layout"
+            refreshAnchor = "ex.refresh", gridAnchor = "ex.layout",
+            // Saved Posts: Sort (as on profiles), then — with a folder open —
+            // its lock / world at the far right, to make it private or public.
+            trailing = if (!savedPostsPage) null else ({
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(44.dp).onGloballyPositioned { savedSortBounds = it.positionInRoot() to it.size }
+                            .clip(CircleShape).clickable { tap(); savedSortOpen = !savedSortOpen },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (savedSortOpen) Icons.Default.Close else Icons.Filled.SwapVert,
+                            contentDescription = if (savedSortOpen) "Close" else "Sort",
+                            tint = if (LocalOverlays.savedSort != 4 && !savedSortOpen) vividAccent(tint) else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    val openFolder = com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == LocalOverlays.bookmarkFolderId }
+                    if (openFolder != null) Box(
+                        Modifier.size(44.dp).clip(CircleShape).clickable {
+                            tap()
+                            val f = openFolder
+                            LocalOverlays.confirm = if (f.public) ConfirmRequest(
+                                "Make \"${f.name}\" Private?",
+                                "It comes off your profile and is kept encrypted, so only you can see it.",
+                                "Make Private", tint, destructive = false
+                            ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, false) }
+                            else ConfirmRequest(
+                                "Make \"${f.name}\" Public?",
+                                "Its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.",
+                                "Make Public", tint, destructive = false
+                            ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, true) }
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (openFolder.public) Icons.Default.Public else Icons.Default.Lock,
+                            contentDescription = if (openFolder.public) "Public folder" else "Private folder",
+                            tint = Color.White, modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            })
         )
+        // Saved Posts › Sort: the profile's own options, in its bubbles.
+        if (savedPostsPage) Box(Modifier.fillMaxSize().onGloballyPositioned { savedSortRoot = it.positionInRoot() }) {
+            val bounds = savedSortBounds
+            val origin = savedSortRoot
+            if (bounds != null && origin != null) {
+                val accent = vividAccent(tint)
+                val options = listOf(
+                    "Most liked" to Icons.Filled.Favorite,
+                    "Most reposted" to Icons.Filled.Repeat,
+                    "Most saved" to Icons.Filled.Bookmark,
+                    "Most comments" to Icons.Filled.ChatBubble,
+                    "Newest" to Icons.Filled.Schedule,
+                    "Oldest first" to Icons.Filled.History
+                )
+                BubbleActionStack(
+                    visible = savedSortOpen,
+                    anchorOriginRoot = bounds.first,
+                    anchorSize = bounds.second,
+                    containerRootOrigin = origin,
+                    actions = options.mapIndexed { i, (label, icon) ->
+                        BubbleAction(label, icon = icon, iconTint = if (i == LocalOverlays.savedSort) accent else null) {
+                            if (i != LocalOverlays.savedSort) {
+                                LocalOverlays.setSavedSort?.invoke(i)
+                                gridScope.launch { gridState.scrollToItem(0) }
+                            }
+                        }
+                    },
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                    onDismissRequest = { savedSortOpen = false },
+                    gapAboveAnchor = 6.dp
+                )
+            }
+        }
+        // Back, fixed at the top left: the very button profiles have. While
+        // picking posts it's Cancel (an X), and the count sits at the right
+        // where a profile's Follow / Edit is.
+        if (onBack != null || PostSelection.active) Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth()
+                .padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp, top = rememberTopCutoutClearance())
+                .padding(start = 12.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (PostSelection.active) SelectionCancelBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+            else if (onBack != null) ProfileBackBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack)
+            Spacer(Modifier.weight(1f))
+            if (PostSelection.active) SelectionCountBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+        }
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(
             visible = showScrollTop,

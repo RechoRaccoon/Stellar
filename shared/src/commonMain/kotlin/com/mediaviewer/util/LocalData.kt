@@ -132,7 +132,7 @@ data class LocalFeed(
     val horizontalVideos: Boolean = true,
     val verticalVideos: Boolean = true,
     val polls: Boolean = true,
-    /** "recent", "likes", "reposts" or "replies" (most first). */
+    /** "recent", "oldest", "likes", "reposts" or "replies" (most first). */
     val sort: String = "recent",
     /** As a row: "natural" (each post its own shape), "square", "tiktok"
      *  (tall 9:16 cards), "youtube" (wide 16:9 cards with their words
@@ -163,6 +163,7 @@ data class LocalFeed(
         "likes" -> items.sortedByDescending { it.likeCount }
         "reposts" -> items.sortedByDescending { it.repostCount }
         "replies" -> items.sortedByDescending { it.replyCount }
+        "oldest" -> items.sortedBy { it.createdAt.orEmpty().ifBlank { "~" } }
         else -> items.sortedByDescending { it.createdAt.orEmpty() }
     }
 }
@@ -454,6 +455,18 @@ object LocalData {
     /** A public folder's PDS copy follows each change to it. */
     private fun republish(id: String) {
         folderSlot.value.firstOrNull { it.id == id && it.public }?.let { PublicFolders.publish(it) }
+    }
+
+    /** A folder's posts in a new order (dragged in Saved Posts): [order]
+     *  first as given, then any of its posts it didn't mention. */
+    fun reorderBookmarkFolder(id: String, order: List<String>) {
+        folderSlot.save(prefs, folderSlot.value.map { f ->
+            if (f.id != id) f else {
+                val known = order.filter { it in f.posts }
+                f.copy(posts = known + f.posts.filterNot { it in known })
+            }
+        })
+        republish(id)
     }
 
     /** Adds or removes [postUri] in a folder. Returns true if it's now in it. */
