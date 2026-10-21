@@ -1535,6 +1535,12 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
 
     } // the blurred app content
 
+        // Popups are glass only over the Timeline (a post on screen and
+        // nothing else open); everywhere else they're filled (PopupStyle).
+        val timelineShowing = screenState == ScreenState.FEED && profileOverlay?.hidden != false &&
+            !searchOpen && !dmInboxOpen && !inboxOpen && !composePostOpen
+        androidx.compose.runtime.SideEffect { com.mediaviewer.ui.PopupStyle.timeline = timelineShowing }
+
         // Supporter features: their popups, the Launchpad apps and the
         // floating web pages (see LocalOverlays).
         com.mediaviewer.ui.LocalOverlayHost(

@@ -99,8 +99,9 @@ fun Modifier.supporterShine(
 fun Modifier.supporterLocked(): Modifier = supporterShine(enabled = !Supporter.active)
 
 /**
- * A centred glass popup in the app's style: dimmed backdrop (tap to close),
- * a title row with the round X, then [content]. Rises above the keyboard.
+ * A centred popup in the app's style (glass over the Timeline, filled
+ * elsewhere — see PopupStyle; no dim, tap outside to close), a title row
+ * with the round X, then [content]. Rises above the keyboard.
  */
 @Composable
 fun LocalPopup(
@@ -123,7 +124,6 @@ fun LocalPopup(
     Box(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .background(Color.Black.copy(alpha = 0.3f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 40.dp),
@@ -137,8 +137,9 @@ fun LocalPopup(
                     scaleX = sc; scaleY = sc
                 }
         ) {
-            // A little extra dark so text reads over any color.
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
+            // A little extra dark so text reads over any color (glass only:
+            // the filled panel is dark enough already).
+            if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
             Column(Modifier.fillMaxWidth()) {
                 PopupSheetHeader(title = title, liquidGlass = liquidGlass, tint = tint, backdrop = null, onClose = onClose, subtitle = subtitle)
                 Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp, top = 6.dp), content = content)
@@ -200,7 +201,7 @@ fun LocalPillButton(
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(height / 2)
     val color = if (destructive) Color(0xFFE0245E) else tint
-    val textColor = (if (destructive) Color(0xFFFF6B8A) else Color.White).copy(alpha = if (enabled) 1f else 0.4f)
+    val textColor = (if (destructive && PopupStyle.glass(liquidGlass)) Color(0xFFFF6B8A) else Color.White).copy(alpha = if (enabled) 1f else 0.4f)
     val m = modifier.height(height).clip(shape).clickable(enabled = enabled) { tap(); onClick() }
     val text: @Composable () -> Unit = {
         Text(
@@ -208,14 +209,11 @@ fun LocalPillButton(
             modifier = Modifier.padding(horizontal = 16.dp).supporterShine(locked)
         )
     }
-    if (liquidGlass) {
+    if (PopupStyle.glass(liquidGlass)) {
         LiquidGlassSurface(m, shape = shape, tint = color, contentAlignment = Alignment.Center) { text() }
     } else {
-        Box(
-            m.background(color.copy(alpha = if (destructive) 0.22f else 0.16f))
-                .border(1.dp, lerp(color, Color.White, 0.25f).copy(alpha = 0.55f), shape),
-            contentAlignment = Alignment.Center
-        ) { text() }
+        // Filled popups' buttons: a brighter fill of the color (see PopupStyle).
+        Box(m.popupButtonFill(color, shape), contentAlignment = Alignment.Center) { text() }
     }
 }
 

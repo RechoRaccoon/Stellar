@@ -176,7 +176,7 @@ fun LocalOverlayHost(
             onArchive = { items ->
                 LocalOverlays.confirm = ConfirmRequest(
                     "Archive ${items.size} Post${if (items.size == 1) "" else "s"}?",
-                    "They leave your profile (with your own replies under them) and are kept on this device, one after another.",
+                    "Archives the selected posts and threads.",
                     "Archive", tint, destructive = false
                 ) { viewModel.archiveItems(items); PostSelection.clear() }
             },

@@ -1889,7 +1889,7 @@ internal fun ContentLabelsPopup(
     val base = Color(red = tint.red * 0.22f, green = tint.green * 0.22f, blue = tint.blue * 0.22f, alpha = 0.94f)
 
     Box(
-        Modifier.fillMaxSize().zIndex(5f).background(Color.Black.copy(alpha = 0.55f))
+        Modifier.fillMaxSize().zIndex(5f)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
         contentAlignment = Alignment.Center
     ) {
@@ -2749,7 +2749,7 @@ private fun RemovalConfirmPopup(
                         view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
                         onConfirm()
                     }
-                    if (liquidGlass) {
+                    if (PopupStyle.glass(liquidGlass)) {
                         LiquidGlassSurface(cancelMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
                             Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -2757,17 +2757,18 @@ private fun RemovalConfirmPopup(
                             Text("Remove", color = Color(0xFFFF6B8A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
-                        Box(cancelMod.background(Color.White.copy(0.10f)).border(1.dp, Color.White.copy(0.18f), pill), contentAlignment = Alignment.Center) {
+                        Box(cancelMod.popupButtonFill(tint, pill), contentAlignment = Alignment.Center) {
                             Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        Box(removeMod.background(Color(0xFFE0245E).copy(0.22f)).border(1.dp, Color(0xFFE0245E).copy(0.6f), pill), contentAlignment = Alignment.Center) {
-                            Text("Remove", color = Color(0xFFFF6B8A), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Box(removeMod.popupButtonFill(Color(0xFFE0245E), pill, strong = true), contentAlignment = Alignment.Center) {
+                            Text("Remove", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
         }
-        if (liquidGlass) {
+        // (The composer isn't the Timeline: a filled panel — see PopupStyle.)
+        if (PopupStyle.glass(liquidGlass)) {
             LiquidGlassSurface(cardModifier, shape = shape, tint = tint, backdrop = backdrop) {
                 // A little extra dark behind the text, like the app's other
                 // popups, so it reads over any photo.
@@ -2775,11 +2776,7 @@ private fun RemovalConfirmPopup(
                 content()
             }
         } else {
-            Box(
-                cardModifier.clip(shape)
-                    .background(androidx.compose.ui.graphics.lerp(Color(0xFF141418), tint, 0.25f))
-                    .border(1.dp, tint.copy(alpha = 0.5f), shape)
-            ) { content() }
+            Box(cardModifier.popupPanel(tint, shape)) { content() }
         }
     }
 }

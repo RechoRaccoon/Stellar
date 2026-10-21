@@ -5311,15 +5311,14 @@ private fun BlogDetailOverlay(
 
         if (confirmDelete) {
             Box(
-                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+                Modifier.fillMaxSize()
                     .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { confirmDelete = false },
                 contentAlignment = Alignment.Center
             ) {
                 val shape = RoundedCornerShape(20.dp)
                 Column(
-                    Modifier.padding(horizontal = 36.dp).widthIn(max = 340.dp).fillMaxWidth().clip(shape)
-                        .background(androidx.compose.ui.graphics.lerp(Color(0xFF111114), tint, 0.25f))
-                        .border(1.dp, tint.copy(alpha = 0.5f), shape)
+                    Modifier.padding(horizontal = 36.dp).widthIn(max = 340.dp).fillMaxWidth()
+                        .popupPanel(tint, shape)
                         .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}
                         .padding(18.dp)
                 ) {
@@ -5333,14 +5332,12 @@ private fun BlogDetailOverlay(
                     Spacer(Modifier.height(16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(
-                            Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, tint.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            Modifier.weight(1f).height(42.dp).popupButtonFill(tint, RoundedCornerShape(21.dp))
                                 .clickable { tap(); confirmDelete = false },
                             contentAlignment = Alignment.Center
                         ) { Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
                         Box(
-                            Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFE5484D))
+                            Modifier.weight(1f).height(42.dp).popupButtonFill(Color(0xFFE5484D), RoundedCornerShape(21.dp), strong = true)
                                 .clickable { tap(); confirmDelete = false; onDelete(blog) },
                             contentAlignment = Alignment.Center
                         ) { Text("Delete", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }

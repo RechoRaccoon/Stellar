@@ -182,7 +182,6 @@ fun ListPickerDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = if (liquidGlass) 0.22f else 0.6f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
             .padding(top = rememberTopCutoutClearance())
             .imePadding()

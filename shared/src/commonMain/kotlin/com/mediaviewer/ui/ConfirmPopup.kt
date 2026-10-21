@@ -93,12 +93,13 @@ fun ConfirmPopup(
         appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f))
     }
     val shape = RoundedCornerShape(22.dp)
+    // Glass over the Timeline, a filled panel elsewhere (see PopupStyle).
+    val glass = PopupStyle.glass(liquidGlass)
     val confirmColor = if (destructive) Color(0xFFE0245E) else tint
-    val confirmText = if (destructive) Color(0xFFFF6B8A) else Color.White
+    val confirmText = if (destructive && glass) Color(0xFFFF6B8A) else Color.White
     Box(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .background(Color.Black.copy(alpha = 0.45f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy && dismissOnOutsideTap) onDismiss() }
             .then(if (input != null) Modifier.imePadding() else Modifier),
         contentAlignment = Alignment.Center
@@ -175,21 +176,22 @@ fun ConfirmPopup(
                         if (busy) CircularProgressIndicator(Modifier.size(16.dp), color = confirmText, strokeWidth = 1.5.dp)
                         else Text(confirmLabel, color = confirmText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
-                    if (liquidGlass) {
+                    if (glass) {
                         if (showCancel) LiquidGlassSurface(cancelMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
                             Text(cancelLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         LiquidGlassSurface(confirmMod, shape = pill, tint = confirmColor, contentAlignment = Alignment.Center) { confirmContent() }
                     } else {
-                        if (showCancel) Box(cancelMod.background(Color.White.copy(0.10f)).border(1.dp, Color.White.copy(0.18f), pill), contentAlignment = Alignment.Center) {
+                        // Filled (see PopupStyle): brighter fills of the popup's color.
+                        if (showCancel) Box(cancelMod.popupButtonFill(tint, pill), contentAlignment = Alignment.Center) {
                             Text(cancelLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        Box(confirmMod.background(confirmColor.copy(0.22f)).border(1.dp, confirmColor.copy(0.6f), pill), contentAlignment = Alignment.Center) { confirmContent() }
+                        Box(confirmMod.popupButtonFill(confirmColor, pill, strong = true), contentAlignment = Alignment.Center) { confirmContent() }
                     }
                 }
             }
         }
-        if (liquidGlass) {
+        if (glass) {
             LiquidGlassSurface(cardModifier, shape = shape, tint = tint, backdrop = backdrop) {
                 // A little extra dark behind the text, like the app's other
                 // popups, so it reads over any photo.
@@ -198,9 +200,7 @@ fun ConfirmPopup(
             }
         } else {
             Box(
-                cardModifier.clip(shape)
-                    .background(androidx.compose.ui.graphics.lerp(OffBlack, tint, 0.14f))
-                    .border(1.dp, androidx.compose.ui.graphics.lerp(tint, Color.White, 0.3f).copy(alpha = 0.5f), shape)
+                cardModifier.popupPanel(tint, shape)
             ) { content() }
         }
     }

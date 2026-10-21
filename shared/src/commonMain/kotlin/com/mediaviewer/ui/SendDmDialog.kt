@@ -81,9 +81,8 @@ fun SendDmDialog(
 
     Box(
         modifier = Modifier.fillMaxSize()
-            // A light dim (heavier without glass) so the sheet stands out
-            // from the post; tapping it closes the popup.
-            .background(Color.Black.copy(alpha = if (liquidGlass) 0.22f else 0.6f))
+            // (No dim: the page behind is already blurred, and the sheet's
+            // own panel stands out on its own.) Tapping outside closes it.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
             // Top: just under the camera notch (where the Hub's search bar
             // sits). Bottom: above the navigation bar — or the keyboard,

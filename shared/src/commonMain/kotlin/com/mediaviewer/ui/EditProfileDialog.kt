@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import com.mediaviewer.ui.theme.CircleShape
+import com.mediaviewer.ui.theme.DimGray
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -124,12 +125,11 @@ fun EditProfileDialog(
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) cropping = uri to pickingIcon }
     val videosOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
 
-    val panelColor = lerp(Color(0xFF111114), tint, 0.22f)
     val fieldColor = Color.White.copy(alpha = 0.07f)
     val shape = RoundedCornerShape(24.dp)
 
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
+        Modifier.fillMaxSize()
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null
@@ -139,9 +139,7 @@ fun EditProfileDialog(
     ) {
         Column(
             Modifier.padding(horizontal = 18.dp).widthIn(max = 440.dp).fillMaxWidth()
-                .clip(shape)
-                .background(panelColor.copy(alpha = if (liquidGlass) 0.9f else 1f))
-                .border(1.dp, tint.copy(alpha = 0.55f), shape)
+                .popupPanel(tint, shape)
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null
@@ -157,7 +155,10 @@ fun EditProfileDialog(
             // top-right corner, "Default" / "Video" switch which pair you're
             // setting: the picture icon and banner, or the video ones
             // (what the profile shows doesn't change by switching).
-            val rowH = 96.dp
+            // The banner's own shape (width / height), read as it loads:
+            // the row's height follows it so both previews show their whole
+            // picture, uncropped, with nothing around it.
+            var bannerShape by remember { mutableStateOf(3f) }
             // (Square at the top right, where the tabs above meet it.)
             val bannerSlotShape = RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
             // The title, with the Default / Animated tabs in the room already
@@ -188,6 +189,11 @@ fun EditProfileDialog(
                 SlotTab("Animated", videoSlots, left = false) { if (supporter) videoSlots = true else { onDismiss(); com.mediaviewer.util.Supporter.openPage() } }
             }
             }
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Icon (rowH square) + 10dp + banner (rowH tall, rowH × shape wide)
+            // = the whole width.
+            val a = (if (videoSlots) com.mediaviewer.ui.BANNER_VIDEO_ASPECT else bannerShape).coerceIn(1f, 6f)
+            val rowH = ((maxWidth - 10.dp) / (1f + a)).coerceAtMost(160.dp)
             Row(Modifier.fillMaxWidth().height(rowH), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // (Square straight away when the supporter option below is on.)
                 val iconShape = if (supporter && style.squareIcon) com.mediaviewer.ui.theme.SquareIconShape else com.mediaviewer.ui.theme.AvatarShape
@@ -213,11 +219,15 @@ fun EditProfileDialog(
                     ) {
                         val bannerModel: Any? = newBanner ?: profile?.bannerUrl
                         if (bannerModel != null) {
-                            // The whole banner, as the profile shows it (never
-                            // cropped), over a dim copy of itself.
-                            AsyncImage(model = bannerModel, contentDescription = null, contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.35f })
-                            AsyncImage(model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                            // The whole banner, as the profile shows it: the
+                            // slot is its own shape, so it fills it exactly.
+                            AsyncImage(
+                                model = bannerModel, contentDescription = "Banner", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                                onSuccess = { st ->
+                                    val sz = st.painter.intrinsicSize
+                                    if (sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) bannerShape = sz.width / sz.height
+                                }
+                            )
                         }
                         EditPictureBadge()
                     }
@@ -269,6 +279,7 @@ fun EditProfileDialog(
                         fit = true
                     )
                 }
+            }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -376,14 +387,18 @@ fun EditProfileDialog(
                         Modifier.size(24.dp).clip(CircleShape).background(shown)
                             .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape)
                     )
+                    // A text button like Settings' (Copy / Show / Regenerate),
+                    // right beside the color.
                     Box(
-                        Modifier.padding(start = 6.dp).size(36.dp).clip(CircleShape)
-                            .clickable(enabled = picked && !saving) { gate { style = style.copy(colorA = null, colorB = null) } },
+                        Modifier.padding(start = 8.dp).clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = if (picked) 0.12f else 0.05f))
+                            .clickable(enabled = picked && !saving) { gate { style = style.copy(colorA = null, colorB = null) } }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Default.Refresh, contentDescription = "Reset Color",
-                            tint = Color.White.copy(alpha = if (picked) 0.9f else 0.25f), modifier = Modifier.size(18.dp)
+                        Text(
+                            "Reset", color = if (picked) Color.White else DimGray,
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
                         )
                     }
                 }

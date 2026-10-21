@@ -1831,7 +1831,7 @@ private fun FollowerScanCompletionPopup(
     val tap = rememberHapticTap()
     val accent = remember(dominantColor) { androidx.compose.ui.graphics.lerp(dominantColor, Color.White, 0.2f) }
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f))
+        Modifier.fillMaxSize()
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
         contentAlignment = Alignment.Center
     ) {
@@ -1878,10 +1878,10 @@ private fun FollowerScanCompletionPopup(
             }
         }
         val m = Modifier.padding(horizontal = 36.dp).widthIn(max = 360.dp).fillMaxWidth()
-        if (liquidGlass) {
+        if (PopupStyle.glass(liquidGlass)) {
             LiquidGlassSurface(m, shape = cardShape, tint = dominantColor, backdrop = backdrop) { CardContent() }
         } else {
-            Box(m.clip(cardShape).background(OffBlack).border(1.dp, dominantColor.copy(alpha = 0.5f), cardShape)) { CardContent() }
+            Box(m.popupPanel(dominantColor, cardShape)) { CardContent() }
         }
     }
 }

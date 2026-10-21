@@ -323,7 +323,7 @@ fun ProfileStatusEditor(
     val accent = lerp(tint, Color.White, 0.35f)
     com.mediaviewer.ui.compat.BackHandler(onBack = onDismiss)
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+        Modifier.fillMaxSize()
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() }
             .imePadding(),
         contentAlignment = Alignment.BottomCenter

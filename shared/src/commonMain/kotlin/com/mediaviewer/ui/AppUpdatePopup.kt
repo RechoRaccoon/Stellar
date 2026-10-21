@@ -48,7 +48,7 @@ fun AppUpdatePopup(tint: Color, modifier: Modifier = Modifier) {
     val busy = progress != null
     val panel = RoundedCornerShape(24.dp)
     Box(
-        modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+        modifier.fillMaxSize()
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy) AppUpdates.later() },
         contentAlignment = Alignment.Center
     ) {

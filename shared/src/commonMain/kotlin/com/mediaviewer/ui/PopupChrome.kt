@@ -96,8 +96,45 @@ fun <T : Any> FadingPopupHost(
  *  drawing, so only the sheet moves (see FadingPopupHost). */
 val LocalPopupProgress = androidx.compose.runtime.staticCompositionLocalOf<() -> Float> { { 1f } }
 
-/** A popup sheet's surface: live-blurred glass in the post's own color, or
- *  the flat dark panel when Glass Theme is off. */
+/**
+ * The one rule every popup follows. Over the Timeline (a post on screen,
+ * nothing else open) a popup is live-blurred glass in the post's own color,
+ * blurring the post under it. Everywhere else (the Hub, profiles, Explore,
+ * Saved Posts, Search…) it's a filled panel: the "New chat" look, a soft
+ * gradient of its color with a gradient rim, and its buttons a brighter
+ * fill of the same color. Neither dims the screen: the app behind is
+ * already blurred while a popup's open.
+ */
+object PopupStyle {
+    /** True while the Timeline is what's on screen (set by AppRoot). */
+    var timeline by androidx.compose.runtime.mutableStateOf(false)
+
+    /** Whether a popup is drawn as glass right now. */
+    fun glass(liquidGlass: Boolean): Boolean = liquidGlass && timeline
+
+    /** The filled panel's base color for [tint]. */
+    fun panel(tint: Color): Color = lerp(Color(0xFF101014), tint, 0.16f)
+}
+
+/** The filled popup panel (see [PopupStyle]): "New chat"'s gradient and rim. */
+fun Modifier.popupPanel(tint: Color, shape: Shape): Modifier {
+    val panel = PopupStyle.panel(tint)
+    return this.clip(shape)
+        .background(Brush.verticalGradient(listOf(lerp(panel, tint, 0.12f).copy(alpha = 0.97f), panel.copy(alpha = 0.97f))))
+        .border(1.2.dp, Brush.linearGradient(listOf(tint.copy(alpha = 0.9f), Color.White.copy(alpha = 0.25f), tint.copy(alpha = 0.6f))), shape)
+}
+
+/** A button on a filled popup: a brighter fill of the popup's color, a
+ *  little lighter at the top, with a soft rim ([strong] = the main action). */
+fun Modifier.popupButtonFill(tint: Color, shape: Shape, strong: Boolean = false): Modifier {
+    val base = lerp(PopupStyle.panel(tint), tint, if (strong) 0.55f else 0.32f)
+    return this.clip(shape)
+        .background(Brush.verticalGradient(listOf(lerp(base, Color.White, 0.08f), base)))
+        .border(1.dp, lerp(tint, Color.White, 0.35f).copy(alpha = if (strong) 0.85f else 0.5f), shape)
+}
+
+/** A popup sheet's surface: glass over the Timeline, the filled panel
+ *  everywhere else (see [PopupStyle]). */
 @Composable
 fun PopupSheetSurface(
     liquidGlass: Boolean,
@@ -117,17 +154,10 @@ fun PopupSheetSurface(
         translationY = (1f - p) * size.height / 14f
     }
     val sheet = moving.then(modifier)
-    if (liquidGlass) {
+    if (PopupStyle.glass(liquidGlass)) {
         LiquidGlassSurface(modifier = sheet.then(absorb), shape = shape, tint = tint, backdrop = backdrop, content = content)
     } else {
-        Box(
-            sheet
-                .clip(shape)
-                .background(Brush.verticalGradient(listOf(lerp(OffBlack, tint, 0.14f), OffBlack)))
-                .border(1.dp, lerp(tint, Color.White, 0.3f).copy(alpha = 0.5f), shape)
-                .then(absorb),
-            content = content
-        )
+        Box(sheet.popupPanel(tint, shape).then(absorb), content = content)
     }
 }
 
