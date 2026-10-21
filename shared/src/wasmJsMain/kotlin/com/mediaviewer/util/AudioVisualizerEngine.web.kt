@@ -48,10 +48,26 @@ actual object AudioVisualizerEngine {
     }
 
     actual fun startListening(context: PlatformContext) {
+        // (Asked for straight from the tap: browsers only share sound — or
+        // the microphone — while a tap is fresh.)
+        val asked = vizStart()
         scope.launch {
-            runCatching { vizStart().await<JsAny>() }
-                .onSuccess { _status = "Listening"; _listening = true; if (users > 0) startLoop() }
-                .onFailure { _status = it.message?.takeIf { m -> m.isNotBlank() && !m.contains("Permission denied") } ?: "Not shared" }
+            // The page answers in words, never by failing: a JavaScript error's
+            // own message doesn't make it through to here.
+            val answer = runCatching { asked.await<JsString>().toString() }.getOrDefault("error")
+            val heard = answer == "ok" || answer == "mic"
+            _status = when {
+                answer == "ok" -> "Listening"
+                // Firefox (and others) can't share a tab's sound: the
+                // microphone hears what's playing instead.
+                answer == "mic" -> "Listening through the microphone (this browser can't share a tab's sound)"
+                answer == "denied" -> "Not shared"
+                answer == "mic-denied" -> "The microphone wasn't allowed"
+                answer == "unsupported" -> "This browser can't hear sound"
+                else -> "Couldn't start listening"
+            }
+            _listening = heard
+            if (heard && users > 0) startLoop()
         }
     }
 
@@ -72,26 +88,40 @@ actual object AudioVisualizerEngine {
     }
 }
 
-private fun vizStart(): kotlin.js.Promise<JsAny> = js("""(() => {
+private fun vizStart(): kotlin.js.Promise<JsString> = js("""(() => {
     const S = window.__stellarViz || (window.__stellarViz = {});
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return Promise.reject(new Error("This browser can't share audio"));
-    return navigator.mediaDevices.getDisplayMedia({
+    const md = navigator.mediaDevices;
+    if (!md) return Promise.resolve("unsupported");
+    const setup = (stream, audio) => {
+        if (S.stream && S.stream !== stream) S.stream.getTracks().forEach((t) => t.stop());
+        if (S.ctx) { try { S.ctx.close(); } catch (e) {} }
+        const ctx = new AudioContext();
+        const an = ctx.createAnalyser();
+        an.fftSize = 2048; an.smoothingTimeConstant = 0.55;
+        ctx.createMediaStreamSource(new MediaStream(audio)).connect(an);
+        if (ctx.state === 'suspended') ctx.resume();
+        S.stream = stream; S.ctx = ctx; S.an = an; S.data = new Uint8Array(an.frequencyBinCount); S.rate = ctx.sampleRate;
+        audio[0].addEventListener('ended', () => { S.an = null; });
+    };
+    const mic = () => {
+        if (!md.getUserMedia) return Promise.resolve("unsupported");
+        return md.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+            .then((stream) => { setup(stream, stream.getAudioTracks()); return "mic"; })
+            .catch(() => "mic-denied");
+    };
+    // Firefox shares no sound with a screen or tab: straight to the microphone.
+    const tabSound = md.getDisplayMedia && !/firefox/i.test(navigator.userAgent);
+    if (!tabSound) return mic();
+    return md.getDisplayMedia({
         video: true,
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         systemAudio: 'include'
     }).then((stream) => {
         const audio = stream.getAudioTracks();
-        if (!audio.length) { stream.getTracks().forEach((t) => t.stop()); throw new Error("No sound was shared — tick Share audio"); }
-        if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
-        if (S.ctx) S.ctx.close();
-        const ctx = new AudioContext();
-        const an = ctx.createAnalyser();
-        an.fftSize = 2048; an.smoothingTimeConstant = 0.55;
-        ctx.createMediaStreamSource(new MediaStream(audio)).connect(an);
-        S.stream = stream; S.ctx = ctx; S.an = an; S.data = new Uint8Array(an.frequencyBinCount); S.rate = ctx.sampleRate;
-        audio[0].addEventListener('ended', () => { S.an = null; });
-        return 1;
-    });
+        if (!audio.length) { stream.getTracks().forEach((t) => t.stop()); return mic(); }
+        setup(stream, audio);
+        return "ok";
+    }).catch((e) => (e && e.name === 'NotAllowedError') ? "denied" : mic());
 })()""")
 
 private fun vizActive(): Boolean = js("!!(window.__stellarViz && window.__stellarViz.an)")

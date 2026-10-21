@@ -2008,5 +2008,9 @@
 "Save All Emoji?": "Enregistrer tous les emojis ?",
 "Save Folder?": "Enregistrer le dossier ?",
 "Saved {0} emoji": "{0} emojis enregistrés",
-"Status Position": "Position du statut"
+"Status Position": "Position du statut",
+"Couldn't start listening": "Impossible de commencer l'écoute",
+"Listening through the microphone (this browser can't share a tab's sound)": "Écoute via le micro (ce navigateur ne peut pas partager le son d'un onglet)",
+"The microphone wasn't allowed": "Le micro n'a pas été autorisé",
+"This browser can't hear sound": "Ce navigateur ne peut pas entendre le son"
 }

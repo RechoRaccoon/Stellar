@@ -2008,5 +2008,9 @@
 "Save All Emoji?": "すべての絵文字を保存しますか？",
 "Save Folder?": "フォルダを保存しますか？",
 "Saved {0} emoji": "{0}個の絵文字を保存しました",
-"Status Position": "ステータスの位置"
+"Status Position": "ステータスの位置",
+"Couldn't start listening": "聞き取りを開始できませんでした",
+"Listening through the microphone (this browser can't share a tab's sound)": "マイクで聞いています（このブラウザはタブの音を共有できません）",
+"The microphone wasn't allowed": "マイクが許可されませんでした",
+"This browser can't hear sound": "このブラウザは音を聞き取れません"
 }

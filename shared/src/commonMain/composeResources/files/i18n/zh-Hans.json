@@ -2008,5 +2008,9 @@
 "Save All Emoji?": "保存所有表情？",
 "Save Folder?": "保存文件夹？",
 "Saved {0} emoji": "已保存 {0} 个表情",
-"Status Position": "状态位置"
+"Status Position": "状态位置",
+"Couldn't start listening": "无法开始收听",
+"Listening through the microphone (this browser can't share a tab's sound)": "正在通过麦克风收听（此浏览器无法共享标签页的声音）",
+"The microphone wasn't allowed": "未允许使用麦克风",
+"This browser can't hear sound": "此浏览器无法收听声音"
 }

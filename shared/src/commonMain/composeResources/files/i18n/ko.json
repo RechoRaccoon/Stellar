@@ -2008,5 +2008,9 @@
 "Save All Emoji?": "모든 이모지를 저장할까요?",
 "Save Folder?": "폴더를 저장할까요?",
 "Saved {0} emoji": "이모지 {0}개를 저장했습니다",
-"Status Position": "상태 위치"
+"Status Position": "상태 위치",
+"Couldn't start listening": "듣기를 시작할 수 없습니다",
+"Listening through the microphone (this browser can't share a tab's sound)": "마이크로 듣는 중 (이 브라우저는 탭 소리를 공유할 수 없습니다)",
+"The microphone wasn't allowed": "마이크가 허용되지 않았습니다",
+"This browser can't hear sound": "이 브라우저는 소리를 들을 수 없습니다"
 }
