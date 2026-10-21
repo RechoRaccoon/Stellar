@@ -10087,8 +10087,15 @@ class MainViewModel(
             val now = com.mediaviewer.platform.currentTimeMillis()
             fun stale(m: HashMap<String, Long>, did: String) = now - (m[did] ?: 0L) > WRITINGS_TTL_MS
             if (feed.blogs) {
-                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) { pick.filter { stale(blogsReadAt, it) } }
-                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedBlogs(bskyToken, need) }.onSuccess { got ->
+                // (Claimed before reading, so rows loading at once never read
+                // the same account twice; within the budget below.)
+                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) {
+                    pick.filter { stale(blogsReadAt, it) }.let { takeWritingsBudget(it, now) }.onEach { blogsReadAt[it] = now }
+                }
+                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedBlogs(bskyToken, need) }.onFailure {
+                    // (Couldn't read: let them be tried again next time.)
+                    com.mediaviewer.platform.synchronizedCompat(writingsLock) { need.forEach { blogsReadAt.remove(it) } }
+                }.onSuccess { got ->
                     com.mediaviewer.platform.synchronizedCompat(writingsLock) {
                         need.forEach { blogsReadAt[it] = now; blogsByDid[it] = emptyList() }
                         got.groupBy { it.author.did }.forEach { (d, l) -> blogsByDid[d] = l }
@@ -10096,8 +10103,15 @@ class MainViewModel(
                 }
             }
             if (feed.reviews) {
-                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) { pick.filter { stale(reviewsReadAt, it) } }
-                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedReviews(bskyToken, need) }.onSuccess { got ->
+                // (Claimed before reading, so rows loading at once never read
+                // the same account twice; within the budget below.)
+                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) {
+                    pick.filter { stale(reviewsReadAt, it) }.let { takeWritingsBudget(it, now) }.onEach { reviewsReadAt[it] = now }
+                }
+                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedReviews(bskyToken, need) }.onFailure {
+                    // (Couldn't read: let them be tried again next time.)
+                    com.mediaviewer.platform.synchronizedCompat(writingsLock) { need.forEach { reviewsReadAt.remove(it) } }
+                }.onSuccess { got ->
                     com.mediaviewer.platform.synchronizedCompat(writingsLock) {
                         need.forEach { reviewsReadAt[it] = now; reviewsByDid[it] = emptyList() }
                         got.groupBy { it.author.did }.forEach { (d, l) -> reviewsByDid[d] = l }
@@ -10117,6 +10131,17 @@ class MainViewModel(
     private val blogsReadAt = HashMap<String, Long>()
     private val reviewsReadAt = HashMap<String, Long>()
     private val WRITINGS_TTL_MS = 30 * 60_000L
+    /** Accounts' blogs/reviews read in the last 5 minutes, across every row:
+     *  at most [WRITINGS_BUDGET] (each costs up to 2–3 small reads on that
+     *  account's own PDS), so many rows of many accounts can't add up to a
+     *  burst; the rest fill in on a later load. */
+    private val writingsReads = ArrayDeque<Long>()
+    private val WRITINGS_BUDGET = 60
+    private fun takeWritingsBudget(dids: List<String>, now: Long): List<String> {
+        while (writingsReads.isNotEmpty() && now - writingsReads.first() > 5 * 60_000L) writingsReads.removeFirst()
+        val room = (WRITINGS_BUDGET - writingsReads.size).coerceAtLeast(0)
+        return dids.take(room).also { picked -> repeat(picked.size) { writingsReads.addLast(now) } }
+    }
 
     /** Feed Builder → Add list by link: resolves a bsky.app list link. */
     fun resolveListForBuilder(input: String, onDone: (com.mediaviewer.util.LocalFeedSource?, String?) -> Unit) {
