@@ -84,6 +84,10 @@ data class PostDraftEntry(
     val firstImage: String? get() = posts.firstNotNullOfOrNull { it.images.firstOrNull() } ?: videoThumbUri
 }
 
+/** One calculation the Calculator kept: what was typed and what it came to. */
+@Serializable
+data class CalcEntry(val id: String = "", val expression: String = "", val result: String = "", val at: Long = 0L)
+
 @Serializable
 data class BookmarkFolder(
     val id: String = "",
@@ -274,6 +278,9 @@ object LocalData {
     private val noteFolderSlot = Slot("note_folders", ListSerializer(NoteFolder.serializer()), emptyList())
     private val notesSlot = Slot("notes", ListSerializer(NoteEntry.serializer()), emptyList())
     private val pollVoteSlot = Slot("poll_votes", MapSerializer(String.serializer(), String.serializer()), emptyMap())
+    // ("tape", not "history": anything named history stays on its device,
+    // and this one is meant to sync, encrypted, with the rest.)
+    private val calcSlot = Slot("calculator_tape", ListSerializer(CalcEntry.serializer()), emptyList())
 
     /** Supporter Settings → Notifications (Android). */
     var notifyDms by mutableStateOf(false)
@@ -330,7 +337,7 @@ object LocalData {
         widgetPrefs = context.sharedPreferences("stellar_widgets").also { widgetNoteId = it.getString("note_id", null) ?: "" }
         listOf(
             draftSlot, folderSlot, noteSlot, feedSlot, streakSlot, pinSlot, effectSlot,
-            eventSlot, noteFolderSlot, notesSlot, pollVoteSlot
+            eventSlot, noteFolderSlot, notesSlot, pollVoteSlot, calcSlot
         ).forEach { it.load(p) }
         notifyDms = p.getBoolean(KEY_NOTIFY_DMS, false)
         notifyInbox = p.getBoolean(KEY_NOTIFY_INBOX, false)
@@ -491,6 +498,17 @@ object LocalData {
         val m = pollVoteSlot.value + (postUri to letter)
         pollVoteSlot.save(prefs, if (m.size > 400) m.entries.drop(m.size - 400).associate { it.key to it.value } else m)
     }
+
+    // ── Calculator ───────────────────────────────────────────────────────
+
+    /** Past calculations, newest last. */
+    val calculations: List<CalcEntry> get() = calcSlot.value
+    fun addCalculation(expression: String, result: String) {
+        if (expression.isBlank() || expression == result) return
+        calcSlot.save(prefs, (calcSlot.value + CalcEntry(newId(), expression, result, currentTimeMillis())).takeLast(200))
+    }
+    fun deleteCalculation(id: String) { calcSlot.save(prefs, calcSlot.value.filterNot { it.id == id }) }
+    fun clearCalculations() { calcSlot.save(prefs, emptyList()) }
 
     // ── Calendar ─────────────────────────────────────────────────────────
 

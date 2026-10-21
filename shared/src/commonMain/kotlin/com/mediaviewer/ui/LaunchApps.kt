@@ -33,6 +33,7 @@ import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
@@ -222,13 +223,19 @@ internal fun formatNumber(v: Double): String {
 }
 
 /** Launchpad → Calculator. The keys fill the lower part of the screen (in
- *  thumb's reach); swipe left on the display to delete, tap it to clear. */
+ *  thumb's reach), the sum being typed sits right above them, and the
+ *  space above that is the tape: past calculations (kept with your other
+ *  private data, encrypted). Tap one to carry its answer on; its X removes
+ *  it, and Clear empties the tape. Swiping left on the sum deletes, holding
+ *  it clears it. */
 @Composable
 fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
     val view = rememberPlatformView()
+    val tap = rememberHapticTap()
     var expr by remember { mutableStateOf("") }
     var justEvaluated by remember { mutableStateOf(false) }
     val preview = remember(expr) { if (expr.any { it in "+−×÷%" }) evaluateExpression(expr)?.let { formatNumber(it) } else null }
+    val accent = lerp(tint, Color.White, 0.45f)
 
     fun press(key: String) {
         runCatching { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
@@ -238,7 +245,12 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             "⌫" -> { expr = expr.dropLast(1); justEvaluated = false }
             "=" -> {
                 val r = evaluateExpression(expr)
-                if (r != null) { expr = formatNumber(r).replace('-', '−'); justEvaluated = true }
+                if (r != null) {
+                    val shown = formatNumber(r).replace('-', '−')
+                    // (Onto the tape, when there was something to work out.)
+                    if (expr.any { it in "+−×÷%" }) LocalData.addCalculation(expr, shown)
+                    expr = shown; justEvaluated = true
+                }
             }
             "±" -> {
                 // Flips the sign of the number being typed.
@@ -277,10 +289,54 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
         }
     }
 
-    LaunchAppPage("Calculator", tint, liquidGlass, onClose) {
-        // Display: the expression, and what it comes to so far.
-        Column(
-            Modifier.fillMaxWidth().weight(1f)
+    val tape = LocalData.calculations
+    LaunchAppPage("Calculator", tint, liquidGlass, onClose, actions = {
+        // Clear the whole tape (only while there's one).
+        if (tape.isNotEmpty()) Text(
+            "Clear", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); LocalData.clearCalculations() }
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+    }) {
+        // ── The tape: newest at the bottom, nearest the sum ──
+        val tapeState = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(tape.size) { if (tape.isNotEmpty()) tapeState.scrollToItem(tape.lastIndex) }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            if (tape.isEmpty()) {
+                Text(
+                    "Your calculations will show up here", color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            } else androidx.compose.foundation.lazy.LazyColumn(
+                state = tapeState, modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)
+            ) {
+                items(tape.size, key = { tape[it].id }) { i ->
+                    val entry = tape[i]
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .clickable { tap(); expr = entry.result; justEvaluated = true }
+                            .padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier.size(30.dp).clip(CircleShape).clickable { tap(); LocalData.deleteCalculation(entry.id) },
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.size(15.dp)) }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text(entry.expression, color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("= " + entry.result, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        // ── The sum being typed, right above the keys ──
+        AppTile(
+            liquidGlass, tint,
+            Modifier.fillMaxWidth()
                 .pointerInput(Unit) {
                     var dragged = 0f
                     detectHorizontalDragGestures(
@@ -295,22 +351,20 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
                     )
                 }
                 .pointerInput(Unit) { detectTapGestures(onLongPress = { press("C") }) },
-            verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.End
+            shape = RoundedCornerShape(22.dp)
         ) {
-            Text(
-                expr.ifEmpty { "0" }, color = Color.White,
-                fontSize = if (expr.length > 16) 30.sp else if (expr.length > 10) 40.sp else 54.sp,
-                fontWeight = FontWeight.Light, maxLines = 2, textAlign = TextAlign.End,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
-            )
-            Text(
-                preview?.let { "= $it" } ?: " ", color = Color.White.copy(alpha = 0.6f), fontSize = 20.sp,
-                maxLines = 1, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-            )
-            Text(
-                "Swipe left to delete · hold to clear", color = Color.White.copy(alpha = 0.35f), fontSize = 11.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), horizontalAlignment = Alignment.End) {
+                Text(
+                    expr.ifEmpty { "0" }, color = Color.White,
+                    fontSize = if (expr.length > 16) 28.sp else if (expr.length > 10) 36.sp else 46.sp,
+                    fontWeight = FontWeight.Light, maxLines = 2, textAlign = TextAlign.End,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    preview?.let { "= $it" } ?: " ", color = accent.copy(alpha = 0.85f), fontSize = 18.sp,
+                    maxLines = 1, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
         val rows = listOf(
@@ -320,19 +374,24 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             listOf("1", "2", "3", "+"),
             listOf("±", "0", ".", "=")
         )
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             rows.forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { key ->
                         val isOp = key in listOf("÷", "×", "−", "+", "=")
+                        val isFn = key in listOf("C", "⌫", "%", "±")
                         AppTile(
                             liquidGlass, tint,
-                            Modifier.weight(1f).height(58.dp).clip(RoundedCornerShape(20.dp)).clickable { press(key) },
+                            Modifier.weight(1f).height(60.dp).clip(RoundedCornerShape(20.dp)).clickable { press(key) },
                             shape = RoundedCornerShape(20.dp), strong = isOp
                         ) {
-                            Text(
-                                key, color = Color.White.copy(alpha = if (key in listOf("C", "⌫", "%", "±")) 0.8f else 1f),
-                                fontSize = 22.sp, fontWeight = if (isOp) FontWeight.SemiBold else FontWeight.Medium
+                            // (Backspace as an icon: not every font has the ⌫ character.)
+                            if (key == "⌫") Icon(
+                                Icons.AutoMirrored.Filled.Backspace, contentDescription = "Delete",
+                                tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(22.dp)
+                            ) else Text(
+                                key, color = if (isFn) accent else Color.White,
+                                fontSize = if (isOp) 26.sp else 23.sp, fontWeight = if (isOp) FontWeight.SemiBold else FontWeight.Medium
                             )
                         }
                     }

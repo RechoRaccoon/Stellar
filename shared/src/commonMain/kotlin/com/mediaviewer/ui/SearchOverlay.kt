@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -216,6 +217,7 @@ fun SearchOverlay(
     val showSuggestions = isTagInputFilter && tagSuggestions.isNotEmpty()
     var barBottomLeft by remember { mutableStateOf(Offset.Zero) }
     var barWidthPx by remember { mutableStateOf(0) }
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
     // Posts / Tagged: which content type is shown (profile-style sub-tabs)
     // and, per sub-tab, which layout (the interaction bar's Grid button).
     var postsKind by remember { mutableStateOf(PostKindFilter.ALL) }
@@ -377,9 +379,12 @@ fun SearchOverlay(
                 // itself, so the suggestions panel lines up with it.
                 val fieldModifier = Modifier.weight(1f).height(44.dp).keyboardRegion(0.dp)
                     .onGloballyPositioned {
-                        val pos = it.positionInRoot()
-                        barBottomLeft = Offset(pos.x, pos.y + it.size.height)
-                        barWidthPx = it.size.width
+                        // (As drawn on screen: in landscape the side list —
+                        // and the field in it — is drawn scaled, so its laid-
+                        // out size isn't the size it shows at.)
+                        val b = it.boundsInRoot()
+                        barBottomLeft = Offset(b.left, b.bottom)
+                        barWidthPx = b.width.toInt()
                     }
                 // The look behind the text changes when the suggestions open
                 // and close, but the text field itself stays where it is. (It
@@ -780,12 +785,15 @@ fun SearchOverlay(
         // an in-progress word to suggest for; hitting space clears the
         // in-progress word, which clears this list, which closes the
         // panel — no separate "dismiss" logic needed.
+        // Where this page itself sits on screen, so the panel can be placed
+        // in its coordinates rather than the window's.
+        Spacer(Modifier.size(0.dp).onGloballyPositioned { overlayOrigin = it.positionInRoot() })
         if (showSuggestions) {
             val density = androidx.compose.ui.platform.LocalDensity.current
             val suggestionsShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
             Box(
                 Modifier
-                    .offset { with(density) { androidx.compose.ui.unit.IntOffset(barBottomLeft.x.toInt(), barBottomLeft.y.toInt()) } }
+                    .offset { androidx.compose.ui.unit.IntOffset((barBottomLeft.x - overlayOrigin.x).toInt(), (barBottomLeft.y - overlayOrigin.y).toInt()) }
                     .width(with(density) { barWidthPx.toDp() })
                     .opaqueMaskPanel(backdrop = searchBackdrop, tint = profileTint, shape = suggestionsShape)
             ) {

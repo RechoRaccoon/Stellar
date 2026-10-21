@@ -389,7 +389,12 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     val tap = rememberHapticTap()
     var id by remember { mutableStateOf(initial.id) }
     var title by remember { mutableStateOf(initial.title) }
-    var body by remember { mutableStateOf(TextFieldValue(initial.body, TextRange(initial.body.length))) }
+    // (The caret starts at the top: one at the end made the page scroll
+    // to the bottom when writing began, and the first press and hold
+    // jumped there and picked everything.)
+    var body by remember { mutableStateOf(TextFieldValue(initial.body, TextRange(0))) }
+    // One scroll for reading and writing, so switching keeps your place.
+    val bodyScroll = rememberScrollState()
     var folderId by remember { mutableStateOf(initial.folderId) }
     // A new note opens for writing; an existing one opens as it reads.
     var preview by remember { mutableStateOf(initial.id.isNotBlank() && initial.body.isNotBlank()) }
@@ -472,18 +477,24 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
             if (preview) {
                 MarkdownView(
                     body.text.ifBlank { "*Nothing written yet.*" }, tint,
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+                    Modifier.fillMaxSize().verticalScroll(bodyScroll).padding(horizontal = 14.dp, vertical = 12.dp),
                     // Checklists tick straight from the reading view.
                     onToggleCheck = { line ->
                         val next = toggleChecklistLine(body.text, line)
-                        if (next != body.text) body = TextFieldValue(next, TextRange(next.length))
+                        if (next != body.text) body = TextFieldValue(next, body.selection.let { TextRange(it.start.coerceAtMost(next.length), it.end.coerceAtMost(next.length)) })
                     }
                 )
             } else {
+                // Written in the reading view's own letters: the same size and
+                // color, headings, bold and italics shown as they read (the
+                // marks themselves dimmed); only pictures and checkboxes stay
+                // as text while writing.
+                val styled = remember(tint) { markdownEditTransformation(tint) }
                 BasicTextField(
                     // Return on a list / checklist row carries the marker on.
                     value = body, onValueChange = { body = continueMarkdownList(body, it) },
-                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp, lineHeight = 21.sp),
+                    textStyle = TextStyle(color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, lineHeight = 21.sp),
+                    visualTransformation = styled,
                     cursorBrush = SolidColor(Color.White),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     decorationBox = { inner ->
@@ -492,7 +503,7 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                             inner()
                         }
                     },
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)
+                    modifier = Modifier.fillMaxSize().verticalScroll(bodyScroll).padding(horizontal = 14.dp, vertical = 12.dp)
                 )
             }
         }
@@ -524,5 +535,53 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 })
             }
         }
+    }
+}
+
+
+/**
+ * The note editor's look: the markdown being written shown as it will
+ * read — # headings at their sizes, **bold**, *italic*, `code`, quotes in
+ * italics — with the marks themselves dimmed. Only styles: every letter
+ * stays where it is, so the caret and selection are untouched.
+ */
+internal fun markdownEditTransformation(tint: Color): androidx.compose.ui.text.input.VisualTransformation {
+    val dim = SpanStyle(color = Color.White.copy(alpha = 0.35f))
+    val accent = SpanStyle(color = lerp(tint, Color.White, 0.5f))
+    val bold = Regex("\\*\\*(.+?)\\*\\*")
+    val italic = Regex("(?<![*\\w])\\*(?!\\*)(.+?)(?<!\\*)\\*(?![*\\w])")
+    val code = Regex("`([^`]+)`")
+    return androidx.compose.ui.text.input.VisualTransformation { text ->
+        val raw = text.text
+        val out = buildAnnotatedString {
+            append(raw)
+            var start = 0
+            for (line in raw.split('\n')) {
+                val end = start + line.length
+                fun mark(len: Int) { if (len > 0) addStyle(dim, start, (start + len).coerceAtMost(end)) }
+                when {
+                    line.startsWith("### ") -> { addStyle(SpanStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White), start, end); mark(4) }
+                    line.startsWith("## ") -> { addStyle(SpanStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White), start, end); mark(3) }
+                    line.startsWith("# ") -> { addStyle(SpanStyle(fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White), start, end); mark(2) }
+                    line.startsWith("> ") -> { addStyle(SpanStyle(fontStyle = FontStyle.Italic, color = Color.White.copy(alpha = 0.8f)), start, end); addStyle(accent, start, start + 1) }
+                    line.startsWith("- ") || line.startsWith("* ") -> addStyle(accent, start, start + 1)
+                }
+                for (m in bold.findAll(line)) {
+                    addStyle(SpanStyle(fontWeight = FontWeight.Bold), start + m.range.first, start + m.range.last + 1)
+                    addStyle(dim, start + m.range.first, start + m.range.first + 2)
+                    addStyle(dim, start + m.range.last - 1, start + m.range.last + 1)
+                }
+                for (m in italic.findAll(line)) {
+                    addStyle(SpanStyle(fontStyle = FontStyle.Italic), start + m.range.first, start + m.range.last + 1)
+                    addStyle(dim, start + m.range.first, start + m.range.first + 1)
+                    addStyle(dim, start + m.range.last, start + m.range.last + 1)
+                }
+                for (m in code.findAll(line)) {
+                    addStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color.White.copy(alpha = 0.08f)), start + m.range.first, start + m.range.last + 1)
+                }
+                start = end + 1
+            }
+        }
+        androidx.compose.ui.text.input.TransformedText(out, androidx.compose.ui.text.input.OffsetMapping.Identity)
     }
 }

@@ -3255,15 +3255,21 @@ class BlueskyRepository {
         rootUri: String, rootCid: String,
         parentUri: String, parentCid: String,
         text: String
-    ): Result<String> = createRecord(token, did, "app.bsky.feed.post", mapOf(
-        "\$type" to "app.bsky.feed.post",
-        "text" to text,
-        "reply" to mapOf(
-            "root"   to mapOf("uri" to rootUri,   "cid" to rootCid),
-            "parent" to mapOf("uri" to parentUri, "cid" to parentCid)
-        ),
-        "createdAt" to com.mediaviewer.platform.nowIsoString()
-    ))
+    ): Result<String> {
+        // @mentions, links and #tags become real ones, as in a post.
+        val (words, facets) = richText(text)
+        val record = linkedMapOf<String, Any>(
+            "\$type" to "app.bsky.feed.post",
+            "text" to words,
+            "reply" to mapOf(
+                "root"   to mapOf("uri" to rootUri,   "cid" to rootCid),
+                "parent" to mapOf("uri" to parentUri, "cid" to parentCid)
+            ),
+            "createdAt" to com.mediaviewer.platform.nowIsoString()
+        )
+        if (facets.isNotEmpty()) record["facets"] = facets
+        return createRecord(token, did, "app.bsky.feed.post", record)
+    }
 
     /**
      * A comment with pictures, a video or a GIF attached. The media goes
