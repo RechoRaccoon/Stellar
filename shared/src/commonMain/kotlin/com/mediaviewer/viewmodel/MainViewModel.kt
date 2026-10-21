@@ -2976,7 +2976,10 @@ class MainViewModel(
         val postsCursor: String? = null,
         val loadingMore: Boolean = false,
         /** Every member's own feed has been read to the end too. */
-        val membersExhausted: Boolean = false
+        val membersExhausted: Boolean = false,
+        /** A built feed's blogs and reviews (see LocalFeed.blogs/reviews). */
+        val blogs: List<FriendLeafletBlog> = emptyList(),
+        val reviews: List<FriendPopfeedReview> = emptyList()
     ) {
         val hasMore: Boolean get() = postsCursor != null || !membersExhausted
     }
@@ -10035,7 +10038,7 @@ class MainViewModel(
         }
         viewModelScope.launch(ioDispatcher) {
             val seen = com.mediaviewer.platform.synchronizedCompat(hubListLock) { feedRowSeen.getOrPut(key) { HashSet() } }
-            var result = loadFeedSpecPage(feed, cursor, seen)
+            var result = if (feed.showsPosts) loadFeedSpecPage(feed, cursor, seen) else Result.success(Pair(emptyList<MediaItem>(), null))
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = loadFeedSpecPage(feed, cursor, seen)
             }
@@ -10049,9 +10052,37 @@ class MainViewModel(
                         loadedAt = if (more) cur.loadedAt else com.mediaviewer.platform.currentTimeMillis()
                     )
                 }
+                // (After the posts: a hashtag's accounts are whoever posted them.)
+                if (!more && (feed.blogs || feed.reviews)) loadFeedRowWritings(key, feed)
             }.onFailure {
                 setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
+        }
+    }
+
+    /** A built feed's blogs and reviews: those of the accounts it reads from
+     *  (its accounts, its lists' members, and whoever posted what its other
+     *  sources hold), newest first. */
+    private fun loadFeedRowWritings(key: String, feed: com.mediaviewer.util.LocalFeed) {
+        viewModelScope.launch(ioDispatcher) {
+            val me = _bskyDid.value
+            val dids = LinkedHashSet<String>()
+            for (src in feed.sources) {
+                when (src.kind) {
+                    "account" -> dids += src.value
+                    "list" -> bskyRepo.getListMembers(bskyToken, me, src.value, max = 100).getOrNull()?.forEach { dids += it.author.did }
+                    "tag", "folder", "publicFolder" -> feedSourceUris(src).take(60).forEach { u ->
+                        u.removePrefix("at://").substringBefore('/').takeIf { it.startsWith("did:") }?.let { dids += it }
+                    }
+                }
+            }
+            // (Hashtags have no fixed accounts: whoever's posts the row shows.)
+            if (feed.sources.any { it.kind == "hashtag" }) _hubLists.value[key]?.posts?.forEach { dids += it.author.did }
+            val pick = dids.filter { it.isNotBlank() && !com.mediaviewer.util.BlockedAccounts.isBlocking(it) }.take(40)
+            if (pick.isEmpty()) return@launch
+            val blogs = if (feed.blogs) runCatching { bskyRepo.getSubscribedBlogs(bskyToken, pick) }.getOrDefault(emptyList()).take(30) else emptyList()
+            val reviews = if (feed.reviews) runCatching { bskyRepo.getSubscribedReviews(bskyToken, pick) }.getOrDefault(emptyList()).take(30) else emptyList()
+            setHubList(key) { it.copy(blogs = blogs, reviews = reviews) }
         }
     }
 

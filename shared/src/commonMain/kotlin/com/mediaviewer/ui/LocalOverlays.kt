@@ -72,6 +72,9 @@ object LocalOverlays {
     var feedBuilderForHome by mutableStateOf(false)
     /** Opens someone's profile (a Home tab row's picture). */
     var openProfile: ((AuthorInfo) -> Unit)? = null
+    /** Opens a blog / review shown in a built feed's row (as the Hub does). */
+    var openMutualBlog: ((com.mediaviewer.model.FriendLeafletBlog) -> Unit)? = null
+    var openMutualReview: ((com.mediaviewer.model.FriendPopfeedReview) -> Unit)? = null
     /** Built feed rows' contents, by key (MainViewModel.hubLists), for rows
      *  drawn outside the Hub (a profile's Home tab). */
     var feedRows: kotlinx.coroutines.flow.StateFlow<Map<String, com.mediaviewer.viewmodel.MainViewModel.HubListState>>? = null

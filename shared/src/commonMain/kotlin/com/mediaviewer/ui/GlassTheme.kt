@@ -611,6 +611,11 @@ fun Modifier.pageBlur(radius: Dp): Modifier =
  * "directly underneath" itself.
  */
 class GlassBackdrop(val layer: GraphicsLayer, val originInRoot: () -> Offset)
+// (Every glass panel checks layer.isReleased before drawing it: a backdrop is
+// handed around the app, and the page that records it can go away first —
+// opening a profile's post swaps the whole post pager — while a panel still
+// holds it for a frame. Drawing a released layer is skipped on Android, but on
+// the web it reads freed memory and crashes ("index out of bounds" in skiko).)
 
 /**
  * Video pictures that Compose can't record into a [GlassBackdrop] itself.
@@ -782,7 +787,7 @@ fun Modifier.opaqueMaskPanel(
                 Modifier.drawWithContent {
                     val delta = trackedOrigin - backdrop.originInRoot()
                     translate(-delta.x, -delta.y) {
-                        drawLayer(backdrop.layer)
+                        if (!backdrop.layer.isReleased) drawLayer(backdrop.layer)
                     }
                     drawContent()
                 }
@@ -897,7 +902,7 @@ fun LiquidGlassSurface(
                         val panelOrigin = staticOrigin ?: trackedOrigin
                         val delta = panelOrigin - backdrop.originInRoot()
                         translate(-delta.x, -delta.y) {
-                            drawLayer(backdrop.layer)
+                            if (!backdrop.layer.isReleased) drawLayer(backdrop.layer)
                             // (iOS) the playing video's picture, where it sits.
                             if (NativeVideoBackdrop.frames.isNotEmpty()) {
                                 val o = backdrop.originInRoot()

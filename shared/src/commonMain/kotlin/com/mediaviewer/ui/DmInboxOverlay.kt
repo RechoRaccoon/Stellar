@@ -690,7 +690,7 @@ private fun DmThreadView(
                             // too — which is how the DM header vanished
                             // while bubbles were out.
                             clipRect(0f, 0f, size.width, size.height) {
-                                translate(sky.x - bubbleOrigin.x, sky.y - bubbleOrigin.y) { drawLayer(backdrop.layer) }
+                                translate(sky.x - bubbleOrigin.x, sky.y - bubbleOrigin.y) { if (!backdrop.layer.isReleased) drawLayer(backdrop.layer) }
                             }
                         }
                         this@drawWithContent.drawContent()
@@ -709,7 +709,7 @@ private fun DmThreadView(
                         if (backdrop != null) {
                             val sky = backdrop.originInRoot()
                             clipRect(0f, 0f, size.width, size.height) {
-                                translate(sky.x - listOrigin.x, sky.y - listOrigin.y) { drawLayer(backdrop.layer) }
+                                translate(sky.x - listOrigin.x, sky.y - listOrigin.y) { if (!backdrop.layer.isReleased) drawLayer(backdrop.layer) }
                             }
                         }
                         this@drawWithContent.drawContent()

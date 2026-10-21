@@ -96,6 +96,8 @@ fun LocalOverlayHost(
         LocalOverlays.loadFeedRow = { key, feed, more -> viewModel.loadFeedRow(key, feed, more) }
         LocalOverlays.feedRows = viewModel.hubLists
         LocalOverlays.openProfile = { viewModel.openProfile(it) }
+        LocalOverlays.openMutualBlog = viewModel::openMutualBlog
+        LocalOverlays.openMutualReview = viewModel::openMutualReview
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView

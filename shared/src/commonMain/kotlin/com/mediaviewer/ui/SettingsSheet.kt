@@ -2751,7 +2751,7 @@ internal fun ShimmerBox(shape: androidx.compose.ui.graphics.Shape, modifier: Mod
  *  every card in the row — matching how a post's own glass panels reflect
  *  its own dominant color rather than some page-wide constant. */
 @Composable
-private fun MutualReviewCard(
+internal fun MutualReviewCard(
     fr: com.mediaviewer.model.FriendPopfeedReview,
     liquidGlass: Boolean,
     onOpenReview: (com.mediaviewer.model.FriendPopfeedReview) -> Unit,
@@ -2840,7 +2840,7 @@ private fun MutualReviewCard(
  *  unaffected — they just render at the normal size, narrower than the
  *  card, exactly as before. */
 @Composable
-private fun HubAuthorBubble(
+internal fun HubAuthorBubble(
     displayName: String, avatarUrl: String?, liquidGlass: Boolean, tint: Color, cardWidth: Dp,
     // Tapping the bubble opens that person's profile.
     onClick: (() -> Unit)? = null

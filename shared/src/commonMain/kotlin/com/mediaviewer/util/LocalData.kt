@@ -139,9 +139,16 @@ data class LocalFeed(
      *  under them) or "avatars" (just the accounts' pictures, like Mutuals). */
     val style: String = "natural",
     /** How many rows deep it is (1 to 3). */
-    val rows: Int = 1
+    val rows: Int = 1,
+    /** Also the blogs (Leaflet) and reviews (Popfeed) of the accounts it
+     *  reads from — rows of their own under its posts. */
+    val blogs: Boolean = false,
+    val reviews: Boolean = false
 ) {
     val uri: String get() = LocalData.LOCAL_FEED_PREFIX + id
+
+    /** Any kind of post at all (a feed can be just blogs and reviews). */
+    val showsPosts: Boolean get() = textPosts || images || horizontalVideos || verticalVideos || polls
 
     /** Whether [item] is one of the kinds of posts this feed shows. */
     fun keeps(item: com.mediaviewer.model.MediaItem): Boolean = when {

@@ -122,6 +122,67 @@ fun BuiltFeedRow(
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
     FeedRowTitle(title, tint, leftTitle, onEdit)
+    if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)
+    if (feed.blogs || feed.reviews) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile)
+}
+
+/** A built feed's blogs and reviews (see LocalFeed.blogs/reviews): a row
+ *  of each under its posts, in the Hub's own blog and review cards. */
+@Composable
+private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean, onOpenProfile: (AuthorInfo) -> Unit) {
+    val blogs = state?.blogs.orEmpty()
+    val reviews = state?.reviews.orEmpty()
+    if (!feed.showsPosts && blogs.isEmpty() && reviews.isEmpty() && state != null && !state.loading) {
+        Text(
+            "Nothing here yet", color = DimGray, fontSize = 12.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        return
+    }
+    if (blogs.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        com.mediaviewer.ui.compat.LazyRow(
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top
+        ) {
+            items(blogs.size, key = { "blog_" + blogs[it].blog.uri }) { i ->
+                val fb = blogs[i]
+                val blogTint = rememberAuthorProfileTint(fb.author.did, fb.author.avatarUrl)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    HubAuthorBubble(
+                        displayName = fb.author.displayName.ifBlank { fb.author.handle }, avatarUrl = fb.author.avatarUrl,
+                        liquidGlass = liquidGlass, tint = blogTint, cardWidth = HUB_BLOG_CARD_WIDTH,
+                        onClick = { onOpenProfile(fb.author) }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    HubBlogCard(
+                        blog = fb.blog, author = fb.author, tint = blogTint, liquidGlass = liquidGlass,
+                        onOpen = { LocalOverlays.openMutualBlog?.invoke(fb) }, onOpenAuthor = { onOpenProfile(fb.author) }
+                    )
+                }
+            }
+        }
+    }
+    if (reviews.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        com.mediaviewer.ui.compat.LazyRow(
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(reviews.size, key = { "review_" + reviews[it].review.uri }) { i ->
+                MutualReviewCard(reviews[i], liquidGlass, { LocalOverlays.openMutualReview?.invoke(it) }, onOpenProfile)
+            }
+        }
+    }
+}
+
+/** A built feed's posts, as a row in its style (see LocalFeed.style). */
+@Composable
+private fun BuiltFeedPosts(
+    feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean,
+    onLoad: () -> Unit, onLoadMore: () -> Unit,
+    onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit
+) {
     val tap = rememberHapticTap()
     val loading = state == null || (state.loading && state.posts.isEmpty())
     val posts = state?.posts.orEmpty()
