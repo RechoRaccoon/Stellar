@@ -576,3 +576,10 @@ Sync read: no record
 Sync upload {0}: {1}
 Sync write {0}: {1}
 Sync write: empty reply
+(window.__stellarViz && (window.__stellarViz.an ? window.__stellarViz.rate : (window.__stellarViz.own && window.__stellarViz.own.ctx && window.__stellarViz.own.ctx.sampleRate))) || 48000
+All/
+Folder {0}: {1}
+Folders {0}
+Home {0}
+Home {0}: {1}
+Stellar-emojis.zip

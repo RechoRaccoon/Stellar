@@ -6416,6 +6416,17 @@ class MainViewModel(
             override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putPublicFolder(bskyToken, _bskyDid.value, rkey, record) }
             override suspend fun delete(rkey: String) = signedIn { bskyRepo.deletePublicFolder(bskyToken, _bskyDid.value, rkey) }
         }
+        // A profile's Home tab: one plain record per feed on your own PDS.
+        com.mediaviewer.util.ProfileHome.remote = object : com.mediaviewer.util.ProfileHome.Remote {
+            override val did: String get() = _bskyDid.value
+            private suspend fun signedIn(call: suspend () -> Result<Unit>) {
+                if (!_bskyLoggedIn.value) error("Not signed in")
+                val r = call()
+                if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) call().getOrThrow() else r.getOrThrow()
+            }
+            override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putProfileHomeFeed(bskyToken, _bskyDid.value, rkey, record) }
+            override suspend fun delete(rkey: String) = signedIn { bskyRepo.deleteProfileHomeFeed(bskyToken, _bskyDid.value, rkey) }
+        }
         // Status history lives on your own PDS (one record per status).
         com.mediaviewer.util.StatusHistory.remote = object : com.mediaviewer.util.StatusHistory.Remote {
             private suspend fun <T> signedIn(call: suspend () -> T): T {

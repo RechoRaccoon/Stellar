@@ -5153,6 +5153,18 @@ class BlueskyRepository {
         deleteRecord(token, did, com.mediaviewer.util.PublicFolders.COLLECTION, rkey)
     }
 
+    /** A profile Home tab feed (see ProfileHome): one plain record each. */
+    suspend fun putProfileHomeFeed(token: String, did: String, rkey: String, record: Map<String, Any>): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, com.mediaviewer.util.ProfileHome.COLLECTION, rkey, record, validate = false))
+            if (!resp.isSuccessful) error("Home ${resp.code()}: ${errorBodyText(resp).take(120)}")
+        }
+    }
+
+    suspend fun deleteProfileHomeFeed(token: String, did: String, rkey: String): Result<Unit> = withContext(ioDispatcher) {
+        deleteRecord(token, did, com.mediaviewer.util.ProfileHome.COLLECTION, rkey)
+    }
+
     private suspend fun deleteRecord(token: String, did: String, collection: String, rkey: String): Result<Unit> = runCatching {
         val resp = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, collection, rkey))
         if (!resp.isSuccessful) error("DeleteRecord ${resp.code()}")

@@ -560,6 +560,20 @@ fun ProfileOverlay(
     LaunchedEffect(author.did) { com.mediaviewer.util.ProfileStyles.refresh(author.did) }
     // Picked posts don't outlive the profile they were picked on.
     DisposableEffect(author.did) { onDispose { PostSelection.clear(); CollectionsTab.showFolders = false } }
+    // Their Home tab (see ProfileHome): read straight away, so a profile
+    // that has one opens on it. Your own always offers it, to set it up.
+    val isOwn = selfDid.isNotBlank() && author.did == selfDid
+    LaunchedEffect(author.did) {
+        val feeds = com.mediaviewer.util.ProfileHome.load(author.did)
+        if (feeds.isNotEmpty() && author.did !in ProfileHomeTab.showing && state.selectedTab == MainViewModel.ProfileTab.POSTS) {
+            ProfileHomeTab.showing[author.did] = true
+        }
+    }
+    val homeFeeds = com.mediaviewer.util.ProfileHome.byAccount[author.did].orEmpty()
+    val homeAvailable = isOwn || homeFeeds.isNotEmpty()
+    val homeShowing = homeAvailable && ProfileHomeTab.showing[author.did] == true && state.selectedTab == MainViewModel.ProfileTab.POSTS
+    val feedRowFlow = LocalOverlays.feedRows
+    val feedRows = if (feedRowFlow != null) feedRowFlow.collectAsState().value else emptyMap()
 
     BackHandler(onClose)
 
@@ -889,7 +903,11 @@ fun ProfileOverlay(
                         // Every post type is always offered; an empty one
                         // looks further down the profile (see
                         // emptyAfterFilterLoadMore).
-                        PostKindRowWithFacets(postKindFilter, liquidGlass, blended, onSelectPostKindFilter)
+                        PostKindRowWithFacets(
+                            postKindFilter, liquidGlass, blended, onSelectPostKindFilter,
+                            home = homeAvailable, homeOn = homeShowing,
+                            onHome = { ProfileHomeTab.showing[author.did] = it }
+                        )
                     }
                     // Feature request #5: Reposts/Likes now use the
                     // exact same PostKindFilter sub-tabs as Posts
@@ -1062,7 +1080,14 @@ fun ProfileOverlay(
                 Column { TabsAndFilters() }
             }
 
-            profileResultsContent(
+            // Home (see ProfileHome): its feed rows in place of the posts.
+            if (homeShowing) {
+                profileHomeRows(
+                    did = author.did, feeds = homeFeeds, own = isOwn, rows = feedRows,
+                    liquidGlass = liquidGlass, tint = blended,
+                    onOpenPost = { key, i -> feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } }
+                )
+            } else profileResultsContent(
                 state = state,
                 liquidGlass = liquidGlass,
                 mediaKindFilter = mediaKindFilter,
@@ -2667,30 +2692,42 @@ private fun ProfileGlassPill(
  *  shows both; picking one shows just that; tapping the picked one again
  *  (or Media) goes back to both. */
 @Composable
-private fun PostKindRowWithFacets(selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit) {
+private fun PostKindRowWithFacets(
+    selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit,
+    /** Posts only: the profile has a Home tab (see ProfileHome) — a "Home"
+     *  option goes first; [homeOn] = it's the one showing. */
+    home: Boolean = false, homeOn: Boolean = false, onHome: (Boolean) -> Unit = {}
+) {
     val parent = selected.profileParent()
-    val facets = if (parent == PostKindFilter.MEDIA) listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS) else emptyList()
+    val facets = if (parent == PostKindFilter.MEDIA && !homeOn) listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS) else emptyList()
+    // (null stands for Home.)
+    val options: List<PostKindFilter?> = (if (home) listOf(null) else emptyList<PostKindFilter?>()) + PROFILE_POST_KINDS
+    fun pick(option: PostKindFilter?) {
+        if (option == null) { onHome(true); return }
+        if (homeOn) onHome(false)
+        if (option != selected) onSelect(option)
+    }
     // Landscape's side list: Images / Videos are the Media button's own
     // right end — one button, split there.
     if (LocalSideList.current) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PROFILE_POST_KINDS.forEach { option ->
+            options.forEach { option ->
                 SideListButton(
-                    option.label(), option == parent, liquidGlass, tint, small = true,
+                    option?.label() ?: "Home", if (option == null) homeOn else option == parent && !homeOn, liquidGlass, tint, small = true,
                     trailing = if (option != PostKindFilter.MEDIA || facets.isEmpty()) null else ({
                         MediaFacetEnd(facets.map { it.label() }, facets.indexOf(selected)) { i ->
                             onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
                         }
                     })
-                ) { if (option != selected) onSelect(option) }
+                ) { pick(option) }
             }
         }
         return
     }
     ProfileSubFilterRow(
-        options = PROFILE_POST_KINDS, selected = parent,
-        liquidGlass = liquidGlass, tint = tint, labelOf = { it.label() },
-        onSelect = { if (it != selected) onSelect(it) },
+        options = options, selected = if (homeOn) null else parent,
+        liquidGlass = liquidGlass, tint = tint, labelOf = { it?.label() ?: "Home" },
+        onSelect = { pick(it) },
         trailing = if (facets.isEmpty()) null else ({
             FacetPill(facets.map { it.label() }, facets.indexOf(selected), liquidGlass, tint) { i ->
                 onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])

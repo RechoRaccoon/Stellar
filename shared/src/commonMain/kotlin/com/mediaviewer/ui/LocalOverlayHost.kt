@@ -94,6 +94,8 @@ fun LocalOverlayHost(
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
         LocalOverlays.openPublicFolder = viewModel::openPublicFolder
         LocalOverlays.loadFeedRow = { key, feed, more -> viewModel.loadFeedRow(key, feed, more) }
+        LocalOverlays.feedRows = viewModel.hubLists
+        LocalOverlays.openProfile = { viewModel.openProfile(it) }
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView
@@ -228,9 +230,15 @@ fun LocalOverlayHost(
             onResolveAccount = viewModel::resolveAccountForBuilder,
             onSuggestTags = viewModel::suggestTagsForBuilder,
             selfDid = selfDidNow,
+            // From a profile's Home tab: a public feed, so public folders only.
+            onlyPublicFolders = LocalOverlays.feedBuilderForHome,
+            onSave = if (LocalOverlays.feedBuilderForHome) com.mediaviewer.util.ProfileHome::save else null,
+            onDelete = if (LocalOverlays.feedBuilderForHome) ({ f -> com.mediaviewer.util.ProfileHome.delete(f.id) }) else null,
+            title = if (LocalOverlays.feedBuilderForHome) "Home Tab Feed" else "Feed Builder",
             // A feed that's open while it's edited reloads with its new contents;
             // one made or edited from the Hub is (and stays) a Hub row.
             onSaved = { saved ->
+                if (LocalOverlays.feedBuilderForHome) return@FeedBuilderPopup
                 if (selectedFeed == saved.uri) viewModel.selectFeed(saved.uri)
                 val asRow = com.mediaviewer.util.HubLayout.FEED_PREFIX + saved.id
                 if (LocalOverlays.feedBuilderForHub || com.mediaviewer.util.HubLayout.rows.any { it.id == asRow }) {
@@ -238,10 +246,11 @@ fun LocalOverlayHost(
                 }
             },
             onDeleted = { gone ->
+                if (LocalOverlays.feedBuilderForHome) return@FeedBuilderPopup
                 if (selectedFeed == gone.uri) viewModel.selectFeed(null)
                 com.mediaviewer.util.HubLayout.remove(com.mediaviewer.util.HubLayout.FEED_PREFIX + gone.id)
             },
-            onClose = { LocalOverlays.feedBuilder = null; LocalOverlays.feedBuilderForHub = false }
+            onClose = { LocalOverlays.feedBuilder = null; LocalOverlays.feedBuilderForHub = false; LocalOverlays.feedBuilderForHome = false }
         )
     }
 

@@ -67,6 +67,14 @@ object LocalOverlays {
     /** The Feed Builder was opened from the Hub (Customize Hub → Add →
      *  Create Feed, or a feed row's edit button): what it saves is a Hub row. */
     var feedBuilderForHub by mutableStateOf(false)
+    /** The Feed Builder was opened from your profile's Home tab: what it
+     *  saves is a public Home tab feed (see ProfileHome), not this device's. */
+    var feedBuilderForHome by mutableStateOf(false)
+    /** Opens someone's profile (a Home tab row's picture). */
+    var openProfile: ((AuthorInfo) -> Unit)? = null
+    /** Built feed rows' contents, by key (MainViewModel.hubLists), for rows
+     *  drawn outside the Hub (a profile's Home tab). */
+    var feedRows: kotlinx.coroutines.flow.StateFlow<Map<String, com.mediaviewer.viewmodel.MainViewModel.HubListState>>? = null
     /** Fills a built feed's row (see MainViewModel.loadFeedRow): key, feed, more. */
     var loadFeedRow: ((String, com.mediaviewer.util.LocalFeed, Boolean) -> Unit)? = null
     /** Launchpad page two: the open app. */
