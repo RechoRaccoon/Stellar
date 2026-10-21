@@ -1978,11 +1978,16 @@ class MainViewModel(
     // backed by a real search. Enum name kept as ACCOUNTS/FEEDS rather than
     // renaming the Kotlin identifiers too, to keep this diff scoped to
     // what's user-visible; .label() below is what actually says "People".
-    enum class SearchFilter { ACCOUNTS, POSTS, LIKED_TAGS, FEEDS, STARTER_PACKS, E621, WEB }
+    // ALL (the default): a little of every kind at once — see runSearch.
+    enum class SearchFilter { ALL, ACCOUNTS, POSTS, LIKED_TAGS, FEEDS, STARTER_PACKS, E621, WEB }
 
     data class SearchState(
         val query: String = "",
-        val filter: SearchFilter = SearchFilter.ACCOUNTS,
+        val filter: SearchFilter = SearchFilter.ALL,
+        /** All tab: the tag the query most likely means (what the Tagged
+         *  tab's autocomplete would offer first), and its top posts. */
+        val allTag: String? = null,
+        val allTagged: List<MediaItem> = emptyList(),
         val posts: List<MediaItem> = emptyList(),
         val accounts: List<SearchAccountResult> = emptyList(),
         val starterPacks: List<SearchStarterPackResult> = emptyList(),
@@ -2061,7 +2066,8 @@ class MainViewModel(
         _searchState.value = _searchState.value.copy(query = query)
         if (query.isBlank()) {
             _searchState.value = _searchState.value.copy(
-                posts = emptyList(), accounts = emptyList(), starterPacks = emptyList(), feeds = emptyList(), loading = false, hasSearched = false
+                posts = emptyList(), accounts = emptyList(), starterPacks = emptyList(), feeds = emptyList(),
+                allTag = null, allTagged = emptyList(), loading = false, hasSearched = false
             )
             return
         }
@@ -2069,6 +2075,25 @@ class MainViewModel(
         searchJob = viewModelScope.launch(ioDispatcher) {
             _searchState.value = _searchState.value.copy(loading = true)
             when (filter) {
+                // Every kind at once, each a few results (they fill the
+                // other tabs too, so "See all" opens straight onto them).
+                SearchFilter.ALL -> kotlinx.coroutines.coroutineScope {
+                    val people = async { bskyRepo.searchActors(bskyToken, query).getOrNull()?.first }
+                    val posts = async { bskyRepo.searchPosts(bskyToken, query).getOrNull() }
+                    val feeds = async { bskyRepo.searchFeeds(bskyToken, query).getOrNull() }
+                    val packs = async { bskyRepo.searchStarterPacks(bskyToken, query).getOrNull()?.first }
+                    val tagged = async { runCatching { bestTaggedFor(query) }.getOrNull() }
+                    val p = posts.await()
+                    val t = tagged.await()
+                    _searchState.value = _searchState.value.copy(
+                        accounts = people.await().orEmpty(),
+                        posts = p?.first.orEmpty(), postsCursor = p?.second?.takeIf { it.isNotBlank() }, loadingMorePosts = false,
+                        feeds = feeds.await().orEmpty(),
+                        starterPacks = packs.await().orEmpty(),
+                        allTag = t?.first, allTagged = t?.second.orEmpty(),
+                        loading = false, hasSearched = true
+                    )
+                }
                 SearchFilter.POSTS -> {
                     bskyRepo.searchPosts(bskyToken, query).onSuccess { (posts, cursor) ->
                         _searchState.value = _searchState.value.copy(
@@ -2113,12 +2138,34 @@ class MainViewModel(
         }
     }
 
+    /**
+     * The All tab's Tagged row: what's typed may be only part of a tag, so
+     * the tag the Tagged tab's autocomplete would offer first for it (an
+     * exact match wins) is searched, and its newest few posts come back.
+     * Null when there's no tagged dataset or nothing close.
+     */
+    private suspend fun bestTaggedFor(query: String): Pair<String, List<MediaItem>>? {
+        if (!_hasTaggedDataset.value && !taggingSupported) return null
+        val word = query.trim().lowercase().replace(' ', '_')
+        if (word.isBlank()) return null
+        val vocabulary = tagVocabularyCache ?: (taggingRepo.tagVocabulary() + taggingRepo.datasetTagNames()).distinct()
+            .also { tagVocabularyCache = it }
+        val tag = vocabulary.firstOrNull { it.equals(word, ignoreCase = true) }
+            ?: TagSuggestionProvider.suggest(word, vocabulary, maxResults = 1).firstOrNull()
+            ?: return null
+        val uris = taggingRepo.search(tag).take(12)
+        if (uris.isEmpty()) return tag to emptyList()
+        val posts = bskyRepo.getPostsByUris(bskyToken, uris).getOrNull().orEmpty()
+        val order = uris.withIndex().associate { (i, u) -> u to i }
+        return tag to filterHidden(posts).sortedBy { order[it.postUri] ?: Int.MAX_VALUE }
+    }
+
     /** Search page's Posts tab scrolled near its end: the next page, like
      *  every other feed in the app. */
     fun loadMoreSearchPosts() {
         val st = _searchState.value
         val cursor = st.postsCursor ?: return
-        if (st.loading || st.loadingMorePosts || st.query.isBlank() || st.filter != SearchFilter.POSTS) return
+        if (st.loading || st.loadingMorePosts || st.query.isBlank() || (st.filter != SearchFilter.POSTS && st.filter != SearchFilter.ALL)) return
         _searchState.value = st.copy(loadingMorePosts = true)
         val query = st.query
         viewModelScope.launch(ioDispatcher) {

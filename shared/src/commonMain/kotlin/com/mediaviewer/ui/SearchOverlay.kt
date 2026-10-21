@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Favorite
@@ -242,7 +243,7 @@ fun SearchOverlay(
     // are separate and stay).
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { BrowserHome.close() } }
     // A lapsed supporter doesn't stay on the browser tab.
-    LaunchedEffect(isWeb, supporter) { if (isWeb && (!supporter || webPlatform)) onSelectFilter(MainViewModel.SearchFilter.ACCOUNTS) }
+    LaunchedEffect(isWeb, supporter) { if (isWeb && (!supporter || webPlatform)) onSelectFilter(MainViewModel.SearchFilter.ALL) }
     val kindForTab = if (isLiked) taggedKind else postsKind
     val gridScreen = if (isLiked) "search_tagged" else "search_posts"
     val submitSearch: () -> Unit = {
@@ -527,7 +528,23 @@ fun SearchOverlay(
                     }
                     // People tab before searching: the accounts you searched
                     // for and opened recently.
-                    state.filter == MainViewModel.SearchFilter.ACCOUNTS && state.query.isBlank() -> {
+                    state.filter == MainViewModel.SearchFilter.ALL && state.hasSearched && state.query.isNotBlank() -> {
+                        SearchAllResults(
+                            state = state, liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
+                            savedFeedUris = savedFeedUris,
+                            onOpenAccount = { author -> com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author) },
+                            onOpenPost = { item -> state.posts.indexOf(item).takeIf { it >= 0 }?.let(onOpenPost) },
+                            onSeeAll = onSelectFilter,
+                            // A tagged post (or its See all): the Tagged tab, on that tag.
+                            onOpenTag = { tag ->
+                                TaggedSearchPlace.top()
+                                onLikedQueryTextChange("$tag ")
+                                onSelectFilter(MainViewModel.SearchFilter.LIKED_TAGS)
+                            },
+                            onOpenFeed = onOpenFeed, onFeedAction = onListEntryAction, onOpenListEntry = onOpenListEntry
+                        )
+                    }
+                    (state.filter == MainViewModel.SearchFilter.ACCOUNTS || state.filter == MainViewModel.SearchFilter.ALL) && state.query.isBlank() -> {
                         RecentAccountSearchesList(
                             liquidGlass = liquidGlass, backdrop = searchBackdrop,
                             onOpen = { author -> com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author) }
@@ -921,6 +938,7 @@ private fun EmptyResultsText(text: String = "No results") {
 }
 
 private fun MainViewModel.SearchFilter.label(): String = when (this) {
+    MainViewModel.SearchFilter.ALL           -> "All"
     MainViewModel.SearchFilter.ACCOUNTS      -> "People"
     MainViewModel.SearchFilter.POSTS         -> "Posts"
     MainViewModel.SearchFilter.LIKED_TAGS    -> "Tagged"
@@ -1192,6 +1210,185 @@ private fun BasicTextFieldWithPlaceholder(
         )
         if (value.isEmpty()) {
             Text(placeholder, color = DimGray, fontSize = 13.sp)
+        }
+    }
+}
+
+
+/**
+ * Search › All: a little of everything the query finds, one section each —
+ * People (a row of pictures to swipe through), Posts and Tagged (rows of
+ * thumbnails; Tagged searches the tag the query most likely means), then
+ * Feeds and Starter Packs (their first few rows). Each section's "See all"
+ * opens its own tab, already filled in. Sections with nothing are left out.
+ */
+@Composable
+private fun SearchAllResults(
+    state: MainViewModel.SearchState, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    savedFeedUris: Set<String>,
+    onOpenAccount: (AuthorInfo) -> Unit,
+    onOpenPost: (MediaItem) -> Unit,
+    onSeeAll: (MainViewModel.SearchFilter) -> Unit,
+    onOpenTag: (String) -> Unit,
+    onOpenFeed: (com.mediaviewer.model.ProfileListEntry) -> Unit,
+    onFeedAction: (com.mediaviewer.model.ProfileListEntry) -> Unit,
+    onOpenListEntry: (com.mediaviewer.model.ProfileListEntry) -> Unit
+) {
+    val tap = rememberHapticTap()
+    val side = rememberLandscapeSidePadding()
+    val wide = rememberLandscapeWidthDp() > 0
+    val nothing = state.accounts.isEmpty() && state.posts.isEmpty() && state.allTagged.isEmpty() &&
+        state.feeds.isEmpty() && state.starterPacks.isEmpty()
+    if (nothing) { EmptyResultsText(); return }
+    val accent = lerp(tint, Color.White, 0.5f)
+
+    @Composable
+    fun Header(title: String, sub: String? = null, onAll: (() -> Unit)?) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            if (sub != null) Text(
+                "  ·  $sub", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(Modifier.weight(1f))
+            if (onAll != null) Text(
+                "See all", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onAll() }.padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+    }
+
+    @Composable
+    fun Thumbs(items: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
+        val size = if (wide) 150.dp else 112.dp
+        com.mediaviewer.ui.compat.LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(items.size, key = { "all_thumb_" + items[it].id }) { i ->
+                val item = items[i]
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    Modifier.size(width = size, height = size * 1.25f).clip(shape)
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .clickable { tap(); onOpen(item) }
+                ) {
+                    val thumb = item.thumbUrl.ifBlank { item.mediaUrl }
+                    if (!item.isTextOnly && thumb.isNotBlank()) {
+                        coil3.compose.AsyncImage(
+                            model = thumb, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (item.isVideo) Icon(
+                            Icons.Default.PlayArrow, contentDescription = null, tint = Color.White,
+                            modifier = Modifier.align(Alignment.Center).size(26.dp)
+                        )
+                    } else {
+                        Text(
+                            item.text, color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, lineHeight = 16.sp,
+                            maxLines = 7, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = 2.dp, bottom = 96.dp)) {
+        if (state.accounts.isNotEmpty()) {
+            item(key = "all_people_h") { Header("People", onAll = { onSeeAll(MainViewModel.SearchFilter.ACCOUNTS) }) }
+            item(key = "all_people") {
+                com.mediaviewer.ui.compat.LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(state.accounts.size.coerceAtMost(20), key = { "all_person_" + state.accounts[it].author.did }) { i ->
+                        val a = state.accounts[i].author
+                        val ring = rememberAuthorProfileTint(a.did, a.avatarUrl)
+                        Column(
+                            Modifier.width(78.dp).clip(RoundedCornerShape(14.dp)).clickable { tap(); onOpenAccount(a) }.padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                Modifier.size(62.dp).clip(com.mediaviewer.ui.theme.AvatarShape)
+                                    .border(2.dp, vividAccent(ring), com.mediaviewer.ui.theme.AvatarShape)
+                                    .background(Color.White.copy(alpha = 0.08f))
+                            ) {
+                                if (!a.avatarUrl.isNullOrBlank()) coil3.compose.AsyncImage(
+                                    model = a.avatarUrl, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Text(
+                                a.displayName.ifBlank { a.handle }, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)
+                            )
+                            Text(
+                                "@" + a.handle, color = DimGray, fontSize = 10.sp,
+                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (state.posts.isNotEmpty()) {
+            item(key = "all_posts_h") { Header("Posts", onAll = { onSeeAll(MainViewModel.SearchFilter.POSTS) }) }
+            item(key = "all_posts") { Thumbs(state.posts.take(20), onOpenPost) }
+        }
+        val tag = state.allTag
+        if (tag != null && state.allTagged.isNotEmpty()) {
+            item(key = "all_tagged_h") { Header("Tagged", sub = tag.replace('_', ' '), onAll = { onOpenTag(tag) }) }
+            item(key = "all_tagged") { Thumbs(state.allTagged) { onOpenTag(tag) } }
+        }
+        if (state.feeds.isNotEmpty()) {
+            item(key = "all_feeds_h") { Header("Feeds", onAll = if (state.feeds.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.FEEDS) }) else null) }
+            state.feeds.take(3).forEach { feed ->
+                item(key = "all_feed_" + feed.uri) {
+                    val entry = remember(feed) {
+                        com.mediaviewer.model.ProfileListEntry(
+                            kind = com.mediaviewer.model.ProfileListKind.FEED, uri = feed.uri,
+                            name = feed.displayName.ifBlank { "Feed" },
+                            description = listOfNotNull(
+                                feed.creatorHandle.takeIf { it.isNotBlank() }?.let { "by @$it" },
+                                feed.description?.takeIf { it.isNotBlank() }
+                            ).joinToString(" · ").ifBlank { null },
+                            avatarUrl = feed.avatarUrl
+                        )
+                    }
+                    val saved = feed.uri in savedFeedUris
+                    ProfileListRow(
+                        entry = entry, liquidGlass = liquidGlass, tint = tint,
+                        label = if (saved) "Added" else "Add", busy = false, done = saved,
+                        onOpen = { onOpenFeed(entry) }, onAction = { onFeedAction(entry) }
+                    )
+                }
+            }
+        }
+        if (state.starterPacks.isNotEmpty()) {
+            item(key = "all_packs_h") { Header("Starter Packs", onAll = if (state.starterPacks.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.STARTER_PACKS) }) else null) }
+            state.starterPacks.take(3).forEach { pack ->
+                item(key = "all_pack_" + pack.uri) {
+                    val entry = remember(pack) {
+                        com.mediaviewer.model.ProfileListEntry(
+                            kind = com.mediaviewer.model.ProfileListKind.STARTER_PACK, uri = pack.uri,
+                            name = pack.name.ifBlank { "Starter Pack" },
+                            description = listOfNotNull("by @${pack.creator.handle}", "${pack.joinedCount} joined").joinToString(" · "),
+                            avatarUrl = pack.creator.avatarUrl, listUri = pack.listUri
+                        )
+                    }
+                    ProfileListRow(
+                        entry = entry, liquidGlass = liquidGlass, tint = tint,
+                        label = "Open", busy = false, done = pack.listUri == null,
+                        onOpen = if (pack.listUri != null) ({ onOpenListEntry(entry) }) else null,
+                        onAction = { if (pack.listUri != null) onOpenListEntry(entry) }
+                    )
+                }
+            }
         }
     }
 }
