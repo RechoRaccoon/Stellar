@@ -162,7 +162,6 @@ fun LocalOverlayHost(
     }
 
     // ── Selection mode's bar (over the page whose posts are picked) ──
-    val selfDidNow by viewModel.bskyDid.collectAsState()
     if (PostSelection.active) Box(Modifier.fillMaxSize().zIndex(10.5f), contentAlignment = Alignment.BottomCenter) {
         SelectionActionBar(
             tint = tint, liquidGlass = liquidGlass, selfDid = selfDidNow,
