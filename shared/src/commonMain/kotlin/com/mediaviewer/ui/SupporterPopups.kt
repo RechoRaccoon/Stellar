@@ -190,7 +190,17 @@ internal fun FolderCover(folder: BookmarkFolder?, tint: Color, modifier: Modifie
  * Folders are kept by Private Sync, encrypted, on your PDS.
  */
 @Composable
-fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClose: () -> Unit) {
+fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClose: () -> Unit) =
+    BookmarkFolderPopup(listOf(item), liquidGlass, tint, backdrop, onClose)
+
+/** The same for several posts at once (selection mode): a folder (or
+ *  Bookmarks) shows as picked when every one of them is in it; tapping it
+ *  puts them all in, in the order they were picked — or, when they all
+ *  already are, takes them all out. */
+@Composable
+fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClose: () -> Unit) {
+    if (items.isEmpty()) return
+    val item = items.first()
     val context = LocalContext.current
     val tap = rememberHapticTap()
     val scope = rememberCoroutineScope()
@@ -205,13 +215,22 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
             cover = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
         }
     }
-    val thumb = item.thumbUrl.ifBlank { item.mediaUrl }
+    fun thumbOf(m: MediaItem) = m.thumbUrl.ifBlank { m.mediaUrl }
     // (Read from the folders themselves, so it follows every tap here.)
-    val filed = folders.any { item.postUri in it.posts }
-    var inBookmarks by remember(item.postUri) { mutableStateOf(item.isBookmarked && !LocalData.isInAnyBookmarkFolder(item.postUri)) }
+    val filed = items.all { m -> folders.any { m.postUri in it.posts } }
+    var inBookmarks by remember(items.map { it.postUri }) {
+        mutableStateOf(items.all { it.isBookmarked && !LocalData.isInAnyBookmarkFolder(it.postUri) })
+    }
     fun placed(toBookmarks: Boolean) {
         inBookmarks = toBookmarks
-        LocalOverlays.onPlaceBookmark?.invoke(item, toBookmarks)
+        items.forEach { LocalOverlays.onPlaceBookmark?.invoke(it, toBookmarks) }
+    }
+    /** Every one of [items] into [folderId] — or all out, when they're all in it. */
+    fun toggleAll(folderId: String, allIn: Boolean) {
+        for (m in items) {
+            val isIn = LocalData.bookmarkFolders.firstOrNull { it.id == folderId }?.posts?.contains(m.postUri) == true
+            if (isIn == allIn) LocalData.toggleInBookmarkFolder(folderId, m.postUri, thumbOf(m))
+        }
     }
 
     LocalPopup(title = "Add To", liquidGlass = liquidGlass, tint = tint, onClose = onClose, subtitle = "Folders", backdrop = backdrop) {
@@ -230,7 +249,7 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
                         .clickable {
                             tap()
                             if (!on) placed(true)
-                            else { inBookmarks = false; LocalOverlays.onPlaceBookmark?.invoke(item, false) }
+                            else { inBookmarks = false; items.forEach { LocalOverlays.onPlaceBookmark?.invoke(it, false) } }
                         }
                         .padding(horizontal = 8.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -260,13 +279,13 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
             )
             folders.forEach { folder ->
-                val inFolder = item.postUri in folder.posts
+                val inFolder = items.all { it.postUri in folder.posts }
                 val shape = RoundedCornerShape(16.dp)
                 Row(
                     Modifier.fillMaxWidth().clip(shape)
                         .background(Color.Black.copy(alpha = 0.26f))
                         .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = if (inFolder) 0.9f else 0.3f), shape)
-                        .clickable { tap(); LocalData.toggleInBookmarkFolder(folder.id, item.postUri, thumb); placed(false) }
+                        .clickable { tap(); toggleAll(folder.id, inFolder); placed(false) }
                         .padding(horizontal = 8.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -338,7 +357,7 @@ fun BookmarkFolderPopup(item: MediaItem, liquidGlass: Boolean, tint: Color, back
                     "Create", liquidGlass, tint,
                     {
                         val made = LocalData.createBookmarkFolder(name, cover)
-                        LocalData.toggleInBookmarkFolder(made.id, item.postUri, thumb)
+                        toggleAll(made.id, false)
                         placed(false)
                         creating = false; name = ""; cover = null
                     },

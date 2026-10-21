@@ -160,6 +160,31 @@ fun LocalOverlayHost(
         }
     }
 
+    // ── Selection mode's bar (over the page whose posts are picked) ──
+    val selfDidNow by viewModel.bskyDid.collectAsState()
+    if (PostSelection.active) Box(Modifier.fillMaxSize().zIndex(10.5f), contentAlignment = Alignment.BottomCenter) {
+        SelectionActionBar(
+            tint = tint, liquidGlass = liquidGlass, selfDid = selfDidNow,
+            onSave = { LocalOverlays.bookmarkFolderForMany = it },
+            onDownload = { items, gif -> viewModel.downloadItems(items, gif) },
+            onShare = { viewModel.openSendPopupFor(it); PostSelection.clear() },
+            onArchive = { items ->
+                LocalOverlays.confirm = ConfirmRequest(
+                    "Archive ${items.size} Post${if (items.size == 1) "" else "s"}?",
+                    "They leave your profile (with your own replies under them) and are kept on this device, one after another.",
+                    "Archive", tint, destructive = false
+                ) { viewModel.archiveItems(items); PostSelection.clear() }
+            },
+            onDelete = { items ->
+                LocalOverlays.confirm = ConfirmRequest(
+                    "Delete ${items.size} Post${if (items.size == 1) "" else "s"}?",
+                    "They'll be deleted from your profile for good.",
+                    "Delete", tint
+                ) { viewModel.deleteItems(items); PostSelection.clear() }
+            }
+        )
+    }
+
     // ── Popups ──
     LocalOverlays.confirm?.let { req ->
         val confirmScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -186,6 +211,10 @@ fun LocalOverlayHost(
     }
     FadingPopupHost(LocalOverlays.bookmarkFolderFor, Modifier.zIndex(10.6f)) { item ->
         BookmarkFolderPopup(item, liquidGlass, postTint, backdrop, onClose = { LocalOverlays.bookmarkFolderFor = null })
+    }
+    // (Selection mode's Save: every picked post at once.)
+    FadingPopupHost(LocalOverlays.bookmarkFolderForMany, Modifier.zIndex(10.6f)) { items ->
+        BookmarkFolderPopup(items, liquidGlass, tint, backdrop, onClose = { LocalOverlays.bookmarkFolderForMany = null; PostSelection.clear() })
     }
     FadingPopupHost(LocalOverlays.profileNoteFor, Modifier.zIndex(10.6f)) { author ->
         ProfileNotePopup(author, liquidGlass, tint, backdrop, onClose = { LocalOverlays.profileNoteFor = null })

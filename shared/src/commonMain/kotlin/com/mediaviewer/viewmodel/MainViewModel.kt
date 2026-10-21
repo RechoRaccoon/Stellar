@@ -6972,9 +6972,25 @@ class MainViewModel(
         _dmConversationsLoading.value = false
     }
 
+    /** Posts sent along after [_sendPopupTarget] (selection mode's Share:
+     *  every selected post, in the order picked; the message goes with the
+     *  first only). */
+    private var sendPopupMore: List<MediaItem> = emptyList()
+
+    /** Selection mode → Share: the "Share with" popup for all of [items]. */
+    fun openSendPopupFor(items: List<MediaItem>) {
+        val posts = items.filter { it.postUri.isNotBlank() }
+        if (posts.isEmpty() || _appMode.value != AppMode.BLUESKY) return
+        _sendPopupTarget.value = posts.first()
+        sendPopupMore = posts.drop(1)
+        _sendPopupSelected.value = emptySet()
+        if (_dmConversations.value.isEmpty()) loadDmConversations()
+    }
+
     fun openSendPopup() {
         val item = currentItem.value ?: return
         if (_appMode.value != AppMode.BLUESKY) return
+        sendPopupMore = emptyList()
         _sendPopupTarget.value = item
         _sendPopupSelected.value = emptySet()
         if (_dmConversations.value.isEmpty()) loadDmConversations()
@@ -6997,6 +7013,7 @@ class MainViewModel(
 
     fun dismissSendPopup() {
         if (_sendPopupSending.value) return
+        sendPopupMore = emptyList()
         _sendPopupTarget.value = null
         _sendPopupSelected.value = emptySet()
     }
@@ -7009,6 +7026,7 @@ class MainViewModel(
 
     fun sendToSelectedRecipients(message: String) {
         val item = _sendPopupTarget.value ?: return
+        val more = sendPopupMore
         val recipients = _dmConversations.value.filter { _sendPopupSelected.value.contains(it.member.did) }
         if (recipients.isEmpty()) return
         viewModelScope.launch(ioDispatcher) {
@@ -7031,8 +7049,15 @@ class MainViewModel(
                         bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, message, item.postUri, item.postCid)
                     }
                         .onFailure { failures++; lastError = it.message }
+                    // The rest of a selection, one message each, no words.
+                    for (more in more) {
+                        kotlinx.coroutines.delay(250)
+                        bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, "", more.postUri, more.postCid)
+                            .onFailure { failures++; lastError = it.message }
+                    }
                 }
             }
+            sendPopupMore = emptyList()
             _sendPopupSending.value = false
             _sendPopupTarget.value = null
             _sendPopupSelected.value = emptySet()
@@ -7683,12 +7708,16 @@ class MainViewModel(
 
     fun downloadCurrentItem() {
         val item = currentItem.value ?: return
+        downloadItem(item)
+        updateCurrentItem { it.copy(isDownloaded = true) }
+    }
+
+    private fun downloadItem(item: MediaItem) {
         if (item.isTextOnly) return
         // The bubble at the top of the post (one job per picture).
         val jobs = if (item.mediaGroup.size > 1) item.mediaGroup.indices.map { "${item.id}_$it" } else listOf(item.id)
         com.mediaviewer.util.PostDownloads.start(item.id, asGif = false, jobIds = jobs)
         enqueueDownload(item)
-        updateCurrentItem { it.copy(isDownloaded = true) }
     }
 
     /** Downloads the current post's media as a full-quality GIF (item 4). Images
@@ -7696,6 +7725,11 @@ class MainViewModel(
      *  an animated GIF, since that's the only way to get a real multi-frame GIF. */
     fun downloadCurrentItemAsGif() {
         val item = currentItem.value ?: return
+        downloadItemAsGif(item)
+        updateCurrentItem { it.copy(isGifDownloaded = true) }
+    }
+
+    private fun downloadItemAsGif(item: MediaItem) {
         if (item.isTextOnly) return
         val jobs = if (item.mediaGroup.size > 1) item.mediaGroup.indices.map { "gif_${item.id}_$it" } else listOf("gif_${item.id}")
         com.mediaviewer.util.PostDownloads.start(item.id, asGif = true, jobIds = jobs)
@@ -7709,7 +7743,84 @@ class MainViewModel(
             val cid = item.videoBlobCid.takeIf { item.isVideo }
             platform.enqueueGifDownload(sourceUrl, item.isVideo, "gif_${item.id}", blobDid = did, blobCid = cid)
         }
-        updateCurrentItem { it.copy(isGifDownloaded = true) }
+    }
+
+    // ── Selection mode (several posts at once, in the order picked) ──
+
+    /** Downloads each of [items] (as GIFs with [asGif]), in order. */
+    fun downloadItems(items: List<MediaItem>, asGif: Boolean) {
+        val media = items.filterNot { it.isTextOnly }
+        if (media.isEmpty()) { showToast("Nothing to download"); return }
+        media.forEach { if (asGif) downloadItemAsGif(it) else downloadItem(it) }
+        showToast("Downloading ${media.size} post${if (media.size == 1) "" else "s"}")
+    }
+
+    /** Archives each of your own [items], one after another (each with its
+     *  own self-thread, see archivePost), then reads the profile again. */
+    fun archiveItems(items: List<MediaItem>) {
+        val mine = items.filter { it.postUri.isNotBlank() && it.author.did == _bskyDid.value }
+        if (mine.isEmpty() || _archiveBusy.value) return
+        if (!com.mediaviewer.util.Supporter.active) { com.mediaviewer.util.Supporter.openPage(); return }
+        _archiveBusy.value = true
+        showToast("Archiving ${mine.size} post${if (mine.size == 1) "" else "s"}…")
+        viewModelScope.launch(ioDispatcher) {
+            com.mediaviewer.util.PostArchive.init(platform.context)
+            var done = 0
+            val gone = HashSet<String>()
+            for (item in mine) {
+                // (A reply already archived with its parent above is skipped.)
+                if (item.postUri in gone) continue
+                var r = bskyRepo.archivePost(bskyToken, _bskyDid.value, platform.context, item)
+                if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                    r = bskyRepo.archivePost(bskyToken, _bskyDid.value, platform.context, item)
+                }
+                r.onSuccess { archived ->
+                    withContext(Dispatchers.Main) { com.mediaviewer.util.PostArchive.add(archived) }
+                    gone += item.postUri; archived.thread.forEach { gone += it.uri }
+                    done++
+                }.onFailure { _errorMessage.value = "Couldn't archive a post: ${it.message}" }
+                // (Gently: each archive is several reads and writes on your PDS.)
+                kotlinx.coroutines.delay(400)
+            }
+            withContext(Dispatchers.Main) { dropPosts(gone) }
+            _archiveBusy.value = false
+            showToast("$done post${if (done == 1) "" else "s"} archived")
+            withContext(Dispatchers.Main) { refreshProfileAfterEdit() }
+        }
+    }
+
+    /** Deletes each of your own [items] — in batches of writes, not one
+     *  request per post, to stay well inside your PDS's limits — then
+     *  reads the profile again. */
+    fun deleteItems(items: List<MediaItem>) {
+        val mine = items.filter { it.postUri.isNotBlank() && it.author.did == _bskyDid.value }
+        if (mine.isEmpty()) return
+        viewModelScope.launch(ioDispatcher) {
+            var r = bskyRepo.deletePosts(bskyToken, _bskyDid.value, mine.map { it.postUri })
+            if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                r = bskyRepo.deletePosts(bskyToken, _bskyDid.value, mine.map { it.postUri })
+            }
+            r.onSuccess { deleted ->
+                withContext(Dispatchers.Main) { dropPosts(deleted.toSet()) }
+                showToast("${deleted.size} post${if (deleted.size == 1) "" else "s"} deleted")
+            }.onFailure { _errorMessage.value = "Couldn't delete the posts: ${it.message}" }
+            withContext(Dispatchers.Main) { refreshProfileAfterEdit() }
+        }
+    }
+
+    /** Takes posts that are gone off the feed on screen. */
+    private fun dropPosts(uris: Set<String>) {
+        if (uris.isEmpty()) return
+        val remaining = _mediaItems.value.filterNot { it.postUri in uris }
+        _mediaItems.value = remaining
+        _currentIndex.value = _currentIndex.value.coerceAtMost((remaining.size - 1).coerceAtLeast(0))
+    }
+
+    /** The open profile (if any) read again after posts were taken off it. */
+    private fun refreshProfileAfterEdit() {
+        val cur = _profileOverlay.value ?: return
+        if (cur.refreshing) return
+        refreshProfile()
     }
 
     // ── Comments ──────────────────────────────────────────────────────────────

@@ -2617,6 +2617,25 @@ class BlueskyRepository {
     suspend fun deletePost(token: String, did: String, postUri: String): Result<Unit> =
         deleteRecord(token, did, "app.bsky.feed.post", postUri.rkey())
 
+    /** Deletes several of your posts with as few writes as it takes (up to
+     *  50 in each); the links of the ones that went. */
+    suspend fun deletePosts(token: String, did: String, postUris: List<String>): Result<List<String>> = withContext(ioDispatcher) {
+        runCatching {
+            val done = ArrayList<String>()
+            for (batch in postUris.distinct().chunked(50)) {
+                val resp = api.applyWrites("Bearer $token", BskyApplyWritesRequest(did, batch.map { uri ->
+                    mapOf("\$type" to "com.atproto.repo.applyWrites#delete", "collection" to "app.bsky.feed.post", "rkey" to uri.rkey())
+                }))
+                if (!resp.isSuccessful) {
+                    if (done.isEmpty()) error("${resp.code()}: ${errorBodyText(resp).take(140)}")
+                    break
+                }
+                done += batch
+            }
+            done
+        }
+    }
+
     suspend fun blockUser(token: String, did: String, targetDid: String): Result<String> =
         createRecord(token, did, "app.bsky.graph.block", mapOf(
             "\$type" to "app.bsky.graph.block",

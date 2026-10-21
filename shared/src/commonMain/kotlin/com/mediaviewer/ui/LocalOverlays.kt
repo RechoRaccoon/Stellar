@@ -57,6 +57,8 @@ object LocalOverlays {
     var editHistoryFor by mutableStateOf<MediaItem?>(null)
     /** A just-saved post being filed into a bookmark folder. */
     var bookmarkFolderFor by mutableStateOf<MediaItem?>(null)
+    /** Selection mode's Save: several posts filed at once, in the order picked. */
+    var bookmarkFolderForMany by mutableStateOf<List<MediaItem>?>(null)
     /** The profile whose note is being written. */
     var profileNoteFor by mutableStateOf<AuthorInfo?>(null)
     /** Hub → the "+" after the feeds: the Feed Builder (null = closed;
@@ -85,7 +87,7 @@ object LocalOverlays {
 
     /** One of the popups is up: the app behind it blurs. */
     val popupOpen: Boolean
-        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || profileNoteFor != null || feedBuilder != null || pinDmFor != null ||
+        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || feedBuilder != null || pinDmFor != null ||
             confirm != null
 
     /** Floating web pages, drawn over everything. */
@@ -116,6 +118,7 @@ object LocalOverlays {
     fun closeAll() {
         editHistoryFor = null
         bookmarkFolderFor = null
+        bookmarkFolderForMany = null
         profileNoteFor = null
         feedBuilder = null
         editWarningOpen = false

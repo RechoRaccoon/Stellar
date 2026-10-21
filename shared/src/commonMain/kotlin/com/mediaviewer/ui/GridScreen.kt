@@ -216,6 +216,8 @@ fun GridScreen(
         val idx = indexById[a.first]
         if (idx != null) centreOn(gridState, idx + GRID_HEADER_ITEMS, a.second) else gridState.scrollToItem(0)
     }
+    // Picked posts don't outlive the page they were picked on.
+    DisposableEffect(Unit) { onDispose { PostSelection.clear() } }
     DisposableEffect(memoryScope) {
         onDispose {
             val a = middleAnchor(gridState)
@@ -496,6 +498,8 @@ fun GridScreen(
                         onSeedSubImageIndex = { id, page -> pendingSeed[0] = id to page },
                         videoCards = wideDp > 0,
                         onClick = {
+                            // (Picking posts: a tap anywhere else on a tile picks it too.)
+                            if (PostSelection.active) { PostSelection.toggle(item); return@PostResultTile }
                             val idx = latestItems.indexOfFirst { it.id == item.id }
                             if (idx >= 0) {
                                 val seed = pendingSeed[0]?.takeIf { it.first == item.id }?.second ?: 0
@@ -521,7 +525,8 @@ fun GridScreen(
         }
         } // Row (side list + grid)
     }
-        ResultsInteractionBar(
+        // (Picking posts: selection mode's own bar takes its place.)
+        if (!PostSelection.active) ResultsInteractionBar(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             refreshing = isLoading, animateRefresh = !reducedAnimations,
             onRefresh = onRefresh,

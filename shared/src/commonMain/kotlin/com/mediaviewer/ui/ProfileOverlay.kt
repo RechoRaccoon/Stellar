@@ -558,6 +558,8 @@ fun ProfileOverlay(
     // Their icon shape / colors / effect: the record is read the first time
     // this profile is opened each session, and reused after that.
     LaunchedEffect(author.did) { com.mediaviewer.util.ProfileStyles.refresh(author.did) }
+    // Picked posts don't outlive the profile they were picked on.
+    DisposableEffect(author.did) { onDispose { PostSelection.clear() } }
 
     BackHandler(onClose)
 
@@ -1070,8 +1072,12 @@ fun ProfileOverlay(
                 // hidden behind the post that's about to open — see
                 // onSaveScroll's doc comment above.
                 onTapItem = { list, index ->
-                    onSaveScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-                    onTapItem(list, index)
+                    // (Picking posts: a tap anywhere else on a tile picks it too.)
+                    if (PostSelection.active) list.getOrNull(index)?.let { PostSelection.toggle(it) }
+                    else {
+                        onSaveScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                        onTapItem(list, index)
+                    }
                 },
                 onSeedSubImageIndex = onSeedSubImageIndex,
                 onOpenBlog = onOpenBlog,
@@ -1123,7 +1129,8 @@ fun ProfileOverlay(
         var profileRootOrigin by remember { mutableStateOf<Offset?>(null) }
         var profileSortOpen by remember(author.did) { mutableStateOf(false) }
         var profileSortBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
-        if ((profile != null || !state.loadingProfile) && !editingStatus) {
+        // (Picking posts: selection mode's own bar takes its place.)
+        if ((profile != null || !state.loadingProfile) && !editingStatus && !PostSelection.active) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = if (configuration.width > configuration.height) rememberSideListWidth() else 0.dp).windowInsetsPadding(WindowInsets.navBarSpace)) {
                 ProfileInteractionBar(
                     liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
@@ -3275,6 +3282,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
     Box(
         modifier
             .clip(shape)
+            .postSelectable(item)
             .then(if (previewUrl != null) Modifier.videoPreviewTrigger { previewing = it } else Modifier)
             // A subtle fill behind the image (rather than nothing) so a post
             // whose thumbnail fails to resolve — a dead link, a repost of
@@ -3383,6 +3391,7 @@ private fun SwipeableThumbBox(
     Box(
         modifier
             .clip(shape)
+            .postSelectable(item)
             .background(Color.White.copy(alpha = 0.05f))
             // Fix (per feedback): flat tiles when the "Rounded grid tiles"
             // setting is off — same treatment as ThumbBox.
@@ -3839,6 +3848,7 @@ private fun TimelineShapedTextTile(item: MediaItem, liquidGlass: Boolean, tint: 
                     else Modifier.clip(shape).background(Color.White.copy(0.06f))
                 )
                 .clip(shape)
+                .postSelectable(item)
                 .clickable { tap(); onOpen() }
                 .padding(horizontal = 18.dp, vertical = 26.dp),
             contentAlignment = Alignment.Center
@@ -4635,6 +4645,7 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
     Box(
         modifier
             .fillMaxWidth()
+            .postSelectable(item)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
@@ -4682,6 +4693,7 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
     Box(
         Modifier
             .fillMaxWidth()
+            .postSelectable(item)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
                 else Modifier.clip(shape).background(Color.White.copy(0.06f))
