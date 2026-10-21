@@ -106,14 +106,22 @@ data class BookmarkFolder(
 
 @Serializable
 data class LocalFeedSource(
-    /** "list", "account" or "hashtag". */
+    /** "list", "account", "hashtag", "tag" (a tag from the shared tag
+     *  database), "folder" (one of your bookmark folders) or "publicFolder"
+     *  (anyone's public folder). */
     val kind: String = "",
-    /** A list's at:// URI, an account's DID, or a hashtag (no #). */
+    /** A list's at:// URI, an account's DID, a hashtag (no #), a tag, a
+     *  folder's id, or a public folder's "did/id". */
     val value: String = "",
     val label: String = ""
 )
 
-/** A feed built on this device: a mix of lists, accounts and hashtags. */
+/**
+ * A feed built with the Feed Builder: a mix of sources, what kinds of posts
+ * it shows, their order, and how it's laid out as a Hub (or profile Home)
+ * row. Hub feeds live in this device's encrypted data; a profile's Home
+ * tab feeds are public records (see ProfileHome).
+ */
 @Serializable
 data class LocalFeed(
     val id: String = "",
@@ -122,9 +130,34 @@ data class LocalFeed(
     val textPosts: Boolean = true,
     val images: Boolean = true,
     val horizontalVideos: Boolean = true,
-    val verticalVideos: Boolean = true
+    val verticalVideos: Boolean = true,
+    val polls: Boolean = true,
+    /** "recent", "likes", "reposts" or "replies" (most first). */
+    val sort: String = "recent",
+    /** As a row: "natural" (each post its own shape), "square", "tiktok"
+     *  (tall 9:16 cards), "youtube" (wide 16:9 cards with their words
+     *  under them) or "avatars" (just the accounts' pictures, like Mutuals). */
+    val style: String = "natural",
+    /** How many rows deep it is (1 to 3). */
+    val rows: Int = 1
 ) {
     val uri: String get() = LocalData.LOCAL_FEED_PREFIX + id
+
+    /** Whether [item] is one of the kinds of posts this feed shows. */
+    fun keeps(item: com.mediaviewer.model.MediaItem): Boolean = when {
+        item.isPoll -> polls
+        item.isTextOnly -> textPosts
+        item.isVideo -> if (item.isHorizontalVideo) horizontalVideos else verticalVideos
+        else -> images
+    }
+
+    /** [items] in this feed's order. */
+    fun sorted(items: List<com.mediaviewer.model.MediaItem>): List<com.mediaviewer.model.MediaItem> = when (sort) {
+        "likes" -> items.sortedByDescending { it.likeCount }
+        "reposts" -> items.sortedByDescending { it.repostCount }
+        "replies" -> items.sortedByDescending { it.replyCount }
+        else -> items.sortedByDescending { it.createdAt.orEmpty() }
+    }
 }
 
 @Serializable

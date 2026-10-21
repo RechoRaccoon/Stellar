@@ -39,6 +39,7 @@ object UiToggles {
     private const val KEY_LANDSCAPE_LIST_COLUMNS = "landscape_list_columns"
     private const val KEY_SIDE_LIST_SCALE = "side_list_scale"
     private const val KEY_HUB_SCALE = "hub_scale"
+    private const val KEY_HUB_LEFT_TITLES = "hub_left_titles"
     private const val KEY_STATUS_AMOUNT = "status_amount_" // + unit name
     private const val KEY_STATUS_UNIT = "status_unit"
     // Override App Colors is saved per signed-in account: these are the old
@@ -262,6 +263,17 @@ object UiToggles {
         if (save) prefs?.edit()?.putFloat(KEY_SIDE_LIST_SCALE, sideListScale)?.apply()
     }
 
+    /** Customize Hub → "Row Names on the Left": each Hub row named at its
+     *  left, bigger, like Settings' headings, instead of centered between
+     *  two lines. */
+    var hubLeftTitles by mutableStateOf(false)
+        private set
+
+    fun updateHubLeftTitles(on: Boolean) {
+        hubLeftTitles = on
+        prefs?.edit()?.putBoolean(KEY_HUB_LEFT_TITLES, on)?.apply()
+    }
+
     /** Landscape: how big the Hub's rows are (the Hub Size slider). */
     var hubScale by mutableStateOf(1f)
         private set
@@ -448,6 +460,7 @@ object UiToggles {
         landscapeListColumns = p.getInt(KEY_LANDSCAPE_LIST_COLUMNS, LANDSCAPE_DEFAULT_LIST_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         sideListScale = p.getFloat(KEY_SIDE_LIST_SCALE, 1f).coerceIn(SIDE_LIST_MIN_SCALE, SIDE_LIST_MAX_SCALE)
         hubScale = p.getFloat(KEY_HUB_SCALE, 1f).coerceIn(HUB_MIN_SCALE, HUB_MAX_SCALE)
+        hubLeftTitles = p.getBoolean(KEY_HUB_LEFT_TITLES, false)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)

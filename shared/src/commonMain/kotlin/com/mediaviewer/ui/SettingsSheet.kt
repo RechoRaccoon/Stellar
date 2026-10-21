@@ -607,7 +607,8 @@ fun SettingsSheet(
                             onLoadHubList = settingsExtras.onLoadHubList,
                             onLoadMoreHubList = settingsExtras.onLoadMoreHubList,
                             onOpenHubListPost = settingsExtras.onOpenHubListPost,
-                            topBar = if (hubBarAtTop) ({ hubBar(true) }) else null
+                            topBar = if (hubBarAtTop) ({ hubBar(true) }) else null,
+                            settingsExtras = settingsExtras
                         )
                     }
                 }
@@ -770,7 +771,9 @@ private fun AtProtocolPageContent(
     onOpenHubListPost: (String, String, Int) -> Unit = { _, _, _ -> },
     /** Landscape: the Settings/Timeline/Explore/Post bar, sharing the top
      *  row with the search bar (each takes half). */
-    topBar: (@Composable () -> Unit)? = null
+    topBar: (@Composable () -> Unit)? = null,
+    /** What the Hub's own Customize Hub needs (the same as Settings had). */
+    settingsExtras: SettingsExtras = SettingsExtras()
 ) {
     // Pinned feeds first (Bluesky's pinned feeds) — in the feed chips
     // and the landscape side list alike. A move in this order is turned
@@ -908,12 +911,7 @@ private fun AtProtocolPageContent(
         // order (see HubLayout); each row below is its own piece.
         @Composable
         fun FeedsSection() {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            Text("Feeds", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 10.dp))
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-        }
+        HubRowHeader("Feeds", dominantColor)
         Spacer(Modifier.height(6.dp))
 
         Box(Modifier.fillMaxWidth().tipAnchor("hub.feeds")) {
@@ -1221,12 +1219,7 @@ private fun AtProtocolPageContent(
         // not an empty header over a blank strip.
         if (!dmConversationsLoading && dmConversations.none { !it.isGroup && it.isMutual }) return
         Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            Text("Mutuals", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 10.dp))
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-        }
+        HubRowHeader("Mutuals", dominantColor)
         Spacer(Modifier.height(8.dp))
 
         // Feature (this session): skeleton placeholders while loading,
@@ -1353,12 +1346,7 @@ private fun AtProtocolPageContent(
             // visible glyphs need" pattern already fixed for pills earlier
             // this session.
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-                Text("Livestreams", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp))
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            }
+            HubRowHeader("Livestreams", dominantColor)
             Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -1379,12 +1367,7 @@ private fun AtProtocolPageContent(
             // comment just above — same tightened spacing applied here so
             // it's consistent no matter which section ends up first.
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-                Text("Reviews", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp))
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            }
+            HubRowHeader("Reviews", dominantColor)
             Spacer(Modifier.height(8.dp))
             // Lazy: only the cards actually on screen are composed (each is
             // a blurred glass card with artwork — building all 20 up front
@@ -1410,12 +1393,7 @@ private fun AtProtocolPageContent(
             // comment above — same tightened spacing applied here so it's
             // consistent no matter which section ends up first.
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-                Text("Blogs", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp))
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            }
+            HubRowHeader("Blogs", dominantColor)
             Spacer(Modifier.height(8.dp))
             // Item 5: every Hub blog card now shares one HEIGHT
             // (HUB_BLOG_CARD_HEIGHT) instead of one width — each card's
@@ -1479,12 +1457,7 @@ private fun AtProtocolPageContent(
         // an account switches to it straight away; the whole app refreshes.
         if (showSwitchAccountsRow && otherAccounts.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-                Text("Switch Accounts", color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp))
-                HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            }
+            HubRowHeader("Switch Accounts", dominantColor)
             Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -1622,10 +1595,29 @@ private fun AtProtocolPageContent(
         }
         SideListEdge(dominantColor)
     }
+    // Customize Hub (the floating button at the bottom): the rows give way
+    // to the list of them, to reorder, switch, remove and add to; the
+    // button then says Save once something's changed (Cancel until then).
+    var customizing by remember { mutableStateOf(false) }
+    var customizeStart by remember { mutableStateOf<Pair<List<com.mediaviewer.util.HubLayout.Row>, Boolean>?>(null) }
+    com.mediaviewer.ui.compat.BackHandler(enabled = customizing) { customizing = false }
+    Box(Modifier.weight(1f).fillMaxHeight()) {
+    if (customizing) {
+        Column(
+            Modifier.fillMaxSize().clipToBounds().verticalScroll(rememberScrollState())
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 84.dp)
+        ) {
+            CustomizeHubSection(
+                extras = settingsExtras, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
+                // Landscape: the rows on the left, adding and the Hub's
+                // settings on the right, like Settings.
+                split = rememberLandscape()
+            )
+        }
+    } else
     Column(
         Modifier
-            .weight(1f)
-            .fillMaxHeight()
+            .fillMaxSize()
             .clipToBounds()
             // Landscape: the Hub Size slider in the side list.
             .then(if (hubSidebar) Modifier.drawnAtScale { com.mediaviewer.util.UiToggles.hubScale } else Modifier)
@@ -1653,7 +1645,8 @@ private fun AtProtocolPageContent(
                 }
             }
             .verticalScroll(hubScroll)
-            .padding(bottom = 16.dp)
+            // (Clear of the floating Customize Hub button.)
+            .padding(bottom = 72.dp)
     ) {
         // Livestreams is its own row in Customize Hub now (it only shows
         // while someone you follow is live).
@@ -1681,7 +1674,22 @@ private fun AtProtocolPageContent(
                 else -> {
                     // A Bluesky list, Stellar Supporters, or a Profiles row
                     // (accounts kept on this device) — all the same section.
-                    if (row.id == com.mediaviewer.util.HubLayout.WIDGET_EVENTS) {
+                    if (row.isFeed) {
+                        // A Feed Builder feed (Add → Create Feed), in its own style.
+                        val feed = com.mediaviewer.util.LocalData.localFeed(com.mediaviewer.util.LocalData.LOCAL_FEED_PREFIX + row.feedId)
+                        if (feed != null) {
+                            val key = row.id
+                            BuiltFeedRow(
+                                feed = feed, title = feed.name.ifBlank { row.label }, state = hubLists[key],
+                                liquidGlass = liquidGlass, tint = dominantColor, leftTitle = com.mediaviewer.util.UiToggles.hubLeftTitles,
+                                onLoad = { LocalOverlays.loadFeedRow?.invoke(key, feed, false) },
+                                onLoadMore = { LocalOverlays.loadFeedRow?.invoke(key, feed, true) },
+                                onOpenPost = { index -> onOpenHubListPost(key, feed.name.ifBlank { row.label }, index) },
+                                onOpenProfile = onOpenProfile,
+                                onEdit = { LocalOverlays.feedBuilderForHub = true; LocalOverlays.feedBuilder = feed }
+                            )
+                        }
+                    } else if (row.id == com.mediaviewer.util.HubLayout.WIDGET_EVENTS) {
                         // Add → Widgets → Upcoming Events (supporters).
                         if (com.mediaviewer.util.Supporter.active) HubUpcomingEventsSection(
                             liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
@@ -1770,6 +1778,32 @@ private fun AtProtocolPageContent(
         }
         Spacer(Modifier.height(8.dp))
     }
+    if (bskyLoggedIn) {
+        val edited = customizeStart?.let { (rows, left) ->
+            rows != com.mediaviewer.util.HubLayout.rows || left != com.mediaviewer.util.UiToggles.hubLeftTitles
+        } == true
+        val label = if (!customizing) "Customize Hub" else if (edited) "Save" else "Cancel"
+        val tap = rememberHapticTap()
+        val shape = RoundedCornerShape(22.dp)
+        val m = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).height(44.dp)
+            .clip(shape).clickable {
+                tap()
+                if (customizing) { customizing = false; customizeStart = null }
+                else {
+                    customizeStart = com.mediaviewer.util.HubLayout.rows to com.mediaviewer.util.UiToggles.hubLeftTitles
+                    customizing = true
+                }
+            }
+        @Composable
+        fun ButtonLabel() {
+            Box(Modifier.fillMaxHeight().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+                Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop) { ButtonLabel() }
+        else Box(m.background(androidx.compose.ui.graphics.lerp(dominantColor, Color.Black, 0.35f)).border(1.dp, dominantColor.copy(alpha = 0.7f), shape)) { ButtonLabel() }
+    }
+    } // Box (the rows, or Customize Hub, and its button)
     } // Row (landscape side list + the rows)
     } // fixed search bar + scrolling content
 
@@ -1956,14 +1990,7 @@ private fun HubListSection(
         }
     }
     val loading = state == null || (state.loading && state.members.isEmpty() && state.posts.isEmpty())
-    Spacer(Modifier.height(14.dp))
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
-        Text(row.label, color = hubDividerLabel(tint), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 10.dp).widthIn(max = 220.dp))
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
-    }
-    Spacer(Modifier.height(8.dp))
+    FeedRowTitle(row.label, tint, left = com.mediaviewer.util.UiToggles.hubLeftTitles)
     val tap = rememberHapticTap()
     if (!row.showPosts) {
         val members = state?.members ?: emptyList()
@@ -2693,7 +2720,7 @@ private fun ReturnToFeedBar(
 /** A single pulsing placeholder block — the Hub's YouTube-style loading
  *  skeleton primitive, reused for every section's placeholder slots. */
 @Composable
-private fun ShimmerBox(shape: androidx.compose.ui.graphics.Shape, modifier: Modifier = Modifier) {
+internal fun ShimmerBox(shape: androidx.compose.ui.graphics.Shape, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "hubShimmer")
     val alpha = transition.animateFloat(
         initialValue = 0.05f, targetValue = 0.15f,
@@ -3623,3 +3650,17 @@ internal fun HubDropBubble(
 /** Hub section-divider labels: the profile color, lifted a little so the
  *  text stays readable on the dim profile-colored background. */
 private fun hubDividerLabel(tint: Color): Color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.35f)
+
+
+/** A Hub row's name, as Customize Hub's "Row Names on the Left" says: at
+ *  the left and bigger, or centered between two lines (see FeedRowTitle). */
+@Composable
+internal fun HubRowHeader(label: String, tint: Color) {
+    if (com.mediaviewer.util.UiToggles.hubLeftTitles) FeedRowTitle(label, tint, left = true)
+    else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+        Text(label, color = hubDividerLabel(tint), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp))
+        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+    }
+}

@@ -690,12 +690,7 @@ internal fun SettingsPageContent(
         val showSupporterSettings = com.mediaviewer.util.Supporter.active && !com.mediaviewer.util.FeatureFlags.ALL_FEATURES_FREE
         if (showSupporterSettings) SupporterSettingsSection(liquidGlass, tint, backdrop)
 
-        // ── Customize Hub ───────────────────────────────────────────────
-        if (bskyLoggedIn) {
-            CollapsibleSection("Customize Hub", tint) {
-                CustomizeHubSection(extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
-            }
-        }
+        // (Customize Hub lives in the Hub itself now: its floating button.)
 
         // ── App Functionality ───────────────────────────────────────────
         CollapsibleSection("App Functionality", tint) {
@@ -2370,20 +2365,20 @@ private fun FitToHeight(modifier: Modifier = Modifier, content: @Composable () -
 // ── Customize Hub ───────────────────────────────────────────────────────────
 
 /**
- * Settings → Customize Hub: one bubble per Hub row (the default rows, then
- * any added lists and profile rows), each with a grab handle on the left to
- * drag it into a new place, an on/off switch, and an X to remove it (tap
- * once to arm, again to remove — same as deleting a post). List and profile
- * rows also get a "Profiles"/"Posts" mode button. The last bubble, "Add",
- * puts rows in: "Default" (any default row that was removed — ones already
- * in the Hub are greyed out), "Profiles" (pick accounts into a row that
- * lives only in Stellar) and "List" (one of your Bluesky lists, or "Other"
- * to paste any list link). Everything is saved in
- * [com.mediaviewer.util.HubLayout].
+ * The Hub's Customize Hub (its floating button): one bubble per Hub row,
+ * each with a grab handle on the left to drag it into a new place, an
+ * on/off switch, and an X to remove it (tap once to arm, again to remove —
+ * same as deleting a post). List and profile rows also get a
+ * "Profiles"/"Posts" mode button. "Add" puts rows in: "Default" (any default
+ * row or widget that isn't in the Hub — ones already there are greyed out)
+ * and "Create Feed" (the Feed Builder: a feed of its own, as a row). Then
+ * the Hub's own settings. With [split] (landscape) the rows sit on the left
+ * and adding and the settings on the right, like Settings. Everything is
+ * saved in [com.mediaviewer.util.HubLayout].
  */
 @Composable
-private fun CustomizeHubSection(
-    extras: SettingsExtras, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?
+internal fun CustomizeHubSection(
+    extras: SettingsExtras, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, split: Boolean = false
 ) {
     val hub = com.mediaviewer.util.HubLayout
     val rows = hub.rows
@@ -2398,7 +2393,8 @@ private fun CustomizeHubSection(
     // The Profiles row whose edit button was pressed.
     var editingProfilesRow by remember { mutableStateOf<com.mediaviewer.util.HubLayout.Row?>(null) }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    @Composable
+    fun RowsPart() {
         rows.forEach { row ->
             key(row.id) {
                 val dragging = draggingId == row.id
@@ -2448,7 +2444,10 @@ private fun CustomizeHubSection(
             }
         }
 
-        // ── Add: Default / Profiles / List ──
+    }
+    @Composable
+    fun AddPart() {
+        // ── Add: Default / Create Feed ──
         var menuOpen by remember { mutableStateOf(false) }
         var defaultMenuOpen by remember { mutableStateOf(false) }
         var profilesPopupOpen by remember { mutableStateOf(false) }
@@ -2471,58 +2470,22 @@ private fun CustomizeHubSection(
                                 enabled = !added
                             )
                         }
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                PillButton("Profiles", { profilesPopupOpen = true })
-                Spacer(Modifier.width(8.dp))
-                Box {
-                    PillButton("List", { extras.onEnsureUserLists(); menuOpen = true })
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        val lists = extras.userLists.filter { !it.purpose.contains("referencelist") }
-                        if (lists.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text(if (extras.userListsLoading) "Loading your lists…" else "You have no lists yet", color = DimGray) },
-                                onClick = {}, enabled = false
-                            )
-                        }
-                        lists.forEach { list ->
-                            val added = rows.any { it.listUri == list.uri }
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        list.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        fontWeight = if (added) FontWeight.SemiBold else FontWeight.Normal
-                                    )
-                                },
-                                onClick = { menuOpen = false; extras.onAddHubList(list.uri, list.name) }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Other", fontWeight = FontWeight.SemiBold) },
-                            onClick = { menuOpen = false; urlPopupOpen = true }
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                // Widgets (supporters): pink for everyone else, and a tap
-                // opens the Support page.
-                Box {
-                    PillButton(
-                        "Widgets", { if (supporter) widgetMenuOpen = true else com.mediaviewer.util.Supporter.openPage() },
-                        modifier = Modifier.supporterShine(!supporter)
-                    )
-                    DropdownMenu(expanded = widgetMenuOpen, onDismissRequest = { widgetMenuOpen = false }) {
+                        // The widgets (supporters) are default rows too.
                         hub.WIDGET_LABELS.forEach { (id, label) ->
                             val added = rows.any { it.id == id }
                             DropdownMenuItem(
-                                text = { Text(label, color = if (added) DimGray else Color.Unspecified) },
-                                onClick = { widgetMenuOpen = false; hub.addWidget(id) },
+                                text = { Text(label, color = if (added) DimGray else Color.Unspecified, modifier = Modifier.supporterShine(!supporter)) },
+                                onClick = { defaultMenuOpen = false; if (supporter) hub.addWidget(id) else com.mediaviewer.util.Supporter.openPage() },
                                 enabled = !added
                             )
                         }
                     }
                 }
+                Spacer(Modifier.width(8.dp))
+                PillButton("Create Feed", {
+                    LocalOverlays.feedBuilderForHub = true
+                    LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
+                })
             }
         }
         // One Hub layout for both ways up, or one each (see HubLayout):
@@ -2539,6 +2502,11 @@ private fun CustomizeHubSection(
                     }
                 }
                 CompactSwitch(hub.separateOrientations) { hub.useSeparateOrientations(it) }
+            }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel("Row Names on the Left", Modifier.weight(1f))
+                CompactSwitch(com.mediaviewer.util.UiToggles.hubLeftTitles) { com.mediaviewer.util.UiToggles.updateHubLeftTitles(it) }
             }
         }
         if (urlPopupOpen) {
@@ -2569,6 +2537,14 @@ private fun CustomizeHubSection(
                 onClose = { profilesPopupOpen = false }
             )
         }
+    }
+    if (split) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1.3f), verticalArrangement = Arrangement.spacedBy(8.dp)) { RowsPart() }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) { AddPart() }
+        }
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { RowsPart(); AddPart() }
     }
 }
 

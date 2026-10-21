@@ -93,6 +93,7 @@ fun LocalOverlayHost(
         LocalOverlays.addSharedFeed = viewModel::addSharedFeed
         LocalOverlays.onShowBookmarkFolder = viewModel::showBookmarkFolder
         LocalOverlays.openPublicFolder = viewModel::openPublicFolder
+        LocalOverlays.loadFeedRow = { key, feed, more -> viewModel.loadFeedRow(key, feed, more) }
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView
@@ -225,10 +226,20 @@ fun LocalOverlayHost(
             onLoadLists = viewModel::loadListsForBuilder,
             onResolveList = viewModel::resolveListForBuilder,
             onResolveAccount = viewModel::resolveAccountForBuilder,
-            // A feed that's open while it's edited reloads with its new contents.
-            onSaved = { saved -> if (selectedFeed == saved.uri) viewModel.selectFeed(saved.uri) },
-            onDeleted = { gone -> if (selectedFeed == gone.uri) viewModel.selectFeed(null) },
-            onClose = { LocalOverlays.feedBuilder = null }
+            // A feed that's open while it's edited reloads with its new contents;
+            // one made or edited from the Hub is (and stays) a Hub row.
+            onSaved = { saved ->
+                if (selectedFeed == saved.uri) viewModel.selectFeed(saved.uri)
+                val asRow = com.mediaviewer.util.HubLayout.FEED_PREFIX + saved.id
+                if (LocalOverlays.feedBuilderForHub || com.mediaviewer.util.HubLayout.rows.any { it.id == asRow }) {
+                    com.mediaviewer.util.HubLayout.addFeed(saved.id, saved.name)
+                }
+            },
+            onDeleted = { gone ->
+                if (selectedFeed == gone.uri) viewModel.selectFeed(null)
+                com.mediaviewer.util.HubLayout.remove(com.mediaviewer.util.HubLayout.FEED_PREFIX + gone.id)
+            },
+            onClose = { LocalOverlays.feedBuilder = null; LocalOverlays.feedBuilderForHub = false }
         )
     }
 

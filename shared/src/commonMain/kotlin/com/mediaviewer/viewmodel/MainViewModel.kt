@@ -9895,11 +9895,20 @@ class MainViewModel(
      * PDS — then filtered by the feed's content types and merged newest
      * first. Nothing about the feed leaves the device.
      */
-    private suspend fun loadLocalFeedPage(feedUri: String, cursor: String?): Result<Pair<List<MediaItem>, String?>> = runCatching {
-        val feed = com.mediaviewer.util.LocalData.localFeed(feedUri) ?: error("That feed was removed")
+    private suspend fun loadLocalFeedPage(feedUri: String, cursor: String?): Result<Pair<List<MediaItem>, String?>> {
+        val feed = com.mediaviewer.util.LocalData.localFeed(feedUri) ?: return Result.failure(IllegalStateException("That feed was removed"))
+        if (cursor == null) localFeedSeen.clear()
+        return loadFeedSpecPage(feed, cursor, localFeedSeen)
+    }
+
+    /** One page of any built feed ([feed] itself, not only one saved on
+     *  this device — a profile's Home tab rows are someone else's),
+     *  skipping posts already in [seen]. */
+    private suspend fun loadFeedSpecPage(
+        feed: com.mediaviewer.util.LocalFeed, cursor: String?, seen: MutableSet<String>
+    ): Result<Pair<List<MediaItem>, String?>> = runCatching {
         val sources = feed.sources
         if (sources.isEmpty()) return@runCatching Pair(emptyList<MediaItem>(), null)
-        if (cursor == null) localFeedSeen.clear()
         var cursors = decodeLocalCursor(cursor, sources.size)
         val me = _bskyDid.value
         val out = ArrayList<MediaItem>()
@@ -9919,6 +9928,19 @@ class MainViewModel(
                             "account" -> bskyRepo.getHubListMemberPostsPage(bskyToken, me, src.value, c, 30).getOrNull()
                                 ?.let { (posts, next) -> posts.map { it.second } to next }
                             "hashtag" -> bskyRepo.searchPostsDirect(bskyToken, me, "#" + src.value.removePrefix("#"), c).getOrNull()
+                            // Posts known by their links (a tag's matches, a
+                            // folder's posts): read 25 at a time, in order;
+                            // the cursor is how far along.
+                            "tag", "folder", "publicFolder" -> {
+                                val uris = feedSourceUris(src)
+                                val from = c?.toIntOrNull() ?: 0
+                                val chunk = uris.drop(from).take(25)
+                                if (chunk.isEmpty()) emptyList<MediaItem>() to null
+                                else bskyRepo.getPostsByUris(bskyToken, chunk).getOrNull()?.let { posts ->
+                                    val order = chunk.withIndex().associate { (n, u) -> u to n }
+                                    posts.sortedBy { order[it.postUri] ?: Int.MAX_VALUE } to (from + chunk.size).takeIf { it < uris.size }?.toString()
+                                }
+                            }
                             else -> null
                         }
                         if (page == null) Pair(emptyList<MediaItem>(), "!") else Pair(page.first, page.second?.takeIf { it.isNotBlank() } ?: "!")
@@ -9927,17 +9949,77 @@ class MainViewModel(
             }
             cursors = pages.map { it.second }
             for (item in pages.flatMap { it.first }) {
-                val keep = when {
-                    item.isTextOnly -> feed.textPosts
-                    item.isVideo -> if (item.isHorizontalVideo) feed.horizontalVideos else feed.verticalVideos
-                    else -> feed.images
-                }
-                if (keep && item.postUri.isNotBlank() && localFeedSeen.add(item.postUri)) out += item
+                if (feed.keeps(item) && item.postUri.isNotBlank() && seen.add(item.postUri)) out += item
             }
         }
-        // Newest first (ISO times sort as text).
-        val sorted = out.sortedByDescending { it.createdAt.orEmpty() }
+        // In the feed's own order (newest first unless it's sorted by counts).
+        val sorted = feed.sorted(filterHidden(out))
         Pair(sorted, if (cursors.all { it == "!" }) null else cursors.joinToString("\u0001"))
+    }
+
+    /** The posts a link-based source holds: a tag's matches in the tag
+     *  database, one of your folders, or someone's public folder. */
+    private suspend fun feedSourceUris(src: com.mediaviewer.util.LocalFeedSource): List<String> = when (src.kind) {
+        "tag" -> runCatching { taggingRepo.search(src.value) }.getOrDefault(emptyList())
+        "folder" -> com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == src.value }?.posts.orEmpty()
+        "publicFolder" -> {
+            val did = src.value.substringBefore('/')
+            val id = src.value.substringAfter('/')
+            com.mediaviewer.util.PublicFolders.load(did).firstOrNull { it.rkey == id }?.posts.orEmpty()
+        }
+        else -> emptyList()
+    }
+
+    // ── Built feeds as rows (Hub "feed:" rows, profile Home tab rows) ──
+
+    private val feedRowSeen = HashMap<String, MutableSet<String>>()
+    private val feedRowSpecs = HashMap<String, com.mediaviewer.util.LocalFeed>()
+
+    /**
+     * Fills the row [key] (in [hubLists], like a list row, so it opens and
+     * pages the same way) with [feed]'s posts — its first page, or with
+     * [more] the next one. "avatars" rows also get the accounts behind the
+     * posts as members.
+     */
+    fun loadFeedRow(key: String, feed: com.mediaviewer.util.LocalFeed, more: Boolean = false, force: Boolean = false) {
+        if (!_bskyLoggedIn.value || key.isBlank()) return
+        val cursor: String? = com.mediaviewer.platform.synchronizedCompat(hubListLock) {
+            val cur = _hubLists.value[key]
+            val changed = feedRowSpecs[key] != feed
+            if (!more) {
+                if (cur?.loading == true) return
+                val fresh = cur != null && !changed && !force && com.mediaviewer.platform.currentTimeMillis() - cur.loadedAt < 5 * 60_000L
+                if (fresh) return
+                feedRowSpecs[key] = feed
+                feedRowSeen[key] = HashSet()
+                _hubLists.value = _hubLists.value + (key to (if (changed) HubListState() else cur ?: HubListState()).copy(loading = true))
+                null
+            } else {
+                if (cur == null || cur.loading || cur.loadingMore || cur.postsCursor == null || changed) return
+                _hubLists.value = _hubLists.value + (key to cur.copy(loadingMore = true))
+                cur.postsCursor
+            }
+        }
+        viewModelScope.launch(ioDispatcher) {
+            val seen = com.mediaviewer.platform.synchronizedCompat(hubListLock) { feedRowSeen.getOrPut(key) { HashSet() } }
+            var result = loadFeedSpecPage(feed, cursor, seen)
+            if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                result = loadFeedSpecPage(feed, cursor, seen)
+            }
+            result.onSuccess { (posts, next) ->
+                setHubList(key) { cur ->
+                    val all = if (more) cur.posts + posts else posts
+                    cur.copy(
+                        loading = false, loadingMore = false, failed = false,
+                        posts = all, members = all.map { it.author }.distinctBy { it.did },
+                        postsCursor = next, membersExhausted = true,
+                        loadedAt = if (more) cur.loadedAt else com.mediaviewer.platform.currentTimeMillis()
+                    )
+                }
+            }.onFailure {
+                setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
+            }
+        }
     }
 
     /** Feed Builder → Add list by link: resolves a bsky.app list link. */

@@ -64,6 +64,11 @@ object LocalOverlays {
     /** Hub → the "+" after the feeds: the Feed Builder (null = closed;
      *  blank id = a new feed). */
     var feedBuilder by mutableStateOf<com.mediaviewer.util.LocalFeed?>(null)
+    /** The Feed Builder was opened from the Hub (Customize Hub → Add →
+     *  Create Feed, or a feed row's edit button): what it saves is a Hub row. */
+    var feedBuilderForHub by mutableStateOf(false)
+    /** Fills a built feed's row (see MainViewModel.loadFeedRow): key, feed, more. */
+    var loadFeedRow: ((String, com.mediaviewer.util.LocalFeed, Boolean) -> Unit)? = null
     /** Launchpad page two: the open app. */
     var launchApp by mutableStateOf<LaunchApp?>(null)
     /** A note to open straight away when Notes opens (a widget tap). */

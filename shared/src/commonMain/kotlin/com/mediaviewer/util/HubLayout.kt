@@ -46,6 +46,8 @@ object HubLayout {
     val WIDGET_LABELS = linkedMapOf(WIDGET_EVENTS to "Upcoming Events")
     private const val LIST_PREFIX = "list:"
     private const val PROFILES_PREFIX = "profiles:"
+    /** A feed made with the Feed Builder (LocalData.localFeeds), by id. */
+    const val FEED_PREFIX = "feed:"
 
     private const val PREFS = "hub_layout"
     /** The old, shared (pre per-account) layout. */
@@ -80,11 +82,15 @@ object HubLayout {
         val isProfiles: Boolean get() = id.startsWith(PROFILES_PREFIX)
         /** A widget row (Add → Widgets), e.g. Upcoming Events. */
         val isWidget: Boolean get() = id.startsWith(WIDGET_PREFIX)
+        /** A Feed Builder feed (Add → Create Feed). */
+        val isFeed: Boolean get() = id.startsWith(FEED_PREFIX)
+        /** The built feed's id (for a [isFeed] row). */
+        val feedId: String get() = id.removePrefix(FEED_PREFIX)
         /** Has members and their posts: gets the Profiles/Posts button. */
         val hasMembers: Boolean get() = isList || isProfiles
         /** What its loaded content is stored under (MainViewModel.hubLists). */
         val contentKey: String get() = listUri ?: id
-        val label: String get() = BUILT_IN_LABELS[id] ?: WIDGET_LABELS[id] ?: name.ifBlank { if (isProfiles) "Profiles" else "List" }
+        val label: String get() = BUILT_IN_LABELS[id] ?: WIDGET_LABELS[id] ?: name.ifBlank { if (isProfiles) "Profiles" else if (isFeed) "Feed" else "List" }
     }
 
     val BUILT_IN_LABELS = linkedMapOf(
@@ -336,6 +342,14 @@ object HubLayout {
         return true
     }
 
+    /** Add → Create Feed: a built feed as a new row at the bottom (or, for
+     *  one already there, its new name). */
+    fun addFeed(feedId: String, name: String) {
+        val id = FEED_PREFIX + feedId
+        if (rows.any { it.id == id }) update(rows.map { if (it.id == id) it.copy(name = name, enabled = true) else it })
+        else update(rows + Row(id = id, name = name))
+    }
+
     /** Adds a widget row at the bottom (or switches it back on). Returns
      *  false when it was already there. */
     fun addWidget(id: String): Boolean {
@@ -422,7 +436,7 @@ object HubLayout {
             if (!seen.add(r.id)) continue
             if (r.id == SUPPORTERS && !FeatureFlags.SUPPORTERS_FEED_ENABLED) continue
             val builtIn = BUILT_IN_LABELS.containsKey(r.id)
-            if (!builtIn && !r.isList && !r.isProfiles && !(r.isWidget && WIDGET_LABELS.containsKey(r.id))) continue
+            if (!builtIn && !r.isList && !r.isProfiles && !r.isFeed && !(r.isWidget && WIDGET_LABELS.containsKey(r.id))) continue
             if (builtIn && r.id in removedDefaults) continue
             // Stellar Supporters always points at the real list.
             out += if (r.id == SUPPORTERS) r.copy(listUri = StellarOfficial.SUPPORTERS_LIST_URI, name = "Stellar Supporters") else r
@@ -452,7 +466,7 @@ object HubLayout {
             if (r.hasMembers) {
                 o.addProperty("name", r.name)
                 o.addProperty("showPosts", r.showPosts)
-            }
+            } else if (r.isFeed) o.addProperty("name", r.name)
             if (r.isProfiles) {
                 val ps = JsonArray()
                 for (p in r.profiles) {
