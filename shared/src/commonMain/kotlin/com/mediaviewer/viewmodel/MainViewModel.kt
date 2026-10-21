@@ -8207,10 +8207,32 @@ class MainViewModel(
         val id = "profile_${kind}_${did.substringAfterLast(':')}_${com.mediaviewer.platform.currentTimeMillis()}"
         when {
             !videoCid.isNullOrBlank() -> platform.enqueueVideoBlobDownload(did, videoCid, id)
-            !imageUrl.isNullOrBlank() -> enqueueDownload(imageUrl, id)
+            !imageUrl.isNullOrBlank() -> viewModelScope.launch(ioDispatcher) {
+                // The original file (the blob on their PDS), not the CDN's
+                // re-encoded JPEG; its real format is read from its first bytes.
+                val raw = com.mediaviewer.ui.rawProfileImageUrl(did, imageUrl)
+                val bytes = raw?.let { runCatching { com.mediaviewer.network.PlainHttp.get(it) }.getOrNull() }
+                    ?.takeIf { it.code in 200..299 }?.body
+                if (raw == null || bytes == null) { withContext(Dispatchers.Main) { enqueueDownload(imageUrl, id) }; return@launch }
+                val (ext, mime) = imageKindOf(bytes)
+                withContext(Dispatchers.Main) { platform.enqueueDownload(raw, "simpleOSFeed_${id}.$ext", mime, id) }
+            }
             else -> return
         }
         showToast("Downloading…")
+    }
+
+    /** A picture's file extension and type, from its first bytes. */
+    private fun imageKindOf(b: ByteArray): Pair<String, String> {
+        fun at(i: Int) = if (i < b.size) b[i].toInt() and 0xFF else -1
+        return when {
+            at(0) == 0x89 && at(1) == 0x50 && at(2) == 0x4E && at(3) == 0x47 -> "png" to "image/png"
+            at(0) == 0x47 && at(1) == 0x49 && at(2) == 0x46 -> "gif" to "image/gif"
+            at(0) == 0x52 && at(1) == 0x49 && at(2) == 0x46 && at(3) == 0x46 && at(8) == 0x57 && at(9) == 0x45 -> "webp" to "image/webp"
+            at(4) == 0x66 && at(5) == 0x74 && at(6) == 0x79 && at(7) == 0x70 && at(8) == 0x61 && at(9) == 0x76 -> "avif" to "image/avif"
+            at(4) == 0x66 && at(5) == 0x74 && at(6) == 0x79 && at(7) == 0x70 -> "heic" to "image/heic"
+            else -> "jpg" to "image/jpeg"
+        }
     }
 
     private fun enqueueDownload(url: String, uniqueId: String, isVideo: Boolean = false) {

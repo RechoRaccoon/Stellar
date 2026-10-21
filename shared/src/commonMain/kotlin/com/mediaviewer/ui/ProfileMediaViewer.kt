@@ -69,6 +69,9 @@ fun ProfileMediaViewer(
 ) {
     com.mediaviewer.ui.compat.BackHandler(onBack = onClose)
     var measured by remember(imageUrl) { mutableStateOf<Float?>(null) }
+    // The original file as it was uploaded (not the CDN's re-encoded copy).
+    var raw by remember(imageUrl) { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(did, imageUrl) { raw = rawProfileImageUrl(did, imageUrl) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     // When a pinch (or wheel zoom) last happened: a tap right after one
@@ -115,16 +118,19 @@ fun ProfileMediaViewer(
                 scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
             }
         ) {
-            val poster: @Composable () -> Unit = {
-                if (imageUrl != null) AsyncImage(
-                    model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(),
-                    onSuccess = { st ->
-                        val sz = st.painter.intrinsicSize
-                        if (measureImage && sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) measured = sz.width / sz.height
-                    }
-                )
+            val measure: (coil3.compose.AsyncImagePainter.State.Success) -> Unit = { st ->
+                val sz = st.painter.intrinsicSize
+                if (measureImage && sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) measured = sz.width / sz.height
             }
-            if (videoCid != null) ProfileBannerVideo(did, videoCid, Modifier.fillMaxSize(), poster = poster, fill = false)
+            val poster: @Composable () -> Unit = {
+                if (imageUrl != null) Box(Modifier.fillMaxSize()) {
+                    // The CDN's copy straight away (it's usually already
+                    // loaded), then the original file over it once it's in.
+                    AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onSuccess = measure)
+                    if (raw != null) AsyncImage(model = raw, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onSuccess = measure)
+                }
+            }
+            if (videoCid != null) ProfileBannerVideo(did, videoCid, Modifier.fillMaxSize(), poster = poster, fill = false, borrow = true)
             else poster()
         }
         DownloadPill(
@@ -135,6 +141,15 @@ fun ProfileMediaViewer(
 }
 
 private const val MAX_ZOOM = 6f
+
+/** The original file behind a profile picture or banner link (Bluesky's
+ *  CDN links end in ".../<did>/<cid>@jpeg"): the blob itself, straight from
+ *  the account's own PDS, in whatever format and size it was uploaded. */
+suspend fun rawProfileImageUrl(did: String, url: String?): String? {
+    val cid = url?.substringBefore('?')?.substringAfterLast('/')?.substringBefore('@')
+        ?.takeIf { it.startsWith("baf") } ?: return null
+    return runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
+}
 
 /** Bluesky's full-size version of a profile picture or banner link. */
 fun fullSizeProfileImage(url: String?): String? =

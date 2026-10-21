@@ -554,7 +554,10 @@ fun ProfileBannerVideo(
     did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0,
     poster: (@Composable () -> Unit)? = null,
     /** False: the whole video, fitted inside (a profile's banner — never cropped). */
-    fill: Boolean = true
+    fill: Boolean = true,
+    /** Full screen: shows the very player the profile's own copy is
+     *  playing (which steps aside meanwhile) instead of starting another. */
+    borrow: Boolean = false
 ) {
     var url by remember(did, cid) { mutableStateOf<String?>(null) }
     LaunchedEffect(did, cid) {
@@ -562,7 +565,7 @@ fun ProfileBannerVideo(
     }
     val u = url ?: return
     val context = LocalContext.current
-    val player = remember(u) { FeedVideos.acquire(context, u) }
+    val player = remember(u) { SharedProfileVideos.take(context, u) }
     var firstFrame by remember(u) { mutableStateOf(false) }
     var aspect by remember(u) { mutableStateOf(player.aspectRatio.takeIf { it > 0f }) }
     DisposableEffect(player) {
@@ -573,11 +576,18 @@ fun ProfileBannerVideo(
         player.addListener(l)
         player.setVolumeMuted(true)
         player.play()
+        if (borrow) SharedProfileVideos.borrowed[u] = (SharedProfileVideos.borrowed[u] ?: 0) + 1
         onDispose {
             player.removeListener(l)
-            player.setVolumeMuted(false)
-            FeedVideos.recycle(u, player)
+            if (borrow) SharedProfileVideos.borrowed[u] = (SharedProfileVideos.borrowed[u] ?: 1) - 1
+            SharedProfileVideos.give(u, player)
         }
+    }
+    // (While full screen has it, this copy shows its picture instead: a
+    // player draws into one view at a time. It takes it back on return.)
+    if (!borrow && (SharedProfileVideos.borrowed[u] ?: 0) > 0) {
+        Box(modifier) { if (poster != null) Box(Modifier.matchParentSize()) { poster() } }
+        return
     }
     // (Some players don't report the first frame: playing past the start counts.)
     LaunchedEffect(player) {
@@ -596,5 +606,32 @@ fun ProfileBannerVideo(
             FeedVideoView(player, Modifier.size(w, w / a), fill = true, cornerPercent = cornerPercent)
         }
         if (!firstFrame && poster != null) Box(Modifier.matchParentSize()) { poster() }
+    }
+}
+
+/**
+ * One player per profile video on screen, shared by every view of it (the
+ * profile's banner or icon and the same one full screen). Starting a second
+ * player for a video that's already playing, and shutting it down again on
+ * close, is what stalled the profile's own videos.
+ */
+internal object SharedProfileVideos {
+    private class Held(val player: FeedVideoPlayer, var count: Int)
+    private val held = HashMap<String, Held>()
+    /** Views of a video showing full screen right now, by its link. */
+    val borrowed = androidx.compose.runtime.mutableStateMapOf<String, Int>()
+
+    fun take(context: com.mediaviewer.platform.PlatformContext, url: String): FeedVideoPlayer {
+        held[url]?.let { it.count++; return it.player }
+        return FeedVideos.acquire(context, url).also { held[url] = Held(it, 1) }
+    }
+
+    fun give(url: String, player: FeedVideoPlayer) {
+        val h = held[url]
+        if (h == null || h.player !== player) { FeedVideos.recycle(url, player); return }
+        if (--h.count > 0) return
+        held.remove(url)
+        player.setVolumeMuted(false)
+        FeedVideos.recycle(url, player)
     }
 }
