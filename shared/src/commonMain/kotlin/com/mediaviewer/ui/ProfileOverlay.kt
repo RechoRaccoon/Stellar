@@ -739,6 +739,7 @@ fun ProfileOverlay(
     var editingProfile by remember { mutableStateOf(false) }
     // The profile picture opened full screen (tapped in the header).
     var viewingAvatar by remember(author.did) { mutableStateOf(false) }
+    var viewingBanner by remember(author.did) { mutableStateOf(false) }
     // Your own profile: the status box (see ProfileStatusEditor).
     var editingStatus by remember { mutableStateOf(false) }
     // Lists/Feeds: the starter pack / moderation list waiting on a
@@ -770,7 +771,7 @@ fun ProfileOverlay(
     CompositionLocalProvider(LocalHateFunBlurNsfw provides hateFunBlurNsfw) {
     Box(Modifier.fillMaxSize()) {
     // Item 19: the whole page blurs behind the edit popup.
-    Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else if (viewingAvatar) 26.dp else 0.dp)) {
+    Box(Modifier.fillMaxSize().pageBlur(if (editingProfile) 18.dp else if (viewingAvatar || viewingBanner) 26.dp else 0.dp)) {
         // Bug fix: this recording box must wrap *only* the scrollable
         // content (the LazyColumn) — not the interaction bar or anything
         // else on this page that itself reads [backdrop] to render. The
@@ -1034,6 +1035,9 @@ fun ProfileOverlay(
                     onResolveActor = onResolveActor,
                     onOpenStatus = { editingStatus = true },
                     onOpenAvatar = { if (author.avatarUrl != null) viewingAvatar = true },
+                    onOpenBanner = {
+                        if (profile?.bannerUrl != null || com.mediaviewer.util.ProfileStyles.of(author.did)?.bannerVideo != null) viewingBanner = true
+                    },
                     layout = com.mediaviewer.util.UiToggles.profileLayout
                 )
             }
@@ -1303,6 +1307,13 @@ fun ProfileOverlay(
             }
         }
 
+        // The tagging status, under the camera (between Back and Follow).
+        PageTaggingStatus(
+            liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = rememberTopCutoutClearance())
+                .padding(top = profileFixedRowGap(fixedLayout) + 6.dp, start = 64.dp, end = 64.dp)
+        )
+
         state.openBlog?.let { blog ->
             BlogDetailOverlay(
                 blog = blog, author = author, liquidGlass = liquidGlass, tint = blended,
@@ -1346,17 +1357,26 @@ fun ProfileOverlay(
         // A profile opens with the effect its owner picked in Edit Profile
         // ("None" — the default — plays nothing). Only once the loading
         // screen is completely gone and the page is actually showing.
-        val profileEffect = com.mediaviewer.util.ProfileStyles.effectOf(com.mediaviewer.util.ProfileStyles.of(author.did)?.effect)
+        val effectName = com.mediaviewer.util.ProfileStyles.of(author.did)?.effect
+        val profileEffect = com.mediaviewer.util.ProfileStyles.effectOf(effectName)
         var confettiStarted by remember(author.did) { mutableStateOf(false) }
         if (profileEffect != null && !reducedAnimations && loadingScreenDone && !state.hidden && !state.loadingProfile) {
             LaunchedEffect(author.did) { confettiStarted = true }
+        }
+        // A new effect picked (Edit Profile › Save): it plays straight away.
+        var effectPlays by remember(author.did) { mutableStateOf(0) }
+        var lastEffect by remember(author.did) { mutableStateOf(effectName) }
+        LaunchedEffect(effectName) {
+            if (effectName == lastEffect) return@LaunchedEffect
+            lastEffect = effectName
+            if (profileEffect != null && !reducedAnimations && !state.hidden) { confettiStarted = true; effectPlays++ }
         }
         // Stays composed once started, so it plays once per visit.
         if (confettiStarted && profileEffect != null) {
             // (Hearts take this profile's own two colors.)
             val heartColors = styledProfileColors(author.did) ?: ProfileColorStore.get(author.did)
             DmEffectLayer(
-                effect = profileEffect, playKey = author.did.hashCode(),
+                effect = profileEffect, playKey = author.did.hashCode() * 31 + effectPlays,
                 colors = heartColors?.let { listOf(it.banner, it.avatar) } ?: listOf(blended),
                 backdrop = backdrop
             )
@@ -1387,40 +1407,33 @@ fun ProfileOverlay(
                 preview = track.albumArtUrl
             )
         }
-        val avatarFull = author.avatarUrl
-        val iconVideoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid
-        if (viewingAvatar && iconVideoCid != null) {
-            // An animated profile picture: its video, full size and looping.
-            // A tap anywhere (or Back) closes it.
-            com.mediaviewer.ui.compat.BackHandler { viewingAvatar = false }
-            BoxWithConstraints(
-                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { viewingAvatar = false },
-                contentAlignment = Alignment.Center
-            ) {
-                val side = minOf(maxWidth, maxHeight) * 0.92f
-                ProfileBannerVideo(
-                    author.did, iconVideoCid, Modifier.size(side),
-                    poster = {
-                        if (avatarFull != null) AsyncImage(
-                            model = avatarFull.replace("/avatar_thumbnail/", "/avatar/"), contentDescription = null,
-                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                )
-            }
-        } else if (viewingAvatar && avatarFull != null) {
-            // Like a comment's picture: full screen, the page blurred behind.
-            // (No X: a tap anywhere closes it.)
-            CommentMediaViewer(
-                media = listOf(com.mediaviewer.model.CommentMedia(
-                    thumbUrl = avatarFull,
-                    // Bluesky's full-size avatar rather than the small one.
-                    fullUrl = avatarFull.replace("/avatar_thumbnail/", "/avatar/")
-                )),
-                startIndex = 0, tint = blended, liquidGlass = liquidGlass, backdrop = null,
-                showClose = false,
+        // The picture or the banner, full screen (its video when it has one),
+        // to zoom into and download.
+        val style = com.mediaviewer.util.ProfileStyles.of(author.did)
+        if (viewingAvatar) {
+            val full = fullSizeProfileImage(author.avatarUrl)
+            ProfileMediaViewer(
+                did = author.did, imageUrl = full, videoCid = style?.iconVideo?.cid, aspect = 1f,
+                tint = blended, liquidGlass = liquidGlass,
+                onDownload = { LocalOverlays.downloadProfileMedia?.invoke(author.did, full, style?.iconVideo?.cid, "icon") },
                 onClose = { viewingAvatar = false }
+            )
+        } else if (viewingBanner) {
+            val banner = profile?.bannerUrl
+            var bannerShape by remember(banner) { mutableStateOf(com.mediaviewer.ui.BANNER_VIDEO_ASPECT) }
+            val viewerContext = com.mediaviewer.ui.compat.LocalContext.current
+            if (banner != null) LaunchedEffect(banner) {
+                val coil = viewerContext.coilContext
+                val img = (runCatching { coil3.SingletonImageLoader.get(coil).execute(coil3.request.ImageRequest.Builder(coil).data(banner).build()) }
+                    .getOrNull() as? coil3.request.SuccessResult)?.image
+                if (img != null && img.width > 0 && img.height > 0) bannerShape = img.width.toFloat() / img.height
+            }
+            ProfileMediaViewer(
+                did = author.did, imageUrl = banner, videoCid = style?.bannerVideo?.cid,
+                aspect = if (style?.bannerVideo != null) com.mediaviewer.ui.BANNER_VIDEO_ASPECT else bannerShape,
+                tint = blended, liquidGlass = liquidGlass,
+                onDownload = { LocalOverlays.downloadProfileMedia?.invoke(author.did, banner, style?.bannerVideo?.cid, "banner") },
+                onClose = { viewingBanner = false }
             )
         }
         if (editingProfile) {
@@ -1754,6 +1767,8 @@ private fun ProfileHeaderSection(
     onOpenStatus: () -> Unit = {},
     /** The profile picture was tapped: show it full screen. */
     onOpenAvatar: () -> Unit = {},
+    /** The banner was tapped (not a button over it): show it full screen. */
+    onOpenBanner: () -> Unit = {},
     /** Settings → Dev Tools → Profile Layout (1 in landscape). */
     layout: Int = 1
 ) {
@@ -1797,6 +1812,8 @@ private fun ProfileHeaderSection(
                     .then(
                         if (liquidGlass) Modifier.recordBackdrop(backdropLayer) else Modifier
                     )
+                    // A tap on the banner itself (not a button over it) shows it full screen.
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onOpenBanner() }
             ) {
                 if (profile?.bannerUrl != null) {
                     // (Behind it, only ever seen if it doesn't fill the space:
@@ -1964,14 +1981,18 @@ private fun ProfileHeaderSection(
         }
 
         // ── Bio ──
-        // (Layout 4: the bio and counts are beside the picture instead.)
-        val bio = if (layout == 4) "" else profile?.description.orEmpty()
+        // (Under the "Listening to" line. Layout 4: as far below the
+        // picture's row as that row is below the banner.)
+        val bio = profile?.description.orEmpty()
         if (bio.isNotBlank()) {
             LinkableBioText(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = PROFILE_EDGE, vertical = 12.dp)
+                modifier = Modifier.fillMaxWidth().then(
+                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = 10.dp, bottom = 4.dp)
+                    else Modifier.padding(horizontal = PROFILE_EDGE, vertical = 12.dp)
+                )
             )
-        } else if (loadingProfile && layout != 4) {
+        } else if (loadingProfile) {
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.CenterStart) {
                 CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
             }
@@ -2362,8 +2383,8 @@ private fun ProfileIdentityCentered(
  * picture sits in its own row under the banner at the left, its status
  * floating above its top-right; beside it the display name (one line, shrunk
  * to fit), the handle and the counts, spread from the picture's top edge to
- * its bottom edge. The bio runs the full width under them, as far below as
- * the row is below the banner.
+ * its bottom edge. (The bio — after any "Listening to" line — runs the
+ * full width under them, in the page's own bio section.)
  */
 @Composable
 private fun ProfileCompactIdentity(
@@ -2376,7 +2397,8 @@ private fun ProfileCompactIdentity(
     val avatarSize = 88.dp
     // The space between the banner and this row, and between this row and the bio.
     val sectionGap = 10.dp
-    val side = PROFILE_EDGE + 4.dp
+    // (The picture's outline and the bio line up with the posts' left edge.)
+    val side = PROFILE_EDGE
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap)) { constraints ->
         val w = constraints.maxWidth
         val gap = 12.dp.roundToPx()
@@ -2426,21 +2448,24 @@ private fun ProfileCompactIdentity(
         }.firstOrNull()?.measure(
             androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX).coerceAtLeast(0), maxHeight = 80.dp.roundToPx())
         )
+        // Dev Tools › Status Position (see UiToggles.statusPosition):
+        // where the bubble sits against the pointer.
+        val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
             info.placeRelative(avatar.width + gap, 0)
-            statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
+            statusPlaceable?.let {
+                val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
+                    2 -> tipY - threeLines / 2 - it.height / 2
+                    3 -> tipY - threeLines
+                    4 -> tipY - it.height - 8.dp.roundToPx()
+                    else -> tipY - it.height
+                }
+                it.placeRelative(tipX, y)
+            }
         }
     }
-    val bio = profile?.description.orEmpty()
-    if (bio.isNotBlank()) {
-        LinkableBioText(
-            text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
-            modifier = Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap, bottom = 4.dp)
-        )
-    } else if (loadingProfile) {
-        CircularProgressIndicator(Modifier.padding(start = side, top = sectionGap).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
-    }
+    // (The bio follows in the page's own bio section, under "Listening to".)
 }
 
 /** How far a profile's header (banner pieces, bio, stats, tab rows) sits
@@ -2633,6 +2658,23 @@ private fun ProfileGlassPill(
 private fun PostKindRowWithFacets(selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit) {
     val parent = selected.profileParent()
     val facets = if (parent == PostKindFilter.MEDIA) listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS) else emptyList()
+    // Landscape's side list: Images / Videos are the Media button's own
+    // right end — one button, split there.
+    if (LocalSideList.current) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PROFILE_POST_KINDS.forEach { option ->
+                SideListButton(
+                    option.label(), option == parent, liquidGlass, tint, small = true,
+                    trailing = if (option != PostKindFilter.MEDIA || facets.isEmpty()) null else ({
+                        MediaFacetEnd(facets.map { it.label() }, facets.indexOf(selected)) { i ->
+                            onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
+                        }
+                    })
+                ) { if (option != selected) onSelect(option) }
+            }
+        }
+        return
+    }
     ProfileSubFilterRow(
         options = PROFILE_POST_KINDS, selected = parent,
         liquidGlass = liquidGlass, tint = tint, labelOf = { it.label() },
@@ -2643,6 +2685,29 @@ private fun PostKindRowWithFacets(selected: PostKindFilter, liquidGlass: Boolean
             }
         })
     )
+}
+
+/** The end of the side list's Media button: Images | Videos, split from it
+ *  (and each other) by thin lines, running its full height. */
+@Composable
+private fun MediaFacetEnd(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val tap = rememberHapticTap()
+    Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+        labels.forEachIndexed { i, label ->
+            Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 8.dp).background(Color.White.copy(alpha = 0.25f)))
+            val on = i == selected
+            Box(
+                Modifier.fillMaxHeight()
+                    .background(if (on) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { tap(); onSelect(i) }
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = if (on) Color.White else DimGray, fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+            }
+        }
+    }
 }
 
 /**

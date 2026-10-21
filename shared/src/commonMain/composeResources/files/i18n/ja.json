@@ -2000,5 +2000,13 @@
 "Layout {0}": "レイアウト {0}",
 "Profile Layout": "プロフィールのレイアウト",
 "Unsave": "保存を解除",
-"Unsaved": "保存を解除しました"
+"Unsaved": "保存を解除しました",
+"Adds \"{0}\" and its {1} emoji to your own emoji.": "「{0}」とその{1}個の絵文字を自分の絵文字に追加します。",
+"Adds all {0} of their emoji to your own emoji.": "相手の絵文字{0}個をすべて自分の絵文字に追加します。",
+"Nothing new to save": "新しく保存するものはありません",
+"Position {0}": "位置 {0}",
+"Save All Emoji?": "すべての絵文字を保存しますか？",
+"Save Folder?": "フォルダを保存しますか？",
+"Saved {0} emoji": "{0}個の絵文字を保存しました",
+"Status Position": "ステータスの位置"
 }

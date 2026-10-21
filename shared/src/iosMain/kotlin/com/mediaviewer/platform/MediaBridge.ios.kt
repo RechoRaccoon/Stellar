@@ -195,8 +195,8 @@ actual object MediaBridge {
 
     actual suspend fun cropVideo(
         context: PlatformContext, uri: PlatformUri,
-        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
-    ): PlatformUri = IosUri("file://" + IosVideoCropper.crop(pathOf(uri), left, top, width, height, maxWidth, maxHeight))
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int, maxBytes: Long
+    ): PlatformUri = IosUri("file://" + IosVideoCropper.crop(pathOf(uri), left, top, width, height, maxWidth, maxHeight, maxBytes))
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =
         IosUri("file://" + IosVideoStitcher.stitch(pathOf(video), pathOf(thumbnail)))

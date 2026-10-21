@@ -28,9 +28,27 @@ import kotlin.coroutines.resumeWithException
  */
 object VideoCropper {
     suspend fun crop(
-        context: Context, uri: Uri, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int
+        context: Context, uri: Uri, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int, maxBytes: Long = 0L
     ): Uri {
         val (w, h) = withContext(Dispatchers.IO) { uprightSize(context, uri) } ?: error("Couldn't read the video")
+        val seconds = withContext(Dispatchers.IO) { durationSeconds(context, uri) }
+        // 4 Mbps, or less when that would come out over [maxBytes]; if it
+        // still does (encoders overshoot), once more, lower again.
+        var bitrate = com.mediaviewer.platform.profileVideoBitrate(maxBytes, seconds)
+        repeat(3) { attempt ->
+            val out = encode(context, uri, left, top, width, height, maxW, maxH, w, h, bitrate)
+            val size = out.length()
+            if (maxBytes <= 0L || size <= maxBytes || attempt == 2) return Uri.fromFile(out)
+            out.delete()
+            bitrate = (bitrate * (maxBytes.toDouble() / size) * 0.85).toInt().coerceAtLeast(100_000)
+        }
+        error("Cropping the video failed")
+    }
+
+    private suspend fun encode(
+        context: Context, uri: Uri, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int,
+        w: Int, h: Int, bitrate: Int
+    ): File {
         val cropW = w * width
         val cropH = h * height
         val scale = minOf(1f, maxW / cropW, maxH / cropH)
@@ -51,7 +69,7 @@ object VideoCropper {
                         .setEffects(Effects(emptyList(), listOf(crop, Presentation.createForWidthAndHeight(outW, outH, Presentation.LAYOUT_SCALE_TO_FIT))))
                         .build()
                     val encoders = DefaultEncoderFactory.Builder(context.applicationContext)
-                        .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(4_000_000).build())
+                        .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(bitrate).build())
                         .build()
                     val transformer = Transformer.Builder(context.applicationContext)
                         .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -73,7 +91,20 @@ object VideoCropper {
             throw t
         }
         if (output.length() <= 0L) { output.delete(); error("Cropping the video failed") }
-        return Uri.fromFile(output)
+        return output
+    }
+
+    /** How long the video is, in seconds (0 when it can't be told). */
+    private fun durationSeconds(context: Context, uri: Uri): Double {
+        val r = android.media.MediaMetadataRetriever()
+        return try {
+            r.setDataSource(context, uri)
+            (r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000.0
+        } catch (_: Exception) {
+            0.0
+        } finally {
+            runCatching { r.release() }
+        }
     }
 
     /** The picture's size once turned upright, or null. */

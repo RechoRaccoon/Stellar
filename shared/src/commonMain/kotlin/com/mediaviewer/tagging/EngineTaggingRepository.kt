@@ -158,6 +158,14 @@ private class TagStore(private val engine: TaggerEngine) {
         val file = runCatching { StellarJson.default.decodeFromString(StoredFile.serializer(), text) }.getOrNull() ?: return
         file.posts.forEach { if (it.uri.isNotBlank()) posts[it.uri] = it }
         datasets.addAll(file.datasets)
+        // Posts this device's AI tagged before taggers added their own tag
+        // get it now (there was only ever the one tagger).
+        for ((uri, p) in posts.entries.toList()) {
+            if (p.ai == true && "" in p.sources && p.tags.isNotEmpty() && p.tags.none { it.n.startsWith(AiTaggers.PREFIX) }) {
+                posts[uri] = p.normalized().merged("", listOf(AiTaggers.CURRENT to AiTaggers.CONFIDENCE))
+                unsaved++
+            }
+        }
     }
 
     private fun <T> locked(block: () -> T): T = synchronizedCompat(lock) { load(); block() }
@@ -180,6 +188,22 @@ private class TagStore(private val engine: TaggerEngine) {
     /** The AI has already tagged it (hand tags alone don't count). */
     fun isAiTagged(uri: String): Boolean = locked { posts[uri]?.aiDone == true }
     fun isInImportedDataset(uri: String): Boolean = locked { posts[uri]?.sources?.any { it.isNotEmpty() } == true }
+
+    /** See TaggingService.isTaggedByCurrentModel. */
+    fun isTaggedByCurrentModel(uri: String): Boolean = locked {
+        val p = posts[uri] ?: return@locked false
+        when {
+            p.tags.any { it.n == AiTaggers.CURRENT } -> true
+            p.ai == true && "" in p.sources -> true
+            else -> p.sources.any { it.isNotEmpty() } && p.tags.none { it.n.startsWith(AiTaggers.PREFIX) }
+        }
+    }
+
+    fun allTagNames(): List<String> = locked {
+        val names = LinkedHashSet<String>()
+        posts.values.forEach { p -> p.tags.forEach { names.add(it.n) } }
+        names.toList()
+    }
 
     fun storeTags(uri: String, cid: String, url: String, tags: List<Pair<String, Float>>) {
         locked {
@@ -226,7 +250,10 @@ private class TagStore(private val engine: TaggerEngine) {
             .filter { it.tags.isNotEmpty() }
             .filter { post ->
                 val names = post.tags.mapTo(HashSet()) { it.n.lowercase() }
-                query.include.all { group -> group.any { it in names } } && query.exclude.none { it in names }
+                // A word is a tag, or an account (the posts by it).
+                fun matches(term: String): Boolean =
+                    TagAliases.accountDid(term)?.let { TagAliases.isPostBy(post.uri, it) } ?: (term in names)
+                query.include.all { group -> group.any(::matches) } && query.exclude.none(::matches)
             }
             .sortedByDescending { it.at }
             .take(limit).map { it.uri }.toList()
@@ -439,7 +466,8 @@ class EngineTaggingRepository(
     private suspend fun tagAndStore(item: MediaItem): List<Pair<String, Float>> {
         if (item.isTextOnly) { store.storeTags(item.postUri, item.postCid, "", emptyList()); return emptyList() }
         val (picture, recordUrl) = pictureOf(item)
-        val tags = infer(picture).orEmpty()
+        // The tagger's own tag goes on every post it could look at.
+        val tags = infer(picture)?.let { it + (AiTaggers.CURRENT to AiTaggers.CONFIDENCE) }.orEmpty()
         store.storeTags(item.postUri, item.postCid, recordUrl, tags)
         return tags
     }
@@ -549,8 +577,8 @@ class EngineTaggingRepository(
     override suspend fun tagOnLike(item: MediaItem) {
         if (!engine.hasModel() || item.postUri.isBlank()) return
         withContext(ioDispatcher) {
-            // A post from an imported dataset keeps the tags it came with.
-            if (store.isInImportedDataset(item.postUri)) return@withContext
+            // Never twice by the same tagger (hand tags don't count).
+            if (store.isTaggedByCurrentModel(item.postUri)) return@withContext
             try { ensureLoaded { } } catch (e: CancellationException) { throw e } catch (_: Exception) { return@withContext }
             tagAndStore(item)
             store.flush()
@@ -567,6 +595,8 @@ class EngineTaggingRepository(
 
     override fun browseAllTagged(limit: Int): List<String> = store.allTagged(limit)
     override fun tagsForPost(postUri: String): List<String> = store.tagsFor(postUri)
+    override fun isTaggedByCurrentModel(postUri: String): Boolean = store.isTaggedByCurrentModel(postUri)
+    override fun datasetTagNames(): List<String> = store.allTagNames()
     override suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
         withContext(ioDispatcher) {
             store.editTag(postUri, cid, mediaUrl, oldTag, newTag)

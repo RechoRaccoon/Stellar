@@ -141,11 +141,11 @@ actual object MediaBridge {
      *  long as the video does.) */
     actual suspend fun cropVideo(
         context: PlatformContext, uri: PlatformUri,
-        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int, maxBytes: Long
     ): PlatformUri {
         val path = uri.webPath ?: error("Couldn't read the video")
         val url = WebBlobs.objectUrl(path) ?: error("Couldn't read the video")
-        val blob = cropVideoInBrowser(url, left.toDouble(), top.toDouble(), width.toDouble(), height.toDouble(), maxWidth, maxHeight)
+        val blob = cropVideoInBrowser(url, left.toDouble(), top.toDouble(), width.toDouble(), height.toDouble(), maxWidth, maxHeight, maxBytes.toDouble())
             .await<JsAny>()
         val type = blobType(blob).ifBlank { "video/webm" }
         val ext = if (type.contains("mp4")) "mp4" else "webm"
@@ -224,7 +224,7 @@ private fun videoFramesInBrowser(url: String, maxSide: Int, fps: Int, maxSeconds
 private fun blobType(blob: JsAny): String = js("blob.type || ''")
 private fun blobSize(blob: JsAny): Double = js("blob.size")
 
-private fun cropVideoInBrowser(url: String, l: Double, t: Double, w: Double, h: Double, maxW: Int, maxH: Int): kotlin.js.Promise<JsAny> = js("""new Promise((resolve, reject) => {
+private fun cropVideoInBrowser(url: String, l: Double, t: Double, w: Double, h: Double, maxW: Int, maxH: Int, maxBytes: Double): kotlin.js.Promise<JsAny> = js("""new Promise((resolve, reject) => {
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
     v.onerror = () => reject(new Error("Couldn't read the video"));
@@ -239,7 +239,9 @@ private fun cropVideoInBrowser(url: String, l: Double, t: Double, w: Double, h: 
         const types = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
         const type = window.MediaRecorder ? types.find(x => MediaRecorder.isTypeSupported(x)) : null;
         if (!type) { reject(new Error("This browser can't make videos")); return; }
-        const rec = new MediaRecorder(c.captureStream(30), { mimeType: type, videoBitsPerSecond: 4000000 });
+        const secs = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+        const bps = maxBytes > 0 && secs > 0 ? Math.max(150000, Math.min(4000000, Math.floor(maxBytes * 8 * 0.85 / secs))) : 4000000;
+        const rec = new MediaRecorder(c.captureStream(30), { mimeType: type, videoBitsPerSecond: bps });
         const chunks = [];
         rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
         rec.onstop = () => resolve(new Blob(chunks, { type: type.split(';')[0] }));

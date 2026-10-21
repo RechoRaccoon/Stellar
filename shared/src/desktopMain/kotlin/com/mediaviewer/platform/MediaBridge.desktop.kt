@@ -166,9 +166,9 @@ actual object MediaBridge {
 
     actual suspend fun cropVideo(
         context: PlatformContext, uri: PlatformUri,
-        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int, maxBytes: Long
     ): PlatformUri = withContext(Dispatchers.IO) {
-        DesktopUri.of(File(DesktopFfmpeg.crop(pathOf(uri), left, top, width, height, maxWidth, maxHeight)))
+        DesktopUri.of(File(DesktopFfmpeg.crop(pathOf(uri), left, top, width, height, maxWidth, maxHeight, maxBytes)))
     }
 
     actual suspend fun stitchVideoThumbnail(context: PlatformContext, video: PlatformUri, thumbnail: PlatformUri): PlatformUri =

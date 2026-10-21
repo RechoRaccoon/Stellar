@@ -68,7 +68,7 @@ NOT_UI = re.compile(r'^(https?:|at://|did:|app\.bsky|com\.atproto|chat\.bsky|[a-
 CODE_CONTEXT = re.compile(r'(Key\(|PreferencesKey\(|getString\(|putString\(|getBoolean\(|putBoolean\(|getInt\(|putInt\(|getLong\(|putLong\(|Regex\(|\.startsWith\(|\.endsWith\(|\.contains\(|split\(|Log\.[dewiv]\(|optString\(|optInt\(|optJSONArray\(|optJSONObject\(|optBoolean\(|optLong\(|getJSONObject\(|getJSONArray\(|\.put\(|header\(|SerialName\(|\.equals\(|== |!= |jformat|replace\()\s*$')
 
 TECHNICAL = re.compile(
-    r'^(SELECT|INSERT|CREATE|UPDATE|DELETE FROM|ALTER|DROP|FROM|WHERE|PRAGMA)\b'   # SQL
+    r'^(SELECT|INSERT|CREATE|UPDATE|DELETE FROM|ALTER|DROP|FROM|WHERE|PRAGMA|AND (NOT )?EXISTS|OR \(|EXISTS \(SELECT)\b'   # SQL
     r'|^[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+$'                                    # CamelCase tags / class names
     r'|^[A-Za-z_]+(?:\.[A-Za-z_0-9]+)+$'                                          # dotted keys
     r'|^[A-Za-z]+_[A-Za-z_]+$'                                                    # snake_case keys

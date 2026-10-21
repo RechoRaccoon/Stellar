@@ -7139,6 +7139,23 @@ class MainViewModel(
                 return
             }
         }
+        // Back to the Hub from Saved Posts or History: they're left, and the
+        // feed picked in the Hub is the Timeline's again (they're only ever
+        // reached through their own buttons, never by swiping into the
+        // Timeline).
+        if (screen == ScreenState.SETTINGS && (activeFeedMode == ActiveFeedMode.SAVES || activeFeedMode == ActiveFeedMode.HISTORY)) {
+            feedLoadGeneration++
+            _bookmarkFolderId.value = null
+            val saved = _authorFeedState.value
+            if (saved != null && saved.items.isNotEmpty()) restoreSavedMainFeed()
+            else {
+                _authorFeedState.value = null
+                activeFeedMode = ActiveFeedMode.NORMAL
+                activeFeedActorDid = null
+                saved?.let { _selectedFeedUri.value = it.feedUri }
+                loadFeed(reset = true)
+            }
+        }
         _navDirection.value = when {
             screen == ScreenState.COMMENTS -> 1
             screen == ScreenState.FEED && _screenState.value == ScreenState.COMMENTS -> -1
@@ -7221,6 +7238,7 @@ class MainViewModel(
         viewModelScope.launch(ioDispatcher) {
             runCatching {
                 taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, oldTag, cleanNew)
+                    .also { tagVocabularyCache = null }
             }.onSuccess { saved -> withContext(Dispatchers.Main) { applyLocally(saved) } }
                 .onFailure { _errorMessage.value = "Couldn't save the tag: ${it.message}" }
         }
@@ -7960,6 +7978,18 @@ class MainViewModel(
         }
     }
 
+    /** A profile's picture or banner (full screen › Download): its video
+     *  when it has one (the original file), else the full-size picture. */
+    fun downloadProfileMedia(did: String, imageUrl: String?, videoCid: String?, kind: String) {
+        val id = "profile_${kind}_${did.substringAfterLast(':')}_${com.mediaviewer.platform.currentTimeMillis()}"
+        when {
+            !videoCid.isNullOrBlank() -> platform.enqueueVideoBlobDownload(did, videoCid, id)
+            !imageUrl.isNullOrBlank() -> enqueueDownload(imageUrl, id)
+            else -> return
+        }
+        showToast("Downloading…")
+    }
+
     private fun enqueueDownload(url: String, uniqueId: String, isVideo: Boolean = false) {
         val (finalUrl, filename, mimeType) = urlToDownloadInfo(url, uniqueId, isVideo)
         platform.enqueueDownload(finalUrl, filename, mimeType, uniqueId)
@@ -8027,7 +8057,24 @@ class MainViewModel(
     fun openTaggingQueueView() {
         if (!_taggingUiState.value.isRunning) _taggingQueueView.value = true
         _taggingOverlayOpen.value = true
+        closeQueueViewWhenDone()
     }
+
+    /** The tagging page opened from the status closes by itself (back to
+     *  where it was opened) once the queue has nothing left to tag — after
+     *  a moment, so the last post's tags can be seen. */
+    private var queueViewCloseJob: Job? = null
+    private fun closeQueueViewWhenDone() {
+        queueViewCloseJob?.cancel()
+        queueViewCloseJob = viewModelScope.launch {
+            delay(QUEUE_VIEW_LINGER_MS)
+            if (_taggingQueueView.value && _likeTagPending.value == 0 && !_taggingUiState.value.isRunning) {
+                _taggingOverlayOpen.value = false
+                _taggingQueueView.value = false
+            }
+        }
+    }
+    private val QUEUE_VIEW_LINGER_MS = 1800L
 
     private val _taggingUiState = MutableStateFlow(TaggingUiState())
     val taggingUiState: StateFlow<TaggingUiState> = _taggingUiState
@@ -8140,6 +8187,7 @@ class MainViewModel(
             // made only of posts that came back with no tags (text-only
             // posts, say) would just be an empty tab.
             _hasTaggedDataset.value = tagged > 0
+            tagVocabularyCache = null
             _taggingUiState.value = _taggingUiState.value.copy(scanned = scanned, tagged = tagged, datasetBytes = taggingRepo.datasetSizeBytes())
         }
     }
@@ -8191,7 +8239,10 @@ class MainViewModel(
             likeTagQueued.remove(item.postUri)
             _likeTagPending.value = (_likeTagPending.value - 1).coerceAtLeast(0)
             _likeTagPhase.value = if (_likeTagPending.value > 0) LikeTagPhase.TAGGING else LikeTagPhase.IDLE
-            if (_likeTagPending.value == 0) refreshTaggingCounts()
+            if (_likeTagPending.value == 0) {
+                refreshTaggingCounts()
+                if (_taggingQueueView.value) closeQueueViewWhenDone()
+            }
         }
     }
 
@@ -8202,13 +8253,19 @@ class MainViewModel(
 
     /** One post into the tagging queue (liked or viewed). */
     private fun enqueueTagging(item: MediaItem) {
-        if (!taggingRepo.isModelReady()) return
+        if (!taggingRepo.isModelReady() || item.isTextOnly) return
         if (item.postUri.isBlank() || !likeTagQueued.add(item.postUri)) return
-        _likeTagPending.value = _likeTagPending.value + 1
-        if (_likeTagPhase.value == LikeTagPhase.IDLE) {
-            _likeTagPhase.value = if (taggingRepo.isTaggerLoaded()) LikeTagPhase.TAGGING else LikeTagPhase.ACTIVATING
+        viewModelScope.launch(ioDispatcher) {
+            // Already tagged by this tagger: nothing to do (a post with only
+            // hand-added tags still gets tagged).
+            if (taggingRepo.isTaggedByCurrentModel(item.postUri)) { likeTagQueued.remove(item.postUri); return@launch }
+            queueViewCloseJob?.cancel()
+            _likeTagPending.value = _likeTagPending.value + 1
+            if (_likeTagPhase.value == LikeTagPhase.IDLE) {
+                _likeTagPhase.value = if (taggingRepo.isTaggerLoaded()) LikeTagPhase.TAGGING else LikeTagPhase.ACTIVATING
+            }
+            likeTagQueue.trySend(item)
         }
-        likeTagQueue.trySend(item)
     }
 
     /** Opens the full-screen tagging overlay and kicks off (or resumes) a
@@ -8478,13 +8535,39 @@ class MainViewModel(
             _tagSuggestions.value = emptyList()
             return
         }
-        viewModelScope.launch(ioDispatcher) {
-            val vocabulary = taggingRepo.tagVocabulary()
-            // "-tag" (leave out): suggest for the tag after the minus.
-            val word = lastWord.removePrefix("-")
+        tagSuggestJob?.cancel()
+        tagSuggestJob = viewModelScope.launch(ioDispatcher) {
+            // "-tag" (leave out) / "~tag" (either): suggest for what's after it.
+            val word = lastWord.trimStart('-', '~')
+            if (word.startsWith("@")) {
+                // "@" (as when tagging someone in a post): accounts.
+                val typed = word.drop(1)
+                if (typed.isBlank()) { _tagSuggestions.value = emptyList(); return@launch }
+                delay(150)
+                val actors = bskyRepo.searchActorsTypeahead(bskyToken, _bskyDid.value, typed).getOrNull().orEmpty()
+                    .filter { it.viewer?.blocking == null && it.viewer?.blockedBy != true }
+                    .sortedBy { if (it.viewer?.following != null && it.viewer.followedBy != null) 0 else if (it.viewer?.following != null) 1 else 2 }
+                    .take(8)
+                _tagSuggestionAccounts.value = _tagSuggestionAccounts.value + actors.associate {
+                    "@${it.handle}" to com.mediaviewer.model.AuthorInfo(did = it.did, handle = it.handle, displayName = it.displayName.orEmpty(), avatarUrl = it.avatar)
+                }
+                _tagSuggestions.value = actors.map { "@${it.handle}" }
+                return@launch
+            }
+            // The tagger's tags, and every tag in the dataset (added by hand,
+            // or from an imported dataset like the shared one).
+            val vocabulary = tagVocabularyCache ?: (taggingRepo.tagVocabulary() + taggingRepo.datasetTagNames()).distinct()
+                .also { tagVocabularyCache = it }
             _tagSuggestions.value = if (word.isBlank()) emptyList() else TagSuggestionProvider.suggest(word, vocabulary)
         }
     }
+
+    private var tagSuggestJob: Job? = null
+    /** The autocomplete's tags (rebuilt after tagging, importing or editing tags). */
+    @kotlin.concurrent.Volatile private var tagVocabularyCache: List<String>? = null
+    /** The accounts among the suggestions ("@handle" → who), for their pictures and names. */
+    private val _tagSuggestionAccounts = MutableStateFlow<Map<String, com.mediaviewer.model.AuthorInfo>>(emptyMap())
+    val tagSuggestionAccounts: StateFlow<Map<String, com.mediaviewer.model.AuthorInfo>> = _tagSuggestionAccounts
 
     /** Item 4: tapping a suggestion replaces the in-progress last word with
      *  it (keeping any earlier words untouched) and adds a trailing space,
@@ -8494,7 +8577,9 @@ class MainViewModel(
     fun applyTagSuggestion(suggestion: String) {
         val current = _searchState.value.query
         val lastSpace = current.lastIndexOf(' ')
-        val minus = if (current.substring(lastSpace + 1).startsWith("-")) "-" else ""
+        // Its "-" (leave out) or "~" (either) stays.
+        val lastWord = current.substring(lastSpace + 1)
+        val minus = lastWord.takeWhile { it == '-' || it == '~' }
         val newQuery = (if (lastSpace >= 0) current.substring(0, lastSpace + 1) else "") + minus + suggestion + " "
         _searchState.value = _searchState.value.copy(query = newQuery)
         _tagSuggestions.value = emptyList()
@@ -8554,7 +8639,7 @@ class MainViewModel(
         likedTagQuery = query
         _searchState.value = _searchState.value.copy(loading = true)
         // Every match in the dataset, as uris (cheap — no posts fetched).
-        val uris = if (query.isBlank()) taggingRepo.browseAllTagged(Int.MAX_VALUE) else taggingRepo.search(query)
+        val uris = if (query.isBlank()) taggingRepo.browseAllTagged(Int.MAX_VALUE) else taggingRepo.search(withAccountsResolved(query))
         val sort = com.mediaviewer.util.UiToggles.taggedSort
         val bluesky = _appMode.value == AppMode.BLUESKY
         com.mediaviewer.util.TaggedStats.init(platform.context)
@@ -8591,6 +8676,22 @@ class MainViewModel(
         // No separate refreshing: every page loaded brings live numbers,
         // which are saved as it goes (see loadTaggedPage).
         com.mediaviewer.util.TaggedStats.save()
+    }
+
+    /** "@handle" words (with any "-" or "~" before them) become the
+     *  account's "user:did" word the tagged search reads. */
+    private suspend fun withAccountsResolved(query: String): String {
+        val out = ArrayList<String>()
+        for (word in query.trim().split(Regex("\\s+"))) {
+            val prefix = word.takeWhile { it == '-' || it == '~' }
+            val rest = word.drop(prefix.length)
+            if (!rest.startsWith("@") || rest.length < 2) { out += word; continue }
+            val handle = rest.drop(1).lowercase()
+            val did = _tagSuggestionAccounts.value["@$handle"]?.did?.takeIf { it.isNotBlank() }
+                ?: (if (handle.startsWith("did:")) handle else runCatching { bskyRepo.didForHandle(handle) }.getOrNull())
+            out += if (did == null) word else prefix + com.mediaviewer.tagging.TagAliases.ACCOUNT_PREFIX + did
+        }
+        return out.joinToString(" ")
     }
 
     /** The next [TAGGED_PAGE] of the Tagged results, fetched in full. */

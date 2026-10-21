@@ -43,26 +43,45 @@ object TagAliases {
      * A Tagged search: each word is a whole tag (never part of one — "rape"
      * doesn't find "skyscraper"). Every word must match ([include]: one
      * group per word, any of its aliases); a word starting with "-" leaves
-     * out posts with that tag ([exclude], e.g. "-solo").
+     * out posts with that tag ([exclude], e.g. "-solo"). Words starting
+     * with "~" are one group together, as on e621: a post needs any one of
+     * them ("~cat ~dog" finds cats and dogs).
+     *
+     * An account's word is "user:" and its DID ([ACCOUNT_PREFIX]; the search
+     * page turns "@handle" into it): the posts by that account.
      */
     class TagQuery(val include: List<List<String>>, val exclude: Set<String>) {
         val isEmpty: Boolean get() = include.isEmpty() && exclude.isEmpty()
     }
 
+    const val ACCOUNT_PREFIX = "user:"
+
+    /** The DID an account's word stands for, or null when it's a tag. */
+    fun accountDid(term: String): String? =
+        if (term.startsWith(ACCOUNT_PREFIX + "did:")) term.removePrefix(ACCOUNT_PREFIX) else null
+
+    /** [postUri] (at://did/…) is a post by [did]. */
+    fun isPostBy(postUri: String, did: String): Boolean = postUri.startsWith("at://$did/")
+
     fun parse(rawQuery: String): TagQuery {
         val terms = rawQuery.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
         val include = ArrayList<List<String>>()
         val exclude = LinkedHashSet<String>()
+        val either = LinkedHashSet<String>()
         for (term in terms) {
             if (term.startsWith("-") && term.length > 1) {
                 val t = term.drop(1)
                 exclude += aliases[t] ?: listOf(t)
-            } else if (term != "-") {
+            } else if (term.startsWith("~") && term.length > 1) {
+                val t = term.drop(1)
+                either += aliases[t] ?: listOf(t)
+            } else if (term != "-" && term != "~") {
                 // A word is kept exactly as typed: tags have symbols in
                 // them ("male/male", "name_(artist)", "<3").
                 include += aliases[term] ?: listOf(term)
             }
         }
+        if (either.isNotEmpty()) include += either.toList()
         return TagQuery(include, exclude)
     }
 }

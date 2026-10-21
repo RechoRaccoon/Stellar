@@ -2000,5 +2000,13 @@
 "Layout {0}": "레이아웃 {0}",
 "Profile Layout": "프로필 레이아웃",
 "Unsave": "저장 취소",
-"Unsaved": "저장 취소됨"
+"Unsaved": "저장 취소됨",
+"Adds \"{0}\" and its {1} emoji to your own emoji.": "\"{0}\"와(과) 이모지 {1}개를 내 이모지에 추가합니다.",
+"Adds all {0} of their emoji to your own emoji.": "상대의 이모지 {0}개를 모두 내 이모지에 추가합니다.",
+"Nothing new to save": "새로 저장할 항목이 없습니다",
+"Position {0}": "위치 {0}",
+"Save All Emoji?": "모든 이모지를 저장할까요?",
+"Save Folder?": "폴더를 저장할까요?",
+"Saved {0} emoji": "이모지 {0}개를 저장했습니다",
+"Status Position": "상태 위치"
 }

@@ -1,6 +1,8 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.jformat
+import com.mediaviewer.ui.compat.coilContext
+import androidx.compose.ui.text.withStyle
 
 import com.mediaviewer.tagging.TaggerState
 
@@ -63,6 +65,8 @@ fun TaggingOverlay(
     /** Opened from the timeline's tagging status: follows the posts being
      *  tagged as they're liked or viewed (no run of its own to protect). */
     queueView: Boolean = false,
+    /** The queue has nothing left to tag (the page closes by itself soon). */
+    queueDone: Boolean = false,
     onDismiss: () -> Unit,
     onSearchLiked: () -> Unit
 ) {
@@ -136,12 +140,9 @@ fun TaggingOverlay(
                 }
             }
             (state.isRunning || queueView) && (state.lastTaggedItem != null || currentItem != null) -> {
-                val shown = state.lastTaggedItem
-                ActiveTaggingView(
-                    item = shown ?: currentItem!!,
-                    tags = if (shown != null) state.lastTags else null,
-                    state = state, liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop,
-                    onBack = onDismiss
+                SteadyTaggingView(
+                    state = state, done = queueView && queueDone,
+                    liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop, onBack = onDismiss
                 )
             }
             else -> {
@@ -203,6 +204,41 @@ private fun CenteredCard(
     }
 }
 
+private class ShownPost(val item: com.mediaviewer.model.MediaItem, val tags: List<String>?, val aspect: Float?)
+
+/** [ActiveTaggingView] without a blink between posts: the next post's
+ *  picture is loaded first, and only then swapped in. */
+@Composable
+private fun SteadyTaggingView(
+    state: MainViewModel.TaggingUiState,
+    done: Boolean,
+    liquidGlass: Boolean,
+    tint: Color,
+    backdrop: GlassBackdrop?,
+    onBack: () -> Unit
+) {
+    val target = state.lastTaggedItem ?: state.currentItem ?: return
+    val targetTags = if (state.lastTaggedItem != null) state.lastTags else null
+    var shown by remember { mutableStateOf(ShownPost(target, targetTags, target.aspectRatio?.takeIf { it > 0f })) }
+    val context = com.mediaviewer.ui.compat.LocalContext.current
+    LaunchedEffect(target.id, targetTags) {
+        if (target.id == shown.item.id) { shown = ShownPost(target, targetTags, shown.aspect); return@LaunchedEffect }
+        val url = target.thumbUrl.ifBlank { target.mediaUrl }
+        val coil = context.coilContext
+        val result = runCatching {
+            coil3.SingletonImageLoader.get(coil).execute(coil3.request.ImageRequest.Builder(coil).data(url).build())
+        }.getOrNull()
+        val image = (result as? coil3.request.SuccessResult)?.image
+        val aspect = target.aspectRatio?.takeIf { it > 0f }
+            ?: image?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width.toFloat() / it.height }
+        shown = ShownPost(target, targetTags, aspect)
+    }
+    ActiveTaggingView(
+        item = shown.item, tags = shown.tags, knownAspect = shown.aspect, done = done,
+        state = state, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onBack = onBack
+    )
+}
+
 /** The "actively tagging" view: one glass outline, centred, holding a
  *  single header row (back button, "Tagging" + spinner, the running count
  *  and dataset size) and under it the post at its own aspect ratio — never
@@ -214,6 +250,8 @@ private fun CenteredCard(
 private fun ActiveTaggingView(
     item: com.mediaviewer.model.MediaItem,
     tags: List<String>?,
+    knownAspect: Float?,
+    done: Boolean,
     state: MainViewModel.TaggingUiState,
     liquidGlass: Boolean,
     tint: Color,
@@ -222,7 +260,7 @@ private fun ActiveTaggingView(
 ) {
     // Pictures without reported dimensions take theirs from the loaded image.
     var loadedAspect by remember(item.id) { mutableStateOf<Float?>(null) }
-    val aspect = (item.aspectRatio?.takeIf { it > 0f } ?: loadedAspect ?: 1f).coerceIn(0.2f, 5f)
+    val aspect = (knownAspect ?: item.aspectRatio?.takeIf { it > 0f } ?: loadedAspect ?: 1f).coerceIn(0.2f, 5f)
     androidx.compose.foundation.layout.BoxWithConstraints(
         Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())
             .padding(horizontal = 18.dp, vertical = 24.dp),
@@ -248,11 +286,12 @@ private fun ActiveTaggingView(
                     TaggingCloseBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "Tagging", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        if (done) "Tagged" else "Tagging", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
                         maxLines = 1, softWrap = false
                     )
                     Spacer(Modifier.width(7.dp))
-                    CircularProgressIndicator(Modifier.size(11.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
+                    if (done) Icon(Icons.Default.Check, contentDescription = null, tint = VoteGreen, modifier = Modifier.size(14.dp))
+                    else CircularProgressIndicator(Modifier.size(11.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
                     Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
                     Box(
                         Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.08f))
@@ -278,12 +317,12 @@ private fun ActiveTaggingView(
                             modifier = Modifier.fillMaxSize()
                         )
                         if (tags != null) {
-                            val text = if (tags.isEmpty()) "No tags found" else tags.joinToString("  ·  ") { it.replace('_', ' ') }
                             Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
-                            FitText(
-                                if (tags.isEmpty()) com.mediaviewer.i18n.tr(text) else text,
-                                Modifier.matchParentSize().padding(14.dp)
-                            )
+                            if (tags.isEmpty()) {
+                                FitText(com.mediaviewer.i18n.tr("No tags found"), Modifier.matchParentSize().padding(14.dp))
+                            } else {
+                                RevealedTags(item.id, tags, Modifier.matchParentSize().padding(14.dp))
+                            }
                         }
                     }
                 }
@@ -301,6 +340,37 @@ private fun ActiveTaggingView(
         }
     }
 }
+
+/** A just-tagged post's tags, fading in one after another. */
+@Composable
+private fun RevealedTags(key: String, tags: List<String>, modifier: Modifier) {
+    val words = remember(tags) { tags.map { it.replace('_', ' ') } }
+    val text = remember(words) { words.joinToString(TAG_SEPARATOR) }
+    val reveal = remember(key, tags) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(key, tags) {
+        // About 45ms a tag, a whole list in no more than a second and a half.
+        val perTag = (1500 / words.size.coerceAtLeast(1)).coerceIn(18, 70)
+        reveal.animateTo(
+            words.size + 1f,
+            androidx.compose.animation.core.tween(perTag * (words.size + 1), easing = androidx.compose.animation.core.LinearEasing)
+        )
+    }
+    val progress = reveal.value
+    val styled = androidx.compose.ui.text.buildAnnotatedString {
+        words.forEachIndexed { i, w ->
+            // Each tag fades in over about the time of two tags.
+            val a = ((progress - i) / 2f).coerceIn(0f, 1f)
+            val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.8f * a), Offset(0f, 1.5f), 4f)
+            withStyle(androidx.compose.ui.text.SpanStyle(color = Color.White.copy(alpha = a), shadow = shadow)) {
+                append(w)
+                if (i < words.lastIndex) append(TAG_SEPARATOR)
+            }
+        }
+    }
+    FitText(text, modifier, styled = styled)
+}
+
+private const val TAG_SEPARATOR = "  ·  "
 
 /** A card's heading: always one line, made smaller when it wouldn't fit. */
 @Composable

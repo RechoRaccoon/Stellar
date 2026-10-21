@@ -395,13 +395,7 @@ fun MainFeedScreen(
 ) {
     val context = LocalContext.current
     val configuration = com.mediaviewer.ui.compat.rememberScreenSizeDp()
-    val taggingStatusLabel: String? =
-        if ((!tagPostWhenLiked && !com.mediaviewer.util.UiToggles.tagWhenViewed) || !com.mediaviewer.util.UiToggles.showTaggingStatus) null
-        else when (likeTagPhase) {
-            MainViewModel.LikeTagPhase.ACTIVATING -> "Activating tagger…"
-            MainViewModel.LikeTagPhase.TAGGING -> "Tagging $likeTagPending post" + if (likeTagPending == 1) "" else "s"
-            MainViewModel.LikeTagPhase.IDLE -> null
-        }
+    val taggingStatusLabel: String? = taggingStatusLabelFor(tagPostWhenLiked, likeTagPhase, likeTagPending)
     val isLandscape = configuration.width > configuration.height
     // Item 3: which sub-image each multi-image post was left on, keyed by post id.
     // Lives here (above the per-post AnimatedContent) so it survives navigating
@@ -1305,6 +1299,12 @@ private fun PostContent(
     // needs to sit outside the recorded box but aligned to something inside
     // it) converts root-space coordinates back into local placement offsets with.
     var postBoxRootOrigin    by remember { mutableStateOf(Offset.Zero) }
+    // The top of the bottom bubbles (the text bubble, or the interaction bar
+    // when there's none), in the root: a video's seek bar never goes below
+    // the interaction bar, and while it's over the text bubble they both
+    // slide away.
+    var bottomUiTopRoot      by remember(item.id) { mutableStateOf<Float?>(null) }
+    var interactionTopRoot   by remember(item.id) { mutableStateOf<Float?>(null) }
     // Liking: one 3D heart spins up out of the like button, or (bigger)
     // out of the spot that was double-tapped. Positions are in this post's
     // own box.
@@ -2005,13 +2005,21 @@ private fun PostContent(
         // at the very start of a pinch instead of partway through one.
         // (Not gated on videoControlsVisible here: the controls animate in
         // and out themselves — see VideoControlsOverlay.)
+        // (Portrait: the bubbles run the whole width under the video.)
+        val videoControlsBottom: Float? = if (landscape || !item.isVideo) null else interactionTopRoot?.let { top ->
+            minOf(top - postBoxRootOrigin.y, videoBoundsOrigin.y - postBoxRootOrigin.y + videoBoundsSize.height)
+        }
+        val seekBarHeightPx = with(LocalDensity.current) { 60.dp.toPx() }
+        val seekBarOverBubbles = videoControlsBottom != null && !uiHidden &&
+            bottomUiTopRoot?.let { videoControlsBottom - seekBarHeightPx < it - postBoxRootOrigin.y } == true
         if (item.isVideo && !item.isBlocked && scale <= VIDEO_UI_ZOOM_EPSILON && videoBoundsSize != IntSize.Zero) {
             val density = LocalDensity.current
             val localOrigin = videoBoundsOrigin - postBoxRootOrigin
             val vbx = with(density) { localOrigin.x.toDp() }
             val vby = with(density) { localOrigin.y.toDp() }
             val vbw = with(density) { videoBoundsSize.width.toDp() }
-            val vbh = with(density) { videoBoundsSize.height.toDp() }
+            // (Never lower than the top of the interaction bar.)
+            val vbh = with(density) { (videoControlsBottom ?: (localOrigin.y + videoBoundsSize.height)).minus(localOrigin.y).coerceAtLeast(0f).toDp() }
             Box(Modifier.offset(x = vbx, y = vby).size(width = vbw, height = vbh).zIndex(2.5f)) {
                 VideoControlsOverlay(
                     visible = videoControlsVisible,
@@ -2028,6 +2036,14 @@ private fun PostContent(
         }
 
         // Author and action rows on top (zIndex ensures they're tappable over the media).
+        // (While the video's seek bar is over the text bubble, the bubble
+        // and the interaction bar slide down out of the way — the bar's own
+        // rise in reverse — and come back up when the controls go.)
+        val bottomUiAway by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (videoControlsVisible && seekBarOverBubbles) 1f else 0f,
+            animationSpec = if (reducedAnimations) snap() else tween(if (videoControlsVisible) 280 else 220, easing = FastOutSlowInEasing),
+            label = "bottomUiAway"
+        )
         // Phase 4 — "3-finger pinch out hides UI": wrapped in AnimatedVisibility so
         // it fades away/back rather than cutting instantly, matching the rest of
         // the app's animation conventions (skipped when reducedAnimations is on).
@@ -2117,6 +2133,10 @@ private fun PostContent(
             enter = if (reducedAnimations) EnterTransition.None else fadeIn(FADE_ANIM),
             exit = if (reducedAnimations) ExitTransition.None else fadeOut(FADE_ANIM),
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).zIndex(2f)
+                .onGloballyPositioned { bottomUiTopRoot = it.positionInRoot().y }
+                .graphicsLayer {
+                    if (bottomUiAway > 0f) { translationY = size.height * 0.5f * bottomUiAway; alpha = 1f - bottomUiAway }
+                }
         ) {
             LandscapeChromeScale(landscape) {
             Box(Modifier.fillMaxWidth()) {
@@ -2265,7 +2285,11 @@ private fun PostContent(
                         if (moreMenuExpanded) repostMenuExpanded = false
                         if (moreMenuExpanded && appMode == AppMode.BLUESKY) onPrefetchListMemberships(item.author.did)
                     },
-                    onVisibleBoundsChanged = { origin, size -> actionBarOrigin = origin; actionBarSize = size },
+                    onVisibleBoundsChanged = { origin, size ->
+                        actionBarOrigin = origin; actionBarSize = size
+                        // (Only where it rests, not while it's slid away.)
+                        if (bottomUiAway == 0f) interactionTopRoot = origin.y
+                    },
                     onMoreButtonBounds = { origin, size -> moreButtonOrigin = origin; moreButtonSize = size },
                     onLikeButtonCenter = { likeButtonCenterRoot = it },
                     interactionsBlocked = authorBlocksViewer,
@@ -3223,6 +3247,50 @@ private fun PostStatsRow(stats: PostBubbleStats, style: androidx.compose.ui.text
 
 // ─── Post status bubbles ─────────────────────────────────────────────────────
 
+/** The tagging status's words, or null when it isn't showing (nothing being
+ *  tagged, tagging off, or Settings › Show Tagging Status off). */
+internal fun taggingStatusLabelFor(tagPostWhenLiked: Boolean, phase: MainViewModel.LikeTagPhase, pending: Int): String? =
+    if ((!tagPostWhenLiked && !com.mediaviewer.util.UiToggles.tagWhenViewed) || !com.mediaviewer.util.UiToggles.showTaggingStatus) null
+    else when (phase) {
+        MainViewModel.LikeTagPhase.ACTIVATING -> "Activating tagger…"
+        MainViewModel.LikeTagPhase.TAGGING -> "Tagging $pending post" + if (pending == 1) "" else "s"
+        MainViewModel.LikeTagPhase.IDLE -> null
+    }
+
+/** The tagging status bubble. Tagging can run a long while: on an OLED
+ *  screen it drifts a few dp and breathes slowly, so it never sits burning
+ *  one spot. Tapping it opens the tagging page, following the posts being
+ *  tagged; closing that comes back here. */
+@Composable
+internal fun TaggingStatusPill(
+    label: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, reducedAnimations: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "tagPillDrift")
+    val dx by drift.animateFloat(-3f, 3f, androidx.compose.animation.core.infiniteRepeatable(tween(23_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillX")
+    val dy by drift.animateFloat(-1.5f, 1.5f, androidx.compose.animation.core.infiniteRepeatable(tween(31_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillY")
+    val glow by drift.animateFloat(0.72f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(9_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillAlpha")
+    StatusPill(
+        label = label, spinning = true, liquidGlass = liquidGlass,
+        tint = tint, backdrop = backdrop,
+        onClick = { LocalOverlays.onOpenTaggingQueue?.invoke() },
+        modifier = modifier.graphicsLayer {
+            if (!reducedAnimations) { translationX = dx * density; translationY = dy * density; alpha = glow }
+        }
+    )
+}
+
+/** The tagging status on pages other than the Timeline (the Hub, profiles):
+ *  centered, growing in and shrinking out like the Timeline's. */
+@Composable
+internal fun PageTaggingStatus(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, modifier: Modifier = Modifier) {
+    val label = LocalOverlays.taggingStatusLabel
+    val reduced = LocalOverlays.reducedAnimations
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        AnimatedStatus(label, reduced) { TaggingStatusPill(it, liquidGlass, tint, backdrop, reduced) }
+    }
+}
+
 /** A status bubble that grows in when [value] appears (including every time
  *  its post comes on screen) and shrinks smoothly back out when it goes —
  *  still showing its last contents while it does. */
@@ -3303,23 +3371,7 @@ private fun PostStatusRow(
             )
         }
         AnimatedStatus(taggingLabel, reducedAnimations) { label ->
-            // Tagging can run a long while: on an OLED screen the pill drifts
-            // a few dp and breathes slowly, so it never sits burning one spot.
-            val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "tagPillDrift")
-            val dx by drift.animateFloat(-3f, 3f, androidx.compose.animation.core.infiniteRepeatable(tween(23_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillX")
-            val dy by drift.animateFloat(-1.5f, 1.5f, androidx.compose.animation.core.infiniteRepeatable(tween(31_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillY")
-            val glow by drift.animateFloat(0.72f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(9_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillAlpha")
-            StatusPill(
-                label = label, spinning = true, liquidGlass = liquidGlass,
-                tint = tint, backdrop = backdrop,
-                // Tap: the tagging page (as Start Tagging opens it), following
-                // the posts being tagged; closing it comes back here.
-                onClick = { LocalOverlays.onOpenTaggingQueue?.invoke() },
-                modifier = Modifier.padding(bottom = 4.dp)
-                    .graphicsLayer {
-                        if (!reducedAnimations) { translationX = dx * density; translationY = dy * density; alpha = glow }
-                    }
-            )
+            TaggingStatusPill(label, liquidGlass, tint, backdrop, reducedAnimations, Modifier.padding(bottom = 4.dp))
         }
         // This post downloading (normally or as a GIF), then done.
         AnimatedStatus(downloadLabel, reducedAnimations) { label ->

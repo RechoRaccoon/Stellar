@@ -103,6 +103,8 @@ fun SearchOverlay(
     // Liked tab, where the vocabulary is the tagger's own fixed tag list —
     // see TagSuggestionProvider). Empty list = nothing to show.
     tagSuggestions: List<String> = emptyList(),
+    /** The accounts among [tagSuggestions] ("@handle" → who). */
+    tagSuggestionAccounts: Map<String, com.mediaviewer.model.AuthorInfo> = emptyMap(),
     onQueryChange: (String) -> Unit,
     // Item 2: Liked tab's query text updates live (so the field shows what
     // you're typing + suggestions can react to it) but must NOT re-run the
@@ -782,7 +784,32 @@ fun SearchOverlay(
                 Column(Modifier.fillMaxWidth()) {
                     tagSuggestions.forEachIndexed { index, suggestion ->
                         if (index > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                        Text(
+                        val account = tagSuggestionAccounts[suggestion]
+                        if (account != null) {
+                            // An account: its picture, name and handle.
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onTagSuggestionSelected(suggestion) }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                coil3.compose.AsyncImage(
+                                    model = account.avatarUrl, contentDescription = null,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.size(28.dp).clip(com.mediaviewer.ui.theme.AvatarShape).background(Color.White.copy(alpha = 0.08f))
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    if (account.displayName.isNotBlank()) Text(
+                                        account.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        suggestion, color = DimGray, fontSize = 12.sp,
+                                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        } else Text(
                             suggestion, color = Color.White, fontSize = 14.sp,
                             modifier = Modifier
                                 .fillMaxWidth()

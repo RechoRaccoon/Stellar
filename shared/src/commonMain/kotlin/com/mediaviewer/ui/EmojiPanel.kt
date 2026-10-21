@@ -132,6 +132,8 @@ private sealed interface EmojiAsk {
     data class DeleteFolder(val folder: EmojiFolder) : EmojiAsk
     data object DeleteOrphans : EmojiAsk
     data class SaveOthers(val owner: String, val emoji: EmojiCloud.RemoteEmoji) : EmojiAsk
+    /** Someone's folder held down ([folder] null: their "All"). */
+    data class SaveFolder(val owner: String, val folder: String?, val emoji: List<EmojiCloud.RemoteEmoji>) : EmojiAsk
 }
 
 /**
@@ -488,11 +490,20 @@ internal fun EmojiPanel(
                 if (others != null) {
                     // Their folders (from their emoji's folder names).
                     val names = remote.orEmpty().mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }.distinct()
-                    PanelPill(liquidGlass = liquidGlass, tint = tint, shape = tabShape, onClick = { viewingFolder = null }) {
+                    // (Press and hold one: save it — and its emoji — to your own.
+                    // "All": every one of theirs, into your All.)
+                    val theirs = remote.orEmpty()
+                    PanelPill(
+                        liquidGlass = liquidGlass, tint = tint, shape = tabShape, onClick = { viewingFolder = null },
+                        onLongClick = { if (theirs.isNotEmpty()) { tap(); ask = EmojiAsk.SaveFolder(others.did, null, theirs) } }
+                    ) {
                         PillLabel("All", selected = viewingFolder == null)
                     }
                     names.forEach { n ->
-                        PanelPill(liquidGlass = liquidGlass, tint = tint, shape = tabShape, onClick = { viewingFolder = n }) {
+                        PanelPill(
+                            liquidGlass = liquidGlass, tint = tint, shape = tabShape, onClick = { viewingFolder = n },
+                            onLongClick = { tap(); ask = EmojiAsk.SaveFolder(others.did, n, theirs.filter { it.folder == n }) }
+                        ) {
                             PillLabel(n, selected = viewingFolder == n)
                         }
                     }
@@ -669,49 +680,41 @@ internal fun EmojiPanel(
     }
 
     // ── Confirmations ──
-    ask?.let { a ->
-        androidx.compose.ui.window.Dialog(onDismissRequest = { ask = null }, properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()) {
-            Box(Modifier.fillMaxSize()) {
-                when (a) {
-                    is EmojiAsk.DeleteEmoji -> ConfirmPopup(
-                        title = "Delete Emoji?", message = "Deletes \":${a.entry.name}:\" everywhere.", confirmLabel = "Delete",
-                        liquidGlass = liquidGlass, tint = tint, backdrop = null,
-                        onConfirm = { store.deleteEmoji(a.entry.id); ask = null }, onDismiss = { ask = null }
-                    )
-                    is EmojiAsk.DeleteFolder -> {
-                        val n = store.emojiCountIn(a.folder.id)
-                        ConfirmPopup(
-                            title = "Delete Folder?",
-                            message = if (n == 0) "Deletes \"${a.folder.name}\". It's empty." else "Deletes \"${a.folder.name}\" and its $n emoji.",
-                            confirmLabel = "Delete", liquidGlass = liquidGlass, tint = tint, backdrop = null,
-                            onConfirm = {
-                                store.deleteFolder(a.folder.id)
-                                if (selectedFolderId == a.folder.id) selectedFolderId = null
-                                ask = null
-                            },
-                            onDismiss = { ask = null }
-                        )
-                    }
-                    EmojiAsk.DeleteOrphans -> ConfirmPopup(
-                        title = "Delete Emoji?", message = "Deletes ${store.orphanEmojiCount()} emoji not in any folder.", confirmLabel = "Delete",
-                        liquidGlass = liquidGlass, tint = tint, backdrop = null,
-                        onConfirm = { store.deleteOrphanEmoji(); ask = null }, onDismiss = { ask = null }
-                    )
-                    is EmojiAsk.SaveOthers -> ConfirmPopup(
-                        title = "Save Emoji?", message = "Adds \":${a.emoji.name}:\" to your own emoji.", confirmLabel = "Save",
-                        liquidGlass = liquidGlass, tint = tint, backdrop = null, destructive = false, busy = saving,
-                        onConfirm = {
-                            saving = true
-                            scope.launch {
-                                val added = EmojiCloud.saveOthers(store, selfDid, a.owner, a.emoji.cid, a.emoji.name)
-                                saving = false
-                                ask = null
-                                showPlatformToast(if (added != null) "Saved to your emoji" else "Couldn't save that emoji")
-                            }
-                        },
-                        onDismiss = { if (!saving) ask = null }
-                    )
+    // (Shown over the whole app by LocalOverlayHost, like every other
+    // popup: the app blurs behind, and the popup's glass blurs it too.)
+    LaunchedEffect(ask) {
+        val a = ask ?: return@LaunchedEffect
+        ask = null
+        LocalOverlays.confirm = when (a) {
+            is EmojiAsk.DeleteEmoji -> ConfirmRequest("Delete Emoji?", "Deletes \":${a.entry.name}:\" everywhere.", "Delete", tint) {
+                store.deleteEmoji(a.entry.id)
+            }
+            is EmojiAsk.DeleteFolder -> {
+                val n = store.emojiCountIn(a.folder.id)
+                ConfirmRequest(
+                    "Delete Folder?",
+                    if (n == 0) "Deletes \"${a.folder.name}\". It's empty." else "Deletes \"${a.folder.name}\" and its $n emoji.",
+                    "Delete", tint
+                ) {
+                    store.deleteFolder(a.folder.id)
+                    if (selectedFolderId == a.folder.id) selectedFolderId = null
                 }
+            }
+            EmojiAsk.DeleteOrphans -> ConfirmRequest("Delete Emoji?", "Deletes ${store.orphanEmojiCount()} emoji not in any folder.", "Delete", tint) {
+                store.deleteOrphanEmoji()
+            }
+            is EmojiAsk.SaveOthers -> ConfirmRequest("Save Emoji?", "Adds \":${a.emoji.name}:\" to your own emoji.", "Save", tint, destructive = false) {
+                val added = EmojiCloud.saveOthers(store, selfDid, a.owner, a.emoji.cid, a.emoji.name)
+                showPlatformToast(if (added != null) "Saved to your emoji" else "Couldn't save that emoji")
+            }
+            is EmojiAsk.SaveFolder -> ConfirmRequest(
+                if (a.folder == null) "Save All Emoji?" else "Save Folder?",
+                if (a.folder == null) "Adds all ${a.emoji.size} of their emoji to your own emoji."
+                    else "Adds \"${a.folder}\" and its ${a.emoji.size} emoji to your own emoji.",
+                "Save", tint, destructive = false
+            ) {
+                val n = EmojiCloud.saveOthersFolder(store, selfDid, a.owner, a.emoji, a.folder)
+                showPlatformToast(if (n > 0) "Saved $n emoji" else "Nothing new to save")
             }
         }
     }
@@ -734,8 +737,11 @@ internal fun EmojiPicture(store: EmojiStore, entry: EmojiEntry, modifier: Modifi
 /** Someone's emoji picture, from their PDS (moving, if it's animated). */
 @Composable
 internal fun RemoteEmojiPicture(did: String, cid: String, animated: Boolean, name: String, modifier: Modifier = Modifier) {
-    val url by produceState<String?>(null, did, cid) {
-        value = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
+    // (Keyed, so a different emoji in this spot — a new status, say — never
+    // shows the last one's picture while its own is looked up.)
+    var url by remember(did, cid) { mutableStateOf<String?>(null) }
+    LaunchedEffect(did, cid) {
+        url = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
     }
     val u = url ?: return
     if (animated) {

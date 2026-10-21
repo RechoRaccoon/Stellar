@@ -184,12 +184,18 @@ internal fun WebVideoSurface(player: WebVideoPlayer, modifier: Modifier, backdro
             .onGloballyPositioned { c ->
                 val r = c.positionInRoot()
                 viewRect = Rect(r.x, r.y, r.x + c.size.width, r.y + c.size.height)
-                val p = c.positionInWindow()
                 if (!c.isAttached || c.size.width == 0 || c.size.height == 0) player.hide()
-                else player.place(
-                    p.x / density.toDouble(), p.y / density.toDouble(),
-                    c.size.width / density.toDouble(), c.size.height / density.toDouble()
-                )
+                else {
+                    // Where it really is on the page: scaled with whatever it's
+                    // drawn in (a layout scaled to fit, say), like the hole
+                    // cut for it.
+                    val a = c.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
+                    val b = c.localToWindow(androidx.compose.ui.geometry.Offset(c.size.width.toFloat(), c.size.height.toFloat()))
+                    player.place(
+                        minOf(a.x, b.x) / density.toDouble(), minOf(a.y, b.y) / density.toDouble(),
+                        kotlin.math.abs(b.x - a.x) / density.toDouble(), kotlin.math.abs(b.y - a.y) / density.toDouble()
+                    )
+                }
             }
             .drawBehind { drawRect(Color.Black, blendMode = BlendMode.Clear) }
     )

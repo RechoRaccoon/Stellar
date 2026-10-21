@@ -206,7 +206,7 @@ fun VideoCropDialog(
                             tap(); busy = true; error = null
                             scope.launch {
                                 val result = runCatching {
-                                    MediaBridge.cropVideo(context, uri, frameX, frameY, frameW, frameH, maxWidth, maxHeight)
+                                    MediaBridge.cropVideo(context, uri, frameX, frameY, frameW, frameH, maxWidth, maxHeight, BANNER_VIDEO_MAX_BYTES)
                                 }
                                 busy = false
                                 result.onSuccess(onCropped).onFailure { error = it.message ?: "Cropping the video failed" }

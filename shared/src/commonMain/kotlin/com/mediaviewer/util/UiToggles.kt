@@ -24,6 +24,7 @@ object UiToggles {
     private const val KEY_TAG_WHEN_VIEWED = "tag_when_viewed"
     private const val KEY_SQUARE_CORNERS = "square_corners"
     private const val KEY_PROFILE_LAYOUT = "profile_layout"
+    private const val KEY_STATUS_POSITION = "status_position"
     private const val KEY_SHOW_TRANSLATION_STATUS = "show_translation_status"
     private const val KEY_LOADING_ANIMATION = "loading_animation"
     private const val KEY_AUDIO_VISUALIZER = "audio_visualizer"
@@ -97,7 +98,16 @@ object UiToggles {
      *      the name to its left and the handle to its right, under the banner;
      *  4 — like 2, compact: the picture tucked up against the banner, the
      *      name, handle, status, counts and bio beside it. */
-    var profileLayout by mutableStateOf(1)
+    var profileLayout by mutableStateOf(DEFAULT_PROFILE_LAYOUT)
+        private set
+
+    /** Dev Tools › Status Position: where Layout 4's status floats over the
+     *  picture, to compare —
+     *  1 — its bottom at the picture's top right (it grows upward);
+     *  2 — centered where a three-line status is centered;
+     *  3 — its top where a three-line status's top is (it grows downward);
+     *  4 — as 1, a little higher. */
+    var statusPosition by mutableStateOf(1)
         private set
 
     /** Settings → App Functionality → "Show Translation Status" (under
@@ -388,12 +398,13 @@ object UiToggles {
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
-        profileLayout = p.getInt(KEY_PROFILE_LAYOUT, 1).coerceIn(1, PROFILE_LAYOUTS)
+        profileLayout = p.getInt(KEY_PROFILE_LAYOUT, DEFAULT_PROFILE_LAYOUT).coerceIn(1, PROFILE_LAYOUTS)
+        statusPosition = p.getInt(KEY_STATUS_POSITION, 1).coerceIn(1, STATUS_POSITIONS)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
-        loadingAnimation = p.getString(KEY_LOADING_ANIMATION, null)
-            ?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
-            // (The web starts with none: it loads straight into the page.)
-            ?: if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE else LoadingAnimation.SPACE
+        // (The web never has loading screens: it loads straight into the page.)
+        loadingAnimation = if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE
+            else p.getString(KEY_LOADING_ANIMATION, null)?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
+                ?: LoadingAnimation.SPACE
         audioVisualizer = p.getBoolean(KEY_AUDIO_VISUALIZER, true)
         starryBackground = p.getBoolean(KEY_STARRY_BACKGROUND, true)
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
@@ -523,6 +534,13 @@ object UiToggles {
     }
 
     const val PROFILE_LAYOUTS = 4
+    const val DEFAULT_PROFILE_LAYOUT = 4
+    const val STATUS_POSITIONS = 4
+
+    fun updateStatusPosition(position: Int) {
+        statusPosition = position.coerceIn(1, STATUS_POSITIONS)
+        prefs?.edit()?.putInt(KEY_STATUS_POSITION, statusPosition)?.apply()
+    }
 
     fun updateProfileLayout(layout: Int) {
         profileLayout = layout.coerceIn(1, PROFILE_LAYOUTS)
@@ -550,6 +568,7 @@ object UiToggles {
     }
 
     fun updateLoadingAnimation(value: LoadingAnimation) {
+        if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) return
         loadingAnimation = value
         prefs?.edit()?.putString(KEY_LOADING_ANIMATION, value.name)?.apply()
     }

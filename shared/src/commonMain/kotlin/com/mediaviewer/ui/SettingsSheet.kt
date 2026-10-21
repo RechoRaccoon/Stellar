@@ -892,6 +892,9 @@ private fun AtProtocolPageContent(
         }
         }
         if (!hubSidebar) {
+            // The tagging status, right under the camera (it pushes the
+            // search bar down while it shows).
+            PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             Spacer(Modifier.height(6.dp))
         }
@@ -1603,6 +1606,7 @@ private fun AtProtocolPageContent(
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
         Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+            PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
                 ButtonsSection()

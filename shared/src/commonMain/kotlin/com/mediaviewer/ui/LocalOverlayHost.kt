@@ -3,6 +3,7 @@ package com.mediaviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -94,6 +95,7 @@ fun LocalOverlayHost(
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark
         LocalOverlays.onOpenTagged = viewModel::openTaggedPage
         LocalOverlays.onOpenTaggingQueue = viewModel::openTaggingQueueView
+        LocalOverlays.downloadProfileMedia = viewModel::downloadProfileMedia
         LocalOverlays.savedFeedUris = savedFeedUris
     }
 
@@ -159,6 +161,26 @@ fun LocalOverlayHost(
     }
 
     // ── Popups ──
+    LocalOverlays.confirm?.let { req ->
+        val confirmScope = androidx.compose.runtime.rememberCoroutineScope()
+        Box(Modifier.fillMaxSize().zIndex(10.65f)) {
+            ConfirmPopup(
+                title = req.title, message = req.message, confirmLabel = req.confirmLabel,
+                liquidGlass = liquidGlass, tint = req.tint, backdrop = backdrop,
+                destructive = req.destructive, busy = req.busy,
+                onConfirm = {
+                    req.busy = true
+                    confirmScope.launch {
+                        try { req.onConfirm() } finally {
+                            req.busy = false
+                            if (LocalOverlays.confirm === req) LocalOverlays.confirm = null
+                        }
+                    }
+                },
+                onDismiss = { if (!req.busy) LocalOverlays.confirm = null }
+            )
+        }
+    }
     FadingPopupHost(LocalOverlays.editHistoryFor, Modifier.zIndex(10.6f)) { item ->
         EditHistoryPopup(item, liquidGlass, postTint, backdrop, onClose = { LocalOverlays.editHistoryFor = null })
     }

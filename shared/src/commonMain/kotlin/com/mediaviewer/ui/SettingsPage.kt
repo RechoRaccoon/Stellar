@@ -1086,13 +1086,15 @@ internal fun SettingsPageContent(
             SettingsBubble(liquidGlass, tint, backdrop) {
                 var animMenuExpanded by remember { mutableStateOf(false) }
                 val currentAnim = com.mediaviewer.util.UiToggles.loadingAnimation
+                // (The web has no loading screens: always None there.)
+                val onWeb = com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB
                 BubbleRow {
                     RowLabel("Loading Animation", Modifier.weight(1f))
                     Box {
                         Text(
                             currentAnim.label,
-                            color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable { animMenuExpanded = true }
+                            color = if (onWeb) DimGray else LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable(enabled = !onWeb) { animMenuExpanded = true }
                         )
                         DropdownMenu(expanded = animMenuExpanded, onDismissRequest = { animMenuExpanded = false }) {
                             com.mediaviewer.util.UiToggles.LoadingAnimation.entries.forEach { option ->
@@ -1516,6 +1518,29 @@ internal fun SettingsPageContent(
                                     DropdownMenuItem(
                                         text = { Text("Layout $option", fontWeight = if (option == currentLayout) FontWeight.SemiBold else FontWeight.Normal) },
                                         onClick = { com.mediaviewer.util.UiToggles.updateProfileLayout(option); layoutMenu = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // Where Layout 4's status floats (see UiToggles.statusPosition).
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    var positionMenu by remember { mutableStateOf(false) }
+                    val currentPosition = com.mediaviewer.util.UiToggles.statusPosition
+                    BubbleRow {
+                        RowLabel("Status Position", Modifier.weight(1f))
+                        Box {
+                            Text(
+                                "Position $currentPosition",
+                                color = LocalSettingsAccent.current, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { positionMenu = true }
+                            )
+                            DropdownMenu(expanded = positionMenu, onDismissRequest = { positionMenu = false }) {
+                                (1..com.mediaviewer.util.UiToggles.STATUS_POSITIONS).forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text("Position $option", fontWeight = if (option == currentPosition) FontWeight.SemiBold else FontWeight.Normal) },
+                                        onClick = { com.mediaviewer.util.UiToggles.updateStatusPosition(option); positionMenu = false }
                                     )
                                 }
                             }

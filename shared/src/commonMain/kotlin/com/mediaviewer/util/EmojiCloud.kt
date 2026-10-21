@@ -285,7 +285,12 @@ object EmojiCloud {
             ?: runCatching { remote?.list(did) }.getOrNull()?.takeIf { it.isNotEmpty() || direct == null }
             ?: direct
             ?: return com.mediaviewer.platform.synchronizedCompat(others) { others[did] }
-        com.mediaviewer.platform.synchronizedCompat(others) { others[did] = list }
+        // Records come back newest first; their keys are times, so sorted
+        // they're in the order they were added — the owner's own order
+        // (emoji and folders), not the reverse of it.
+        val ordered = list.sortedBy { it.rkey }
+        com.mediaviewer.platform.synchronizedCompat(others) { others[did] = ordered }
+        return ordered
         return list
     }
 
@@ -325,13 +330,28 @@ object EmojiCloud {
      * your PDS with the next sync). Null if it couldn't be fetched; an emoji
      * you already have (the same picture) is not added twice.
      */
-    suspend fun saveOthers(store: EmojiStore, myDid: String, ownerDid: String, cid: String, name: String): EmojiEntry? {
+    suspend fun saveOthers(
+        store: EmojiStore, myDid: String, ownerDid: String, cid: String, name: String,
+        folder: String? = null, sync: Boolean = true
+    ): EmojiEntry? {
         val bytes = runCatching { remote?.fetch(ownerDid, cid) }.getOrNull() ?: return null
         store.load()
         val hash = hashOf(bytes)
         store.state.index.emojis.firstOrNull { hashFor(store, it) == hash }?.let { return it }
-        val added = store.addPng(name, bytes, null) ?: return null
-        requestSync(store, myDid, force = true)
+        val added = store.addPng(name, bytes, folder) ?: return null
+        if (sync) requestSync(store, myDid, force = true)
+        return added
+    }
+
+    /** Several of someone's emoji saved at once (a folder of theirs, or all
+     *  of them), into [folder] (a folder of that name; null: just All). How
+     *  many were new. */
+    suspend fun saveOthersFolder(store: EmojiStore, myDid: String, ownerDid: String, emoji: List<RemoteEmoji>, folder: String?): Int {
+        store.load()
+        val before = store.state.index.emojis.size
+        for (e in emoji) saveOthers(store, myDid, ownerDid, e.cid, e.name, folder, sync = false)
+        val added = store.state.index.emojis.size - before
+        if (added > 0) requestSync(store, myDid, force = true)
         return added
     }
 

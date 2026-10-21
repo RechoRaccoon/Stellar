@@ -91,6 +91,16 @@ interface TaggingService {
     fun browseAllTagged(limit: Int = 200): List<String>
     fun tagsForPost(postUri: String): List<String>
 
+    /** The current AI tagger ([AiTaggers.CURRENT]) has already tagged this
+     *  post — its own tag is on it (or, from before the tag was added, this
+     *  device's AI tagged it, or it came in a dataset with no AI tagger's
+     *  tag on it at all). Tags added by hand don't count. */
+    fun isTaggedByCurrentModel(postUri: String): Boolean = false
+
+    /** Every tag in the dataset (this device's, hand-added and imported
+     *  ones), for the Tagged search's autocomplete. */
+    fun datasetTagNames(): List<String> = emptyList()
+
     /**
      * Edits one post's tags by hand (the Tags page): [oldTag] null adds
      * [newTag]; [newTag] null removes [oldTag]; both renames. A post that
@@ -99,6 +109,18 @@ interface TaggingService {
      */
     suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
         tagsForPost(postUri)
+}
+
+/** The AI taggers. Every post an AI tagger tags also gets that tagger's
+ *  own tag (its name and version), so it's clear which one tagged it, and
+ *  a post it has tagged once isn't tagged by it again. */
+object AiTaggers {
+    /** What every AI tagger's own tag starts with. */
+    const val PREFIX = "ai:"
+    /** Z3D-E621-Convnext (toynya), the on-device tagger. */
+    const val CURRENT = "ai:z3d_e621_convnext_v1"
+    /** Its confidence: low, so it's listed after the post's real tags. */
+    const val CONFIDENCE = 0.01f
 }
 
 /** A tag as typed on the Tags page: trimmed, spaces become "_". */

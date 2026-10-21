@@ -23,6 +23,19 @@ data class PollTally(
     val total: Int get() = counts.values.sum()
 }
 
+/** See LocalOverlays.confirm. [onConfirm] runs with a spinner on the
+ *  button; the popup closes when it's done. */
+class ConfirmRequest(
+    val title: String,
+    val message: String,
+    val confirmLabel: String,
+    val tint: androidx.compose.ui.graphics.Color,
+    val destructive: Boolean = true,
+    val onConfirm: suspend () -> Unit
+) {
+    var busy by mutableStateOf(false)
+}
+
 /** One floating web page (Search → Web Browser → Popout). */
 class BrowserPopout(val id: Long, val state: BrowserState) {
     var x by mutableStateOf(0.06f)
@@ -64,9 +77,16 @@ object LocalOverlays {
     /** More → Edit: the "Important" notice shown before the composer opens. */
     var editWarningOpen by mutableStateOf(false)
 
+    /** An "are you sure?" asked from somewhere that can't show it over the
+     *  whole app itself (the emoji menu, say): shown by LocalOverlayHost,
+     *  like every other popup — over the blurred app, its glass blurring
+     *  what's behind it. */
+    var confirm by mutableStateOf<ConfirmRequest?>(null)
+
     /** One of the popups is up: the app behind it blurs. */
     val popupOpen: Boolean
-        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || profileNoteFor != null || feedBuilder != null || pinDmFor != null
+        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || profileNoteFor != null || feedBuilder != null || pinDmFor != null ||
+            confirm != null
 
     /** Floating web pages, drawn over everything. */
     val popouts = mutableStateListOf<BrowserPopout>()
@@ -151,6 +171,13 @@ object LocalOverlays {
     var onOpenTagged: (() -> Unit)? = null
     /** The tagging page, following what's being tagged (the timeline's tagging status). */
     var onOpenTaggingQueue: (() -> Unit)? = null
+    /** The tagging status's words while it's showing (see taggingStatusLabelFor),
+     *  for the pages other than the Timeline. */
+    var taggingStatusLabel by mutableStateOf<String?>(null)
+    /** A profile's picture or banner saved (see MainViewModel.downloadProfileMedia). */
+    var downloadProfileMedia: ((did: String, imageUrl: String?, videoCid: String?, kind: String) -> Unit)? = null
+    /** Settings › Reduced Animations, for what's drawn outside the screens that are handed it. */
+    var reducedAnimations by mutableStateOf(false)
     /** See MainViewModel.placeBookmark. */
     var onPlaceBookmark: ((com.mediaviewer.model.MediaItem, Boolean) -> Unit)? = null
 }

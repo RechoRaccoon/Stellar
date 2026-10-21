@@ -2000,5 +2000,13 @@
 "Layout {0}": "Макет {0}",
 "Profile Layout": "Макет профиля",
 "Unsave": "Убрать",
-"Unsaved": "Убрано"
+"Unsaved": "Убрано",
+"Adds \"{0}\" and its {1} emoji to your own emoji.": "Добавляет «{0}» и его {1} эмодзи в ваши эмодзи.",
+"Adds all {0} of their emoji to your own emoji.": "Добавляет все {0} их эмодзи в ваши эмодзи.",
+"Nothing new to save": "Нечего сохранять",
+"Position {0}": "Положение {0}",
+"Save All Emoji?": "Сохранить все эмодзи?",
+"Save Folder?": "Сохранить папку?",
+"Saved {0} emoji": "Сохранено эмодзи: {0}",
+"Status Position": "Положение статуса"
 }

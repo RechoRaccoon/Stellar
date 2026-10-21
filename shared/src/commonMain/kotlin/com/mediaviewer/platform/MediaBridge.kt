@@ -62,11 +62,12 @@ expect object MediaBridge {
      * upright picture (each a fraction, 0 to 1) and scaled to fit within
      * [maxWidth]×[maxHeight] — a profile's video icon or banner. Silent
      * (they always play muted). An mp4; webm in a browser that can only
-     * record that. Throws if it can't be done.
+     * record that. With [maxBytes] (over 0), it's compressed as much as it
+     * takes to come out no bigger than that. Throws if it can't be done.
      */
     suspend fun cropVideo(
         context: PlatformContext, uri: PlatformUri,
-        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int
+        left: Float, top: Float, width: Float, height: Float, maxWidth: Int, maxHeight: Int, maxBytes: Long = 0L
     ): PlatformUri
 
     /** Splices [thumbnail] in as the video's first frame (so Bluesky shows
@@ -82,4 +83,13 @@ expect object MediaBridge {
      *  [maxSide] (never up), at [fps] — what an animated emoji is made of.
      *  Throws if it can't be read. */
     suspend fun videoFrames(context: PlatformContext, uri: PlatformUri, maxSide: Int, fps: Int, maxSeconds: Double): VideoFrames
+}
+
+/** The video bitrate (bits a second) a profile video of [seconds] gets:
+ *  4 Mbps, or less when that would come out bigger than [maxBytes] (with a
+ *  little room to spare for the file's own overhead). */
+fun profileVideoBitrate(maxBytes: Long, seconds: Double): Int {
+    if (maxBytes <= 0L || seconds <= 0.0) return 4_000_000
+    val fits = maxBytes * 8.0 * 0.85 / seconds
+    return fits.coerceIn(150_000.0, 4_000_000.0).toInt()
 }

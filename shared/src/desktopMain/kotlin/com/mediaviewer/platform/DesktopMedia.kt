@@ -214,7 +214,7 @@ object DesktopFfmpeg {
      * [left]/[top]/[width]/[height] part (fractions) of the upright picture,
      * scaled to fit [maxW]×[maxH], without sound.
      */
-    fun crop(path: String, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int): String {
+    fun crop(path: String, left: Float, top: Float, width: Float, height: Float, maxW: Int, maxH: Int, maxBytes: Long = 0L): String {
         val p = probe(path) ?: error("Couldn't read the video")
         val turned = p.rotation == 90 || p.rotation == 270
         val uw = if (turned) p.height else p.width
@@ -229,7 +229,8 @@ object DesktopFfmpeg {
         val out = newCacheFile("profile-video", "mp4")
         val g = grabber(path)
         g.start()
-        val rec = recorder(out, w, h, g.frameRate, 4_000_000, 0, 0)
+        // (Compressed further if 4 Mbps would come out over [maxBytes].)
+        val rec = recorder(out, w, h, g.frameRate, com.mediaviewer.platform.profileVideoBitrate(maxBytes, p.durationUs / 1_000_000.0), 0, 0)
         val filterSpec = listOfNotNull(uprightFilter(p.rotation), "crop=$cw:$ch:$cx:$cy", "scale=$w:$h", "format=yuv420p").joinToString(",")
         val filter = FFmpegFrameFilter(filterSpec, g.imageWidth, g.imageHeight).apply {
             pixelFormat = g.pixelFormat

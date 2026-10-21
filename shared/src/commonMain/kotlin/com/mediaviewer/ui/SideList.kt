@@ -144,6 +144,8 @@ fun SideListButton(
     small: Boolean = false,
     /** A supporter-only button shown to someone who isn't one. */
     locked: Boolean = false,
+    /** Drawn at the button's right end, its full height (choices of its own). */
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val tap = rememberHapticTap()
@@ -152,12 +154,14 @@ fun SideListButton(
     // padding around them.)
     Row(
         modifier.fillMaxWidth().heightIn(min = if (small) 42.dp else 48.dp)
+            .then(if (trailing != null) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = if (selected) tint else tint.copy(alpha = 0.4f), shape = shape)
                 else Modifier.clip(shape).background(if (selected) Color.White.copy(0.15f) else Color.White.copy(0.06f))
             )
+            .then(if (trailing != null) Modifier.clip(shape) else Modifier)
             .clickable { tap(); onClick() }
-            .padding(horizontal = 11.dp, vertical = 4.dp),
+            .padding(start = 11.dp, end = if (trailing != null) 0.dp else 11.dp, top = if (trailing != null) 0.dp else 4.dp, bottom = if (trailing != null) 0.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -175,6 +179,7 @@ fun SideListButton(
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).supporterShine(locked)
         )
+        if (trailing != null) trailing()
     }
 }
 
@@ -218,7 +223,11 @@ fun LandscapeSideList(
 /** Landscape: how many posts across the post grids are (5 to 10). */
 @Composable
 fun GridSizeSlider(tint: Color) {
-    val columns = com.mediaviewer.util.UiToggles.landscapeColumns
+    // While it's dragged, only the slider moves; the grid takes the new size
+    // when it's let go (re-laying every tile out at each step on the way
+    // was too much — on the web it ran out of memory and crashed).
+    var dragged by remember { mutableStateOf<Int?>(null) }
+    val columns = dragged ?: com.mediaviewer.util.UiToggles.landscapeColumns
     val accent = lerp(tint, Color.White, 0.35f)
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -233,15 +242,25 @@ fun GridSizeSlider(tint: Color) {
         val trackShape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
         val thumbShape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
         var widthPx by remember { mutableStateOf(1) }
-        fun pick(x: Float) {
+        fun at(x: Float): Int {
             val f = (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f)
-            com.mediaviewer.util.UiToggles.updateLandscapeColumns(kotlin.math.round(min + f * (max - min)).toInt())
+            return kotlin.math.round(min + f * (max - min)).toInt().coerceIn(min, max)
+        }
+        fun commit() {
+            dragged?.let { com.mediaviewer.util.UiToggles.updateLandscapeColumns(it) }
+            dragged = null
         }
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier.fillMaxWidth().height(28.dp)
                 .onSizeChanged { widthPx = it.width }
-                .pointerInput(Unit) { detectTapGestures { pick(it.x) } }
-                .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> change.consume(); pick(change.position.x) } },
+                .pointerInput(Unit) { detectTapGestures { com.mediaviewer.util.UiToggles.updateLandscapeColumns(at(it.x)) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragged = at(it.x) },
+                        onDragEnd = { commit() },
+                        onDragCancel = { commit() }
+                    ) { change, _ -> change.consume(); dragged = at(change.position.x) }
+                },
             contentAlignment = Alignment.CenterStart
         ) {
             val fraction = ((columns - min).toFloat() / (max - min).coerceAtLeast(1)).coerceIn(0f, 1f)

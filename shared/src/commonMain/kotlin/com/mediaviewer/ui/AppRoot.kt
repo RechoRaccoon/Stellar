@@ -56,6 +56,8 @@ import com.mediaviewer.ui.ShatterOverlay
 import com.mediaviewer.ui.blockClicksBehind
 import com.mediaviewer.ui.recordLastTap
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import com.mediaviewer.ui.compat.coilContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.mediaviewer.ui.QuoteRepostDialog
@@ -196,6 +198,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val taggedExhausted by viewModel.likedTagExhausted.collectAsState()
     val taggedStatsProgress by viewModel.likedTagStatsProgress.collectAsState()
     val tagSuggestions         by viewModel.tagSuggestions.collectAsState()
+    val tagSuggestionAccounts  by viewModel.tagSuggestionAccounts.collectAsState()
     val tagPostWhenLiked       by viewModel.tagPostWhenLiked.collectAsState()
     val importedDatasets       by viewModel.importedDatasets.collectAsState()
     // Reworked Settings page
@@ -286,6 +289,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     // Reduced Animations → every Compose animation (see util/AppMotion.kt).
     // (Only once the saved settings have loaded, so the launch default
     // can't briefly overwrite the real choice.)
+    LocalOverlays.reducedAnimations = reducedAnimations
+    LocalOverlays.taggingStatusLabel = taggingStatusLabelFor(tagPostWhenLiked, likeTagPhase, likeTagPending)
     LaunchedEffect(reducedAnimations, appInitialized) {
         if (appInitialized) com.mediaviewer.ui.compat.applyReducedAnimations(context, reducedAnimations)
     }
@@ -521,6 +526,9 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             // (Capped at 4s: a stalled image request mustn't keep the
             // loading screen up after the profile itself has loaded.)
             val targetColor = kotlinx.coroutines.withTimeoutOrNull(4_000) {
+                // Its style first (custom colors, video icon and banner), so
+                // nothing about it pops in once the loading screen's gone.
+                while (com.mediaviewer.util.ProfileStyles.isLoading(overlay.author.did)) kotlinx.coroutines.delay(40)
                 if (loadedProfile != null) {
                     com.mediaviewer.ui.fetchProfileColors(
                         context, overlay.author.did, avatarUrl ?: loadedProfile.author.avatarUrl,
@@ -530,6 +538,22 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                     ?: if (!stillLoading && !avatarUrl.isNullOrBlank()) fetchDominantColor(context, avatarUrl) else null
             }
             if (targetColor != null) pixelController.updateColor(targetColor)
+            // Its picture, banner and their videos fetched before it's shown
+            // (the same 4s cap).
+            if (!stillLoading && loadedProfile != null) kotlinx.coroutines.withTimeoutOrNull(4_000) {
+                val coil = context.coilContext
+                val loader = coil3.SingletonImageLoader.get(coil)
+                val style = com.mediaviewer.util.ProfileStyles.of(overlay.author.did)
+                val videos = listOfNotNull(style?.iconVideo?.cid, style?.bannerVideo?.cid).mapNotNull { cid ->
+                    runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(overlay.author.did, cid) }.getOrNull()
+                }
+                if (videos.isNotEmpty()) com.mediaviewer.ui.FeedVideos.preload(context, videos)
+                kotlinx.coroutines.coroutineScope {
+                    listOfNotNull(avatarUrl ?: loadedProfile.author.avatarUrl, loadedProfile.bannerUrl).filter { it.isNotBlank() }.map { url ->
+                        async { runCatching { loader.execute(coil3.request.ImageRequest.Builder(coil).data(url).build()) } }
+                    }.forEach { it.await() }
+                }
+            }
             if (!stillLoading && pixelController.phase != PixelPhase.HIDDEN) pixelController.finish()
         }
     }
@@ -989,6 +1013,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 taggedExhausted    = taggedExhausted,
                 taggedStatsProgress = taggedStatsProgress,
                 tagSuggestions     = tagSuggestions,
+                tagSuggestionAccounts = tagSuggestionAccounts,
                 onQueryChange      = viewModel::runSearch,
                 onLikedQueryTextChange = viewModel::updateLikedQueryText,
                 onLikedSearchSubmit    = viewModel::submitLikedSearch,
@@ -1024,6 +1049,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             TaggingOverlay(
                 state          = taggingUiState,
                 queueView      = taggingQueueView,
+                queueDone      = likeTagPhase == MainViewModel.LikeTagPhase.IDLE,
                 liquidGlass    = liquidGlass,
                 selfAvatarUrl  = selfProfile?.author?.avatarUrl,
                 onDismiss      = viewModel::dismissTaggingOverlay,

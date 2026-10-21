@@ -352,7 +352,8 @@ class TaggingRepository(
             // tagged — leave the imported tags alone instead of overwriting
             // them with this device's own model's guesses. (The backlog pass
             // in tagBatch already skips these via db.isIndexed.)
-            if (db.isInImportedDataset(item.postUri)) return@withContext
+            // Never twice by the same tagger (hand tags don't count).
+            if (db.isTaggedByCurrentModel(item.postUri)) return@withContext
             val loadedTagger = try { ensureTagger { } } catch (_: Exception) { return@withContext }
             tagOnePost(loadedTagger, item)
         }
@@ -460,7 +461,9 @@ class TaggingRepository(
             db.storeTags(item.postUri, item.postCid, prepared.sourceUrlForRecord, emptyList())
             return emptyList()
         }
-        val tags = try { imageTagger.tag(finalBitmap) } finally { if (prepared.ownsBitmap) finalBitmap.recycle() }
+        // The tagger's own tag goes on every post it looked at.
+        val found = try { imageTagger.tag(finalBitmap) } finally { if (prepared.ownsBitmap) finalBitmap.recycle() }
+        val tags = found + (AiTaggers.CURRENT to AiTaggers.CONFIDENCE)
         // Bitmaps/decode buffers we own are eligible for GC/release the
         // moment this function returns; nothing here is ever written to
         // disk, and Coil-owned bitmaps are left untouched for Coil's own
@@ -554,6 +557,8 @@ class TaggingRepository(
     /** Full tag list for one post — item 3's "Tags mode needs to display
      *  ALL the tags on the post", sorted highest confidence first. */
     override fun tagsForPost(postUri: String): List<String> = db.tagsForPost(postUri)
+    override fun isTaggedByCurrentModel(postUri: String): Boolean = db.isTaggedByCurrentModel(postUri)
+    override fun datasetTagNames(): List<String> = db.allTagNames()
 
     override suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
         withContext(Dispatchers.IO) {

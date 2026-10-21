@@ -203,7 +203,7 @@ private fun rememberStatusAnnotated(text: String, emoji: List<com.mediaviewer.ut
                     androidx.compose.ui.unit.TextUnit(STATUS_EMOJI_EM, androidx.compose.ui.unit.TextUnitType.Em),
                     androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter
                 )
-            ) { RemoteEmojiPicture(e.did, e.cid, e.animated, e.name, Modifier.fillMaxSize()) }
+            ) { androidx.compose.runtime.key(e.cid) { RemoteEmojiPicture(e.did, e.cid, e.animated, e.name, Modifier.fillMaxSize()) } }
         }.toMap()
         StatusAnnotated(annotated, inline, spots)
     }
@@ -566,8 +566,12 @@ fun ProfileBannerVideo(
     val context = LocalContext.current
     val player = remember(u) { FeedVideos.acquire(context, u) }
     var firstFrame by remember(u) { mutableStateOf(false) }
+    var aspect by remember(u) { mutableStateOf(player.aspectRatio.takeIf { it > 0f }) }
     DisposableEffect(player) {
-        val l = object : FeedVideoListener { override fun onFirstFrame() { firstFrame = true } }
+        val l = object : FeedVideoListener {
+            override fun onFirstFrame() { firstFrame = true }
+            override fun onAspectRatio(ratio: Float) { if (ratio > 0f) aspect = ratio }
+        }
         player.addListener(l)
         player.setVolumeMuted(true)
         player.play()
@@ -585,7 +589,14 @@ fun ProfileBannerVideo(
         }
     }
     Box(modifier) {
-        FeedVideoView(player, Modifier.matchParentSize(), fill = fill, cornerPercent = cornerPercent)
+        val a = aspect
+        if (fill || a == null) FeedVideoView(player, Modifier.matchParentSize(), fill = fill, cornerPercent = cornerPercent)
+        else androidx.compose.foundation.layout.BoxWithConstraints(Modifier.matchParentSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            // Fitted: the view is only the video's own size, so nothing
+            // (no black bars) is drawn beside it — what's under it shows.
+            val w = minOf(maxWidth, maxHeight * a)
+            FeedVideoView(player, Modifier.size(w, w / a), fill = true, cornerPercent = cornerPercent)
+        }
         if (!firstFrame && poster != null) Box(Modifier.matchParentSize()) { poster() }
     }
 }

@@ -38,7 +38,10 @@ fun FitText(
     lineHeightFactor: Float = 1.25f,
     /** One line only, shrunk to the width (the height isn't looked at). */
     singleLine: Boolean = false,
-    shadow: Boolean = true
+    shadow: Boolean = true,
+    /** Drawn instead of [text] (the same words, with styles of their own:
+     *  colors that don't change its size). */
+    styled: androidx.compose.ui.text.AnnotatedString? = null
 ) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -73,7 +76,10 @@ fun FitText(
         }
         Box(if (singleLine) Modifier else Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             // The person's own words (tags, alt text): never translated.
-            androidx.compose.material3.Text(
+            if (styled != null) androidx.compose.material3.Text(
+                styled, style = style(size).copy(shadow = null),
+                maxLines = if (singleLine) 1 else Int.MAX_VALUE, softWrap = !singleLine
+            ) else androidx.compose.material3.Text(
                 text, style = style(size),
                 maxLines = if (singleLine) 1 else Int.MAX_VALUE, softWrap = !singleLine
             )

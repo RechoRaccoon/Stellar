@@ -162,6 +162,23 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     "SELECT t.post_uri, t.tag_name, m.dataset_id FROM media_tags t JOIN liked_media m ON m.post_uri = t.post_uri WHERE t.manual = 0"
             )
         }
+        if (oldVersion < 6) {
+            // Posts this device's AI tagged before taggers added their own
+            // tag get it now (there was only ever the one tagger).
+            val tagged = "SELECT m.post_uri FROM liked_media m WHERE m.ai_tagged = 1 " +
+                "AND EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id = '') " +
+                "AND EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri) " +
+                "AND NOT EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.tag_name LIKE 'ai:%')"
+            db.execSQL(
+                "INSERT INTO tag_sources (post_uri, tag_name, dataset_id) SELECT post_uri, ?, '' FROM ($tagged)",
+                arrayOf(AiTaggers.CURRENT)
+            )
+            db.execSQL(
+                "INSERT INTO media_tags (post_uri, tag_name, confidence) SELECT s.post_uri, s.tag_name, ? FROM tag_sources s " +
+                    "WHERE s.tag_name = ? AND NOT EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = s.post_uri AND t.tag_name = s.tag_name)",
+                arrayOf(AiTaggers.CONFIDENCE, AiTaggers.CURRENT)
+            )
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -189,6 +206,27 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 "(SELECT 1 FROM post_sources p WHERE p.post_uri = liked_media.post_uri AND p.dataset_id != ?)) LIMIT 1",
             arrayOf(postUri, LOCAL_DATASET_ID)
         ).use { return it.moveToFirst() }
+    }
+
+    /** See TaggingService.isTaggedByCurrentModel. */
+    fun isTaggedByCurrentModel(postUri: String): Boolean {
+        readableDatabase.rawQuery(
+            "SELECT 1 FROM liked_media m WHERE m.post_uri = ? AND (" +
+                "EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.tag_name = ?) " +
+                "OR (m.ai_tagged = 1 AND EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id = ?)) " +
+                "OR (EXISTS (SELECT 1 FROM post_sources p WHERE p.post_uri = m.post_uri AND p.dataset_id != ?) " +
+                "AND NOT EXISTS (SELECT 1 FROM media_tags t WHERE t.post_uri = m.post_uri AND t.tag_name LIKE 'ai:%'))) LIMIT 1",
+            arrayOf(postUri, AiTaggers.CURRENT, LOCAL_DATASET_ID, LOCAL_DATASET_ID)
+        ).use { return it.moveToFirst() }
+    }
+
+    /** Every tag in the dataset, once each. */
+    fun allTagNames(): List<String> {
+        val results = ArrayList<String>()
+        readableDatabase.rawQuery("SELECT DISTINCT tag_name FROM media_tags", null).use { c ->
+            while (c.moveToNext()) results.add(c.getString(0))
+        }
+        return results
     }
 
     fun isInImportedDataset(postUri: String): Boolean {
@@ -286,24 +324,30 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         val db = readableDatabase
         // Whole tags only (exact names, never part of one): each include
         // group must match; posts with any excluded tag are left out.
+        // (A word can also be an account: every tagged post by it.)
+        val allTagged by lazy { allTaggedPostUris(Int.MAX_VALUE) }
+        fun postsFor(terms: Collection<String>): LinkedHashSet<String> {
+            val matches = LinkedHashSet<String>()
+            val tags = terms.filter { TagAliases.accountDid(it) == null }
+            val dids = terms.mapNotNull { TagAliases.accountDid(it) }
+            if (tags.isNotEmpty()) {
+                val placeholders = tags.joinToString(",") { "?" }
+                db.rawQuery("SELECT DISTINCT post_uri FROM media_tags WHERE LOWER(tag_name) IN ($placeholders)", tags.toTypedArray()).use { cursor ->
+                    while (cursor.moveToNext()) matches.add(cursor.getString(0))
+                }
+            }
+            if (dids.isNotEmpty()) allTagged.filterTo(matches) { uri -> dids.any { TagAliases.isPostBy(uri, it) } }
+            return matches
+        }
         var resultSet: LinkedHashSet<String>? = null
         for (group in query.include) {
-            val placeholders = group.joinToString(",") { "?" }
-            val matches = LinkedHashSet<String>()
-            db.rawQuery("SELECT DISTINCT post_uri FROM media_tags WHERE LOWER(tag_name) IN ($placeholders)", group.toTypedArray()).use { cursor ->
-                while (cursor.moveToNext()) matches.add(cursor.getString(0))
-            }
+            val matches = postsFor(group)
             resultSet = resultSet?.apply { retainAll(matches) } ?: matches
             if (resultSet.isEmpty()) break
         }
         // Only exclusions: start from every tagged post.
-        val matched: LinkedHashSet<String> = resultSet ?: LinkedHashSet(allTaggedPostUris(Int.MAX_VALUE))
-        if (query.exclude.isNotEmpty() && matched.isNotEmpty()) {
-            val placeholders = query.exclude.joinToString(",") { "?" }
-            db.rawQuery("SELECT DISTINCT post_uri FROM media_tags WHERE LOWER(tag_name) IN ($placeholders)", query.exclude.toTypedArray()).use { cursor ->
-                while (cursor.moveToNext()) matched.remove(cursor.getString(0))
-            }
-        }
+        val matched: LinkedHashSet<String> = resultSet ?: LinkedHashSet(allTagged)
+        if (query.exclude.isNotEmpty() && matched.isNotEmpty()) matched.removeAll(postsFor(query.exclude))
         if (matched.isEmpty()) return emptyList()
         // Bug fix ("search shows the newest posts for a tag, then refreshes
         // to older ones and the newer ones disappear"): matches came back in
@@ -714,7 +758,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         //
         // Bumped 4 -> 5: post_sources + tag_sources (one post's tags can come
         // from several datasets; deleting one removes only its own).
-        private const val DB_VERSION = 5
+        private const val DB_VERSION = 6
 
         /** Sentinel dataset_id for every row created by the normal on-device
          *  tagging pipeline (as opposed to an imported dataset — see the

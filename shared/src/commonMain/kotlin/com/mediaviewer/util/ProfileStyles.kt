@@ -187,11 +187,21 @@ object ProfileStyles {
         // (The profile's own Refresh button reads it again now.)
         if (force) synchronizedRemove(did)
         if (!synchronizedAdd(did)) return
+        com.mediaviewer.platform.synchronizedCompat(inFlight) { inFlight.add(did) }
         scope.launch {
-            val result = runCatching { fetch(did) }
-            withContext(Dispatchers.Main) { deliver(did, result) }
+            try {
+                val result = runCatching { fetch(did) }
+                withContext(Dispatchers.Main) { deliver(did, result) }
+            } finally {
+                com.mediaviewer.platform.synchronizedCompat(inFlight) { inFlight.remove(did) }
+            }
         }
     }
+
+    /** [did]'s style is being read right now (a profile's loading screen
+     *  waits for it, so its colors and videos don't pop in after). */
+    fun isLoading(did: String): Boolean = com.mediaviewer.platform.synchronizedCompat(inFlight) { did in inFlight }
+    private val inFlight = HashSet<String>()
 
     private fun deliver(did: String, result: Result<ProfileStyle?>) {
         result.onSuccess { style ->

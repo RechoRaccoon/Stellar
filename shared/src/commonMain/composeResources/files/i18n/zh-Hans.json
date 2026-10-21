@@ -2000,5 +2000,13 @@
 "Layout {0}": "布局 {0}",
 "Profile Layout": "个人资料布局",
 "Unsave": "取消保存",
-"Unsaved": "已取消保存"
+"Unsaved": "已取消保存",
+"Adds \"{0}\" and its {1} emoji to your own emoji.": "将“{0}”及其中的 {1} 个表情添加到你自己的表情中。",
+"Adds all {0} of their emoji to your own emoji.": "将对方的全部 {0} 个表情添加到你自己的表情中。",
+"Nothing new to save": "没有新的可保存内容",
+"Position {0}": "位置 {0}",
+"Save All Emoji?": "保存所有表情？",
+"Save Folder?": "保存文件夹？",
+"Saved {0} emoji": "已保存 {0} 个表情",
+"Status Position": "状态位置"
 }

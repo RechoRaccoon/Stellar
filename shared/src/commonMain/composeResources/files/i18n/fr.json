@@ -2000,5 +2000,13 @@
 "Layout {0}": "Disposition {0}",
 "Profile Layout": "Disposition du profil",
 "Unsave": "Retirer",
-"Unsaved": "Retiré"
+"Unsaved": "Retiré",
+"Adds \"{0}\" and its {1} emoji to your own emoji.": "Ajoute « {0} » et ses {1} emojis à tes propres emojis.",
+"Adds all {0} of their emoji to your own emoji.": "Ajoute leurs {0} emojis à tes propres emojis.",
+"Nothing new to save": "Rien de nouveau à enregistrer",
+"Position {0}": "Position {0}",
+"Save All Emoji?": "Enregistrer tous les emojis ?",
+"Save Folder?": "Enregistrer le dossier ?",
+"Saved {0} emoji": "{0} emojis enregistrés",
+"Status Position": "Position du statut"
 }

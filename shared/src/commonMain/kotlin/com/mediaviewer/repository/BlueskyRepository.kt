@@ -301,6 +301,9 @@ class BlueskyRepository {
         }
     }
 
+    /** handle → DID (see resolveHandleToDid). */
+    suspend fun didForHandle(handle: String): String? = resolveHandleToDid(handle)
+
     /** handle → DID, the three ways AT Protocol defines (first that answers). */
     private suspend fun resolveHandleToDid(handle: String): String? {
         fun didIn(text: String?): String? = text?.let { Regex("""did:(?:plc|web):[A-Za-z0-9._:%-]+""").find(it)?.value }
