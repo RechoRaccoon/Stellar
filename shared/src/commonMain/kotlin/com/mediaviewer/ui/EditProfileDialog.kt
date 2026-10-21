@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -102,12 +103,10 @@ fun EditProfileDialog(
     val supporter = com.mediaviewer.util.Supporter.active
     val savedStyle = remember { com.mediaviewer.util.ProfileStyles.peek(author.did) ?: com.mediaviewer.util.ProfileStyle() }
     var style by remember { mutableStateOf(savedStyle) }
-    // The colors the profile has without any picked: what the pickers start from.
-    val autoColors = ProfileColors(
-        banner = rememberDominantColor(profile?.bannerUrl ?: author.avatarUrl ?: ""),
-        avatar = rememberDominantColor(author.avatarUrl ?: "")
-    )
-    var colorPicker by remember { mutableStateOf(0) }
+    // The color the profile has without one picked (from its picture and
+    // banner together): what the picker starts from.
+    val autoColor = rememberProfileTint(profile?.bannerUrl, author.avatarUrl)
+    var colorPicker by remember { mutableStateOf(false) }
     var effectMenu by remember { mutableStateOf(false) }
 
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) newAvatar = uri }
@@ -359,35 +358,46 @@ fun EditProfileDialog(
                     }
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                val shownA = style.colorA?.let { Color(it) } ?: autoColors.banner
-                val shownB = style.colorB?.let { Color(it) } ?: autoColors.avatar
-                @Composable
-                fun Swatch(color: Color) {
+                val picked = style.colorA != null
+                val shown = style.colorA?.let { Color(it) } ?: autoColor
+                // One color: tap the row to pick it; the reset at its far
+                // right goes back to the profile's own (always there, dimmed
+                // and off while it already is).
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(enabled = !saving) { gate { colorPicker = true } }
+                        .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Profile Color", color = Color.White, fontSize = 14.sp,
+                        modifier = Modifier.weight(1f).supporterShine(!supporter)
+                    )
                     Box(
-                        Modifier.size(24.dp).clip(CircleShape).background(color)
+                        Modifier.size(24.dp).clip(CircleShape).background(shown)
                             .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape)
                     )
-                }
-                OptionRow("Profile Color 1", { gate { colorPicker = 1 } }) { Swatch(shownA) }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                OptionRow("Profile Color 2", { gate { colorPicker = 2 } }) { Swatch(shownB) }
-                if (style.colorA != null || style.colorB != null) {
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                    OptionRow("Reset Colors", { gate { style = style.copy(colorA = null, colorB = null) } }) {}
+                    Box(
+                        Modifier.padding(start = 6.dp).size(36.dp).clip(CircleShape)
+                            .clickable(enabled = picked && !saving) { gate { style = style.copy(colorA = null, colorB = null) } },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh, contentDescription = "Reset Color",
+                            tint = Color.White.copy(alpha = if (picked) 0.9f else 0.25f), modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
-            if (colorPicker != 0) {
-                val first = colorPicker == 1
+            if (colorPicker) {
                 ColorWheelDialog(
-                    initial = if (first) (style.colorA?.let { Color(it) } ?: autoColors.banner) else (style.colorB?.let { Color(it) } ?: autoColors.avatar),
-                    title = if (first) "Profile Color 1" else "Profile Color 2",
-                    onDismiss = { colorPicker = 0 },
-                    onPick = { picked ->
-                        // Picking one fixes both (the other keeps what it shows now).
-                        val a = if (first) picked.toArgb() else (style.colorA ?: autoColors.banner.toArgb())
-                        val b = if (first) (style.colorB ?: autoColors.avatar.toArgb()) else picked.toArgb()
-                        style = style.copy(colorA = a, colorB = b)
-                        colorPicker = 0
+                    initial = style.colorA?.let { Color(it) } ?: autoColor,
+                    title = "Profile Color",
+                    onDismiss = { colorPicker = false },
+                    onPick = { c ->
+                        // (Saved in both of the record's color slots, so
+                        // versions that still read two show the same one.)
+                        style = style.copy(colorA = c.toArgb(), colorB = c.toArgb())
+                        colorPicker = false
                     }
                 )
             }

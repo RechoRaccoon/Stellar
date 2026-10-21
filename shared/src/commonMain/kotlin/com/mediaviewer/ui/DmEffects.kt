@@ -868,23 +868,34 @@ private fun DrawScope.drawStarShower(t: Float, seed: Long) {
     // One shared radiant, like a real shower: everything comes from the same way.
     val angle = (PI.toFloat() * 0.75f) + (rnd.nextFloat() - 0.5f) * 0.2f
     val dir = Offset(cos(angle), sin(angle))
+    fun smooth(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c * (3f - 2f * c) }
     repeat(n) {
+        // Every star's numbers are drawn every frame, whether or not it's
+        // showing yet: skipping a hidden star's draws shifted every star
+        // after it, so they jumped about, popping in and out.
         val start = rnd.nextFloat() * 5.2f
-        val life = 0.7f + rnd.nextFloat() * 0.7f
-        val p = (t - start) / life
-        if (p < 0f || p > 1f) return@repeat
+        val life = 1.0f + rnd.nextFloat() * 0.8f
         val x0 = (0.15f + rnd.nextFloat() * 1.05f) * size.width
         val y0 = (-0.1f + rnd.nextFloat() * 0.55f) * size.height
         val travel = (260f + rnd.nextFloat() * 220f) * unit
-        val envelope = kotlin.math.sqrt(sin(PI.toFloat() * p).coerceAtLeast(0f))
-        val head = Offset(x0 + dir.x * travel * p, y0 + dir.y * travel * p)
-        val tailLen = (60f + rnd.nextFloat() * 70f) * unit * (0.35f + 0.65f * envelope)
-        val tail = head - dir * tailLen
+        val tailBase = 60f + rnd.nextFloat() * 70f
         val warm = rnd.nextFloat() < 0.25f
+        val stroke = (1.1f + rnd.nextFloat() * 0.9f) * unit
+        val p = (t - start) / life
+        if (p < 0f || p > 1f) return@repeat
+        // Fades in over its first fifth and out over its last third, both
+        // eased, so none appears or vanishes all at once.
+        val envelope = smooth(p / 0.2f) * smooth((1f - p) / 0.35f)
+        if (envelope <= 0.001f) return@repeat
+        // (Eased along its path too: quick at first, slowing as it burns out.)
+        val along = 1f - (1f - p) * (1f - p)
+        val head = Offset(x0 + dir.x * travel * along, y0 + dir.y * travel * along)
+        val tailLen = tailBase * unit * (0.35f + 0.65f * envelope)
+        val tail = head - dir * tailLen
         val tint = if (warm) Color(0xFFFFE3B0) else Color(0xFFE6EEFF)
         drawLine(
             brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0f), tint.copy(alpha = 0.6f * envelope), Color.White.copy(alpha = envelope)), start = tail, end = head),
-            start = tail, end = head, strokeWidth = (1.1f + rnd.nextFloat() * 0.9f) * unit, cap = StrokeCap.Round
+            start = tail, end = head, strokeWidth = stroke, cap = StrokeCap.Round
         )
         drawCircle(Color.White.copy(alpha = 0.28f * envelope), radius = 3.4f * unit, center = head)
         drawCircle(Color.White.copy(alpha = envelope), radius = 1.2f * unit, center = head)

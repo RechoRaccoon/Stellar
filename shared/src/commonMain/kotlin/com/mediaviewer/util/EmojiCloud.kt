@@ -275,6 +275,51 @@ object EmojiCloud {
         return out.toString()
     }
 
+    // ── Download Custom Emojis ──
+
+    /**
+     * Every one of [did]'s own emoji as a .zip: an "All" folder with each
+     * emoji in the All tab's order, then one folder per emoji folder with
+     * its own copies, in the menu's order. Each file is the picture exactly
+     * as stored (the same bytes that are on the PDS; fetched from there if
+     * this device lacks one), numbered so the order survives any file
+     * manager's sorting. Null when there are none.
+     */
+    suspend fun exportZip(store: EmojiStore, did: String): ByteArray? {
+        store.useAccount(did)
+        store.load()
+        val index = store.state.index
+        if (index.emojis.isEmpty()) return null
+        val byCid = uploaded(did)
+        val r = remote
+        val bytesOf = HashMap<Int, ByteArray>()
+        suspend fun bytes(e: EmojiEntry): ByteArray? = bytesOf[e.id] ?: (store.pngBytes(e) ?: run {
+            val hash = hashFor(store, e)
+            val up = hash?.let { byCid[it] }
+            if (up != null && r != null) runCatching { r.fetch(did, up.cid) }.getOrNull() else null
+        })?.also { bytesOf[e.id] = it }
+        fun safe(name: String) = name.map { if (it in "/\\:*?\"<>|" || it.code < 32) '_' else it }.joinToString("").trim().ifBlank { "emoji" }
+        fun fileName(i: Int, total: Int, e: EmojiEntry, data: ByteArray): String {
+            val digits = total.toString().length
+            val ext = if (GifInfo.isGif(data)) "gif" else "png"
+            return (i + 1).toString().padStart(digits, '0') + " " + safe(e.name) + "." + ext
+        }
+        val zip = ZipWriter()
+        val all = store.emojiFor(null)
+        all.forEachIndexed { i, e -> bytes(e)?.let { zip.add("All/" + fileName(i, all.size, e, it), it) } }
+        // (Folders keep their own names; one named like another, or "All",
+        // gets a number so their copies never mix.)
+        val dirs = HashSet<String>().apply { add("all") }
+        for (folder in index.folders) {
+            val inFolder = store.emojiFor(folder.id)
+            var dir = safe(folder.name)
+            if (dir.lowercase() in dirs) { var n = 2; while ("$dir ($n)".lowercase() in dirs) n++; dir = "$dir ($n)" }
+            dirs += dir.lowercase()
+            inFolder.forEachIndexed { i, e -> bytes(e)?.let { zip.add("$dir/" + fileName(i, inFolder.size, e, it), it) } }
+        }
+        return zip.finish()
+    }
+
     // ── Other people's emoji ──
 
     /** Libraries read this session, by account. */

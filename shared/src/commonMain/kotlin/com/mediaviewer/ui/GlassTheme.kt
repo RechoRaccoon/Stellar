@@ -196,9 +196,12 @@ object SelfProfileColors {
 // vividAccent for the moment before a post's real color arrived.
 private val PlaceholderGrey = Color(0xFF2C2C2C)
 
-/** A profile's two source colors: its banner's (the avatar's again when it
- *  has no banner) and its avatar's. [blended] is the profile's UI color. */
+/** A profile's colors. Every profile now has ONE color (see
+ *  [profileColorOf]), so [banner], [avatar] and [blended] are all that one
+ *  color; the three names stay so every surface reading them keeps working. */
 data class ProfileColors(val banner: Color, val avatar: Color) {
+    constructor(single: Color) : this(single, single)
+
     val blended: Color get() = Color(
         red = (banner.red + avatar.red) / 2f,
         green = (banner.green + avatar.green) / 2f,
@@ -232,20 +235,22 @@ object ProfileColorStore {
         if (prefs == null) prefs = context.sharedPreferences("profile_colors")
     }
 
+    // ("c:" — the one color. The old "b:"/"a:" pairs are left unread, so
+    // every account's color is worked out the new way once.)
     fun get(did: String): ProfileColors? {
         if (did.isBlank()) return null
         com.mediaviewer.platform.synchronizedCompat(mem) { mem[did]?.let { return it } }
         val p = prefs ?: return null
-        val b = p.getInt("b:$did", 0); val a = p.getInt("a:$did", 0)
-        if (b == 0 || a == 0) return null
-        return ProfileColors(Color(b), Color(a)).also { com.mediaviewer.platform.synchronizedCompat(mem) { mem[did] = it } }
+        val c = p.getInt("c:$did", 0)
+        if (c == 0) return null
+        return ProfileColors(Color(c)).also { com.mediaviewer.platform.synchronizedCompat(mem) { mem[did] = it } }
     }
 
     fun put(did: String, colors: ProfileColors) {
         if (did.isBlank()) return
         val old = com.mediaviewer.platform.synchronizedCompat(mem) { mem.put(did, colors) }
         if (old == colors) return
-        prefs?.edit()?.putInt("b:$did", colors.banner.toArgb())?.putInt("a:$did", colors.avatar.toArgb())?.apply()
+        prefs?.edit()?.putInt("c:$did", colors.blended.toArgb())?.apply()
     }
 
     fun noteBanner(did: String, bannerUrl: String?) {
@@ -297,10 +302,84 @@ suspend fun fetchProfileColors(
     else if (resolve && did.isNotBlank()) {
         runCatching { ProfileColorStore.banner(did) }.onSuccess { banner = it; known = true }
     }
-    val avatar = if (avatarUrl.isNullOrBlank()) PlaceholderGrey else fetchDominantColor(context, avatarUrl)
-    if (!known) return ProfileColorStore.get(did) ?: ProfileColors(avatar, avatar)
-    val bannerColor = if (banner.isNullOrBlank()) avatar else fetchDominantColor(context, banner!!)
-    return ProfileColors(bannerColor, avatar).also { ProfileColorStore.put(did, it) }
+    if (!known) return ProfileColorStore.get(did) ?: ProfileColors(fetchProfileColor(context, avatarUrl, null))
+    return ProfileColors(fetchProfileColor(context, avatarUrl, banner)).also { ProfileColorStore.put(did, it) }
+}
+
+/** One color per (avatar, banner) pair, worked out once a session. */
+private val profileColorCache = com.mediaviewer.util.LruMap<String, Color>(300)
+
+private fun profileColorKey(avatarUrl: String?, bannerUrl: String?) = avatarUrl.orEmpty() + "|" + bannerUrl.orEmpty()
+
+/** The one color already worked out this session for this avatar and banner. */
+fun knownProfileColor(avatarUrl: String?, bannerUrl: String?): Color? =
+    com.mediaviewer.platform.synchronizedCompat(profileColorCache) { profileColorCache[profileColorKey(avatarUrl, bannerUrl)] }
+
+/**
+ * A profile's ONE color, from its picture and banner together (see
+ * [profileColorOf]); grey when neither can be read.
+ */
+suspend fun fetchProfileColor(context: com.mediaviewer.platform.PlatformContext, avatarUrl: String?, bannerUrl: String?): Color {
+    knownProfileColor(avatarUrl, bannerUrl)?.let { return it }
+    val pixels = ArrayList<IntArray>(2)
+    for (url in listOf(avatarUrl, bannerUrl)) {
+        if (url.isNullOrBlank()) continue
+        runCatching { com.mediaviewer.ui.compat.samplePixels(context, url, 24) }.getOrNull()?.let { pixels += it }
+    }
+    if (pixels.isEmpty()) return PlaceholderGrey
+    val c = profileColorOf(pixels) ?: PlaceholderGrey
+    com.mediaviewer.platform.synchronizedCompat(profileColorCache) { profileColorCache[profileColorKey(avatarUrl, bannerUrl)] = c }
+    return c
+}
+
+/**
+ * The color a profile is drawn in: of all the colors in its picture and
+ * banner (each counted equally, whatever its size), the one that is both
+ * used the most and the most vivid. Colors are grouped by hue; each group
+ * scores how much of the two images it covers times how vivid it is, so a
+ * small splash of bright color can beat a big dull background, but not a
+ * big bright one. Greys, blacks and whites only win when there's hardly any
+ * color at all. The winner is the average of its group's pixels.
+ */
+internal fun profileColorOf(images: List<IntArray>): Color? {
+    val bins = 24
+    val count = FloatArray(bins + 1); val vivid = FloatArray(bins + 1)
+    val r = FloatArray(bins + 1); val g = FloatArray(bins + 1); val b = FloatArray(bins + 1)
+    for (pixels in images) {
+        if (pixels.isEmpty()) continue
+        // (Each image weighs the same in total.)
+        val w = 1f / pixels.size
+        for (p in pixels) {
+            if ((p ushr 24) < 128) continue
+            val pr = (p shr 16) and 0xFF; val pg = (p shr 8) and 0xFF; val pb = p and 0xFF
+            val max = maxOf(pr, pg, pb); val min = minOf(pr, pg, pb)
+            val v = max / 255f
+            val sat = if (max == 0) 0f else (max - min).toFloat() / max
+            val bin = if (sat < 0.2f || v < 0.16f) bins else {
+                val d = (max - min).toFloat()
+                var h = when (max) {
+                    pr -> ((pg - pb) / d) % 6f
+                    pg -> (pb - pr) / d + 2f
+                    else -> (pr - pg) / d + 4f
+                } / 6f
+                if (h < 0f) h += 1f
+                (h * bins).toInt().coerceIn(0, bins - 1)
+            }
+            count[bin] += w; vivid[bin] += w * sat * v
+            r[bin] += w * pr; g[bin] += w * pg; b[bin] += w * pb
+        }
+    }
+    var best = -1; var bestScore = 0f
+    for (i in 0..bins) {
+        if (count[i] <= 0f) continue
+        val vividness = vivid[i] / count[i]
+        // (Neutrals count for a fifth: only a nearly colorless profile is grey.)
+        val score = count[i] * (if (i == bins) 0.2f * 0.3f else 0.3f + vividness)
+        if (score > bestScore) { bestScore = score; best = i }
+    }
+    if (best < 0) return null
+    val n = count[best]
+    return Color(red = r[best] / n / 255f, green = g[best] / n / 255f, blue = b[best] / n / 255f, alpha = 1f)
 }
 
 /** Composable form of [fetchProfileColors]: starts on the remembered real
@@ -317,34 +396,26 @@ fun rememberProfileColors(
     val context = LocalContext.current
     var colors by remember(did) {
         mutableStateOf(run {
-            val a = avatarUrl?.takeIf { it.isNotBlank() }?.let { cachedDominantColor(it) }
-            val exact = if (bannerKnown && a != null) {
-                val b = if (bannerUrl.isNullOrBlank()) a else cachedDominantColor(bannerUrl)
-                b?.let { ProfileColors(it, a) }
-            } else null
-            exact ?: ProfileColorStore.get(did) ?: ProfileColors(a ?: PlaceholderGrey, a ?: PlaceholderGrey)
+            val exact = if (bannerKnown) knownProfileColor(avatarUrl, bannerUrl)?.let { ProfileColors(it) } else null
+            exact ?: ProfileColorStore.get(did) ?: ProfileColors(knownProfileColor(avatarUrl, null) ?: PlaceholderGrey)
         })
     }
-    // (Read here as Compose state: the colors switch the moment a
+    // (Read here as Compose state: the color switches the moment a
     // supporter's customization record arrives, or is edited.)
-    val picked = com.mediaviewer.util.ProfileStyles.of(did)?.let { s ->
-        val a = s.colorA
-        val b = s.colorB
-        if (a != null && b != null) ProfileColors(Color(a), Color(b)) else null
-    }
+    val picked = com.mediaviewer.util.ProfileStyles.of(did)?.colorA?.let { ProfileColors(Color(it)) }
     LaunchedEffect(did, avatarUrl, bannerUrl, bannerKnown, picked) {
         colors = fetchProfileColors(context, did, avatarUrl, bannerUrl, bannerKnown, resolve)
     }
     return picked ?: colors
 }
 
-/** The two profile colors a supporter chose for themselves, if any (what's
- *  known right now — nothing is looked up from here). */
+/** The profile color a supporter chose for themselves, if any (what's
+ *  known right now — nothing is looked up from here). Older records hold a
+ *  second color too; only the first is used now. */
 fun styledProfileColors(did: String?): ProfileColors? {
     val s = com.mediaviewer.util.ProfileStyles.peek(did) ?: return null
     val a = s.colorA ?: return null
-    val b = s.colorB ?: return null
-    return ProfileColors(Color(a), Color(b))
+    return ProfileColors(Color(a))
 }
 
 /** A profile icon's outline: round even with Squared-Off Corners on, or — for a
@@ -353,14 +424,15 @@ fun styledProfileColors(did: String?): ProfileColors? {
 fun profileIconShape(did: String?): Shape =
     if (com.mediaviewer.util.ProfileStyles.of(did)?.squareIcon == true) com.mediaviewer.ui.theme.SquareIconShape else com.mediaviewer.ui.theme.AvatarShape
 
-/** A profile's UI color — identical to ProfileOverlay's own: the average of
- *  the banner's dominant color (avatar when there's no banner) and the
- *  avatar's. Prefer [rememberProfileColors] when the DID is known. */
+/** A profile's UI color — identical to ProfileOverlay's own: its one color
+ *  from the picture and banner together (see [profileColorOf]). Prefer
+ *  [rememberProfileColors] when the DID is known. */
 @Composable
 fun rememberProfileTint(bannerUrl: String?, avatarUrl: String?): Color {
-    val bannerColor = rememberDominantColor(bannerUrl ?: avatarUrl ?: "")
-    val avatarColor = rememberDominantColor(avatarUrl ?: "")
-    return remember(bannerColor, avatarColor) { ProfileColors(bannerColor, avatarColor).blended }
+    val context = LocalContext.current
+    var color by remember(bannerUrl, avatarUrl) { mutableStateOf(knownProfileColor(avatarUrl, bannerUrl) ?: PlaceholderGrey) }
+    LaunchedEffect(bannerUrl, avatarUrl) { color = fetchProfileColor(context, avatarUrl, bannerUrl) }
+    return color
 }
 
 /** Any account's UI color from just its DID + avatar (a blog or review

@@ -4570,35 +4570,86 @@ class BlueskyRepository {
         else -> el
     }
 
+    /** One post's record and every file it points at, saved under [folder]
+     *  on this device (nothing is deleted from the PDS here). */
+    private suspend fun saveRecordForArchive(
+        token: String, did: String, context: PlatformContext, rkey: String, folder: String
+    ): Pair<kotlinx.serialization.json.JsonElement, List<com.mediaviewer.util.ArchivedBlob>> {
+        val existing = api.getRecord("Bearer $token", did, "app.bsky.feed.post", rkey)
+        val value = existing.body()?.value?.takeIf { it.isJsonObject }?.toKx()
+            ?: error("Couldn't read the post (${existing.code()})")
+        val refs = ArrayList<com.mediaviewer.util.ArchivedBlob>()
+        collectBlobs(value, refs)
+        val saved = ArrayList<com.mediaviewer.util.ArchivedBlob>()
+        for (ref in refs.distinctBy { it.cid }) {
+            val url = BlueskyBlobResolver.resolveBlobUrl(did, ref.cid)
+            val file = com.mediaviewer.platform.PrivateFiles.download(context, url, folder, ref.cid + "." + blobExtension(ref.mimeType))
+                ?: error("Couldn't save the post's media to this device")
+            saved += ref.copy(file = file)
+        }
+        return value to saved
+    }
+
+    /** Your own replies under [uri], and yours under those, all the way
+     *  down (a reply by someone else ends that branch): the self-thread
+     *  chains hanging off the post. Parents before their replies. */
+    private suspend fun ownRepliesUnder(token: String, did: String, uri: String): List<String> {
+        val resp = api.getPostThread("Bearer $token", uri, 1000)
+        val root = resp.body()?.thread ?: return emptyList()
+        val out = ArrayList<String>()
+        fun walk(view: BskyThreadView) {
+            for (r in view.replies.orEmpty()) {
+                val post = r.post ?: continue
+                if (post.author.did != did || post.uri.isBlank() || post.uri in out) continue
+                out += post.uri
+                walk(r)
+            }
+        }
+        walk(root)
+        return out
+    }
+
     /**
-     * Archives [item] (one of your own posts). The post is only deleted
-     * from the PDS after its record and every one of its files have been
-     * saved on the device — if anything can't be saved, nothing is deleted.
+     * Archives [item] (one of your own posts) together with your own replies
+     * under it and theirs (see [ownRepliesUnder]), all kept under the one
+     * post, so adding it back brings the whole chain back as it was. Posts
+     * are only deleted from the PDS after every record and every file has
+     * been saved on the device — if anything can't be saved, nothing is
+     * deleted. The deletes go in batches, replies first.
+     *
+     * (Likes, reposts and other people's replies are records in their own
+     * accounts, pointing at the post's address. Deleting the post doesn't
+     * delete them, and the post goes back at the same address, so they
+     * count for it again once it's back.)
      */
     suspend fun archivePost(
         token: String, did: String, context: PlatformContext, item: MediaItem
     ): Result<com.mediaviewer.util.ArchivedPost> = withContext(ioDispatcher) {
         runCatching {
             val rkey = item.postUri.substringAfterLast('/')
-            val existing = api.getRecord("Bearer $token", did, "app.bsky.feed.post", rkey)
-            val value = existing.body()?.value?.takeIf { it.isJsonObject }?.toKx()
-                ?: error("Couldn't read the post (${existing.code()})")
-            val refs = ArrayList<com.mediaviewer.util.ArchivedBlob>()
-            collectBlobs(value, refs)
             val folder = com.mediaviewer.util.PostArchive.FOLDER + "/" + did.replace(':', '_') + "/" + rkey
-            val saved = ArrayList<com.mediaviewer.util.ArchivedBlob>()
+            val value: kotlinx.serialization.json.JsonElement
+            val saved: List<com.mediaviewer.util.ArchivedBlob>
             var poster: String? = null
+            val thread = ArrayList<com.mediaviewer.util.ArchivedPost>()
             try {
-                for (ref in refs.distinctBy { it.cid }) {
-                    val url = BlueskyBlobResolver.resolveBlobUrl(did, ref.cid)
-                    val file = com.mediaviewer.platform.PrivateFiles.download(context, url, folder, ref.cid + "." + blobExtension(ref.mimeType))
-                        ?: error("Couldn't save the post's media to this device")
-                    saved += ref.copy(file = file)
-                }
+                val (v, b) = saveRecordForArchive(token, did, context, rkey, folder)
+                value = v; saved = b
                 // A video's cover picture isn't part of the post itself;
                 // a copy is kept so the archived post still has one.
                 if (item.isVideo && item.thumbUrl.startsWith("http")) {
                     poster = com.mediaviewer.platform.PrivateFiles.download(context, item.thumbUrl, folder, "poster.jpg")
+                }
+                // (If the thread can't be read, the post alone is archived.)
+                val replies = runCatching { ownRepliesUnder(token, did, item.postUri) }.getOrDefault(emptyList())
+                for (uri in replies) {
+                    val childKey = uri.substringAfterLast('/')
+                    val (cv, cb) = saveRecordForArchive(token, did, context, childKey, "$folder/$childKey")
+                    thread += com.mediaviewer.util.ArchivedPost(
+                        rkey = childKey, did = did, uri = uri,
+                        archivedAt = com.mediaviewer.platform.currentTimeMillis(),
+                        record = cv.toString(), blobs = cb
+                    )
                 }
             } catch (e: Throwable) {
                 com.mediaviewer.platform.PrivateFiles.deleteFolder(context, folder)
@@ -4627,16 +4678,29 @@ class BlueskyRepository {
                 )
             }
 
-            // Everything is on the device: now it can leave the PDS.
-            val del = api.deleteRecord("Bearer $token", BskyDeleteRecordRequest(did, "app.bsky.feed.post", rkey))
-            if (!del.isSuccessful) {
-                com.mediaviewer.platform.PrivateFiles.deleteFolder(context, folder)
-                error("Couldn't remove the post from your profile (${del.code()})")
+            // Everything is on the device: now it can leave the PDS — the
+            // deepest replies first, the post itself last.
+            val keys = thread.map { it.rkey }.reversed() + rkey
+            for ((i, batch) in keys.chunked(50).withIndex()) {
+                val del = api.applyWrites("Bearer $token", BskyApplyWritesRequest(did, batch.map { k ->
+                    mapOf("\$type" to "com.atproto.repo.applyWrites#delete", "collection" to "app.bsky.feed.post", "rkey" to k)
+                }))
+                if (!del.isSuccessful) {
+                    // Nothing deleted yet: the device copy goes too, and
+                    // nothing changed. Part-way through, the archive is
+                    // kept (it's the only copy of what did go); what's
+                    // still up is skipped when it's added back.
+                    if (i == 0) {
+                        com.mediaviewer.platform.PrivateFiles.deleteFolder(context, folder)
+                        error("Couldn't remove the post from your profile (${del.code()})")
+                    }
+                    break
+                }
             }
             com.mediaviewer.util.ArchivedPost(
                 rkey = rkey, did = did, uri = item.postUri,
                 archivedAt = com.mediaviewer.platform.currentTimeMillis(),
-                record = value.toString(), blobs = saved, item = local
+                record = value.toString(), blobs = saved, item = local, thread = thread
             )
         }
     }
@@ -4650,6 +4714,26 @@ class BlueskyRepository {
         token: String, did: String, context: PlatformContext, post: com.mediaviewer.util.ArchivedPost
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
+            // The post first, then its own replies (parents before replies),
+            // so the chain goes back exactly as it was.
+            val ref = restoreOne(token, did, context, post)
+            for (reply in post.thread) restoreOne(token, did, context, reply)
+            ref
+        }
+    }
+
+    /** One archived record back up (see [restoreArchivedPost]). One that's
+     *  already there (an archive that only partly came down, or a retry)
+     *  is left as it is. */
+    private suspend fun restoreOne(
+        token: String, did: String, context: PlatformContext, post: com.mediaviewer.util.ArchivedPost
+    ): BskyRef {
+        run {
+            val there = runCatching { api.getRecord("Bearer $token", did, "app.bsky.feed.post", post.rkey) }.getOrNull()
+            val cid = there?.takeIf { it.isSuccessful }?.body()?.cid
+            if (!cid.isNullOrBlank()) return BskyRef(post.uri, cid)
+        }
+        return run {
             val record = StellarJson.default.parseToJsonElement(post.record) as? kotlinx.serialization.json.JsonObject
                 ?: error("This archived post can't be read")
             val replacements = HashMap<String, kotlinx.serialization.json.JsonElement>()

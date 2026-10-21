@@ -24,7 +24,8 @@ data class ArchivedBlob(
 )
 
 /**
- * A post taken off your profile and kept only on this device: its complete
+ * A post taken off your profile and kept only on this device (with its
+ * self-thread under it, see [thread]): its complete
  * record exactly as it was on the PDS (text, facets, labels, reply/quote
  * references, original createdAt, edit history…), every file it had, and
  * how it looked — so it can be shown offline and put back as it was.
@@ -40,7 +41,11 @@ data class ArchivedPost(
     val record: String = "",
     val blobs: List<ArchivedBlob> = emptyList(),
     /** The post as the feed shows it, pointing at the local files. */
-    val item: MediaItem = MediaItem()
+    val item: MediaItem = MediaItem(),
+    /** Your own replies under it, and yours under those (parents before
+     *  their replies), archived with it and added back with it. Their
+     *  files sit in folders inside this post's own. */
+    val thread: List<ArchivedPost> = emptyList()
 )
 
 /**

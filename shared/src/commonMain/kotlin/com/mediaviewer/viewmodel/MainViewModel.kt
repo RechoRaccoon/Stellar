@@ -6433,11 +6433,13 @@ class MainViewModel(
                 .onSuccess { archived ->
                     withContext(Dispatchers.Main) {
                         com.mediaviewer.util.PostArchive.add(archived)
-                        val remaining = _mediaItems.value.filterNot { it.postUri == item.postUri }
+                        // (Its own replies went with it.)
+                        val gone = archived.thread.map { it.uri }.toSet() + item.postUri
+                        val remaining = _mediaItems.value.filterNot { it.postUri in gone }
                         _mediaItems.value = remaining
                         _currentIndex.value = _currentIndex.value.coerceAtMost((remaining.size - 1).coerceAtLeast(0))
                     }
-                    showToast("Post archived")
+                    showToast(if (archived.thread.isEmpty()) "Post archived" else "Post and ${archived.thread.size} replies archived")
                 }
                 .onFailure { _errorMessage.value = "Couldn't archive the post: ${it.message}" }
             _archiveBusy.value = false

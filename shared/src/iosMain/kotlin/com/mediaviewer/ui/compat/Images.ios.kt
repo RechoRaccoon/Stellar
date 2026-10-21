@@ -22,6 +22,15 @@ actual suspend fun sampleAverageColor(context: PlatformContext, url: String, siz
     return Color(r.toFloat() / n / 255f, g.toFloat() / n / 255f, b.toFloat() / n / 255f, 1f)
 }
 
+actual suspend fun samplePixels(context: PlatformContext, url: String, size: Int): IntArray? {
+    val coil = CoilContext.INSTANCE
+    val loader = SingletonImageLoader.get(coil)
+    val request = ImageRequest.Builder(coil).data(url).size(size, size).build()
+    val bmp = (loader.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return null
+    if (bmp.width <= 0 || bmp.height <= 0) return null
+    return IntArray(bmp.width * bmp.height) { i -> bmp.getColor(i % bmp.width, i / bmp.width) }
+}
+
 actual val PlatformContext.coilContext: coil3.PlatformContext get() = CoilContext.INSTANCE
 
 actual fun qrModuleMatrix(content: String): Array<BooleanArray> =

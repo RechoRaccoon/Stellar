@@ -1390,6 +1390,36 @@ internal fun SettingsPageContent(
                         liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                         enabled = running || downloadProgress?.isRunning != true
                     )
+                    // Every custom emoji of yours, as the files themselves,
+                    // in one .zip: "All", then a folder for each of yours.
+                    val emojiContext = com.mediaviewer.ui.compat.LocalContext.current
+                    val emojiScope = rememberCoroutineScope()
+                    var emojiZipStatus by remember { mutableStateOf<String?>(null) }
+                    val emojiZipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+                        val did = SelfProfileColors.did
+                        if (uri != null && !did.isNullOrBlank()) {
+                            emojiZipStatus = "Packing your emoji…"
+                            emojiScope.launch {
+                                val result = runCatching {
+                                    val zip = kotlinx.coroutines.withContext(com.mediaviewer.platform.ioDispatcher) {
+                                        com.mediaviewer.util.EmojiCloud.exportZip(com.mediaviewer.util.EmojiStore.get(emojiContext), did)
+                                    } ?: error("You don't have any custom emoji yet")
+                                    com.mediaviewer.platform.writeBytesToPickedFile(emojiContext, uri, zip)
+                                }
+                                emojiZipStatus = result.fold({ "Saved" }, { "Couldn't save them: ${it.message}" })
+                                kotlinx.coroutines.delay(5000)
+                                emojiZipStatus = null
+                            }
+                        }
+                    }
+                    ActionBubble(
+                        label = "Download Custom Emojis",
+                        sub = emojiZipStatus,
+                        buttonLabel = if (emojiZipStatus == "Packing your emoji…") "…" else "Download",
+                        onClick = { emojiZipLauncher.launch("Stellar-emojis.zip") },
+                        liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                        enabled = emojiZipStatus != "Packing your emoji…"
+                    )
                 }
                 if (e621LoggedIn) {
                     val prog = downloadProgress.takeIf { extras.downloadIsE621 }

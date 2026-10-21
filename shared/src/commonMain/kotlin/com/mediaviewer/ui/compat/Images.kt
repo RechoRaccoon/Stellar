@@ -8,6 +8,10 @@ import com.mediaviewer.platform.PlatformContext
  *  tinted with), or null if it can't be loaded. */
 expect suspend fun sampleAverageColor(context: PlatformContext, url: String, size: Int): Color?
 
+/** Loads [url] at [size]x[size] and returns its pixels (ARGB, row by row),
+ *  or null if it can't be loaded — for picking a profile's one color. */
+expect suspend fun samplePixels(context: PlatformContext, url: String, size: Int): IntArray?
+
 /** Coil's own context for this platform (the Android Context itself on
  *  Android; Coil's singleton on iOS). */
 expect val PlatformContext.coilContext: coil3.PlatformContext
