@@ -8214,7 +8214,8 @@ class MainViewModel(
                 // The original file (the blob on their PDS), not the CDN's
                 // re-encoded JPEG; its real format is read from its first bytes.
                 val raw = com.mediaviewer.ui.rawProfileImageUrl(did, imageUrl)
-                val bytes = raw?.let { runCatching { com.mediaviewer.network.PlainHttp.get(it) }.getOrNull() }
+                // (Only its first bytes: the download itself fetches the file once.)
+                val bytes = raw?.let { runCatching { com.mediaviewer.network.PlainHttp.get(it, listOf("Range" to "bytes=0-15")) }.getOrNull() }
                     ?.takeIf { it.code in 200..299 }?.body
                 if (raw == null || bytes == null) { withContext(Dispatchers.Main) { enqueueDownload(imageUrl, id) }; return@launch }
                 val (ext, mime) = imageKindOf(bytes)
@@ -10078,13 +10079,44 @@ class MainViewModel(
             }
             // (Hashtags have no fixed accounts: whoever's posts the row shows.)
             if (feed.sources.any { it.kind == "hashtag" }) _hubLists.value[key]?.posts?.forEach { dids += it.author.did }
-            val pick = dids.filter { it.isNotBlank() && !com.mediaviewer.util.BlockedAccounts.isBlocking(it) }.take(40)
+            val pick = dids.filter { it.isNotBlank() && !com.mediaviewer.util.BlockedAccounts.isBlocking(it) }.take(20)
             if (pick.isEmpty()) return@launch
-            val blogs = if (feed.blogs) runCatching { bskyRepo.getSubscribedBlogs(bskyToken, pick) }.getOrDefault(emptyList()).take(30) else emptyList()
-            val reviews = if (feed.reviews) runCatching { bskyRepo.getSubscribedReviews(bskyToken, pick) }.getOrDefault(emptyList()).take(30) else emptyList()
+            // Each account's blogs and reviews live on its own PDS: they're
+            // read once per half hour per account, however many rows (or
+            // refreshes) want them, so rows never add up to a burst of reads.
+            val now = com.mediaviewer.platform.currentTimeMillis()
+            fun stale(m: HashMap<String, Long>, did: String) = now - (m[did] ?: 0L) > WRITINGS_TTL_MS
+            if (feed.blogs) {
+                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) { pick.filter { stale(blogsReadAt, it) } }
+                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedBlogs(bskyToken, need) }.onSuccess { got ->
+                    com.mediaviewer.platform.synchronizedCompat(writingsLock) {
+                        need.forEach { blogsReadAt[it] = now; blogsByDid[it] = emptyList() }
+                        got.groupBy { it.author.did }.forEach { (d, l) -> blogsByDid[d] = l }
+                    }
+                }
+            }
+            if (feed.reviews) {
+                val need = com.mediaviewer.platform.synchronizedCompat(writingsLock) { pick.filter { stale(reviewsReadAt, it) } }
+                if (need.isNotEmpty()) runCatching { bskyRepo.getSubscribedReviews(bskyToken, need) }.onSuccess { got ->
+                    com.mediaviewer.platform.synchronizedCompat(writingsLock) {
+                        need.forEach { reviewsReadAt[it] = now; reviewsByDid[it] = emptyList() }
+                        got.groupBy { it.author.did }.forEach { (d, l) -> reviewsByDid[d] = l }
+                    }
+                }
+            }
+            val (blogs, reviews) = com.mediaviewer.platform.synchronizedCompat(writingsLock) {
+                (if (feed.blogs) pick.flatMap { blogsByDid[it].orEmpty() }.sortedByDescending { it.blog.createdAt }.take(30) else emptyList()) to
+                    (if (feed.reviews) pick.flatMap { reviewsByDid[it].orEmpty() }.sortedByDescending { it.review.createdAt }.take(30) else emptyList())
+            }
             setHubList(key) { it.copy(blogs = blogs, reviews = reviews) }
         }
     }
+    private val writingsLock = Any()
+    private val blogsByDid = HashMap<String, List<FriendLeafletBlog>>()
+    private val reviewsByDid = HashMap<String, List<FriendPopfeedReview>>()
+    private val blogsReadAt = HashMap<String, Long>()
+    private val reviewsReadAt = HashMap<String, Long>()
+    private val WRITINGS_TTL_MS = 30 * 60_000L
 
     /** Feed Builder → Add list by link: resolves a bsky.app list link. */
     fun resolveListForBuilder(input: String, onDone: (com.mediaviewer.util.LocalFeedSource?, String?) -> Unit) {

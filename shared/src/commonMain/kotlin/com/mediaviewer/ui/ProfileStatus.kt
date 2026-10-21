@@ -611,9 +611,11 @@ fun ProfileBannerVideo(
 
 /**
  * One player per profile video on screen, shared by every view of it (the
- * profile's banner or icon and the same one full screen). Starting a second
- * player for a video that's already playing, and shutting it down again on
- * close, is what stalled the profile's own videos.
+ * profile's banner or icon and the same one full screen), so opening it full
+ * screen doesn't start (and closing it doesn't shut down) a second one.
+ * Nothing is lost by sharing: these videos always play the original file,
+ * straight from the owner's PDS (see ProfileBannerVideo), never a
+ * compressed copy. (Pictures aren't shared: full screen loads the original.)
  */
 internal object SharedProfileVideos {
     private class Held(val player: FeedVideoPlayer, var count: Int)
