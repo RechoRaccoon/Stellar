@@ -48,6 +48,11 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -465,7 +470,7 @@ fun FeedBuilderPopup(
     var blogs by remember { mutableStateOf(initial.blogs) }
     var reviews by remember { mutableStateOf(initial.reviews) }
     // Which "add" panel is open.
-    var adding by remember { mutableStateOf("lists") }
+    var adding by remember { mutableStateOf("folders") }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -519,15 +524,17 @@ fun FeedBuilderPopup(
     }
 
     // (Only the X closes it: a stray tap outside would lose the feed.)
-    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop, dismissOnOutsideTap = false) {
+    // (One height whatever's in it, so adding or removing a source doesn't
+    // make it jump up and down as it re-centers.)
+    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop, dismissOnOutsideTap = false, fixedHeight = true) {
         Column(
-            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             LocalTextField(name, { name = it.take(40) }, "Name it", tint, capitalization = KeyboardCapitalization.Words)
 
             // ── Sources ──
-            Card("Posts From", if (sources.isEmpty()) "Add where its posts come from. Mix as many as you like." else null) {
+            Card("Posts From") {
                 sources.forEach { src ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f))
@@ -552,11 +559,11 @@ fun FeedBuilderPopup(
                     }
                 }
                 Chips {
+                    LocalChip("Folders", adding == "folders", tint, { adding = "folders"; error = null })
                     LocalChip("My Lists", adding == "lists", tint, { adding = "lists"; error = null })
                     LocalChip("Accounts", adding == "account", tint, { adding = "account"; input = ""; error = null })
                     LocalChip("Hashtags", adding == "hashtag", tint, { adding = "hashtag"; input = ""; error = null })
                     LocalChip("Tags", adding == "tag", tint, { adding = "tag"; input = ""; error = null })
-                    LocalChip("Folders", adding == "folders", tint, { adding = "folders"; error = null })
                     LocalChip("List Link", adding == "link", tint, { adding = "link"; input = ""; error = null })
                 }
                 when (adding) {
@@ -590,18 +597,27 @@ fun FeedBuilderPopup(
                     }
                     else -> {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            LocalTextField(
+                            // (An account: the composer's own @mention guess —
+                            // the single most likely account, dimmed after
+                            // what's typed; Tab, a swipe right, Done or Add takes it.)
+                            var accountGuess by remember { mutableStateOf<String?>(null) }
+                            if (adding == "account") AccountGuessField(
+                                input, { input = it; error = null }, tint, Modifier.weight(1f),
+                                onGuess = { accountGuess = it }, onDone = { submitInput() }
+                            ) else LocalTextField(
                                 input, { input = it; error = null },
                                 when (adding) {
                                     "link" -> "https://bsky.app/profile/…/lists/…"
-                                    "account" -> "handle.bsky.social"
                                     "tag" -> "A tag, like red_fox"
                                     else -> "hashtag"
                                 },
                                 tint, Modifier.weight(1f), capitalization = KeyboardCapitalization.None
                             )
                             Spacer(Modifier.width(8.dp))
-                            LocalPillButton(if (busy) "…" else "Add", liquidGlass, tint, { submitInput() }, enabled = input.isNotBlank() && !busy)
+                            LocalPillButton(if (busy) "…" else "Add", liquidGlass, tint, {
+                                if (adding == "account") accountGuess?.let { input = it }
+                                submitInput()
+                            }, enabled = input.isNotBlank() && !busy)
                         }
                         if (adding == "tag" && tagIdeas.isNotEmpty()) Chips {
                             tagIdeas.forEach { idea ->
@@ -635,7 +651,7 @@ fun FeedBuilderPopup(
             }
 
             // ── Layout ──
-            Card("Layout", "How it looks as a row.") {
+            Card("Layout") {
                 Chips {
                     listOf(
                         "natural" to "As Posted", "square" to "Squares", "tiktok" to "Portrait",
@@ -729,5 +745,60 @@ fun FolderPrivacyToggle(public: Boolean, tint: Color, modifier: Modifier = Modif
             contentDescription = if (public) "Public" else "Private",
             tint = Color.White, modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+/**
+ * Feed Creator → Accounts: a handle field with the composer's @mention
+ * autocomplete — the single most likely account, dimmed after what's typed
+ * (see MentionSuggest); Tab, a swipe right across it, or Done takes it.
+ * [onGuess] hears the whole handle it would complete to (null = none).
+ */
+@Composable
+private fun AccountGuessField(
+    value: String, onValueChange: (String) -> Unit, tint: Color, modifier: Modifier,
+    onGuess: (String?) -> Unit, onDone: () -> Unit
+) {
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+    if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length))
+    var guess by remember { mutableStateOf<String?>(null) }
+    val typed = value.trim().removePrefix("@")
+    LaunchedEffect(typed) {
+        if (typed.isEmpty()) { guess = null; onGuess(null); return@LaunchedEffect }
+        if (guess?.startsWith(typed.lowercase()) != true) { guess = null; onGuess(null) }
+        kotlinx.coroutines.delay(120)
+        guess = com.mediaviewer.util.MentionSuggest.complete(typed)
+        onGuess(guess)
+    }
+    val ghost = guess?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) && it.length > typed.length }?.drop(typed.length)
+    fun accept(): Boolean {
+        val g = guess?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) } ?: return false
+        guess = null; onGuess(null)
+        onValueChange(g)
+        return true
+    }
+    val transformation = if (ghost == null || field.selection.end != field.text.length) androidx.compose.ui.text.input.VisualTransformation.None
+        else remember(ghost, field.selection.end) { ghostTransformation(androidx.compose.ui.text.input.VisualTransformation.None, field.selection.end, ghost) }
+    Box(
+        modifier.fillMaxWidth().heightIn(min = 44.dp).popupFieldWell(tint, RoundedCornerShape(22.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = field, onValueChange = { field = it; onValueChange(it.text) },
+            singleLine = true, visualTransformation = transformation,
+            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (!accept()) onDone() }),
+            modifier = Modifier.fillMaxWidth()
+                .then(androidx.compose.ui.Modifier.onPreviewKeyEvent { e ->
+                    e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Tab && ghost != null && accept()
+                })
+                .then(androidx.compose.ui.Modifier.pointerInput(ghost != null) {
+                    if (ghost == null) return@pointerInput
+                    detectHorizontalDragGestures { change, amount -> if (amount > 6f && accept()) change.consume() }
+                })
+        )
+        if (value.isEmpty()) Text("handle.bsky.social", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, maxLines = 1)
     }
 }

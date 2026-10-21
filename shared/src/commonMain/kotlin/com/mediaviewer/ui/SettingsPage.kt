@@ -1967,7 +1967,8 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                 else { platform.setScrobblerEnabled(context, false, ""); scope.launch { refresh() } }
             }
         }
-        if (bskyLoggedIn && (on || status.imports.isNotEmpty() || status.importReading)) {
+        // (Its own thing: importing doesn't need scrobbling switched on.)
+        if (bskyLoggedIn) {
             BubbleDivider()
             BubbleRow {
                 RowLabel(

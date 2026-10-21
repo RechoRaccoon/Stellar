@@ -638,9 +638,11 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     // is up the whole app page is recorded here as their live backdrop
     // (only then — nothing extra is drawn the rest of the time).
     val feedShareOpen = sendPopupTarget?.id?.startsWith(com.mediaviewer.viewmodel.MainViewModel.PROFILE_SHARE_PREFIX + "feed:") == true
-    val localPopupShown = (com.mediaviewer.ui.LocalOverlays.popupOpen || feedShareOpen) && liquidGlass
+    // (The camera notch's open bubble blurs the app behind it too.)
+    val localPopupShown = (com.mediaviewer.ui.LocalOverlays.popupOpen || feedShareOpen || com.mediaviewer.ui.NotchGeometry.expanded) && liquidGlass
     val appLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val appBackdrop = remember(appLayer) { GlassBackdrop(appLayer) { androidx.compose.ui.geometry.Offset.Zero } }
+    com.mediaviewer.ui.NotchGeometry.backdrop = appBackdrop
     Box(Modifier.fillMaxSize().then(
         if (localPopupShown) Modifier.recordBackdrop(appLayer) else Modifier
     ).then(
@@ -1362,85 +1364,6 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             }
         }
 
-        // Item 8: the camera-notch ring — hugs the real display cutout and
-        // is ALWAYS visible: composed unconditionally, after every other
-        // in-app layer (feed, Hub, profiles, Search, DMs, composer, VRM
-        // mode), with a zIndex above the DM-feed loading screen. Only the
-        // cold-launch cover and the pixel transition draw over it.
-        // Tapping (expanding into Camera/VRM) works on the Hub, a visible
-        // profile page and the posting page (a photo taken there is added
-        // to the draft); everywhere else it's a passive ring that
-        // lets touches fall through to whatever is underneath.
-        run {
-            // The notch button wears the feed's current dominant color — except
-            // while the Hub (SettingsSheet) is open, where every other piece
-            // of hub UI tints itself with the logged-in user's OWN profile
-            // color instead (see SettingsSheet's dominantColor shadowing).
-            // The button follows the same rule so it doesn't stick out in
-            // the wrong color over the hub.
-            val profileVisible = profileOverlay?.let { !it.hidden && profileRevealArmed } == true
-            // The posting page always gets a working notch (it may have been
-            // opened on top of Search/DMs, whose flags stay set underneath).
-            val notchInteractive = !vrmModeOpen && !cameraModeOpen && (composePostOpen || (
-                !searchOpen && !dmInboxOpen && !inboxOpen && !taggingOverlayOpen && playingLive == null &&
-                    (profileVisible || screenState == ScreenState.SETTINGS)))
-            val openProfile = profileOverlay
-            val notchTint = if (vrmModeOpen || cameraModeOpen || composePostOpen) {
-                val selfAvatar = selfProfile?.author?.avatarUrl
-                com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
-            } else if (dmInboxOpen && !dmHiddenBehindFeed) {
-                // (A post opened from a DM is in front: it falls through to
-                // the post's own color below.)
-                // DMs: in a 1:1 chat the notch wears the other person's
-                // profile colors (like the chat itself); the inbox and group
-                // chats keep yours.
-                val openThread = dmThread
-                if (openThread != null && !openThread.convo.isGroup && openThread.convo.member.did.isNotBlank()) {
-                    com.mediaviewer.ui.rememberAuthorProfileTint(openThread.convo.member.did, openThread.convo.member.avatarUrl)
-                } else {
-                    com.mediaviewer.ui.rememberSelfTint(selfProfile?.author?.avatarUrl, currentDominantColor)
-                }
-            } else if (profileVisible && openProfile != null) {
-                // On a profile page the notch wears that profile's own color —
-                // the same banner/avatar blend the page's glass uses.
-                val bannerColor = rememberDominantColor(openProfile.profile?.bannerUrl ?: openProfile.author.avatarUrl ?: "")
-                val avatarColor = rememberDominantColor(openProfile.author.avatarUrl ?: "")
-                Color(
-                    red = (bannerColor.red + avatarColor.red) / 2f,
-                    green = (bannerColor.green + avatarColor.green) / 2f,
-                    blue = (bannerColor.blue + avatarColor.blue) / 2f,
-                    alpha = 1f
-                )
-            } else if (inboxOpen || screenState == ScreenState.SETTINGS || screenState == ScreenState.GRID) {
-                // The Hub, the Inbox and Explore/grid mode wear your own color.
-                val selfAvatar = selfProfile?.author?.avatarUrl
-                com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
-            } else {
-                currentDominantColor
-            }
-            CameraNotchButton(
-                liquidGlass = liquidGlass,
-                tint = notchTint,
-                interactive = notchInteractive,
-                // iOS's two bubbles: the Hub and the posting page only
-                // (not profile pages, where Android's ring also works).
-                showButtons = notchInteractive && (composePostOpen || !profileVisible),
-                modifier = Modifier.zIndex(11f),
-                // Camera: Stellar's own camera page (see CameraModeScreen).
-                // The QR page closes when Camera / VRM mode opens over it.
-                onOpenCamera = { qrTarget = null; viewModel.openCameraMode() },
-                onOpenVrm = { qrTarget = null; viewModel.openVrmMode() }
-            )
-            // Settings → App Functionality → "FPS Overlay": the frame rate in
-            // the same color the current page (and the notch ring) wears.
-            if (com.mediaviewer.util.UiToggles.debugOverlay) {
-                com.mediaviewer.ui.DebugOverlay(
-                    tint = notchTint,
-                    modifier = Modifier.align(Alignment.TopCenter).zIndex(14f)
-                )
-            }
-        }
-
         // Bug fix (item 3): unconditional opaque backing for the cold-boot
         // window described above — sits above every other layer (matching
         // PixelMatrixOverlay's own z-order) so nothing real is reachable
@@ -1534,6 +1457,88 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         com.mediaviewer.ui.SpaceOverlay(controller = pixelController.space, modifier = Modifier.fillMaxSize().zIndex(13f))
 
     } // the blurred app content
+
+        // (Outside the recorded app content, so its open bubble can blur that
+        // recording — see NotchGeometry.expanded — without drawing into it.)
+        // Item 8: the camera-notch ring — hugs the real display cutout and
+        // is ALWAYS visible: composed unconditionally, after every other
+        // in-app layer (feed, Hub, profiles, Search, DMs, composer, VRM
+        // mode), with a zIndex above the DM-feed loading screen. Only the
+        // cold-launch cover and the pixel transition draw over it.
+        // Tapping (expanding into Camera/VRM) works on the Hub, a visible
+        // profile page and the posting page (a photo taken there is added
+        // to the draft); everywhere else it's a passive ring that
+        // lets touches fall through to whatever is underneath.
+        run {
+            // The notch button wears the feed's current dominant color — except
+            // while the Hub (SettingsSheet) is open, where every other piece
+            // of hub UI tints itself with the logged-in user's OWN profile
+            // color instead (see SettingsSheet's dominantColor shadowing).
+            // The button follows the same rule so it doesn't stick out in
+            // the wrong color over the hub.
+            val profileVisible = profileOverlay?.let { !it.hidden && profileRevealArmed } == true
+            // The posting page always gets a working notch (it may have been
+            // opened on top of Search/DMs, whose flags stay set underneath).
+            val notchInteractive = !vrmModeOpen && !cameraModeOpen && (composePostOpen || (
+                !searchOpen && !dmInboxOpen && !inboxOpen && !taggingOverlayOpen && playingLive == null &&
+                    (profileVisible || screenState == ScreenState.SETTINGS)))
+            val openProfile = profileOverlay
+            val notchTint = if (vrmModeOpen || cameraModeOpen || composePostOpen) {
+                val selfAvatar = selfProfile?.author?.avatarUrl
+                com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
+            } else if (dmInboxOpen && !dmHiddenBehindFeed) {
+                // (A post opened from a DM is in front: it falls through to
+                // the post's own color below.)
+                // DMs: in a 1:1 chat the notch wears the other person's
+                // profile colors (like the chat itself); the inbox and group
+                // chats keep yours.
+                val openThread = dmThread
+                if (openThread != null && !openThread.convo.isGroup && openThread.convo.member.did.isNotBlank()) {
+                    com.mediaviewer.ui.rememberAuthorProfileTint(openThread.convo.member.did, openThread.convo.member.avatarUrl)
+                } else {
+                    com.mediaviewer.ui.rememberSelfTint(selfProfile?.author?.avatarUrl, currentDominantColor)
+                }
+            } else if (profileVisible && openProfile != null) {
+                // On a profile page the notch wears that profile's own color —
+                // the same banner/avatar blend the page's glass uses.
+                val bannerColor = rememberDominantColor(openProfile.profile?.bannerUrl ?: openProfile.author.avatarUrl ?: "")
+                val avatarColor = rememberDominantColor(openProfile.author.avatarUrl ?: "")
+                Color(
+                    red = (bannerColor.red + avatarColor.red) / 2f,
+                    green = (bannerColor.green + avatarColor.green) / 2f,
+                    blue = (bannerColor.blue + avatarColor.blue) / 2f,
+                    alpha = 1f
+                )
+            } else if (inboxOpen || screenState == ScreenState.SETTINGS || screenState == ScreenState.GRID) {
+                // The Hub, the Inbox and Explore/grid mode wear your own color.
+                val selfAvatar = selfProfile?.author?.avatarUrl
+                com.mediaviewer.ui.rememberSelfTint(selfAvatar, currentDominantColor)
+            } else {
+                currentDominantColor
+            }
+            CameraNotchButton(
+                liquidGlass = liquidGlass,
+                tint = notchTint,
+                interactive = notchInteractive,
+                // iOS's two bubbles: the Hub and the posting page only
+                // (not profile pages, where Android's ring also works).
+                showButtons = notchInteractive && (composePostOpen || !profileVisible),
+                modifier = Modifier.zIndex(11f),
+                // Camera: Stellar's own camera page (see CameraModeScreen).
+                // The QR page closes when Camera / VRM mode opens over it.
+                onOpenCamera = { qrTarget = null; viewModel.openCameraMode() },
+                onOpenVrm = { qrTarget = null; viewModel.openVrmMode() }
+            )
+            // Settings → App Functionality → "FPS Overlay": the frame rate in
+            // the same color the current page (and the notch ring) wears.
+            if (com.mediaviewer.util.UiToggles.debugOverlay) {
+                com.mediaviewer.ui.DebugOverlay(
+                    tint = notchTint,
+                    modifier = Modifier.align(Alignment.TopCenter).zIndex(14f)
+                )
+            }
+        }
+
 
         // Popups are glass only over the Timeline (a post on screen and
         // nothing else open); everywhere else they're filled (PopupStyle).

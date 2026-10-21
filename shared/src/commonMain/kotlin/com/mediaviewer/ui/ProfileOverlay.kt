@@ -4065,19 +4065,10 @@ private fun MultiImageCountBadge(count: Int, currentPage: Int = 0, modifier: Mod
 fun HubPostTile(item: MediaItem, tint: Color, liquidGlass: Boolean, height: Dp, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     if (item.isTextOnly && !item.isEmojiTextshot) {
-        val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
-        val tap = rememberHapticTap()
-        Box(
-            Modifier.width(hubPostTileWidth(item, height)).height(height)
-                .textPostFill(authorTint, shape)
-                .clip(shape)
-                .clickable { tap(); onClick() }
-                .padding(10.dp)
-        ) {
-            Text(
-                item.text, color = Color.White.copy(0.92f), fontSize = 10.sp, lineHeight = 13.sp,
-                overflow = TextOverflow.Ellipsis
-            )
+        // Exactly the profile's text tile (the post's own card, its words
+        // laid out and sized as when it's open), shrunk to fit the row.
+        Box(Modifier.width(hubPostTileWidth(item, height)).height(height), contentAlignment = Alignment.Center) {
+            ScaleToFit(Modifier.fillMaxWidth()) { TimelineShapedTextTile(item, liquidGlass, tint, onClick) }
         }
     } else if (item.isEmojiTextshot) {
         Box(Modifier.width(hubPostTileWidth(item, height)).height(height)) {

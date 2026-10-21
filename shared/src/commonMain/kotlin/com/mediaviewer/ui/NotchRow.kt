@@ -27,6 +27,11 @@ import com.mediaviewer.util.rememberHapticTap
 object NotchGeometry {
     var ringSizePx by androidx.compose.runtime.mutableIntStateOf(0)
     var centerYPx by androidx.compose.runtime.mutableFloatStateOf(0f)
+    /** The bubble is open (Camera | VRM): the app is recorded meanwhile as
+     *  its live backdrop, so it can blur what's behind it. */
+    var expanded by androidx.compose.runtime.mutableStateOf(false)
+    /** The whole app as recorded for the bubble (set by AppRoot). */
+    var backdrop: GlassBackdrop? = null
 }
 
 /** The notch bubble's own diameter (a sensible default until it's drawn). */

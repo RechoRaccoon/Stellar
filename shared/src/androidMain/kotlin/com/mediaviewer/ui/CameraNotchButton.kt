@@ -218,8 +218,12 @@ actual fun CameraNotchButton(
             )
         }
 
-        Box(
-            Modifier
+        // Open, it's glass over the app behind it (recorded meanwhile — see
+        // NotchGeometry.expanded), blurring it like every other bubble.
+        androidx.compose.runtime.SideEffect { NotchGeometry.expanded = expanded }
+        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { NotchGeometry.expanded = false } }
+        val notchBackdrop = NotchGeometry.backdrop.takeIf { liquidGlass && expanded }
+        val placed = Modifier
                 .offset {
                     val tl = bubbleTopLeft(width.roundToPx(), height.roundToPx(), screenWidth.toPx() / 2f, 12.dp.toPx())
                     androidx.compose.ui.unit.IntOffset(kotlin.math.floor(tl.x).toInt(), kotlin.math.floor(tl.y).toInt())
@@ -231,12 +235,8 @@ actual fun CameraNotchButton(
                     translationX = tl.x - kotlin.math.floor(tl.x)
                     translationY = tl.y - kotlin.math.floor(tl.y)
                 }
-                .width(width).height(height).clip(shape)
-                .then(
-                    if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
-                    // Flat mode: a translucent tinted fill.
-                    else Modifier.background(tint.copy(alpha = 0.28f))
-                )
+                .width(width).height(height)
+        val ring = Modifier
                 // The ring itself — drawn in BOTH modes, independent of the
                 // glass intensity/rim settings, so the collapsed notch is
                 // always visible (a faint glass rim alone vanished over dark
@@ -244,7 +244,7 @@ actual fun CameraNotchButton(
                 // one keeps it readable when the tint is itself very dark.
                 .border(1.5.dp, Color.White.copy(alpha = 0.35f), shape)
                 .border(1.dp, tint.copy(alpha = 0.9f), shape)
-        ) {
+        val bubbleContent: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {
             if (!expanded && interactive) {
                 // Bare ring — the tappable area is the whole bubble, no
                 // inner icon (see outlinePadding's comment).
@@ -301,6 +301,18 @@ actual fun CameraNotchButton(
                     }
                 }
             }
+        }
+        if (notchBackdrop != null) {
+            LiquidGlassSurface(modifier = placed.then(ring), shape = shape, tint = tint, backdrop = notchBackdrop, content = bubbleContent)
+        } else {
+            Box(
+                placed.clip(shape).then(
+                    if (liquidGlass) Modifier.glassPanel(true, tint = tint, shape = shape)
+                    // Flat mode: a translucent tinted fill.
+                    else Modifier.background(tint.copy(alpha = 0.28f))
+                ).then(ring),
+                content = bubbleContent
+            )
         }
     }
 }

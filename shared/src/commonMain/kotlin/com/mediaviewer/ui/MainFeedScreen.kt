@@ -3297,13 +3297,24 @@ private fun <T : Any> RowScope.AnimatedStatus(value: T?, reducedAnimations: Bool
             // (The space opens up for it, but the bubble itself isn't
             // clipped while it does — it just fades and scales in whole,
             // rounded ends and all.)
-            else fadeIn(tween(220)) + expandIn(tween(260, easing = FastOutSlowInEasing), expandFrom = Alignment.TopCenter, clip = false) + scaleIn(tween(260), initialScale = 0.85f),
+            else expandIn(tween(260, easing = FastOutSlowInEasing), expandFrom = Alignment.TopCenter, clip = false) + scaleIn(tween(260), initialScale = 0.85f),
         exit = if (reducedAnimations) ExitTransition.None
-            else fadeOut(tween(180)) + shrinkOut(tween(240, easing = FastOutSlowInEasing), shrinkTowards = Alignment.TopCenter, clip = false) + scaleOut(tween(240), targetScale = 0.85f)
+            else shrinkOut(tween(240, easing = FastOutSlowInEasing), shrinkTowards = Alignment.TopCenter, clip = false) + scaleOut(tween(240), targetScale = 0.85f)
     ) {
+        // The fade is done here, on each thing the bubble draws, rather than
+        // by AnimatedVisibility's fadeIn: that draws the bubble into a layer
+        // its own size while it's see-through, which cut off its rim and
+        // glow at the edges until it was fully in.
+        val alpha by transition.animateFloat(
+            transitionSpec = { tween(if (targetState == androidx.compose.animation.EnterExitState.Visible) 220 else 180) },
+            label = "statusFade"
+        ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
         @Suppress("UNCHECKED_CAST")
         val shown = (value ?: holder[0]) as T?
-        if (shown != null) content(shown)
+        if (shown != null) Box(Modifier.graphicsLayer {
+            this.alpha = if (reducedAnimations) 1f else alpha
+            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+        }) { content(shown) }
     }
 }
 

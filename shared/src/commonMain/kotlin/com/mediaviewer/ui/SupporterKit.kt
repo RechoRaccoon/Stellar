@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.ime
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -120,6 +121,9 @@ fun LocalPopup(
     backdrop: GlassBackdrop? = null,
     /** False: only the X (or Back) closes it, not a tap outside. */
     dismissOnOutsideTap: Boolean = true,
+    /** True: always [maxHeight] tall (or the screen's room), not its
+     *  content's height — so it doesn't move as its content changes. */
+    fixedHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
@@ -140,6 +144,7 @@ fun LocalPopup(
         PopupSheetSurface(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             modifier = Modifier.widthIn(max = maxWidth).fillMaxWidth().heightIn(max = maxHeight)
+                .then(if (fixedHeight) Modifier.fillMaxHeight() else Modifier)
                 .graphicsLayer {
                     val sc = 0.92f + 0.08f * appear.value
                     scaleX = sc; scaleY = sc
@@ -150,7 +155,8 @@ fun LocalPopup(
             if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
             Column(Modifier.fillMaxWidth()) {
                 PopupSheetHeader(title = title, liquidGlass = liquidGlass, tint = tint, backdrop = null, onClose = onClose, subtitle = subtitle)
-                Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp, top = 6.dp), content = content)
+                Column(Modifier.fillMaxWidth().then(if (fixedHeight) Modifier.weight(1f) else Modifier)
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp, top = 6.dp), content = content)
             }
         }
     }
