@@ -2359,10 +2359,11 @@ private fun ProfileIdentityCentered(
 
 /**
  * Profile Layout 4: compact, with the banner shown whole above it. The
- * picture is tucked up over the banner's bottom edge at the left, its status
- * floating above its top-right; beside it, just under the banner, the
- * display name (one line, shrunk to fit), the handle and the counts — all
- * ending above the picture's bottom. The bio runs the full width under them.
+ * picture sits in its own row under the banner at the left, its status
+ * floating above its top-right; beside it the display name (one line, shrunk
+ * to fit), the handle and the counts, spread from the picture's top edge to
+ * its bottom edge. The bio runs the full width under them, as far below as
+ * the row is below the banner.
  */
 @Composable
 private fun ProfileCompactIdentity(
@@ -2372,13 +2373,13 @@ private fun ProfileCompactIdentity(
     onOpenMention: (String) -> Unit, onResolveActor: suspend (String) -> String?,
     onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
 ) {
-    val avatarSize = 96.dp
-    val lift = 30.dp
+    val avatarSize = 88.dp
+    // The space between the banner and this row, and between this row and the bio.
+    val sectionGap = 10.dp
     val side = PROFILE_EDGE + 4.dp
-    androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(horizontal = side)) { constraints ->
+    androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap)) { constraints ->
         val w = constraints.maxWidth
         val gap = 12.dp.roundToPx()
-        val up = lift.roundToPx()
         val avatar = subcompose("avatar") {
             ProfileAvatarGlass(
                 url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = null,
@@ -2388,7 +2389,7 @@ private fun ProfileCompactIdentity(
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
         val info = subcompose("info") {
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Column(verticalArrangement = Arrangement.SpaceBetween) {
                 ShrinkToFitRow(Modifier.fillMaxWidth()) {
                     Text(
                         author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp,
@@ -2404,7 +2405,7 @@ private fun ProfileCompactIdentity(
                     )
                 }
                 if (profile != null) {
-                    ShrinkToFitRow(Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                    ShrinkToFitRow(Modifier.fillMaxWidth()) {
                         CountStat(profile.postsCount, "Posts")
                         CountStat(profile.followersCount, "Followers")
                         CountStat(profile.followsCount, "Following")
@@ -2412,15 +2413,13 @@ private fun ProfileCompactIdentity(
                     }
                 }
             }
-        }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0)))
-        // The picture's bottom, measured from the banner's bottom edge.
-        val avatarBottom = avatar.height - up
-        val infoY = 6.dp.roundToPx()
-        val height = maxOf(avatarBottom, infoY + info.height + 4.dp.roundToPx())
+        }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0), minHeight = avatar.height))
+        val height = maxOf(avatar.height, info.height)
+        val avatarY = (height - avatar.height) / 2
         // The status bubble: its pointer a little above and right of the
         // picture's top-right, floating over the banner.
         val tipX = (avatar.width * 0.86f).toInt()
-        val tipY = -up + (avatar.height * 0.08f).toInt()
+        val tipY = avatarY + (avatar.height * 0.08f).toInt()
         val status = com.mediaviewer.util.ProfileStyles.statusOf(author.did)
         val statusPlaceable = if (status == null && !isOwnProfile) null else subcompose("status") {
             ProfileStatusBubble(status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus)
@@ -2428,8 +2427,8 @@ private fun ProfileCompactIdentity(
             androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX).coerceAtLeast(0), maxHeight = 80.dp.roundToPx())
         )
         layout(w, height) {
-            avatar.placeRelative(0, -up)
-            info.placeRelative(avatar.width + gap, infoY)
+            avatar.placeRelative(0, avatarY)
+            info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
     }
@@ -2437,10 +2436,10 @@ private fun ProfileCompactIdentity(
     if (bio.isNotBlank()) {
         LinkableBioText(
             text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
-            modifier = Modifier.fillMaxWidth().padding(start = side, end = side, top = 10.dp, bottom = 4.dp)
+            modifier = Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap, bottom = 4.dp)
         )
     } else if (loadingProfile) {
-        CircularProgressIndicator(Modifier.padding(start = side, top = 10.dp).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
+        CircularProgressIndicator(Modifier.padding(start = side, top = sectionGap).size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
     }
 }
 
