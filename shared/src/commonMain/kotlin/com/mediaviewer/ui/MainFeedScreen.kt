@@ -90,6 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.node.requireDensity
 import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -2039,8 +2040,11 @@ private fun PostContent(
         // (While the video's seek bar is over the text bubble, the bubble
         // and the interaction bar slide down out of the way — the bar's own
         // rise in reverse — and come back up when the controls go.)
+        // (Landscape: the bubbles sit over the video itself, so they go
+        // whenever its controls show — and the Explore / Hide UI buttons
+        // in the same bottom cluster go with them.)
         val bottomUiAway by androidx.compose.animation.core.animateFloatAsState(
-            targetValue = if (videoControlsVisible && seekBarOverBubbles) 1f else 0f,
+            targetValue = if (videoControlsVisible && (seekBarOverBubbles || (landscape && item.isVideo && !item.isBlocked && !uiHidden))) 1f else 0f,
             animationSpec = if (reducedAnimations) snap() else tween(if (videoControlsVisible) 280 else 220, easing = FastOutSlowInEasing),
             label = "bottomUiAway"
         )
@@ -2330,30 +2334,14 @@ private fun PostContent(
             }
         }
 
-        // Landscape with the UI hidden: any tap brings it back (watched
-        // without consuming, so swipes, double-tap-to-like etc still work).
+        // Landscape with the UI hidden: a single tap brings it back. Watched
+        // without consuming, and shared with what's under it (a plain
+        // pointerInput on top would keep every touch to itself), so with the
+        // UI hidden the post still scrolls to the next one, opens comments,
+        // zooms, opens the shortcut wheel and goes to the Hub, as in portrait.
         if (tapToRevealUi) {
             val revealLatest by rememberUpdatedState(onRevealUi)
-            Box(
-                Modifier.fillMaxSize().zIndex(7f).pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        val startMs = down.uptimeMillis
-                        var moved = false
-                        var multi = false
-                        while (true) {
-                            val ev = awaitPointerEvent(PointerEventPass.Initial)
-                            if (ev.changes.size > 1) multi = true
-                            val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                            if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
-                            if (!c.pressed) {
-                                if (!moved && !multi && c.uptimeMillis - startMs < 350) revealLatest()
-                                break
-                            }
-                        }
-                    }
-                }
-            )
+            Box(Modifier.fillMaxSize().zIndex(7f).then(TapToRevealElement { revealLatest() }))
         }
 
         // Items 5-8: rendered as a sibling of the recorded backdrop box (same
@@ -4828,4 +4816,44 @@ private fun LandscapeFullscreenButton(
             Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(24.dp))
         }
     }
+}
+
+
+/** A tap anywhere (not a drag, not two fingers, quickly let go): [onTap].
+ *  Sees every touch without taking it, and lets the siblings under it see
+ *  it too (see sharePointerInputWithSiblings). */
+private class TapToRevealElement(val onTap: () -> Unit) : androidx.compose.ui.node.ModifierNodeElement<TapToRevealNode>() {
+    override fun create() = TapToRevealNode(onTap)
+    override fun update(node: TapToRevealNode) { node.onTap = onTap }
+    override fun equals(other: Any?) = other is TapToRevealElement && other.onTap === onTap
+    override fun hashCode() = onTap.hashCode()
+}
+
+private class TapToRevealNode(var onTap: () -> Unit) : Modifier.Node(), androidx.compose.ui.node.PointerInputModifierNode {
+    private var downId: PointerId? = null
+    private var downAt = Offset.Zero
+    private var downMs = 0L
+    private var cancelled = false
+
+    override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
+        if (pass != PointerEventPass.Initial) return
+        val changes = pointerEvent.changes
+        val id = downId
+        if (id == null) {
+            val first = changes.firstOrNull { it.pressed && !it.previousPressed } ?: return
+            downId = first.id; downAt = first.position; downMs = first.uptimeMillis; cancelled = changes.count { it.pressed } > 1
+            return
+        }
+        if (changes.count { it.pressed } > 1) cancelled = true
+        val c = changes.firstOrNull { it.id == id } ?: run { downId = null; return }
+        val slop = 8f * requireDensity().density
+        if ((c.position - downAt).getDistance() > slop) cancelled = true
+        if (!c.pressed) {
+            if (!cancelled && c.uptimeMillis - downMs < 350) onTap()
+            downId = null
+        }
+    }
+
+    override fun onCancelPointerInput() { downId = null }
+    override fun sharePointerInputWithSiblings(): Boolean = true
 }

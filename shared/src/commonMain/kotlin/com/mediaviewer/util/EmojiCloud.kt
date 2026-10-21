@@ -126,7 +126,10 @@ object EmojiCloud {
         // (Only ever [did]'s own library: each account keeps its own.)
         store.useAccount(did)
         store.load()
-        val records = r.list(did)
+        // Oldest first (record keys are times): emoji and folders brought in
+        // from another device arrive in the order they were added there,
+        // not reversed (the PDS lists newest first).
+        val records = r.list(did).sortedBy { it.rkey }
         val byHash = records.filter { it.hash.isNotBlank() }.groupBy { it.hash }
         val localByHash = LinkedHashMap<String, EmojiEntry>()
         for (e in store.state.index.emojis) hashFor(store, e)?.let { h -> if (h !in localByHash) localByHash[h] = e }
@@ -259,8 +262,14 @@ object EmojiCloud {
         text.forEachIndexed { i, c ->
             val e = at[i]
             if (e == null || c.toString() != HIDDEN) { if (c.toString() != HIDDEN) out.append(c); return@forEachIndexed }
-            val hash = if (e.did == did) byCid[e.cid] else null
+            val mine = e.did == did
+            val hash = if (mine) byCid[e.cid] else null
+            // By its picture when this device knows the upload; otherwise
+            // (it was uploaded from another device, or this one's upload
+            // list was never filled in) by its name in your own library, so
+            // it comes back as the emoji and not as ":name:".
             val entry = hash?.let { h -> store.state.index.emojis.firstOrNull { hashFor(store, it) == h } }
+                ?: if (mine && e.name.isNotBlank()) store.state.index.emojis.firstOrNull { it.name == e.name } else null
             if (entry != null) out.append(store.charFor(entry)) else out.append(':').append(e.name.ifBlank { "emoji" }).append(':')
         }
         return out.toString()

@@ -2216,6 +2216,9 @@ private fun E621AccountBubble(
 /** Business contact shown on the About page. */
 internal const val STELLAR_CONTACT_EMAIL = "RechoRaccoonBusiness@proton.me"
 
+/** Where bug reports and feature requests go (GitHub Issues takes both). */
+internal const val STELLAR_ISSUES_URL = "https://github.com/RechoRaccoon/Stellar/issues"
+
 /**
  * Settings → About: every credit on one compact screen (no scrolling), with
  * the business contact at the bottom. On a short screen the whole block
@@ -2288,6 +2291,15 @@ internal fun AboutPageContent() {
 
             Header("Open source")
             Small("Jetpack Compose, Media3/ExoPlayer, CameraX, Filament, Coil, OkHttp, Retrofit, Gson, ZXing, and the Audiowide font by Astigmatic (SIL OFL).")
+
+            Header("Bugs & feature requests")
+            Small("Found a bug or have an idea? Open an issue on Stellar's GitHub:")
+            Text(
+                STELLAR_ISSUES_URL.removePrefix("https://"), color = recho, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 2.dp).clip(RoundedCornerShape(6.dp))
+                    .clickable { tap(); runCatching { uriHandler.openUri(STELLAR_ISSUES_URL) } }
+                    .padding(vertical = 2.dp)
+            )
 
             Spacer(Modifier.height(12.dp))
             Small("All trademarks, logos and cover art belong to their respective owners. Stellar is independent and not affiliated with or endorsed by the services above.")
@@ -2764,26 +2776,22 @@ private fun OpenLinksSetupDialog(liquidGlass: Boolean, tint: Color, onDismiss: (
     }
 }
 
-/** Data and Privacy → Private Sync: how it's doing, Sync Now, and the
- *  Secret Key (hidden until asked for, then copyable). */
+/** Data and Privacy → Data Sync Key: hidden until asked for, then shown on
+ *  one line; Copy, Show and Regenerate beside it. (Syncing itself runs on
+ *  its own, so there's no switch or Sync Now for it.) */
 @Composable
 private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
     val sync = com.mediaviewer.util.PrivateSync
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var reveal by remember { mutableStateOf(false) }
-    var confirmRegen by remember { mutableStateOf(false) }
     var regenerating by remember { mutableStateOf(false) }
     var regenError by remember { mutableStateOf<String?>(null) }
     var newKeyShown by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    val ready = sync.state == com.mediaviewer.util.PrivateSync.State.READY
     val key = remember(sync.state, reveal, regenerating) { if (reveal) sync.savedSecretKey() else null }
+    // Only shown while the key can't be used yet, so the row still says why.
     val status = when (sync.state) {
-        com.mediaviewer.util.PrivateSync.State.READY -> when {
-            sync.syncing -> "Syncing…"
-            sync.lastError != null -> sync.lastError
-            sync.lastSynced > 0L -> com.mediaviewer.util.formatRelativeTime(com.mediaviewer.util.isoFromMillis(sync.lastSynced)).let { if (it == "just now") "Synced just now" else "Synced $it ago" }
-            else -> "On"
-        }
+        com.mediaviewer.util.PrivateSync.State.READY -> if (regenerating) "Encrypting your data again…" else regenError
         com.mediaviewer.util.PrivateSync.State.OFFLINE -> "Can't reach your PDS right now; trying again soon"
         com.mediaviewer.util.PrivateSync.State.CHECKING -> "Checking…"
         com.mediaviewer.util.PrivateSync.State.NEEDS_KEY -> "Waiting for your sync key"
@@ -2792,49 +2800,28 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
     }
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
-            RowLabel("Private Data Sync", Modifier.weight(1f), sub = "Drafts, notes, bookmark folders, archive and Hub layout, encrypted on your PDS (settings stay on each device) · $status")
-            PillButton("Sync Now", { sync.syncNow() }, enabled = !sync.syncing &&
-                (sync.state == com.mediaviewer.util.PrivateSync.State.READY || sync.state == com.mediaviewer.util.PrivateSync.State.OFFLINE))
-        }
-        if (sync.state == com.mediaviewer.util.PrivateSync.State.READY) {
-            BubbleDivider()
-            BubbleRow {
-                RowLabel("Sync Key", Modifier.weight(1f), sub = if (key == null) "Enter it on a new device to sync it. Never show it to anyone." else null)
-                if (key != null) PillButton("Copy", { clipboard.setText(androidx.compose.ui.text.AnnotatedString(key)) })
+            RowLabel("Data Sync Key", Modifier.weight(1f), sub = status)
+            if (ready) {
+                PillButton("Copy", { sync.savedSecretKey()?.let { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) } })
                 Spacer(Modifier.width(6.dp))
                 PillButton(if (reveal) "Hide" else "Show", { reveal = !reveal })
-            }
-            if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyBox(key) }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel(
-                    "Regenerate Sync Key", Modifier.weight(1f),
-                    sub = regenError ?: if (regenerating) "Encrypting your data again…" else "Your data is encrypted again with a new key and the old copy is deleted. Your other devices will need the new key."
-                )
-                PillButton("Regenerate", { confirmRegen = true }, enabled = !regenerating && !sync.syncing)
+                Spacer(Modifier.width(6.dp))
+                PillButton("Regenerate", {
+                    LocalOverlays.confirm = ConfirmRequest(
+                        "Regenerate Sync Key?",
+                        "Stellar will encrypt your synced data again with a new key and delete the old copy. Your old key will stop working, and every other device signed in to this account will have to enter the new key before it can sync again.",
+                        "Regenerate", tint
+                    ) {
+                        regenerating = true; regenError = null
+                        val e = sync.regenerateKey()
+                        regenerating = false
+                        if (e == null) { reveal = true; newKeyShown = true } else regenError = e
+                    }
+                }, enabled = !regenerating && !sync.syncing)
             }
         }
+        if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyLine(key) }
     }
-    if (confirmRegen) androidx.compose.ui.window.Dialog(
-        onDismissRequest = { confirmRegen = false },
-        properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()
-    ) { Box(Modifier.fillMaxSize()) {
-        ConfirmPopup(
-            title = "Regenerate Sync Key?",
-            message = "Stellar will encrypt your synced data again with a new key and delete the old copy. Your old key will stop working, and every other device signed in to this account will have to enter the new key before it can sync again.",
-            confirmLabel = "Regenerate",
-            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-            onConfirm = {
-                confirmRegen = false; regenerating = true; regenError = null
-                scope.launch {
-                    val e = sync.regenerateKey()
-                    regenerating = false
-                    if (e == null) { reveal = true; newKeyShown = true } else regenError = e
-                }
-            },
-            onDismiss = { confirmRegen = false }
-        )
-    } }
     if (newKeyShown) androidx.compose.ui.window.Dialog(
         onDismissRequest = {},
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false, usePlatformDefaultWidth = false)

@@ -14,18 +14,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * The web's visualizer: a page can't hear other apps on its own, so it
- * listens to sound the person shares with it — "Listen" in Settings opens
- * the browser's share prompt (a tab's sound, or on Windows and ChromeOS the
- * whole computer's, with "Share system audio"). Nothing is recorded: the
- * browser's analyser only hands over a spectrum. Sharing stops when the
- * page closes or the browser's own Stop sharing is pressed.
+ * The web's visualizer listens to sound output, never the microphone. On
+ * its own it hears what Stellar itself is playing (its videos are routed
+ * through the page's own analyser). "Listen" in Settings adds another tab's
+ * sound, or on Windows and ChromeOS the whole computer's ("Share system
+ * audio"), where the browser can share it — Firefox can't, so there it stays
+ * on Stellar's own sound. Nothing is recorded: the analyser only hands over
+ * a spectrum. Sharing stops when the page closes or the browser's own Stop
+ * sharing is pressed.
  */
 actual object AudioVisualizerEngine {
     private const val BAR_COUNT = 28
     private var _levels by mutableStateOf(FloatArray(BAR_COUNT))
     actual val levels: FloatArray get() = _levels
-    private var _status by mutableStateOf("Tap Listen to choose what to hear")
+    private var _status by mutableStateOf("Hearing Stellar's own sound · tap Listen to add another tab's")
     actual val status: String get() = _status
     private var _listening by mutableStateOf(false)
     actual val listening: Boolean get() = _listening
@@ -48,26 +50,22 @@ actual object AudioVisualizerEngine {
     }
 
     actual fun startListening(context: PlatformContext) {
-        // (Asked for straight from the tap: browsers only share sound — or
-        // the microphone — while a tap is fresh.)
+        // (Asked for straight from the tap: browsers only share sound while
+        // a tap is fresh.)
         val asked = vizStart()
         scope.launch {
             // The page answers in words, never by failing: a JavaScript error's
             // own message doesn't make it through to here.
             val answer = runCatching { asked.await<JsString>().toString() }.getOrDefault("error")
-            val heard = answer == "ok" || answer == "mic"
-            _status = when {
-                answer == "ok" -> "Listening"
-                // Firefox (and others) can't share a tab's sound: the
-                // microphone hears what's playing instead.
-                answer == "mic" -> "Listening through the microphone (this browser can't share a tab's sound)"
-                answer == "denied" -> "Not shared"
-                answer == "mic-denied" -> "The microphone wasn't allowed"
-                answer == "unsupported" -> "This browser can't hear sound"
-                else -> "Couldn't start listening"
+            _status = when (answer) {
+                "ok" -> "Listening to the shared sound"
+                "denied" -> "Not shared · hearing Stellar's own sound"
+                "no-audio" -> "Nothing with sound was shared · hearing Stellar's own sound"
+                "unsupported" -> "This browser can't share other tabs' sound · hearing Stellar's own sound"
+                else -> "Couldn't start listening · hearing Stellar's own sound"
             }
-            _listening = heard
-            if (heard && users > 0) startLoop()
+            _listening = answer == "ok"
+            if (users > 0) startLoop()
         }
     }
 
@@ -75,9 +73,10 @@ actual object AudioVisualizerEngine {
         if (job?.isActive == true) return
         job = scope.launch {
             while (isActive) {
-                val active = vizActive()
-                if (_listening && !active) { _listening = false; _status = "Sharing stopped — tap Listen to start again" }
-                val data = if (active) vizRead() else null
+                if (_listening && !vizSharedActive()) { _listening = false; _status = "Sharing stopped · hearing Stellar's own sound" }
+                // Stellar's own videos join the analyser as they appear.
+                vizAttachOwn()
+                val data = vizRead()
                 _levels = if (data == null) bands.decay() else {
                     val bytes = data.toByteArray()
                     bands.update(FloatArray(bytes.size) { (bytes[it].toInt() and 0xFF) / 255f }, vizRate().toFloat())
@@ -91,8 +90,15 @@ actual object AudioVisualizerEngine {
 private fun vizStart(): kotlin.js.Promise<JsString> = js("""(() => {
     const S = window.__stellarViz || (window.__stellarViz = {});
     const md = navigator.mediaDevices;
-    if (!md) return Promise.resolve("unsupported");
-    const setup = (stream, audio) => {
+    // Firefox shares no sound with a screen or tab.
+    if (!md || !md.getDisplayMedia || /firefox/i.test(navigator.userAgent)) return Promise.resolve("unsupported");
+    return md.getDisplayMedia({
+        video: true,
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        systemAudio: 'include'
+    }).then((stream) => {
+        const audio = stream.getAudioTracks();
+        if (!audio.length) { stream.getTracks().forEach((t) => t.stop()); return "no-audio"; }
         if (S.stream && S.stream !== stream) S.stream.getTracks().forEach((t) => t.stop());
         if (S.ctx) { try { S.ctx.close(); } catch (e) {} }
         const ctx = new AudioContext();
@@ -102,28 +108,49 @@ private fun vizStart(): kotlin.js.Promise<JsString> = js("""(() => {
         if (ctx.state === 'suspended') ctx.resume();
         S.stream = stream; S.ctx = ctx; S.an = an; S.data = new Uint8Array(an.frequencyBinCount); S.rate = ctx.sampleRate;
         audio[0].addEventListener('ended', () => { S.an = null; });
-    };
-    const mic = () => {
-        if (!md.getUserMedia) return Promise.resolve("unsupported");
-        return md.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
-            .then((stream) => { setup(stream, stream.getAudioTracks()); return "mic"; })
-            .catch(() => "mic-denied");
-    };
-    // Firefox shares no sound with a screen or tab: straight to the microphone.
-    const tabSound = md.getDisplayMedia && !/firefox/i.test(navigator.userAgent);
-    if (!tabSound) return mic();
-    return md.getDisplayMedia({
-        video: true,
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        systemAudio: 'include'
-    }).then((stream) => {
-        const audio = stream.getAudioTracks();
-        if (!audio.length) { stream.getTracks().forEach((t) => t.stop()); return mic(); }
-        setup(stream, audio);
         return "ok";
-    }).catch((e) => (e && e.name === 'NotAllowedError') ? "denied" : mic());
+    }).catch((e) => (e && e.name === 'NotAllowedError') ? "denied" : "error");
 })()""")
 
-private fun vizActive(): Boolean = js("!!(window.__stellarViz && window.__stellarViz.an)")
-private fun vizRead(): JsBytes? = js("(() => { const S = window.__stellarViz; if (!S || !S.an) return null; S.an.getByteFrequencyData(S.data); return S.data; })()")
-private fun vizRate(): Double = js("(window.__stellarViz && window.__stellarViz.rate) || 48000")
+/**
+ * Routes each of Stellar's own <video> elements through one analyser on its
+ * way to the speakers. Only ones whose sound the page may read (hls.js
+ * streams, which play from blob: URLs): a cross-site file without sharing
+ * headers would go silent once routed. And only while the page's audio is
+ * running (after the first tap), so nothing is ever routed into a stopped
+ * context and muted.
+ */
+private fun vizAttachOwn(): Unit = js("""{
+    const S = window.__stellarViz || (window.__stellarViz = {});
+    if (!S.own) {
+        try {
+            const ctx = new AudioContext();
+            const an = ctx.createAnalyser();
+            an.fftSize = 2048; an.smoothingTimeConstant = 0.55;
+            an.connect(ctx.destination);
+            S.own = { ctx: ctx, an: an, data: new Uint8Array(an.frequencyBinCount) };
+            const wake = () => { if (ctx.state !== 'running') ctx.resume().catch(() => {}); };
+            for (const name of ['pointerdown', 'keydown', 'touchend']) document.addEventListener(name, wake, { capture: true });
+        } catch (e) { S.own = { failed: true }; }
+    }
+    const own = S.own;
+    if (!own.failed && own.ctx.state === 'running') {
+        document.querySelectorAll('#stellar-video-layer video').forEach((v) => {
+            if (v.__vizSource) return;
+            const readable = !!v.__hls || (v.currentSrc || '').startsWith('blob:');
+            if (!readable) return;
+            try { v.__vizSource = own.ctx.createMediaElementSource(v); v.__vizSource.connect(own.an); }
+            catch (e) { v.__vizSource = 'none'; }
+        });
+    }
+}""")
+
+private fun vizSharedActive(): Boolean = js("!!(window.__stellarViz && window.__stellarViz.an)")
+/** The shared sound's spectrum if there is one, else Stellar's own. */
+private fun vizRead(): JsBytes? = js("""(() => {
+    const S = window.__stellarViz; if (!S) return null;
+    if (S.an) { S.an.getByteFrequencyData(S.data); return S.data; }
+    if (S.own && S.own.an && S.own.ctx.state === 'running') { S.own.an.getByteFrequencyData(S.own.data); return S.own.data; }
+    return null;
+})()""")
+private fun vizRate(): Double = js("(window.__stellarViz && (window.__stellarViz.an ? window.__stellarViz.rate : (window.__stellarViz.own && window.__stellarViz.own.ctx && window.__stellarViz.own.ctx.sampleRate))) || 48000")

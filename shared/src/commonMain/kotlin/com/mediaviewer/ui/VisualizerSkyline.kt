@@ -78,7 +78,10 @@ fun AudioVisualizerSkyline(screen: String?, color: Color, modifier: Modifier = M
         val tops = VisualizerFloors.floors.values.filter { it.first == screen }.map { it.second }
             .filter { it.bottom > 0f && it.top < size.height && it.top > size.height * 0.3f }
         val radius = CornerRadius(barW / 2f, barW / 2f)
-        for (i in 0 until count) {
+        // (The first and last places stay empty: at the far left the first
+        // bar stood alone beside the post's interaction bar, and the right
+        // end drops one too so both sides match.)
+        for (i in 1 until count - 1) {
             // Across the window, each bar takes the band at its place.
             val f = i.toFloat() * (n - 1) / (count - 1).coerceAtLeast(1)
             val lo = f.toInt().coerceIn(0, n - 1)

@@ -142,7 +142,7 @@ internal fun LazyListScope.profileListsRows(
                     Text("${ofKind.size}", color = DimGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-            landscapeGridRows(ofKind, Landscape.lanes(1, wideDp, 460), key = { "lists_${it.kind.name}_${it.uri}" }, spacing = 0.dp) { entry, cell ->
+            landscapeGridRows(ofKind, Landscape.textCardLanes(wideDp), key = { "lists_${it.kind.name}_${it.uri}" }, spacing = 0.dp) { entry, cell ->
                 ProfileListRow(
                     modifier = cell,
                     entry = entry, liquidGlass = liquidGlass, tint = tint,

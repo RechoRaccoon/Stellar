@@ -81,6 +81,10 @@ private suspend fun AwaitPointerEventScope.dragSideways(
             }
             break
         }
+        // Held still past a long press first: that's a press-and-hold drag
+        // of what's under the mouse (an emoji folder being moved), not the
+        // row being scrolled, so the row lets it go.
+        if (!dragging && change.uptimeMillis - first.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) break
         val dx = change.position.x - change.previousPosition.x
         totalX += dx
         totalY += change.position.y - change.previousPosition.y

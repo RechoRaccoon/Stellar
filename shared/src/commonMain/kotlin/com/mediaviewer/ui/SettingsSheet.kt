@@ -1605,7 +1605,7 @@ private fun AtProtocolPageContent(
     }
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
-        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+        Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().sideListScaled()) {
             PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
             SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
@@ -1617,6 +1617,7 @@ private fun AtProtocolPageContent(
             Box(Modifier.fillMaxWidth().height(0.dp).zIndex(3f), contentAlignment = Alignment.BottomCenter) {
                 HubRemoveDropTarget(feedDrag, liquidGlass, visible = feedDrag.sideActive, tint = dominantColor)
             }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(top = 6.dp)) { HubSizeSlider(dominantColor) }
             Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp).padding(top = 6.dp, bottom = 10.dp)) { topBar?.invoke() }
         }
         SideListEdge(dominantColor)
@@ -1626,6 +1627,8 @@ private fun AtProtocolPageContent(
             .weight(1f)
             .fillMaxHeight()
             .clipToBounds()
+            // Landscape: the Hub Size slider in the side list.
+            .then(if (hubSidebar) Modifier.drawnAtScale { com.mediaviewer.util.UiToggles.hubScale } else Modifier)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)

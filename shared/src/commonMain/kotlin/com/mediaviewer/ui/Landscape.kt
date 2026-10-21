@@ -11,6 +11,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -51,9 +56,14 @@ object Landscape {
     fun postLanes(portrait: Int, widthDp: Int): Int = com.mediaviewer.util.UiToggles.landscapeColumns
 
     /** Text cards side by side in landscape (a profile's blogs, reviews,
-     *  VODs, lists): as many across as the slider says, each laid out
-     *  [TEXT_CARD_REFERENCE] wide and shrunk to its column (shrinkToWidth). */
-    fun textCardLanes(widthDp: Int): Int = if (widthDp > 0) com.mediaviewer.util.UiToggles.landscapeColumns else 1
+     *  VODs, lists, songs): as many across as the slider says on those tabs
+     *  (UiToggles.landscapeListColumns, apart from the posts' count), each
+     *  laid out [TEXT_CARD_REFERENCE] wide and shrunk to its column
+     *  (shrinkToWidth). */
+    fun textCardLanes(widthDp: Int): Int = if (widthDp > 0) com.mediaviewer.util.UiToggles.landscapeListColumns else 1
+
+    /** Backlog covers: posters, so twice as many across as the cards. */
+    fun posterLanes(widthDp: Int): Int = if (widthDp > 0) com.mediaviewer.util.UiToggles.landscapeListColumns * 2 else 3
     val TEXT_CARD_REFERENCE: Dp = 420.dp
 
     /** Video cards (horizontal videos): as many across as the slider says. */
@@ -214,36 +224,6 @@ fun <T> LazyListScope.landscapeGridRows(
  * or cut off; it just gets smaller. At [reference] or wider, it's laid out
  * as normal.
  */
-/** Landscape's side lists: always laid out at [reference] wide and scaled,
- *  up or down, to the width they really have — dragging the list's edge
- *  makes everything in it bigger or smaller together, never squished or
- *  stretched. */
-fun Modifier.scaleToFit(reference: Dp): Modifier = this.then(
-    Modifier.layout { measurable, constraints ->
-        val ref = reference.roundToPx()
-        val w = constraints.maxWidth
-        val inf = androidx.compose.ui.unit.Constraints.Infinity
-        if (w == inf || w <= 0 || constraints.maxHeight == inf) {
-            val p = measurable.measure(constraints)
-            layout(p.width, p.height) { p.place(0, 0) }
-        } else {
-            val scale = w.toFloat() / ref
-            val p = measurable.measure(
-                androidx.compose.ui.unit.Constraints(
-                    minWidth = ref, maxWidth = ref,
-                    minHeight = (constraints.minHeight / scale).toInt(), maxHeight = (constraints.maxHeight / scale).toInt()
-                )
-            )
-            layout(w, (p.height * scale).toInt().coerceAtMost(constraints.maxHeight)) {
-                p.placeWithLayer(0, 0) {
-                    scaleX = scale; scaleY = scale
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                }
-            }
-        }
-    }
-)
-
 fun Modifier.shrinkToFit(reference: Dp): Modifier = this.then(
     Modifier.layout { measurable, constraints ->
         val ref = reference.roundToPx()
@@ -269,3 +249,85 @@ fun Modifier.shrinkToFit(reference: Dp): Modifier = this.then(
         }
     }
 )
+
+/**
+ * Landscape's side lists: their buttons drawn at [UiToggles.sideListScale]
+ * (pinch the list, or Ctrl + the mouse wheel over it), whatever width the
+ * list is dragged to — a wider list gives the same buttons more room
+ * instead of blowing them up. Layout is in dp, so the buttons are the same
+ * size on every device until the person changes it.
+ */
+fun Modifier.sideListScaled(): Modifier = this
+    .pinchToScale(
+        get = { com.mediaviewer.util.UiToggles.sideListScale },
+        set = { v, save -> com.mediaviewer.util.UiToggles.updateSideListScale(v, save) }
+    )
+    .drawnAtScale { com.mediaviewer.util.UiToggles.sideListScale }
+
+/**
+ * Lays the content out as if it had 1/[scale] of the room and draws it
+ * [scale] times as big, from the top left — so everything in it grows or
+ * shrinks together and still fills exactly the same space. Read in layout,
+ * so a change to [scale] only lays this out again.
+ */
+fun Modifier.drawnAtScale(scale: () -> Float): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val s = scale()
+        val inf = androidx.compose.ui.unit.Constraints.Infinity
+        val w = constraints.maxWidth
+        if (s == 1f || s <= 0f || w == inf || w <= 0 || constraints.maxHeight == inf) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val inner = (w / s).toInt().coerceAtLeast(1)
+            val p = measurable.measure(
+                androidx.compose.ui.unit.Constraints(
+                    minWidth = inner, maxWidth = inner,
+                    minHeight = (constraints.minHeight / s).toInt(), maxHeight = (constraints.maxHeight / s).toInt()
+                )
+            )
+            layout(w, (p.height * s).toInt().coerceAtMost(constraints.maxHeight)) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = s; scaleY = s
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
+
+/**
+ * Two fingers pinched on this, or Ctrl + the mouse wheel (a trackpad pinch
+ * on a computer arrives as that too), changes a size: [get] reads it, [set]
+ * changes it ([save] true at the end of a pinch and for each wheel step).
+ * Two fingers here zoom instead of scrolling; one finger is left alone.
+ */
+fun Modifier.pinchToScale(get: () -> Float, set: (Float, Boolean) -> Unit): Modifier = this
+    .pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            var zoomed = false
+            do {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.changes.count { it.pressed } >= 2) {
+                    val zoom = event.calculateZoom()
+                    if (zoom != 1f) { set(get() * zoom, false); zoomed = true }
+                    event.changes.forEach { it.consume() }
+                }
+            } while (event.changes.any { it.pressed })
+            if (zoomed) set(get(), true)
+        }
+    }
+    .pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
+                val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                if (dy == 0f) continue
+                val step = 1f + kotlin.math.abs(dy).coerceAtMost(3f) * 0.05f
+                set(if (dy < 0f) get() * step else get() / step, true)
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }

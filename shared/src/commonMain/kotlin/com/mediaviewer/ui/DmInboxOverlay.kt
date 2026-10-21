@@ -320,7 +320,7 @@ fun DmInboxOverlay(
             }
         } else {
             Row(Modifier.fillMaxSize().padding(top = rememberTopCutoutClearance())) {
-                Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+                Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().sideListScaled()) {
                     Header(null, profileTint) { onClose() }
                     HorizontalDivider(color = Color.White.copy(0.08f), thickness = 0.5.dp)
                     PickerPane()

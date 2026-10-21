@@ -36,6 +36,9 @@ object UiToggles {
     private const val KEY_LANDSCAPE_BAR_SCALE = "landscape_bar_scale"
     private const val KEY_LANDSCAPE_COLUMNS = "landscape_columns"
     private const val KEY_SIDE_LIST_WIDTH = "side_list_width_dp"
+    private const val KEY_LANDSCAPE_LIST_COLUMNS = "landscape_list_columns"
+    private const val KEY_SIDE_LIST_SCALE = "side_list_scale"
+    private const val KEY_HUB_SCALE = "hub_scale"
     private const val KEY_STATUS_AMOUNT = "status_amount_" // + unit name
     private const val KEY_STATUS_UNIT = "status_unit"
     // Override App Colors is saved per signed-in account: these are the old
@@ -49,7 +52,6 @@ object UiToggles {
     private const val KEY_DEV_TOOLS_UNLOCKED = "dev_tools_unlocked"
     private const val KEY_DEV_FORCE_SCAN_BUBBLE = "dev_force_scan_bubble"
     private const val KEY_SCAN_BUBBLE_DISMISSED = "scan_bubble_dismissed"
-    private const val KEY_STATUS_NOTICE_SEEN = "status_public_notice_seen"
     private const val KEY_EMOJI_NOTICE_SEEN = "emoji_public_notice_seen"
     private const val KEY_DM_SCALE = "dm_scale"
     private const val KEY_PERFORMANCE_MODE = "performance_mode"
@@ -107,7 +109,7 @@ object UiToggles {
      *  2 — centered where a three-line status is centered;
      *  3 — its top where a three-line status's top is (it grows downward);
      *  4 — as 1, a little higher. */
-    var statusPosition by mutableStateOf(1)
+    var statusPosition by mutableStateOf(4)
         private set
 
     /** Settings → App Functionality → "Show Translation Status" (under
@@ -230,6 +232,45 @@ object UiToggles {
     fun updateLandscapeColumns(columns: Int) {
         landscapeColumns = columns.coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         prefs?.edit()?.putInt(KEY_LANDSCAPE_COLUMNS, landscapeColumns)?.apply()
+    }
+
+    /** Landscape: how many across the grids of bigger cards are — Blogs,
+     *  Reviews, Music History and Collections (Lists/Feeds), on profiles
+     *  and in Search — kept apart from [landscapeColumns] (posts), since a
+     *  card there needs more room than a post's picture. */
+    var landscapeListColumns by mutableStateOf(LANDSCAPE_DEFAULT_LIST_COLUMNS)
+        private set
+    const val LANDSCAPE_DEFAULT_LIST_COLUMNS = 3
+
+    fun updateLandscapeListColumns(columns: Int) {
+        landscapeListColumns = columns.coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
+        prefs?.edit()?.putInt(KEY_LANDSCAPE_LIST_COLUMNS, landscapeListColumns)?.apply()
+    }
+
+    /** Landscape: how big the side list's buttons are drawn (pinch the
+     *  list, or Ctrl + the mouse wheel over it). Its width is set apart,
+     *  by its edge: widening it gives the same buttons more room, it
+     *  doesn't blow them up. */
+    var sideListScale by mutableStateOf(1f)
+        private set
+    const val SIDE_LIST_MIN_SCALE = 0.6f
+    const val SIDE_LIST_MAX_SCALE = 2f
+
+    /** Sets [sideListScale] now; [save] writes it (at the end of a pinch). */
+    fun updateSideListScale(value: Float, save: Boolean) {
+        sideListScale = value.coerceIn(SIDE_LIST_MIN_SCALE, SIDE_LIST_MAX_SCALE)
+        if (save) prefs?.edit()?.putFloat(KEY_SIDE_LIST_SCALE, sideListScale)?.apply()
+    }
+
+    /** Landscape: how big the Hub's rows are (the Hub Size slider). */
+    var hubScale by mutableStateOf(1f)
+        private set
+    const val HUB_MIN_SCALE = 0.6f
+    const val HUB_MAX_SCALE = 1.6f
+
+    fun updateHubScale(value: Float, save: Boolean) {
+        hubScale = value.coerceIn(HUB_MIN_SCALE, HUB_MAX_SCALE)
+        if (save) prefs?.edit()?.putFloat(KEY_HUB_SCALE, hubScale)?.apply()
     }
 
     const val LANDSCAPE_BAR_MIN_SCALE = 0.7f
@@ -356,17 +397,10 @@ object UiToggles {
         if (save) prefs?.edit()?.putFloat(KEY_DM_SCALE, dmScale)?.apply()
     }
 
-    /** The one-time notices that statuses (and their history) and custom
-     *  emoji are public have been seen (and closed). */
-    var statusNoticeSeen by mutableStateOf(false)
-        private set
+    /** The one-time notice that custom emoji are public has been seen
+     *  (and closed). */
     var emojiNoticeSeen by mutableStateOf(false)
         private set
-
-    fun markStatusNoticeSeen() {
-        statusNoticeSeen = true
-        prefs?.edit()?.putBoolean(KEY_STATUS_NOTICE_SEEN, true)?.apply()
-    }
 
     fun markEmojiNoticeSeen() {
         emojiNoticeSeen = true
@@ -399,7 +433,7 @@ object UiToggles {
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
         profileLayout = p.getInt(KEY_PROFILE_LAYOUT, DEFAULT_PROFILE_LAYOUT).coerceIn(1, PROFILE_LAYOUTS)
-        statusPosition = p.getInt(KEY_STATUS_POSITION, 1).coerceIn(1, STATUS_POSITIONS)
+        statusPosition = p.getInt(KEY_STATUS_POSITION, 4).coerceIn(1, STATUS_POSITIONS)
         showTranslationStatus = p.getBoolean(KEY_SHOW_TRANSLATION_STATUS, true)
         // (The web never has loading screens: it loads straight into the page.)
         loadingAnimation = if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE
@@ -411,13 +445,15 @@ object UiToggles {
         landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
         landscapeColumns = p.getInt(KEY_LANDSCAPE_COLUMNS, LANDSCAPE_DEFAULT_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         sideListWidthDp = p.getInt(KEY_SIDE_LIST_WIDTH, SIDE_LIST_DEFAULT_DP).coerceIn(SIDE_LIST_MIN_DP, SIDE_LIST_MAX_DP)
+        landscapeListColumns = p.getInt(KEY_LANDSCAPE_LIST_COLUMNS, LANDSCAPE_DEFAULT_LIST_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
+        sideListScale = p.getFloat(KEY_SIDE_LIST_SCALE, 1f).coerceIn(SIDE_LIST_MIN_SCALE, SIDE_LIST_MAX_SCALE)
+        hubScale = p.getFloat(KEY_HUB_SCALE, 1f).coerceIn(HUB_MIN_SCALE, HUB_MAX_SCALE)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)
         devForceScanBubble = p.getBoolean(KEY_DEV_FORCE_SCAN_BUBBLE, false)
         scanBubbleDismissed = p.getBoolean(KEY_SCAN_BUBBLE_DISMISSED, false)
         customizeHubCollapsed = p.getBoolean(KEY_CUSTOMIZE_HUB_COLLAPSED, false)
-        statusNoticeSeen = p.getBoolean(KEY_STATUS_NOTICE_SEEN, false)
         emojiNoticeSeen = p.getBoolean(KEY_EMOJI_NOTICE_SEEN, false)
         dmScale = p.getFloat(KEY_DM_SCALE, 1f).coerceIn(1f, DM_SCALE_MAX)
         performanceMode = p.getBoolean(KEY_PERFORMANCE_MODE, false)

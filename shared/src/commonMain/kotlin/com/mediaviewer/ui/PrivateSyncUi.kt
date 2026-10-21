@@ -207,6 +207,23 @@ internal fun SecretKeyBox(key: String) {
     }
 }
 
+/** The key as it's typed, dashes and all, on a single line: the text
+ *  shrinks to fit the width instead of wrapping. */
+@Composable
+internal fun SecretKeyLine(key: String) {
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(0.07f)).padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // A monospace character is about 0.6 of its size wide.
+        val fit = (maxWidth.value / (key.length.coerceAtLeast(1) * 0.62f)).coerceIn(8f, 16f)
+        Text(
+            key, color = Color.White, fontSize = fit.sp, maxLines = 1, softWrap = false,
+            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
 @Composable
 private fun UnlockStep(tint: Color, onStartedOver: () -> Unit) {
     val scope = rememberCoroutineScope()

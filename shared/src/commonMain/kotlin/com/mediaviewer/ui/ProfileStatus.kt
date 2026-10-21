@@ -522,8 +522,6 @@ fun ProfileStatusEditor(
                 onDismiss = { pendingDelete = null }
             )
         }
-        // (The first time: statuses are public.)
-        PublicDataNotice(PublicDataKind.STATUS, liquidGlass = liquidGlass, tint = tint)
     }
 }
 

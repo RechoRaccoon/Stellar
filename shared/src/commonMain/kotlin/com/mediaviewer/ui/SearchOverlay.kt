@@ -534,8 +534,9 @@ fun SearchOverlay(
                     state.filter == MainViewModel.SearchFilter.FEEDS -> {
                         if (state.feeds.isEmpty()) EmptyResultsText() else {
                             val side = rememberLandscapeSidePadding()
+                            val columns = Landscape.textCardLanes(rememberLandscapeWidthDp())
                             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = 96.dp)) {
-                                items(state.feeds, key = { it.uri }) { feed ->
+                                landscapeGridRows(state.feeds, columns, key = { it.uri }, spacing = 0.dp) { feed, cell ->
                                     val entry = remember(feed) {
                                         com.mediaviewer.model.ProfileListEntry(
                                             kind = com.mediaviewer.model.ProfileListKind.FEED, uri = feed.uri,
@@ -552,7 +553,8 @@ fun SearchOverlay(
                                         entry = entry, liquidGlass = liquidGlass, tint = profileTint,
                                         label = if (saved) "Added" else "Add", busy = false, done = saved,
                                         onOpen = { onOpenFeed(entry) },
-                                        onAction = { onListEntryAction(entry) }
+                                        onAction = { onListEntryAction(entry) },
+                                        modifier = cell
                                     )
                                 }
                             }
@@ -576,9 +578,9 @@ fun SearchOverlay(
                     }
                     state.filter == MainViewModel.SearchFilter.ACCOUNTS -> {
                         if (state.accounts.isEmpty()) EmptyResultsText() else {
-                            // Landscape: the accounts side by side, about
-                            // 420 dp each, filling the window.
-                            val columns = Landscape.lanes(1, rememberLandscapeWidthDp(), 420)
+                            // Landscape: the accounts side by side, as many
+                            // across as the cards' Grid Size.
+                            val columns = Landscape.textCardLanes(rememberLandscapeWidthDp())
                             val rows = remember(state.accounts, columns) { state.accounts.chunked(columns) }
                             LazyColumn(
                                 Modifier.fillMaxSize(),
@@ -608,8 +610,9 @@ fun SearchOverlay(
                     state.filter == MainViewModel.SearchFilter.STARTER_PACKS -> {
                         if (state.starterPacks.isEmpty()) EmptyResultsText() else {
                             val side = rememberLandscapeSidePadding()
+                            val columns = Landscape.textCardLanes(rememberLandscapeWidthDp())
                             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = 96.dp)) {
-                                items(state.starterPacks, key = { it.uri }) { pack ->
+                                landscapeGridRows(state.starterPacks, columns, key = { it.uri }, spacing = 0.dp) { pack, cell ->
                                     val entry = remember(pack) {
                                         com.mediaviewer.model.ProfileListEntry(
                                             kind = com.mediaviewer.model.ProfileListKind.STARTER_PACK, uri = pack.uri,
@@ -629,7 +632,8 @@ fun SearchOverlay(
                                         done = action == "Followed" || pack.listUri == null,
                                         onOpen = if (pack.listUri != null) ({ onOpenListEntry(entry) }) else null,
                                         // Following a whole pack asks first.
-                                        onAction = { pendingFollowAll = entry }
+                                        onAction = { pendingFollowAll = entry },
+                                        modifier = cell
                                     )
                                 }
                             }
@@ -644,7 +648,7 @@ fun SearchOverlay(
                 // buttons, the post-type filters, the grid size slider at
                 // the bottom — and the results beside it.
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)) {
+                    Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().sideListScaled()) {
                         // (Back slides out of the bar's left end, as in portrait.)
                         SearchBarBlock(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
                         Spacer(Modifier.height(10.dp))
@@ -660,7 +664,11 @@ fun SearchOverlay(
                                 }
                             }
                         }
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) { GridSizeSlider(profileTint) }
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            GridSizeSlider(profileTint, cards = state.filter in setOf(
+                                MainViewModel.SearchFilter.ACCOUNTS, MainViewModel.SearchFilter.FEEDS, MainViewModel.SearchFilter.STARTER_PACKS
+                            ))
+                        }
                     }
                     SideListEdge(profileTint)
                     Results(Modifier.weight(1f).fillMaxHeight())

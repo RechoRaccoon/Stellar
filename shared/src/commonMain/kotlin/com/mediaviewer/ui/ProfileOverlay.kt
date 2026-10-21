@@ -861,7 +861,9 @@ fun ProfileOverlay(
                     tabs = availableTabs,
                     selected = if (state.selectedTab == MainViewModel.ProfileTab.BACKLOG && MainViewModel.ProfileTab.BACKLOG !in availableTabs)
                         MainViewModel.ProfileTab.REVIEWS else state.selectedTab,
-                    liquidGlass = liquidGlass, tint = blended, onSelect = onSelectTab
+                    liquidGlass = liquidGlass, tint = blended, onSelect = onSelectTab,
+                    reviewsHaveBacklog = MainViewModel.ProfileTab.REVIEWS in state.availableTabs && MainViewModel.ProfileTab.BACKLOG in state.availableTabs,
+                    backlogSelected = state.selectedTab == MainViewModel.ProfileTab.BACKLOG
                 )
                 }
                 // (Side list: a line in the profile's color between the tabs and the filters.)
@@ -913,7 +915,8 @@ fun ProfileOverlay(
                             options = visibleReviewFilters, selected = reviewKindFilter,
                             liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
                             onSelect = onSelectReviewKindFilter,
-                            trailing = if (MainViewModel.ProfileTab.BACKLOG in state.availableTabs) ({
+                            // (Landscape: it's the Reviews button's own end instead.)
+                            trailing = if (MainViewModel.ProfileTab.BACKLOG in state.availableTabs && !LocalSideList.current) ({
                                 FacetPill(listOf("Reviews", "Backlog"), 0, liquidGlass, blended) { if (it == 1) onSelectTab(MainViewModel.ProfileTab.BACKLOG) }
                             }) else null
                         )
@@ -929,7 +932,7 @@ fun ProfileOverlay(
                             options = visibleBacklogFilters, selected = reviewKindFilter,
                             liquidGlass = liquidGlass, tint = blended, labelOf = { it.label() },
                             onSelect = onSelectReviewKindFilter,
-                            trailing = if (MainViewModel.ProfileTab.REVIEWS in state.availableTabs) ({
+                            trailing = if (MainViewModel.ProfileTab.REVIEWS in state.availableTabs && !LocalSideList.current) ({
                                 FacetPill(listOf("Reviews", "Backlog"), 1, liquidGlass, blended) { if (it == 0) onSelectTab(MainViewModel.ProfileTab.REVIEWS) }
                             }) else null
                         )
@@ -989,7 +992,7 @@ fun ProfileOverlay(
         Row(Modifier.fillMaxSize()) {
         if (sideways) LandscapeSideList(
             tint = blended, liquidGlass = liquidGlass, backLabel = "Back", onBack = onClose,
-            footer = { GridSizeSlider(blended) }
+            footer = { GridSizeSlider(blended, cards = state.selectedTab.usesCardGrid()) }
         ) { TabsAndFilters() }
         if (sideways) SideListEdge(blended)
         LazyColumn(
@@ -1788,13 +1791,13 @@ private fun ProfileHeaderSection(
         val bannerBackdrop = remember(liquidGlass, backdropLayer) {
             if (liquidGlass) GlassBackdrop(backdropLayer) { backdropOrigin } else null
         }
-        // The banner is always seen whole: as tall as its own shape needs at
-        // this width (Bluesky's are 3:1), within limits — and if a limit is
-        // reached, it's fitted inside, over a soft copy of itself, never
-        // cropped.
+        // The banner is always seen whole and edge to edge: exactly as tall
+        // as its own shape needs at this width (Bluesky's are 3:1), so it's
+        // never cropped and never boxed in with copies of itself at the
+        // sides (as it was on wide windows, when its height was capped).
         var bannerAspect by remember(profile?.bannerUrl) { mutableStateOf(3f) }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val bannerHeight = (maxWidth / bannerAspect.coerceIn(0.5f, 8f)).coerceIn(112.dp, 280.dp)
+        val bannerHeight = maxWidth / bannerAspect.coerceIn(0.5f, 8f)
         Box(Modifier.fillMaxWidth().height(bannerHeight)) {
             // Only the raw photo + wash gets recorded into the shared backdrop
             // layer — ProfileBannerOverlayLayout (a SubcomposeLayout) is kept
@@ -1816,14 +1819,6 @@ private fun ProfileHeaderSection(
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onOpenBanner() }
             ) {
                 if (profile?.bannerUrl != null) {
-                    // (Behind it, only ever seen if it doesn't fill the space:
-                    // the same picture, softened.)
-                    AsyncImage(
-                        model = profile.bannerUrl, contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize().then(if (CAN_BLUR) Modifier.blur(24.dp) else Modifier)
-                            .graphicsLayer { alpha = 0.55f }
-                    )
                     AsyncImage(
                         model = profile.bannerUrl, contentDescription = null,
                         contentScale = ContentScale.Fit, modifier = Modifier.matchParentSize(),
@@ -2751,12 +2746,26 @@ private fun FacetPill(labels: List<String>, selected: Int, liquidGlass: Boolean,
 @Composable
 private fun ProfileTabsRow(
     tabs: List<MainViewModel.ProfileTab>, selected: MainViewModel.ProfileTab, liquidGlass: Boolean, tint: Color,
-    onSelect: (MainViewModel.ProfileTab) -> Unit
+    onSelect: (MainViewModel.ProfileTab) -> Unit,
+    /** Landscape: the Reviews button's own right end is Reviews | Backlog
+     *  (like Media's Images | Videos) when the profile has both;
+     *  [backlogSelected] says which of the two is showing. */
+    reviewsHaveBacklog: Boolean = false, backlogSelected: Boolean = false
 ) {
     // Landscape's side list: the tabs as an even list of buttons.
     if (LocalSideList.current) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            tabs.forEach { tab -> SideListButton(tab.label(), tab == selected, liquidGlass, tint) { onSelect(tab) } }
+            tabs.forEach { tab ->
+                val split = tab == MainViewModel.ProfileTab.REVIEWS && reviewsHaveBacklog
+                SideListButton(
+                    tab.label(), tab == selected, liquidGlass, tint,
+                    trailing = if (!split) null else ({
+                        MediaFacetEnd(listOf("Reviews", "Backlog"), if (tab == selected) (if (backlogSelected) 1 else 0) else -1) { i ->
+                            onSelect(if (i == 1) MainViewModel.ProfileTab.BACKLOG else MainViewModel.ProfileTab.REVIEWS)
+                        }
+                    })
+                ) { onSelect(tab) }
+            }
         }
         return
     }
@@ -3042,7 +3051,7 @@ private fun LazyListScope.profileResultsContent(
         MainViewModel.ProfileTab.BACKLOG -> {
             val backlog = (tabState?.backlog ?: emptyList()).filter { reviewKindFilter.matchesBacklog(it) }
             profileBacklogGridRows(items = backlog, liquidGlass = liquidGlass, onOpenTitle = onOpenTitle,
-                columns = if (wideDp > 0) Landscape.lanes(3, wideDp, 170) else 3)
+                columns = Landscape.posterLanes(wideDp))
         }
         MainViewModel.ProfileTab.VODS -> {
             landscapeGridRows(tabState?.vods ?: emptyList(), Landscape.textCardLanes(wideDp), key = { "vod_${it.uri}" },
@@ -3067,7 +3076,7 @@ private fun LazyListScope.profileResultsContent(
                 liquidGlass = liquidGlass, tint = profileTint, onLoadMore = onLoadMore,
                 onLongPress = onLongPressTrack,
                 onDoubleTapCover = onDoubleTapCover,
-                columns = Landscape.lanes(1, wideDp, 460)
+                columns = Landscape.textCardLanes(wideDp)
             )
             }
         }

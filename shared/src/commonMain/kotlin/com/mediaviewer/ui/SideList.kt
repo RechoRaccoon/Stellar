@@ -81,9 +81,9 @@ fun rememberSideListWidth(): Dp {
     return com.mediaviewer.util.UiToggles.sideListWidthDp.coerceIn(com.mediaviewer.util.UiToggles.SIDE_LIST_MIN_DP, max).dp
 }
 
-/** The width a side list's content is laid out at; whatever width the list
- *  is dragged to, it all scales evenly to fit (see scaleToFit) instead of
- *  being squeezed or stretched. */
+/** A side list's usual content width: what the landscape comments column
+ *  shrinks to fit when it's narrower (see shrinkToFit). The side lists
+ *  themselves no longer scale with their width (see sideListScaled). */
 val SIDE_LIST_LAYOUT_WIDTH: Dp = 280.dp
 
 /**
@@ -194,7 +194,8 @@ fun SideListDivider(tint: Color) {
 
 /**
  * The side list itself: [rememberSideListWidth] wide, the page's full height,
- * scrolling if it runs long. [footer] sits at the bottom.
+ * scrolling if it runs long, its buttons at the size pinched for them
+ * ([sideListScaled]). [footer] sits at the bottom.
  */
 @Composable
 fun LandscapeSideList(
@@ -205,7 +206,7 @@ fun LandscapeSideList(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
-        modifier.width(rememberSideListWidth()).fillMaxHeight().scaleToFit(SIDE_LIST_LAYOUT_WIDTH)
+        modifier.width(rememberSideListWidth()).fillMaxHeight().sideListScaled()
             .padding(start = 12.dp, end = 12.dp, top = rememberTopCutoutClearance(), bottom = 12.dp)
     ) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -220,14 +221,29 @@ fun LandscapeSideList(
     }
 }
 
-/** Landscape: how many posts across the post grids are (5 to 10). */
+/** Whether this profile tab lays out cards (Blogs, Reviews, Music History,
+ *  Collections…) rather than posts: those have a Grid Size of their own. */
+fun com.mediaviewer.viewmodel.MainViewModel.ProfileTab.usesCardGrid(): Boolean = this !in setOf(
+    com.mediaviewer.viewmodel.MainViewModel.ProfileTab.POSTS,
+    com.mediaviewer.viewmodel.MainViewModel.ProfileTab.REPOSTS,
+    com.mediaviewer.viewmodel.MainViewModel.ProfileTab.LIKES
+)
+
+/**
+ * Landscape: how many across the grids are (1 to 10). There are two sizes,
+ * each saved on its own: posts (Posts, Reposts, Likes, feeds, Explore —
+ * 5 at first) and, with [cards], the bigger cards (Blogs, Reviews, Music
+ * History, Collections — 3 at first). Search's tabs follow the same two.
+ */
 @Composable
-fun GridSizeSlider(tint: Color) {
+fun GridSizeSlider(tint: Color, cards: Boolean = false) {
     // While it's dragged, only the slider moves; the grid takes the new size
     // when it's let go (re-laying every tile out at each step on the way
     // was too much — on the web it ran out of memory and crashed).
-    var dragged by remember { mutableStateOf<Int?>(null) }
-    val columns = dragged ?: com.mediaviewer.util.UiToggles.landscapeColumns
+    var dragged by remember(cards) { mutableStateOf<Int?>(null) }
+    val saved = if (cards) com.mediaviewer.util.UiToggles.landscapeListColumns else com.mediaviewer.util.UiToggles.landscapeColumns
+    fun save(n: Int) = if (cards) com.mediaviewer.util.UiToggles.updateLandscapeListColumns(n) else com.mediaviewer.util.UiToggles.updateLandscapeColumns(n)
+    val columns = dragged ?: saved
     val accent = lerp(tint, Color.White, 0.35f)
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -247,14 +263,14 @@ fun GridSizeSlider(tint: Color) {
             return kotlin.math.round(min + f * (max - min)).toInt().coerceIn(min, max)
         }
         fun commit() {
-            dragged?.let { com.mediaviewer.util.UiToggles.updateLandscapeColumns(it) }
+            dragged?.let { save(it) }
             dragged = null
         }
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier.fillMaxWidth().height(28.dp)
                 .onSizeChanged { widthPx = it.width }
-                .pointerInput(Unit) { detectTapGestures { com.mediaviewer.util.UiToggles.updateLandscapeColumns(at(it.x)) } }
-                .pointerInput(Unit) {
+                .pointerInput(cards) { detectTapGestures { save(at(it.x)) } }
+                .pointerInput(cards) {
                     detectHorizontalDragGestures(
                         onDragStart = { dragged = at(it.x) },
                         onDragEnd = { commit() },
@@ -270,6 +286,48 @@ fun GridSizeSlider(tint: Color) {
             Box(
                 Modifier.padding(start = ((maxWidth - thumbW) * fraction).coerceAtLeast(0.dp))
                     .size(width = thumbW, height = 24.dp).clip(thumbShape).background(Color.White)
+            )
+        }
+    }
+}
+
+/**
+ * Landscape Hub: how big its rows are drawn ([UiToggles.hubScale]). The Hub
+ * isn't a grid of set columns, so this one is smooth and has no number:
+ * the rows grow and shrink as it's dragged, and the size is saved when
+ * it's let go.
+ */
+@Composable
+fun HubSizeSlider(tint: Color) {
+    val accent = lerp(tint, Color.White, 0.35f)
+    val min = com.mediaviewer.util.UiToggles.HUB_MIN_SCALE
+    val max = com.mediaviewer.util.UiToggles.HUB_MAX_SCALE
+    val square = com.mediaviewer.util.UiToggles.squareCorners
+    val shape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
+    var widthPx by remember { mutableStateOf(1) }
+    fun at(x: Float): Float = min + (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f) * (max - min)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        Text("Hub Size", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth().height(28.dp)
+                .onSizeChanged { widthPx = it.width }
+                .pointerInput(Unit) { detectTapGestures { com.mediaviewer.util.UiToggles.updateHubScale(at(it.x), save = true) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { com.mediaviewer.util.UiToggles.updateHubScale(at(it.x), save = false) },
+                        onDragEnd = { com.mediaviewer.util.UiToggles.updateHubScale(com.mediaviewer.util.UiToggles.hubScale, save = true) },
+                        onDragCancel = { com.mediaviewer.util.UiToggles.updateHubScale(com.mediaviewer.util.UiToggles.hubScale, save = true) }
+                    ) { change, _ -> change.consume(); com.mediaviewer.util.UiToggles.updateHubScale(at(change.position.x), save = false) }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            val fraction = ((com.mediaviewer.util.UiToggles.hubScale - min) / (max - min)).coerceIn(0f, 1f)
+            val thumbW = 6.dp
+            Box(Modifier.fillMaxWidth().height(10.dp).clip(shape).background(Color.White.copy(alpha = 0.15f)))
+            Box(Modifier.fillMaxWidth(fraction).height(10.dp).clip(shape).background(accent))
+            Box(
+                Modifier.padding(start = ((maxWidth - thumbW) * fraction).coerceAtLeast(0.dp))
+                    .size(width = thumbW, height = 24.dp).clip(shape).background(Color.White)
             )
         }
     }
