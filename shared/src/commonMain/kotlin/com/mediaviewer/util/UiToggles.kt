@@ -179,8 +179,9 @@ object UiToggles {
         private set
 
     /** Settings → UI Customization → "Audio Visualizer": bars above the
-     *  feed's interaction bar that move to whatever music is playing. */
-    var audioVisualizer by mutableStateOf(true)
+     *  feed's interaction bar that move to whatever music is playing.
+     *  On by default everywhere except the web. */
+    var audioVisualizer by mutableStateOf(com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB)
         private set
 
     /** Settings → UI Customization → "Starry Background": the twinkling
@@ -490,7 +491,8 @@ object UiToggles {
         loadingAnimation = if (com.mediaviewer.platform.currentPlatform == com.mediaviewer.platform.PlatformKind.WEB) LoadingAnimation.NONE
             else p.getString(KEY_LOADING_ANIMATION, null)?.let { name -> LoadingAnimation.entries.firstOrNull { it.name == name } }
                 ?: LoadingAnimation.SPACE
-        audioVisualizer = p.getBoolean(KEY_AUDIO_VISUALIZER, true)
+        // (Off by default on the web; a choice saved in Settings always wins.)
+        audioVisualizer = p.getBoolean(KEY_AUDIO_VISUALIZER, com.mediaviewer.platform.currentPlatform != com.mediaviewer.platform.PlatformKind.WEB)
         starryBackground = p.getBoolean(KEY_STARRY_BACKGROUND, true)
         starFrameRate = p.getInt(KEY_STAR_FRAME_RATE, 30).coerceIn(15, 120)
         landscapeBarScale = p.getFloat(KEY_LANDSCAPE_BAR_SCALE, 1f).coerceIn(LANDSCAPE_BAR_MIN_SCALE, LANDSCAPE_BAR_MAX_SCALE)
