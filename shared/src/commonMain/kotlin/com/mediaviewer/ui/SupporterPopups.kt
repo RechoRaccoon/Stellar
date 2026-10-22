@@ -857,7 +857,7 @@ private fun AccountGuessField(
     LaunchedEffect(typed) {
         if (typed.isEmpty()) { guess = null; onGuess(null); return@LaunchedEffect }
         kotlinx.coroutines.delay(150)
-        guess = com.mediaviewer.util.MentionSuggest.account(typed)
+        guess = com.mediaviewer.util.MentionSuggest.bestAccount(typed)
         onGuess(guess?.handle?.lowercase())
     }
     val handleMatch = guess?.handle?.lowercase()?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) }

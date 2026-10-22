@@ -65,7 +65,7 @@ object MentionSuggest {
      * null. A handle match beats a name match; then mutuals, the accounts
      * you follow, and whoever else.
      */
-    suspend fun account(typed: String): Candidate? {
+    suspend fun bestAccount(typed: String): Candidate? {
         val q = typed.trim().removePrefix("@").lowercase()
         if (q.isEmpty() || q.length > 64) return null
         lock.withLock {
