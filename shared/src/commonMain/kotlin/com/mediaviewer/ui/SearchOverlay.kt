@@ -889,10 +889,16 @@ fun SearchOverlay(
                 destructive = false
             )
         }
-        // All: results found by a tag offer the shared tags too. (The
-        // popup itself is drawn over the whole app: see LocalOverlayHost.)
-        LaunchedEffect(state.filter, state.allTag) {
-            if (state.filter == MainViewModel.SearchFilter.ALL && state.allTag != null) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
+        // All: any search runs the shared tags' install/update check, the
+        // same one opening Tagged runs. (It used to wait until the search
+        // matched a tag — but matching reads the on-device tag data, so
+        // without the dataset nothing could ever match and a first-time
+        // user was never offered it. The check itself only offers when
+        // the dataset is missing or out of date, and at most once a day,
+        // so searching never nags.) The popup itself is drawn over the
+        // whole app: see LocalOverlayHost.
+        LaunchedEffect(state.filter, state.hasSearched) {
+            if (state.filter == MainViewModel.SearchFilter.ALL && state.hasSearched) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
         }
     }
 }
@@ -1389,11 +1395,14 @@ private fun SearchAllResults(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            // (The sub takes all the leftover width itself: with a weighted
+            // Spacer beside it too, the two split the leftover, the sub's
+            // unfilled half is never handed over, and "See all" ends up
+            // stranded mid-row — worst on wide (landscape) screens.)
             if (sub != null) Text(
                 "  ·  $sub", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
-            )
-            Spacer(Modifier.weight(1f))
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+            ) else Spacer(Modifier.weight(1f))
             if (onAll != null) Text(
                 "See all", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onAll() }.padding(horizontal = 10.dp, vertical = 6.dp)
