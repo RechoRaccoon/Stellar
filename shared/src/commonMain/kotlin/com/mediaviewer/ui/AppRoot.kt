@@ -626,7 +626,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         // "I Hate Fun": every tile, grid, search result and page reads this.
         com.mediaviewer.ui.LocalHateFunBlurNsfw provides hateFunBlurNsfw
     ) {
-    Box(Modifier.fillMaxSize().recordLastTap(pixelController.shatter).dismissKeyboardOnOutsideTap()) {
+    Box(Modifier.fillMaxSize().recordLastTap(pixelController.shatter).dismissKeyboardOnOutsideTap().disarmReallyOnTapElsewhere()) {
     // Everything in the app sits in this inner box, which blurs while a
     // welcome/tutorial/support popup is up (the popups are drawn after it).
     // (The layer only exists while a popup is up or fading, so the app is

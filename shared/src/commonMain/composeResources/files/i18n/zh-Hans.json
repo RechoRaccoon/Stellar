@@ -1881,7 +1881,6 @@
 "A piece is missing": "缺少一部分",
 "Adding it to your tags… {0}%": "正在添加到你的标签… {0}%",
 "Adds \":{0}:\" to your own emoji.": "将\":{0}:\"添加到你自己的表情中。",
-"Bluesky's own saved posts": "Bluesky 自带的已保存帖子",
 "Bookmarks": "书签",
 "Can't reach your PDS right now; trying again soon": "暂时无法连接你的 PDS；稍后将重试",
 "Copy Secret Key": "复制密钥",
@@ -2108,5 +2107,12 @@
 "{0} Selected": "已选择 {0} 个",
 "{0} likes · {1}": "{0} 个赞 · {1}",
 "{0} posts and {1} replies archived": "已归档 {0} 条帖子和 {1} 条回复",
-"{0} posts archived": "已归档 {0} 条帖子"
+"{0} posts archived": "已归档 {0} 条帖子",
+"Default Atmosphere Folder": "Atmosphere 默认文件夹",
+"Change cover": "更换封面",
+"Edit Folder": "编辑文件夹",
+"Edit folder": "编辑文件夹",
+"Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "公开:名称和帖子会以未加密形式保存到你的 PDS,并显示在你的个人资料上,任何人都能看到。",
+"Use the default cover": "使用默认封面",
+"Visibility": "可见性"
 }

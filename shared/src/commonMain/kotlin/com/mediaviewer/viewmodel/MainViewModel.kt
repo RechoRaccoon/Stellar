@@ -6566,8 +6566,18 @@ class MainViewModel(
                 _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
                 activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
             )
+            bookmarkFolderReturn = _bookmarkFolderId.value
+            restoreBookmarkFolder = true
         }
-        val pseudo = AuthorInfo(folder.did, PROFILE_FEED_HANDLE_PREFIX + "stellar-folder://" + folder.rkey, folder.name, null)
+        // One of your own: it opens as that bookmark folder (sort, edit,
+        // pick and drag its posts, as in Saved Posts), read from this
+        // device's copy, which is always the newest.
+        val mine = com.mediaviewer.util.LocalData.bookmarkFolders
+            .firstOrNull { folder.did == _bskyDid.value && it.id == folder.rkey }
+        _bookmarkFolderId.value = mine?.id
+        _savedSort.value = 4; savedOrder = emptyList()
+        val uris = mine?.posts ?: folder.posts
+        val pseudo = AuthorInfo(folder.did, PROFILE_FEED_HANDLE_PREFIX + "stellar-folder://" + folder.rkey, mine?.name ?: folder.name, null)
         val cur = _authorFeedState.value
         _authorFeedState.value = cur?.copy(author = pseudo) ?: AuthorFeedSavedState(
             author = pseudo, items = _mediaItems.value, currentIndex = _currentIndex.value,
@@ -6584,14 +6594,17 @@ class MainViewModel(
         _currentIndex.value = 0
         _navDirection.value = 0
         _isLoading.value = true
+        // Over the profile it was opened from (Back brings the profile back).
+        _profileOverlay.value?.let { if (!it.hidden) _profileOverlay.value = it.copy(hidden = true) }
         _screenState.value = ScreenState.GRID
         viewModelScope.launch(ioDispatcher) {
-            val result = bskyRepo.getPostsByUris(bskyToken, folder.posts)
+            val result = bskyRepo.getPostsByUris(bskyToken, uris)
             if (generation != feedLoadGeneration) return@launch
-            val order = folder.posts.withIndex().associate { (i, u) -> u to i }
+            val order = uris.withIndex().associate { (i, u) -> u to i }
             _mediaItems.value = filterHidden(result.getOrNull().orEmpty())
                 .distinctBy { it.postUri }
                 .sortedBy { order[it.postUri] ?: Int.MAX_VALUE }
+                .let { list -> if (mine != null) list.map { it.copy(isBookmarked = true) } else list }
             _isLoading.value = false
         }
     }
@@ -7524,6 +7537,10 @@ class MainViewModel(
             }
         } else {
             val wasBookmarked = item.isBookmarked
+            // Tapping a saved post's bookmark opens its folders instead of
+            // unsaving it: they may want it in another folder too, or out of
+            // just one (unsaving is a tap away in there).
+            if (wasBookmarked) { com.mediaviewer.ui.LocalOverlays.bookmarkFolderFor = item; return }
             updateCurrentItem { it.copy(isBookmarked = !wasBookmarked, bookmarkCount = (it.bookmarkCount + if (wasBookmarked) -1 else 1).coerceAtLeast(0)) }
             // Saved only in folders: unsaving takes it out of them (it isn't
             // in Bluesky's Bookmarks to remove).
@@ -9453,6 +9470,9 @@ class MainViewModel(
         val feedUri: String?, val screen: ScreenState
     )
     private var profileFeedReturn: ProfileFeedReturn? = null
+    /** The Saved Posts folder showing before a public folder was opened over it. */
+    private var bookmarkFolderReturn: String? = null
+    private var restoreBookmarkFolder = false
     /** The feed (or list) [ActiveFeedMode.EXTERNAL] is showing. */
     private var externalFeedUri: String? = null
 
@@ -9526,6 +9546,9 @@ class MainViewModel(
         val back = profileFeedReturn ?: return
         profileFeedReturn = null
         externalFeedUri = null
+        if (restoreBookmarkFolder) _bookmarkFolderId.value = bookmarkFolderReturn
+        bookmarkFolderReturn = null
+        restoreBookmarkFolder = false
         feedLoadGeneration++
         isLoadingMore = false
         _isLoading.value = false

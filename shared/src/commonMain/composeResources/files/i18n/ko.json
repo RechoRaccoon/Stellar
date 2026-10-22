@@ -1881,7 +1881,6 @@
 "A piece is missing": "일부가 빠져 있어요",
 "Adding it to your tags… {0}%": "태그에 추가하는 중… {0}%",
 "Adds \":{0}:\" to your own emoji.": "\":{0}:\"을(를) 내 이모지에 추가해요.",
-"Bluesky's own saved posts": "Bluesky 자체 저장 게시물",
 "Bookmarks": "북마크",
 "Can't reach your PDS right now; trying again soon": "지금은 PDS에 연결할 수 없어요. 곧 다시 시도해요",
 "Copy Secret Key": "비밀 키 복사",
@@ -2108,5 +2107,12 @@
 "{0} Selected": "{0}개 선택됨",
 "{0} likes · {1}": "좋아요 {0} · {1}",
 "{0} posts and {1} replies archived": "게시물 {0}개와 답글 {1}개를 보관했어요",
-"{0} posts archived": "게시물 {0}개를 보관했어요"
+"{0} posts archived": "게시물 {0}개를 보관했어요",
+"Default Atmosphere Folder": "Atmosphere 기본 폴더",
+"Change cover": "표지 바꾸기",
+"Edit Folder": "폴더 편집",
+"Edit folder": "폴더 편집",
+"Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "공개: 이름과 게시물이 암호화되지 않은 채 PDS에 저장되고 프로필에 표시되어 누구나 볼 수 있어요.",
+"Use the default cover": "기본 표지 사용",
+"Visibility": "공개 범위"
 }

@@ -1881,7 +1881,6 @@
 "A piece is missing": "Не хватает части",
 "Adding it to your tags… {0}%": "Добавляем в ваши теги… {0}%",
 "Adds \":{0}:\" to your own emoji.": "Добавляет «:{0}:» в ваши эмодзи.",
-"Bluesky's own saved posts": "Сохранённые посты самого Bluesky",
 "Bookmarks": "Закладки",
 "Can't reach your PDS right now; trying again soon": "Не удаётся связаться с вашим PDS; скоро попробуем снова",
 "Copy Secret Key": "Скопировать секретный ключ",
@@ -2108,5 +2107,12 @@
 "{0} Selected": "Выбрано: {0}",
 "{0} likes · {1}": "Лайков: {0} · {1}",
 "{0} posts and {1} replies archived": "Архивировано постов: {0}, ответов: {1}",
-"{0} posts archived": "Архивировано постов: {0}"
+"{0} posts archived": "Архивировано постов: {0}",
+"Default Atmosphere Folder": "Папка Atmosphere по умолчанию",
+"Change cover": "Сменить обложку",
+"Edit Folder": "Изменить папку",
+"Edit folder": "Изменить папку",
+"Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "Общедоступная: название и посты сохраняются на вашем PDS без шифрования и показываются в профиле, где их видят все.",
+"Use the default cover": "Обложка по умолчанию",
+"Visibility": "Видимость"
 }

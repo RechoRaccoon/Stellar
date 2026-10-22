@@ -217,8 +217,6 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
     var cover by remember { mutableStateOf<String?>(null) }
     // New folders are private (the lock) unless switched to public.
     var makePublic by remember { mutableStateOf(false) }
-    var armed by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(armed) { if (armed != null) { kotlinx.coroutines.delay(3000); armed = null } }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             cover = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
@@ -271,7 +269,7 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Bookmarks", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Bluesky's own saved posts", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                        Text("Default Atmosphere Folder", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
                     }
                     Box(
                         Modifier.size(26.dp).clip(CircleShape)
@@ -308,21 +306,21 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                         )
                     }
                     // Delete the folder (two taps). Its posts stay saved.
-                    val confirming = armed == folder.id
+                    val armKey = "folder:" + folder.id
+                    val confirming = ReallyPrompt.isArmed(armKey)
                     Box(
-                        Modifier.clip(RoundedCornerShape(11.dp))
-                            .background(if (confirming) Color(0xFFE0245E).copy(alpha = 0.3f) else Color.Transparent)
+                        Modifier.reallyTarget(armKey).clip(RoundedCornerShape(11.dp))
+                            .background(if (confirming) Color.White.copy(alpha = 0.12f) else Color.Transparent)
                             .clickable {
                                 tap()
-                                if (confirming) {
-                                    armed = null
-                                    folder.cover?.let { LocalPlatform.deleteMedia(context, it) }
+                                ReallyPrompt.tap(armKey) {
+                                    folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
                                     LocalData.deleteBookmarkFolder(folder.id)
-                                } else armed = folder.id
+                                }
                             }
                             .padding(horizontal = 8.dp, vertical = 6.dp)
                     ) {
-                        if (confirming) Text("Delete?", color = Color(0xFFFF6B8A), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        if (confirming) Text("Really?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         else Icon(Icons.Default.Close, contentDescription = "Delete folder", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(14.dp))
                     }
                     Spacer(Modifier.width(4.dp))
@@ -382,6 +380,101 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
         } else {
             LocalPillButton("New Folder", liquidGlass, tint, { creating = true }, Modifier.fillMaxWidth())
         }
+    }
+}
+
+/**
+ * A bookmark folder's settings (Saved Posts or your profile → a folder →
+ * Edit): its cover, its name, whether it's private or public, and — at the
+ * top right — delete. Cover and privacy take effect as they're picked; the
+ * name when the popup closes (one write, not one per letter).
+ */
+@Composable
+fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClose: () -> Unit) {
+    val folder = LocalData.bookmarkFolders.firstOrNull { it.id == id }
+    // (Deleted, or gone from another device meanwhile.)
+    if (folder == null) { LaunchedEffect(Unit) { onClose() }; return }
+    val context = LocalContext.current
+    val tap = rememberHapticTap()
+    val scope = rememberCoroutineScope()
+    var name by remember(id) { mutableStateOf(folder.name) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            val picked = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
+            if (picked != null) {
+                // (The old picture, if it was one picked here, goes.)
+                folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
+                LocalData.updateBookmarkFolder(id, cover = picked)
+            }
+        }
+    }
+    fun close() {
+        if (name.isNotBlank() && name.trim() != folder.name) LocalData.updateBookmarkFolder(id, name = name)
+        onClose()
+    }
+    LocalPopup(
+        title = "Edit Folder", liquidGlass = liquidGlass, tint = tint, onClose = ::close, backdrop = backdrop,
+        onDelete = {
+            folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
+            LocalData.deleteBookmarkFolder(id)
+            // Showing it now: back to Bookmarks (or off the folder's page).
+            if (LocalOverlays.bookmarkFolderId == id) {
+                if (LocalOverlays.savedPostsShowing) LocalOverlays.onShowBookmarkFolder?.invoke(null)
+                else LocalOverlays.backFromFeed?.invoke()
+            }
+            onClose()
+        }
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The cover: tap to pick a picture.
+            Box(
+                Modifier.size(64.dp).clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    .clickable { tap(); coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                contentAlignment = Alignment.Center
+            ) {
+                FolderCover(folder, tint, Modifier.fillMaxSize())
+                // A pencil in the corner says it can be changed.
+                Box(
+                    Modifier.align(Alignment.BottomEnd).padding(4.dp).size(20.dp).clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Default.Image, contentDescription = "Change cover", tint = Color.White, modifier = Modifier.size(12.dp)) }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                LocalTextField(name, { name = it.take(60) }, "Folder name", tint, capitalization = KeyboardCapitalization.Words)
+                Text(
+                    "${folder.posts.size} post${if (folder.posts.size == 1) "" else "s"}",
+                    color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, start = 6.dp)
+                )
+            }
+        }
+        if (folder.cover != null) Text(
+            "Use the default cover",
+            color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                tap()
+                folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
+                LocalData.updateBookmarkFolder(id, clearCover = true)
+            }.padding(horizontal = 4.dp, vertical = 4.dp)
+        )
+        Spacer(Modifier.height(14.dp))
+        Text("Visibility", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
+        ConnectedChoice(
+            options = listOf(ChoiceOption("Private", Icons.Default.Lock), ChoiceOption("Public", Icons.Default.Public)),
+            selected = if (folder.public) 1 else 0,
+            onSelect = { LocalData.setBookmarkFolderPublic(id, it == 1) },
+            modifier = Modifier.fillMaxWidth(), height = 38.dp, fill = true
+        )
+        Text(
+            if (folder.public) "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them."
+            else "Private: encrypted, only you can see it.",
+            color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, lineHeight = 15.sp,
+            modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp)
+        )
+        Spacer(Modifier.height(14.dp))
+        LocalPillButton("Done", liquidGlass, tint, ::close, Modifier.fillMaxWidth())
     }
 }
 

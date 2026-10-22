@@ -2964,8 +2964,6 @@ private fun DraftsPopup(
     val context = LocalContext.current
     val drafts = com.mediaviewer.util.LocalData.drafts
     val tap = rememberHapticTap()
-    var armed by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(armed) { if (armed != null) { kotlinx.coroutines.delay(3000); armed = null } }
     LocalPopup(title = "Drafts", liquidGlass = liquidGlass, tint = tint, onClose = onDismiss, modifier = Modifier.zIndex(6f), backdrop = backdrop) {
         if (drafts.isEmpty()) {
             Text(
@@ -3008,23 +3006,23 @@ private fun DraftsPopup(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
-                        val confirming = armed == draft.id
+                        val armKey = "draft:" + draft.id
+                        val confirming = ReallyPrompt.isArmed(armKey)
                         Box(
-                            Modifier.clip(RoundedCornerShape(12.dp))
-                                .background(if (confirming) Color(0xFFE0245E).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.10f))
+                            Modifier.reallyTarget(armKey).clip(RoundedCornerShape(12.dp))
+                                .background(if (confirming) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.10f))
                                 .clickable {
                                     tap()
-                                    if (confirming) {
-                                        armed = null
+                                    ReallyPrompt.tap(armKey) {
                                         (draft.posts.flatMap { it.images + listOfNotNull(it.video) } + listOfNotNull(draft.videoUri, draft.videoThumbUri))
                                             .forEach { com.mediaviewer.platform.LocalPlatform.deleteMedia(context, it) }
                                         com.mediaviewer.util.LocalData.deleteDraft(draft.id)
-                                    } else armed = draft.id
+                                    }
                                 }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (confirming) Text("Delete?", color = Color(0xFFFF6B8A), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            if (confirming) Text("Really?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             else Icon(Icons.Default.Close, contentDescription = "Delete draft", tint = Color.White, modifier = Modifier.size(14.dp))
                         }
                     }

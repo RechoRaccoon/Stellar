@@ -1752,11 +1752,14 @@ private fun ProfileInteractionBar(
     }
 }
 
+/** The Back button's size (pages line their title up with it). */
+internal val BACK_BUBBLE_SIZE = 38.dp
+
 @Composable
 internal fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
     val tap = rememberHapticTap()
     val shape = CircleShape
-    val base = Modifier.size(38.dp).clip(shape).clickable { tap(); onClick() }
+    val base = Modifier.size(BACK_BUBBLE_SIZE).clip(shape).clickable { tap(); onClick() }
     val icon: @Composable () -> Unit = {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
     }

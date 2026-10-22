@@ -288,10 +288,6 @@ private fun NotesList(
     val shown = remember(notes, folder) { if (folder == null) notes else notes.filter { it.folderId == folder } }
     var newFolder by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("") }
-    var armedNote by remember { mutableStateOf<String?>(null) }
-    var armedFolder by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(armedNote) { if (armedNote != null) { delay(3000); armedNote = null } }
-    LaunchedEffect(armedFolder) { if (armedFolder != null) { delay(3000); armedFolder = null } }
     val context = LocalContext.current
 
     LaunchAppPage(
@@ -302,14 +298,16 @@ private fun NotesList(
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LocalChip("All Notes", folder == null, tint, { onFolder(null) })
             folders.forEach { f ->
-                val confirming = armedFolder == f.id
+                val armKey = "notefolder:" + f.id
+                val confirming = ReallyPrompt.isArmed(armKey)
                 LocalChip(
-                    if (confirming) "Delete \"${f.name}\"?" else f.name, folder == f.id, if (confirming) Color(0xFFE0245E) else tint,
+                    if (confirming) "Really?" else f.name, folder == f.id, tint,
                     onClick = {
-                        if (confirming) { armedFolder = null; if (folder == f.id) onFolder(null); LocalData.deleteNoteFolder(f.id) }
+                        if (confirming) { ReallyPrompt.disarm(); if (folder == f.id) onFolder(null); LocalData.deleteNoteFolder(f.id) }
                         else onFolder(f.id)
                     },
-                    onLongClick = { armedFolder = f.id }
+                    onLongClick = { ReallyPrompt.arm(armKey) },
+                    modifier = Modifier.reallyTarget(armKey)
                 )
             }
             LocalChip("+ Folder", false, tint, { newFolder = !newFolder })
@@ -334,7 +332,8 @@ private fun NotesList(
             LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(shown, key = { it.id }) { note ->
                     val shape = RoundedCornerShape(18.dp)
-                    val confirming = armedNote == note.id
+                    val armKey = "note:" + note.id
+                    val confirming = ReallyPrompt.isArmed(armKey)
                     val row: @Composable () -> Unit = {
                         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -355,20 +354,19 @@ private fun NotesList(
                                 )
                             }
                             Box(
-                                Modifier.clip(RoundedCornerShape(11.dp))
-                                    .background(if (confirming) Color(0xFFE0245E).copy(alpha = 0.3f) else Color.Transparent)
+                                Modifier.reallyTarget(armKey).clip(RoundedCornerShape(11.dp))
+                                    .background(if (confirming) Color.White.copy(alpha = 0.12f) else Color.Transparent)
                                     .clickable {
                                         tap()
-                                        if (confirming) {
-                                            armedNote = null
+                                        ReallyPrompt.tap(armKey) {
                                             note.body.lines().mapNotNull { noteImageLine.find(it.trim())?.groupValues?.get(1) }
                                                 .forEach { LocalPlatform.deleteMedia(context, it) }
                                             LocalData.deleteNote(note.id)
-                                        } else armedNote = note.id
+                                        }
                                     }
                                     .padding(horizontal = 9.dp, vertical = 7.dp)
                             ) {
-                                if (confirming) Text("Delete?", color = Color(0xFFFF6B8A), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                if (confirming) Text("Really?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 else Icon(Icons.Default.Close, contentDescription = "Delete note", tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
                             }
                         }

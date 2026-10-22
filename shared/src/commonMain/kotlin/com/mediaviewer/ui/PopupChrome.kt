@@ -182,9 +182,13 @@ fun PopupSheetHeader(
     /** A character counter at the right end of the row (e.g. "12/300"),
      *  over the message field's right edge. */
     counter: String? = null,
-    counterOver: Boolean = false
+    counterOver: Boolean = false,
+    /** A delete button at the top right, mirroring the X (two taps:
+     *  the trash icon, then "Really?"). */
+    onDelete: (() -> Unit)? = null
 ) {
-    Box(modifier.fillMaxWidth().padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)) {
+    Box(modifier.fillMaxWidth().padding(start = 10.dp, end = if (onDelete != null) 10.dp else 16.dp, top = 10.dp, bottom = 4.dp)) {
+        if (onDelete != null) PopupDeleteBubble("popup:$title", onDelete, Modifier.align(Alignment.CenterEnd))
         if (counter != null) {
             Text(
                 counter, color = if (counterOver) Color(0xFFFF6B8A) else Color.White.copy(alpha = 0.55f),

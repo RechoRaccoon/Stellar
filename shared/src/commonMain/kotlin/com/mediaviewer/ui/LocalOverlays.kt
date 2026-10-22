@@ -66,6 +66,8 @@ object LocalOverlays {
     var bookmarkFolderForMany by mutableStateOf<List<MediaItem>?>(null)
     /** The profile whose note is being written. */
     var profileNoteFor by mutableStateOf<AuthorInfo?>(null)
+    /** A bookmark folder being edited (name, privacy, cover, delete), by id. */
+    var editFolder by mutableStateOf<String?>(null)
     /** Hub → the "+" after the feeds: the Feed Builder (null = closed;
      *  blank id = a new feed). */
     var feedBuilder by mutableStateOf<com.mediaviewer.util.LocalFeed?>(null)
@@ -115,7 +117,7 @@ object LocalOverlays {
 
     /** One of the popups is up: the app behind it blurs. */
     val popupOpen: Boolean
-        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || feedBuilder != null || pinDmFor != null ||
+        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || editFolder != null || feedBuilder != null || pinDmFor != null ||
             confirm != null
 
     /** Floating web pages, drawn over everything. */
@@ -148,6 +150,7 @@ object LocalOverlays {
         bookmarkFolderFor = null
         bookmarkFolderForMany = null
         profileNoteFor = null
+        editFolder = null
         feedBuilder = null
         editWarningOpen = false
         pinDmFor = null
@@ -199,6 +202,8 @@ object LocalOverlays {
     var savedFeedUris by mutableStateOf<Set<String>>(emptySet())
     /** Saved Posts → the bookmark folder being shown (null = all). */
     var bookmarkFolderId by mutableStateOf<String?>(null)
+    /** Saved Posts is the page showing (not a folder opened from a profile). */
+    var savedPostsShowing by mutableStateOf(false)
     /** Saved Posts › Sort (see MainViewModel.setSavedSort) and dragging a
      *  post onto another's place in a folder (MainViewModel.moveSavedPost). */
     var savedSort by mutableStateOf(4)

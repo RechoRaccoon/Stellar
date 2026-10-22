@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.model.AppMode
+import com.mediaviewer.model.isProfileFeed
 import com.mediaviewer.model.isSpecialFeed
 import com.mediaviewer.model.BskyFeedInfo
 import com.mediaviewer.model.MediaItem
@@ -232,10 +234,17 @@ fun GridScreen(
     DisposableEffect(Unit) { onDispose { PostSelection.clear() } }
     // A profile's own posts (opened from it) and Saved Posts can be picked;
     // the Explore feeds, From Friends and History can't.
-    val selectablePage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let {
-        !it.isSpecialFeed() || it.displayName == "Saved Posts"
-    } == true
     val savedPostsPage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let { it.isSpecialFeed() && it.displayName == "Saved Posts" } == true
+    // One of your own folders, opened from your profile: it works like
+    // that folder in Saved Posts (sort, edit, pick and drag its posts).
+    val ownFolderPage = appMode == AppMode.BLUESKY && LocalOverlays.bookmarkFolderId != null &&
+        authorFeedState?.author?.let { it.isProfileFeed() && it.handle.contains("stellar-folder://") } == true
+    val folderTools = savedPostsPage || ownFolderPage
+    val selectablePage = folderTools || (appMode == AppMode.BLUESKY && authorFeedState?.author?.let { !it.isSpecialFeed() } == true)
+    DisposableEffect(savedPostsPage) {
+        LocalOverlays.savedPostsShowing = savedPostsPage
+        onDispose { LocalOverlays.savedPostsShowing = false }
+    }
     var savedSortOpen by remember { mutableStateOf(false) }
     var savedSortBounds by remember { mutableStateOf<Pair<androidx.compose.ui.geometry.Offset, androidx.compose.ui.unit.IntSize>?>(null) }
     var savedSortRoot by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
@@ -243,7 +252,7 @@ fun GridScreen(
     // is dragged onto the place of whichever post it's over (see
     // PostSelection.reorder).
     val gridOrigin = remember { arrayOf(androidx.compose.ui.geometry.Offset.Zero) }
-    val reorderable = savedPostsPage && LocalOverlays.bookmarkFolderId != null && LocalOverlays.savedSort == 4
+    val reorderable = folderTools && LocalOverlays.bookmarkFolderId != null && LocalOverlays.savedSort == 4
     androidx.compose.runtime.DisposableEffect(reorderable) {
         PostSelection.reorder = if (!reorderable) null else { item, root ->
             val p = root - gridOrigin[0]
@@ -307,6 +316,10 @@ fun GridScreen(
         // The feed row and the post-type filters: the grid's first item in
         // portrait; landscape's side list instead (see SideList).
         val sideways = wideDp > 0
+        // Saved Posts, From Friends, a folder…: the page's name sits level
+        // with the Back button (centered on it) instead of on a row below it.
+        val titleBesideBack = onBack != null && !sideways &&
+            authorFeedState?.author?.let { appMode == AppMode.BLUESKY && it.isSpecialFeed() } == true
         @Composable
         fun HeaderRows() {
             // ── Feeds (profile-style main tabs) / e621 tag search ─────────────
@@ -314,13 +327,25 @@ fun GridScreen(
             if (specialFeed != null) {
                 // Saved Posts / From Friends: their name, big and
                 // centered, in place of the feed selector.
-                if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
-                Text(
-                    specialFeed.displayName,
-                    color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
-                )
+                if (titleBesideBack) {
+                    Box(Modifier.fillMaxWidth().height(BACK_BUBBLE_SIZE).padding(horizontal = 60.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            specialFeed.displayName,
+                            color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                } else {
+                    if (!LocalSideList.current) HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                    Text(
+                        specialFeed.displayName,
+                        color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                    )
+                }
                 // Saved Posts (supporters): Bookmarks (Bluesky's own,
                 // always first) and a bubble per bookmark folder, like the
                 // feed row — tap one to see just that folder.
@@ -333,24 +358,10 @@ fun GridScreen(
                         selectedIndex = folders.indexOfFirst { it.id == openFolder } + 1,
                         liquidGlass = liquidGlass, tint = tint,
                         // Each folder's lock (private, encrypted) or world
-                        // (public, on your profile), shown on its tab; the
-                        // switch itself is the bar's button at the far right.
+                        // (public, on your profile), shown on its tab; it's
+                        // changed (with its name, cover…) from the bar's Edit.
                         trailingIcons = listOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) + folders.map {
                             if (it.public) Icons.Default.Public else Icons.Default.Lock
-                        },
-                        // Pressed and held: rename it.
-                        onLongPress = { i ->
-                            folders.getOrNull(i - 1)?.let { f ->
-                                var req: ConfirmRequest? = null
-                                req = ConfirmRequest(
-                                    "Rename Folder", "", "Rename", tint, destructive = false,
-                                    input = f.name, inputPlaceholder = "Folder name"
-                                ) {
-                                    val name = req?.text?.trim().orEmpty()
-                                    if (name.isNotEmpty()) com.mediaviewer.util.LocalData.updateBookmarkFolder(f.id, name = name)
-                                }
-                                LocalOverlays.confirm = req
-                            }
                         }
                     ) { i ->
                         LocalOverlays.onShowBookmarkFolder?.invoke(if (i == 0) null else folders.getOrNull(i - 1)?.id)
@@ -525,7 +536,7 @@ fun GridScreen(
                     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
                 }) {
                     // (Room for the fixed Back button above the first row.)
-                    Spacer(Modifier.height(topClearance + if (onBack != null) 44.dp else 0.dp))
+                    Spacer(Modifier.height(topClearance + if (onBack != null && !titleBesideBack) 44.dp else 0.dp))
                     if (!sideways) HeaderRows()
                     Spacer(Modifier.height(4.dp))
                 }
@@ -601,9 +612,9 @@ fun GridScreen(
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),
             refreshAnchor = "ex.refresh", gridAnchor = "ex.layout",
-            // Saved Posts: Sort (as on profiles), then — with a folder open —
-            // its lock / world at the far right, to make it private or public.
-            trailing = if (!savedPostsPage) null else ({
+            // Saved Posts (or your folder): Sort (as on profiles), then — with
+            // a folder open — Edit, for its name, privacy, cover and delete.
+            trailing = if (!folderTools) null else ({
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(44.dp).onGloballyPositioned { savedSortBounds = it.positionInRoot() to it.size }
@@ -619,33 +630,16 @@ fun GridScreen(
                     }
                     val openFolder = com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == LocalOverlays.bookmarkFolderId }
                     if (openFolder != null) Box(
-                        Modifier.size(44.dp).clip(CircleShape).clickable {
-                            tap()
-                            val f = openFolder
-                            LocalOverlays.confirm = if (f.public) ConfirmRequest(
-                                "Make \"${f.name}\" Private?",
-                                "It comes off your profile and is kept encrypted, so only you can see it.",
-                                "Make Private", tint, destructive = false
-                            ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, false) }
-                            else ConfirmRequest(
-                                "Make \"${f.name}\" Public?",
-                                "Its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.",
-                                "Make Public", tint, destructive = false
-                            ) { com.mediaviewer.util.LocalData.setBookmarkFolderPublic(f.id, true) }
-                        },
+                        Modifier.size(44.dp).clip(CircleShape).clickable { tap(); LocalOverlays.editFolder = openFolder.id },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            if (openFolder.public) Icons.Default.Public else Icons.Default.Lock,
-                            contentDescription = if (openFolder.public) "Public folder" else "Private folder",
-                            tint = Color.White, modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.Edit, contentDescription = "Edit folder", tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                 }
             })
         )
         // Saved Posts › Sort: the profile's own options, in its bubbles.
-        if (savedPostsPage) Box(Modifier.fillMaxSize().onGloballyPositioned { savedSortRoot = it.positionInRoot() }) {
+        if (folderTools) Box(Modifier.fillMaxSize().onGloballyPositioned { savedSortRoot = it.positionInRoot() }) {
             val bounds = savedSortBounds
             val origin = savedSortRoot
             if (bounds != null && origin != null) {

@@ -1881,7 +1881,6 @@
 "A piece is missing": "Está faltando uma parte",
 "Adding it to your tags… {0}%": "Adicionando às suas marcações… {0}%",
 "Adds \":{0}:\" to your own emoji.": "Adiciona \":{0}:\" aos seus emojis.",
-"Bluesky's own saved posts": "Os posts salvos do próprio Bluesky",
 "Bookmarks": "Favoritos",
 "Can't reach your PDS right now; trying again soon": "Não foi possível acessar seu PDS agora; tentando de novo em breve",
 "Copy Secret Key": "Copiar Chave secreta",
@@ -2108,5 +2107,12 @@
 "{0} Selected": "{0} selecionados",
 "{0} likes · {1}": "{0} curtidas · {1}",
 "{0} posts and {1} replies archived": "{0} publicações e {1} respostas arquivadas",
-"{0} posts archived": "{0} publicações arquivadas"
+"{0} posts archived": "{0} publicações arquivadas",
+"Default Atmosphere Folder": "Pasta padrão da Atmosphere",
+"Change cover": "Alterar capa",
+"Edit Folder": "Editar pasta",
+"Edit folder": "Editar pasta",
+"Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "Pública: o nome e as publicações são salvos sem criptografia no seu PDS e mostrados no seu perfil, onde qualquer pessoa pode vê-los.",
+"Use the default cover": "Usar a capa padrão",
+"Visibility": "Visibilidade"
 }

@@ -124,6 +124,8 @@ fun LocalPopup(
     /** True: always [maxHeight] tall (or the screen's room), not its
      *  content's height — so it doesn't move as its content changes. */
     fixedHeight: Boolean = false,
+    /** A two-tap delete at the top right (see PopupSheetHeader). */
+    onDelete: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
@@ -154,7 +156,7 @@ fun LocalPopup(
             // the filled panel is dark enough already).
             if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
             Column(Modifier.fillMaxWidth()) {
-                PopupSheetHeader(title = title, liquidGlass = liquidGlass, tint = tint, backdrop = null, onClose = onClose, subtitle = subtitle)
+                PopupSheetHeader(title = title, liquidGlass = liquidGlass, tint = tint, backdrop = null, onClose = onClose, subtitle = subtitle, onDelete = onDelete)
                 Column(Modifier.fillMaxWidth().then(if (fixedHeight) Modifier.weight(1f) else Modifier)
                     .padding(start = 14.dp, end = 14.dp, bottom = 14.dp, top = 6.dp), content = content)
             }

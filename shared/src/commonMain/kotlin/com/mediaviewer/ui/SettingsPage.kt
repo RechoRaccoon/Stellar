@@ -1937,16 +1937,6 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
         else -> null
     }
 
-    // Tap-to-arm confirmation for cancelling an import, as elsewhere in
-    // Settings: the first tap asks "Really?", a second within three seconds
-    // does it.
-    var confirmingCancel by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(confirmingCancel) {
-        if (confirmingCancel != null) {
-            kotlinx.coroutines.delay(3000)
-            confirmingCancel = null
-        }
-    }
 
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
@@ -1999,20 +1989,19 @@ private fun RockskyScrobbleBubble(bskyLoggedIn: Boolean, bskyHandle: String, liq
                     Spacer(Modifier.width(8.dp))
                     Text("(${file.done}/${file.total})", color = DimGray, fontSize = 12.sp, maxLines = 1, softWrap = false)
                     Spacer(Modifier.width(8.dp))
+                    // Cancelling asks "Really?" first (a tap elsewhere puts it back).
+                    val armKey = "import:" + file.id
                     PillButton(
                         when {
                             finished -> "Clear"
-                            confirmingCancel == file.id -> "Really?"
+                            ReallyPrompt.isArmed(armKey) -> "Really?"
                             else -> "Cancel"
                         },
                         {
-                            if (finished || confirmingCancel == file.id) {
-                                confirmingCancel = null
-                                platform.cancelScrobbleImport(context, file.id)
-                                scope.launch { refresh() }
-                            } else confirmingCancel = file.id
+                            val cancel = { platform.cancelScrobbleImport(context, file.id); scope.launch { refresh() }; Unit }
+                            if (finished) cancel() else ReallyPrompt.tap(armKey, cancel)
                         },
-                        color = if (!finished && confirmingCancel == file.id) Color(0xFFFF6B8A) else Color.White
+                        modifier = Modifier.reallyTarget(armKey)
                     )
                 }
             }

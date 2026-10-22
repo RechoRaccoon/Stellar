@@ -432,9 +432,12 @@ object LocalData {
         return folder
     }
 
-    fun updateBookmarkFolder(id: String, name: String? = null, cover: String? = null) {
+    fun updateBookmarkFolder(id: String, name: String? = null, cover: String? = null, clearCover: Boolean = false) {
         folderSlot.save(prefs, folderSlot.value.map {
-            if (it.id != id) it else it.copy(name = name?.trim()?.take(60)?.ifBlank { null } ?: it.name, cover = cover ?: it.cover)
+            if (it.id != id) it else it.copy(
+                name = name?.trim()?.take(60)?.ifBlank { null } ?: it.name,
+                cover = if (clearCover) null else cover ?: it.cover
+            )
         })
         republish(id)
     }

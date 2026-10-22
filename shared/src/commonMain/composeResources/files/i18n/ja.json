@@ -1881,7 +1881,6 @@
 "A piece is missing": "一部が欠けています",
 "Adding it to your tags… {0}%": "タグに追加中… {0}%",
 "Adds \":{0}:\" to your own emoji.": "「:{0}:」を自分の絵文字に追加します。",
-"Bluesky's own saved posts": "Bluesky本体の保存済み投稿",
 "Bookmarks": "ブックマーク",
 "Can't reach your PDS right now; trying again soon": "現在PDSに接続できません。まもなく再試行します",
 "Copy Secret Key": "シークレットキーをコピー",
@@ -2108,5 +2107,12 @@
 "{0} Selected": "{0}件を選択中",
 "{0} likes · {1}": "いいね{0} · {1}",
 "{0} posts and {1} replies archived": "{0}件の投稿と返信{1}件をアーカイブしました",
-"{0} posts archived": "{0}件の投稿をアーカイブしました"
+"{0} posts archived": "{0}件の投稿をアーカイブしました",
+"Default Atmosphere Folder": "Atmosphereの標準フォルダー",
+"Change cover": "カバーを変更",
+"Edit Folder": "フォルダーを編集",
+"Edit folder": "フォルダーを編集",
+"Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "公開: 名前と投稿は暗号化されずにPDSに保存され、プロフィールで誰でも見られます。",
+"Use the default cover": "標準のカバーを使う",
+"Visibility": "公開範囲"
 }

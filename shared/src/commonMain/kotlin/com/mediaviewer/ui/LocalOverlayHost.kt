@@ -231,6 +231,9 @@ fun LocalOverlayHost(
     FadingPopupHost(LocalOverlays.bookmarkFolderForMany, Modifier.zIndex(10.6f)) { items ->
         BookmarkFolderPopup(items, liquidGlass, tint, backdrop, onClose = { LocalOverlays.bookmarkFolderForMany = null; PostSelection.clear() })
     }
+    FadingPopupHost(LocalOverlays.editFolder, Modifier.zIndex(10.6f)) { id ->
+        FolderEditPopup(id, liquidGlass, tint, backdrop, onClose = { LocalOverlays.editFolder = null })
+    }
     FadingPopupHost(LocalOverlays.profileNoteFor, Modifier.zIndex(10.6f)) { author ->
         ProfileNotePopup(author, liquidGlass, tint, backdrop, onClose = { LocalOverlays.profileNoteFor = null })
     }

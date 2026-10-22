@@ -819,8 +819,8 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
 @Composable
 private fun EventRow(ev: CalendarEvent, accent: Color) {
     val tap = rememberHapticTap()
-    var armed by remember(ev.id) { mutableStateOf(false) }
-    LaunchedEffect(armed) { if (armed) { delay(3000); armed = false } }
+    val armKey = "event:" + ev.id
+    val armed = ReallyPrompt.isArmed(armKey)
     Row(
         Modifier.fillMaxWidth().height(31.dp).clip(RoundedCornerShape(11.dp)).background(Color.Black.copy(alpha = 0.26f))
             .padding(start = 10.dp, end = 4.dp),
@@ -832,14 +832,14 @@ private fun EventRow(ev: CalendarEvent, accent: Color) {
         Text(ev.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         // (Built-in days are switched off in Supporter Settings, not deleted.)
         if (!ev.holiday) Box(
-            Modifier.clip(RoundedCornerShape(9.dp))
-                .background(if (armed) Color(0xFFE0245E).copy(alpha = 0.3f) else Color.Transparent)
+            Modifier.reallyTarget(armKey).clip(RoundedCornerShape(9.dp))
+                .background(if (armed) Color.White.copy(alpha = 0.12f) else Color.Transparent)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                    tap(); if (armed) LocalData.deleteCalendarEvent(ev.id) else armed = true
+                    tap(); ReallyPrompt.tap(armKey) { LocalData.deleteCalendarEvent(ev.id) }
                 }
                 .padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
-            if (armed) Text("Delete?", color = Color(0xFFFF6B8A), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            if (armed) Text("Really?", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             else Icon(Icons.Default.Close, contentDescription = "Delete event", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(13.dp))
         }
     }
