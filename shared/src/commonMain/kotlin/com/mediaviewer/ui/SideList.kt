@@ -344,6 +344,58 @@ fun HubSizeSlider(tint: Color) {
 }
 
 /**
+ * Landscape, on a profile's Home tab: how big its rows are drawn
+ * ([UiToggles.homeScale]). Works just like the Hub Size slider — smooth,
+ * saved when let go, snapping onto the usual size near it — with its own
+ * saved size.
+ */
+@Composable
+fun HomeSizeSlider(tint: Color) {
+    val accent = lerp(tint, Color.White, 0.35f)
+    val min = com.mediaviewer.util.UiToggles.HOME_MIN_SCALE
+    val max = com.mediaviewer.util.UiToggles.HOME_MAX_SCALE
+    val square = com.mediaviewer.util.UiToggles.squareCorners
+    val shape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
+    var widthPx by remember { mutableStateOf(1) }
+    // (Near the usual size it snaps onto it, so it's easy to go back to.)
+    fun at(x: Float): Float {
+        val v = min + (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f) * (max - min)
+        return if (kotlin.math.abs(v - 1f) <= (max - min) * 0.05f) 1f else v
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        Text("Home Size", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth().height(28.dp)
+                .onSizeChanged { widthPx = it.width }
+                .pointerInput(Unit) { detectTapGestures { com.mediaviewer.util.UiToggles.updateHomeScale(at(it.x), save = true) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { com.mediaviewer.util.UiToggles.updateHomeScale(at(it.x), save = false) },
+                        onDragEnd = { com.mediaviewer.util.UiToggles.updateHomeScale(com.mediaviewer.util.UiToggles.homeScale, save = true) },
+                        onDragCancel = { com.mediaviewer.util.UiToggles.updateHomeScale(com.mediaviewer.util.UiToggles.homeScale, save = true) }
+                    ) { change, _ -> change.consume(); com.mediaviewer.util.UiToggles.updateHomeScale(at(change.position.x), save = false) }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            val fraction = ((com.mediaviewer.util.UiToggles.homeScale - min) / (max - min)).coerceIn(0f, 1f)
+            val thumbW = 6.dp
+            Box(Modifier.fillMaxWidth().height(10.dp).clip(shape).background(Color.White.copy(alpha = 0.15f)))
+            Box(Modifier.fillMaxWidth(fraction).height(10.dp).clip(shape).background(accent))
+            // Where the usual size is.
+            val home = ((1f - min) / (max - min)).coerceIn(0f, 1f)
+            Box(
+                Modifier.padding(start = ((maxWidth - 2.dp) * home).coerceAtLeast(0.dp))
+                    .size(width = 2.dp, height = 16.dp).background(Color.White.copy(alpha = 0.45f))
+            )
+            Box(
+                Modifier.padding(start = ((maxWidth - thumbW) * fraction).coerceAtLeast(0.dp))
+                    .size(width = thumbW, height = 24.dp).clip(shape).background(Color.White)
+            )
+        }
+    }
+}
+
+/**
  * A side list's rows that can be put in a new order: press and hold one,
  * drag it up or down (the others make way, with a haptic tick each time it
  * takes a new place) and let go. [onMove] gets where it was and where it

@@ -1034,7 +1034,12 @@ fun ProfileOverlay(
         Row(Modifier.fillMaxSize()) {
         if (sideways) LandscapeSideList(
             tint = blended, liquidGlass = liquidGlass, backLabel = "Back", onBack = onClose,
-            footer = { GridSizeSlider(blended, cards = state.selectedTab.usesCardGrid()) }
+            footer = {
+                // (Home up: its rows scale smoothly, like the Hub's, with
+                // their own size — not a count of grid columns.)
+                if (homeShowing) HomeSizeSlider(blended)
+                else GridSizeSlider(blended, cards = state.selectedTab.usesCardGrid())
+            }
         ) { TabsAndFilters() }
         if (sideways) SideListEdge(blended)
         LazyColumn(
@@ -1097,7 +1102,8 @@ fun ProfileOverlay(
                 profileHomeRows(
                     did = author.did, feeds = homeFeeds, own = isOwn, rows = feedRows,
                     liquidGlass = liquidGlass, tint = blended,
-                    onOpenPost = { key, i -> feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } }
+                    onOpenPost = { key, i -> feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } },
+                    rowScaled = sideways
                 )
             } else profileResultsContent(
                 state = state,

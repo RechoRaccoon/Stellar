@@ -52,7 +52,9 @@ internal fun LazyListScope.profileHomeRows(
     did: String, feeds: List<LocalFeed>, own: Boolean,
     rows: Map<String, MainViewModel.HubListState>,
     liquidGlass: Boolean, tint: Color,
-    onOpenPost: (String, Int) -> Unit
+    onOpenPost: (String, Int) -> Unit,
+    // Landscape only, like the Hub: the rows are drawn at the Home Size.
+    rowScaled: Boolean = false
 ) {
     val customizing = own && ProfileHomeTab.customizing[did] == true
     if (customizing) {
@@ -110,7 +112,12 @@ internal fun LazyListScope.profileHomeRows(
     feeds.forEach { feed ->
         val key = "home:$did:${feed.id}"
         item(key = key) {
-            Column(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().then(
+                    if (rowScaled) Modifier.drawnAtScaleWrapped { com.mediaviewer.util.UiToggles.homeScale }
+                    else Modifier
+                )
+            ) {
                 BuiltFeedRow(
                     feed = feed, title = feed.name.ifBlank { "Feed" }, state = rows[key],
                     liquidGlass = liquidGlass, tint = tint, headerStyle = style,

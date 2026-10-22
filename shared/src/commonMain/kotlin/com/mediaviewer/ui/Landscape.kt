@@ -327,6 +327,43 @@ fun Modifier.drawnAtScale(scale: () -> Float): Modifier = this.then(
 )
 
 /**
+ * [drawnAtScale] for content whose height is its own (a row in a lazy
+ * list, say — [drawnAtScale] needs a fixed height to fill, a row has
+ * none): laid out with 1/[scale] of the width, drawn [scale] times as
+ * big from the top left, and the row takes [scale] times its laid-out
+ * height. Everything in it grows or shrinks together, the same way the
+ * Hub's rows do.
+ */
+fun Modifier.drawnAtScaleWrapped(scale: () -> Float): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val s = scale()
+        val inf = androidx.compose.ui.unit.Constraints.Infinity
+        val w = constraints.maxWidth
+        if (s == 1f || s <= 0f || w == inf || w <= 0) {
+            val p = measurable.measure(constraints)
+            layout(p.width, p.height) { p.place(0, 0) }
+        } else {
+            val inner = (w / s).toInt().coerceAtLeast(1)
+            val p = measurable.measure(
+                androidx.compose.ui.unit.Constraints(
+                    minWidth = inner, maxWidth = inner,
+                    minHeight = 0, maxHeight = constraints.maxHeight
+                )
+            )
+            val h = (p.height * s).toInt()
+                .coerceAtLeast(constraints.minHeight)
+                .let { if (constraints.maxHeight == inf) it else it.coerceAtMost(constraints.maxHeight) }
+            layout(w, h) {
+                p.placeWithLayer(0, 0) {
+                    scaleX = s; scaleY = s
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+            }
+        }
+    }
+)
+
+/**
  * Two fingers pinched on this, or Ctrl + the mouse wheel (a trackpad pinch
  * on a computer arrives as that too), changes a size: [get] reads it, [set]
  * changes it ([save] true at the end of a pinch and for each wheel step);

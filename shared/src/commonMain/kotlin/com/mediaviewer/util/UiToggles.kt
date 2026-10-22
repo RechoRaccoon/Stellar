@@ -39,6 +39,7 @@ object UiToggles {
     private const val KEY_LANDSCAPE_LIST_COLUMNS = "landscape_list_columns"
     private const val KEY_SIDE_LIST_SCALE = "side_list_scale"
     private const val KEY_HUB_SCALE = "hub_scale"
+    private const val KEY_HOME_SCALE = "home_scale"
     private const val KEY_HUB_LEFT_TITLES = "hub_left_titles"
     private const val KEY_HUB_HEADER_ALIGN = "hub_header_align"
     private const val KEY_HUB_DIVIDER_HEADERS = "hub_divider_headers"
@@ -311,6 +312,18 @@ object UiToggles {
         if (save) prefs?.edit()?.putFloat(KEY_HUB_SCALE, hubScale)?.apply()
     }
 
+    /** Landscape: how big a profile's Home tab rows are (the Home Size
+     *  slider). Its own size, remembered on its own like the Hub's. */
+    var homeScale by mutableStateOf(1f)
+        private set
+    const val HOME_MIN_SCALE = 0.6f
+    const val HOME_MAX_SCALE = 1.6f
+
+    fun updateHomeScale(value: Float, save: Boolean) {
+        homeScale = value.coerceIn(HOME_MIN_SCALE, HOME_MAX_SCALE)
+        if (save) prefs?.edit()?.putFloat(KEY_HOME_SCALE, homeScale)?.apply()
+    }
+
     const val LANDSCAPE_BAR_MIN_SCALE = 0.7f
     const val LANDSCAPE_BAR_MAX_SCALE = 1.8f
     val starFrameRateOptions = listOf(30, 60, 90, 120)
@@ -486,6 +499,7 @@ object UiToggles {
         landscapeListColumns = p.getInt(KEY_LANDSCAPE_LIST_COLUMNS, LANDSCAPE_DEFAULT_LIST_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         sideListScale = p.getFloat(KEY_SIDE_LIST_SCALE, 1f).coerceIn(SIDE_LIST_MIN_SCALE, SIDE_LIST_MAX_SCALE)
         hubScale = p.getFloat(KEY_HUB_SCALE, 1f).coerceIn(HUB_MIN_SCALE, HUB_MAX_SCALE)
+        homeScale = p.getFloat(KEY_HOME_SCALE, 1f).coerceIn(HOME_MIN_SCALE, HOME_MAX_SCALE)
         // (The old "Row Names on the Left" switch: on was big names at the left.)
         val leftTitles = p.getBoolean(KEY_HUB_LEFT_TITLES, false)
         hubHeaderAlign = p.getInt(KEY_HUB_HEADER_ALIGN, if (leftTitles) 0 else 1).coerceIn(0, 2)
