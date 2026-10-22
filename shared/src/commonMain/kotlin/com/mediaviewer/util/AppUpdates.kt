@@ -31,7 +31,6 @@ object AppUpdates {
     const val REPO = "RechoRaccoon/Stellar"
     /** The release the shared tag dataset's exports are attached to (never an app release). */
     const val TAG_DATASETS_RELEASE = "tag-datasets"
-    private const val CHECK_EVERY_MS = 12 * 60 * 60 * 1000L
 
     data class Release(val version: String, val title: String, val notes: String, val pageUrl: String, val assets: Map<String, String>)
 
@@ -62,19 +61,21 @@ object AppUpdates {
         prefs?.edit()?.putBoolean("enabled", on)?.apply()
     }
 
-    /** At most twice a day on its own; [force] (Check Now) always asks.
+    /** Asked once per session when the app opens (the caller is a
+     *  once-per-session effect), and any time via Check Now ([force],
+     *  which also ignores a skipped version). One small GitHub API
+     *  request per check — far inside its per-IP limit, and a failed
+     *  check is silent (nothing shown, asked again next session).
      *  [onDone] gets whether an update was found, or an error. */
     fun check(context: PlatformContext, force: Boolean = false, onDone: (Boolean, String?) -> Unit = { _, _ -> }) {
         init(context)
         if (!PlatformUpdater.checks) return
         val p = prefs ?: return
-        val now = com.mediaviewer.platform.currentTimeMillis()
-        if (!force && (!enabled || now - p.getLong("last_check", 0L) < CHECK_EVERY_MS)) return
+        if (!enabled) return
         scope.launch {
             val result = runCatching { latest() }
             withContext(Dispatchers.Main) {
                 result.onSuccess { release ->
-                    p.edit().putLong("last_check", now).apply()
                     val newer = release != null && isNewer(release.version, com.mediaviewer.AppVersion.NAME)
                     val skipped = release != null && !force && p.getString("skipped", null) == release.version
                     if (newer && !skipped) { available = release; error = null }
