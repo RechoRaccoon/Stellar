@@ -3925,11 +3925,10 @@ private fun TimelineShapedTextTile(item: MediaItem, liquidGlass: Boolean, tint: 
     Box(Modifier.fillMaxWidth().shrinkToWidth(cardWidth)) {
         Box(
             // (No least height: the opened card wraps its words too.)
+            // The poster's color filling it, the same as every text tile
+            // (a glass one alone all but vanished on a dark color).
             Modifier.fillMaxWidth()
-                .then(
-                    if (liquidGlass) Modifier.glassPanel(true, tint = authorTint, shape = shape)
-                    else Modifier.clip(shape).background(Color.White.copy(0.06f))
-                )
+                .textPostFill(authorTint, shape)
                 .clip(shape)
                 .postSelectable(item, shape)
                 .clickable { tap(); onOpen() }
@@ -4089,11 +4088,7 @@ private fun MultiImageCountBadge(count: Int, currentPage: Int = 0, modifier: Mod
 fun HubPostTile(item: MediaItem, tint: Color, liquidGlass: Boolean, height: Dp, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     if (item.isTextOnly && !item.isEmojiTextshot) {
-        // Exactly the profile's text tile (the post's own card, its words
-        // laid out and sized as when it's open), shrunk to fit the row.
-        Box(Modifier.width(hubPostTileWidth(item, height)).height(height), contentAlignment = Alignment.Center) {
-            ScaleToFit(Modifier.fillMaxWidth()) { TimelineShapedTextTile(item, liquidGlass, tint, onClick) }
-        }
+        HubTextTile(item, tint, liquidGlass, hubPostTileWidth(item, height), height, onClick)
     } else if (item.isEmojiTextshot) {
         Box(Modifier.width(hubPostTileWidth(item, height)).height(height)) {
             CompactTextPostBubble(item = item, liquidGlass = liquidGlass, tint = tint, shape = shape, onOpen = onClick)
@@ -4104,6 +4099,60 @@ fun HubPostTile(item: MediaItem, tint: Color, liquidGlass: Boolean, height: Dp, 
             Modifier.width(hubPostTileWidth(item, height)).height(height),
             liquidGlass, playIconSize = 16.dp, onClick = onClick
         )
+    }
+}
+
+/**
+ * A text post in a Hub row, as tall as the row's other tiles: the
+ * profile's own card (its words laid out as when it's open), shrunk until
+ * it fits. One so short that, shrunk to the tile's width, it would leave
+ * room above and below fills the tile instead — the card stretched to the
+ * row's height, its words centered and grown to fill its width.
+ */
+@Composable
+private fun HubTextTile(item: MediaItem, tint: Color, liquidGlass: Boolean, width: Dp, height: Dp, onClick: () -> Unit) {
+    val screen = com.mediaviewer.ui.compat.rememberScreenSizeDp()
+    // (The card's width on a profile: see TimelineShapedTextTile.)
+    val cardWidth = if (screen.width > screen.height) minOf(screen.width * 0.94f, 640f).dp else (screen.width * 0.94f).dp
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = LocalDensity.current
+    val base = LocalTextStyle.current
+    // The card's own height at its own width: its words at their largest
+    // size, plus its padding.
+    val naturalHeight = remember(item.text, cardWidth, base) {
+        with(density) {
+            val style = base.merge(androidx.compose.ui.text.TextStyle(fontSize = 19.sp, lineHeight = (19f * 1.3f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
+            val h = measurer.measure(
+                androidx.compose.ui.text.AnnotatedString(item.text.ifBlank { " " }), style,
+                constraints = androidx.compose.ui.unit.Constraints(maxWidth = (cardWidth - 36.dp).roundToPx().coerceAtLeast(1))
+            ).size.height
+            h.toDp() + 52.dp
+        }
+    }
+    val scale = width / cardWidth
+    if (naturalHeight * scale >= height) {
+        Box(Modifier.width(width).height(height), contentAlignment = Alignment.Center) {
+            ScaleToFit(Modifier.fillMaxWidth()) { TimelineShapedTextTile(item, liquidGlass, tint, onClick) }
+        }
+        return
+    }
+    val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape((28.dp * scale).coerceAtLeast(10.dp))
+    val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
+    Box(
+        Modifier.width(width).height(height)
+            .textPostFill(authorTint, shape)
+            .clip(shape)
+            .clickable { tap(); onClick() }
+            .padding(horizontal = (18.dp * scale).coerceAtLeast(6.dp), vertical = (12.dp * scale).coerceAtLeast(6.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        FittedPostText(
+            item.text.ifBlank { " " }, maxSp = 44f, minSp = 6f,
+            modifier = Modifier.fillMaxSize().then(if (blurNsfw) Modifier.blur(24.dp) else Modifier)
+        )
+        if (blurNsfw) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)))
     }
 }
 

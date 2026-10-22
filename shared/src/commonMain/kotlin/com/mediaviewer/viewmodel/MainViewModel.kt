@@ -2,6 +2,7 @@ package com.mediaviewer.viewmodel
 
 import com.mediaviewer.platform.Log
 import com.mediaviewer.platform.ioDispatcher
+import com.mediaviewer.platform.sharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediaviewer.model.*
@@ -926,6 +927,22 @@ class MainViewModel(
     }
 
     private val _availableFeeds = MutableStateFlow<List<BskyFeedInfo>>(emptyList())
+    /** Your feed list has arrived (from this device's copy of it, or Bluesky)
+     *  — the launch screen waits for it, so the Hub's Feeds row doesn't pop in. */
+    private val _feedsListReady = MutableStateFlow(false)
+    val feedsListReady: StateFlow<Boolean> = _feedsListReady
+    /** The last feed list, per account, so the next launch shows it at once
+     *  (Bluesky's copy then replaces it). */
+    private val feedListCache by lazy { platform.context.sharedPreferences("feed_list_cache") }
+    private fun cachedFeeds(did: String): List<BskyFeedInfo> = runCatching {
+        val json = feedListCache.getString(did, null) ?: return emptyList()
+        com.mediaviewer.json.StellarJson.default.decodeFromString(kotlinx.serialization.builtins.ListSerializer(BskyFeedInfo.serializer()), json)
+    }.getOrDefault(emptyList())
+    private fun cacheFeeds(did: String, feeds: List<BskyFeedInfo>) {
+        runCatching {
+            feedListCache.edit().putString(did, com.mediaviewer.json.StellarJson.default.encodeToString(kotlinx.serialization.builtins.ListSerializer(BskyFeedInfo.serializer()), feeds)).apply()
+        }
+    }
     val availableFeeds: StateFlow<List<BskyFeedInfo>> = _availableFeeds
 
     private val _selectedFeedUri = MutableStateFlow<String?>(null)
@@ -4296,6 +4313,15 @@ class MainViewModel(
 
     fun loadAvailableFeeds() {
         if (!_bskyLoggedIn.value) return
+        // This device's copy first: the Feeds row is there straight away.
+        if (_availableFeeds.value.isEmpty()) {
+            val cached = cachedFeeds(_bskyDid.value)
+            if (cached.isNotEmpty()) {
+                _availableFeeds.value = cached
+                platform.preloadImages(cached.mapNotNull { it.avatarUrl })
+                _feedsListReady.value = true
+            }
+        }
         viewModelScope.launch(ioDispatcher) {
             // Adult content follows the account's own Bluesky moderation
             // settings (adult content on/off, and porn / sexual / nudity's
@@ -4310,9 +4336,12 @@ class MainViewModel(
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
             }
-            result.onFailure { com.mediaviewer.platform.Log.w("Stellar", "Couldn't load your feeds: ${it.message}") }
+            result.onFailure { com.mediaviewer.platform.Log.w("Stellar", "Couldn't load your feeds: ${it.message}"); _feedsListReady.value = true }
             result.onSuccess { feeds ->
+                if (feeds != _availableFeeds.value) platform.preloadImages(feeds.mapNotNull { it.avatarUrl })
                 _availableFeeds.value = feeds
+                _feedsListReady.value = true
+                cacheFeeds(_bskyDid.value, feeds)
                 _feedInteractionSupport.value = _feedInteractionSupport.value + feeds.associate { it.uri to it.acceptsInteractions }
                 _feedGeneratorDid.value = _feedGeneratorDid.value + feeds.mapNotNull { f -> f.generatorDid?.let { f.uri to it } }
                 // Bug fix (Outstanding Issue #1 — feed loses scroll position

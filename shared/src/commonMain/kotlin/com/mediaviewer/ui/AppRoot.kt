@@ -408,8 +408,23 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
         }
         selfColorReady = true
     }
-    LaunchedEffect(appInitialized, selfColorReady) {
-        if (appInitialized && selfColorReady && pixelController.phase != PixelPhase.HIDDEN) pixelController.finish()
+    // …and for your feed list, so the Hub's Feeds row is already there when
+    // the screen lifts instead of popping in after (it's on this device
+    // after the first launch; a slow network gives up waiting after 6s).
+    val feedsListReady by viewModel.feedsListReady.collectAsState()
+    var feedsWaitOver by remember { mutableStateOf(false) }
+    LaunchedEffect(appInitialized) {
+        if (!appInitialized) return@LaunchedEffect
+        kotlinx.coroutines.delay(6_000)
+        feedsWaitOver = true
+    }
+    val feedsSettled = !bskyLoggedIn || feedsListReady || feedsWaitOver
+    LaunchedEffect(appInitialized, selfColorReady, feedsSettled) {
+        if (appInitialized && selfColorReady && feedsSettled && pixelController.phase != PixelPhase.HIDDEN) {
+            // (A moment for the feeds' pictures to come off the disk.)
+            if (bskyLoggedIn && !feedsWaitOver) kotlinx.coroutines.delay(150)
+            pixelController.finish()
+        }
     }
 
     // Dev Tools' loading-animation preview: starts with the intro, in your
