@@ -35,6 +35,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
@@ -116,7 +119,10 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                 // (A tile inside another selectable one: only the outer one acts.)
                 if (PostSelection.claimed == down.id) return@awaitEachGesture
                 PostSelection.claimed = down.id
-                if (currentEvent.buttons.isSecondaryPressed) {
+                // A right click, or Ctrl / Shift / ⌘ + click: picks (or unpicks)
+                // straight away, no holding.
+                val mods = currentEvent.keyboardModifiers
+                if (currentEvent.buttons.isSecondaryPressed || mods.isCtrlPressed || mods.isShiftPressed || mods.isMetaPressed) {
                     currentEvent.changes.forEach { it.consume() }
                     pick()
                     return@awaitEachGesture

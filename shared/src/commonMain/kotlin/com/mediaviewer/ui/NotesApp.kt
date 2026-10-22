@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import com.mediaviewer.ui.compat.navBarSpace
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -452,31 +454,45 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     val density = androidx.compose.ui.platform.LocalDensity.current
     val keyboardLift = (WindowInsets.ime.getBottom(density) -
         WindowInsets.navBarSpace.getBottom(density)).coerceAtLeast(0)
-    // The press that starts writing (or picks a word) mustn't move the note:
-    // the field scrolls itself to the caret as it takes focus, which moved
-    // the words out from under the finger and lost the selection. For a
-    // moment after focus, the note is held where it was.
-    var pinnedScroll by remember { mutableStateOf<Int?>(null) }
+    // The press that starts writing (or picks a word) mustn't move the note.
+    // A field scrolls to its caret as it takes focus — and the caret used to
+    // sit wherever it was left (the very top, for a note just opened), so
+    // the note jumped up mid-press and the press picked the wrong words, or
+    // all of them. While the note isn't being written in, its caret is kept
+    // on the first line showing, so taking focus never moves anything.
     var bodyFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(pinnedScroll) {
-        val y = pinnedScroll ?: return@LaunchedEffect
-        kotlinx.coroutines.withTimeoutOrNull(900) {
-            androidx.compose.runtime.snapshotFlow { bodyScroll.value }.collect { if (it != y) bodyScroll.scrollTo(y) }
+    val padTopPx = with(density) { 12.dp.roundToPx() }
+    LaunchedEffect(preview) {
+        if (preview) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { Triple(bodyScroll.value, bodyFocused, editLayout) }.collect { (y, focused, l) ->
+            if (focused || l == null) return@collect
+            val at = l.getOffsetForPosition(androidx.compose.ui.geometry.Offset(0f, (y - padTopPx).coerceAtLeast(0).toFloat() + 4f))
+            if (body.selection != TextRange(at)) body = body.copy(selection = TextRange(at))
         }
-        pinnedScroll = null
     }
-    // Typing under the keyboard: the line being written scrolls up into view
-    // (only as the words change — never just for a press or a selection).
+    // Typing: the line being written stays in view — above the keyboard
+    // and the formatting row riding on it, or the page's bottom — however
+    // the new line came (Return, wrapping, pasting). Only as the words
+    // change, never for a press or a selection.
     var panelHeight by remember { mutableStateOf(0) }
+    var panelTop by remember { mutableStateOf(0) }
+    var rootHeight by remember { mutableStateOf(0) }
+    val formatRowPx = with(density) { 46.dp.roundToPx() }
     LaunchedEffect(body.text) {
-        if (preview || keyboardLift == 0) return@LaunchedEffect
+        if (preview || !bodyFocused) return@LaunchedEffect
+        // (Once the new text has been laid out.)
+        androidx.compose.runtime.withFrameNanos { }
         val l = editLayout ?: return@LaunchedEffect
         val caret = body.selection.end.coerceIn(0, body.text.length)
-        val padTop = with(density) { 12.dp.roundToPx() }
         val margin = with(density) { 24.dp.roundToPx() }
-        val caretBottom = l.getCursorRect(caret).bottom.toInt() + padTop
-        val shown = panelHeight - keyboardLift
-        if (shown > 0 && caretBottom + margin > bodyScroll.value + shown) bodyScroll.scrollTo(caretBottom + margin - shown)
+        val rect = l.getCursorRect(caret)
+        val caretBottom = rect.bottom.toInt() + padTopPx
+        val caretTop = rect.top.toInt() + padTopPx
+        val shown = if (keyboardLift > 0) minOf(panelHeight, rootHeight - WindowInsets.ime.getBottom(density) - panelTop - formatRowPx)
+            else panelHeight
+        if (shown <= 0) return@LaunchedEffect
+        if (caretBottom + margin > bodyScroll.value + shown) bodyScroll.scrollTo(caretBottom + margin - shown)
+        else if (caretTop < bodyScroll.value) bodyScroll.scrollTo((caretTop - margin).coerceAtLeast(0))
     }
 
     fun save() {
@@ -571,6 +587,11 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 // marks themselves dimmed); only pictures and checkboxes stay
                 // as text while writing.
                 val styled = remember(tint) { markdownEditTransformation(tint) }
+                // (The field is inside the scrolling box rather than scrolling
+                // itself, at least as tall as the panel, so a press anywhere
+                // below the words still writes.)
+                val minHeight = with(density) { panelHeight.toDp() }
+                Box(Modifier.fillMaxSize().verticalScroll(bodyScroll)) {
                 BasicTextField(
                     // Return on a list / checklist row carries the marker on.
                     value = body, onValueChange = { body = continueMarkdownList(body, it) },
@@ -586,14 +607,18 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                             inner()
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
-                        .onFocusChanged { f -> if (f.isFocused && !bodyFocused) pinnedScroll = bodyScroll.value; bodyFocused = f.isFocused }
-                        .verticalScroll(bodyScroll)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = minHeight)
+                        .onFocusChanged { f -> bodyFocused = f.isFocused }
                         .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + with(density) { keyboardLift.toDp() } + if (keyboardLift > 0) 48.dp else 0.dp)
                 )
+                }
             }
         }
-        val m = Modifier.fillMaxWidth().weight(1f).onSizeChanged { panelHeight = it.height }
+        val m = Modifier.fillMaxWidth().weight(1f).onGloballyPositioned { c ->
+            panelHeight = c.size.height
+            panelTop = c.positionInRoot().y.toInt()
+            rootHeight = c.findRootCoordinates().size.height
+        }
         if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = tint, contentAlignment = Alignment.TopStart) { panel() }
         else Box(m.clip(shape).background(Color.White.copy(alpha = 0.06f)).border(1.dp, Color.White.copy(alpha = 0.1f), shape)) { panel() }
 

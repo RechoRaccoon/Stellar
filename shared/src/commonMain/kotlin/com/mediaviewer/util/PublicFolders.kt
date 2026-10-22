@@ -29,7 +29,11 @@ object PublicFolders {
     const val COLLECTION = "com.rechoraccoon.stellar.folder"
 
     /** One public folder, as read from someone's PDS. */
-    data class Folder(val rkey: String, val did: String, val name: String, val posts: List<String>, val cover: String?, val updatedAt: Long)
+    data class Folder(
+        val rkey: String, val did: String, val name: String, val posts: List<String>, val cover: String?, val updatedAt: Long,
+        /** How it's laid out when opened (see BookmarkFolder.layout). */
+        val layout: String = "grid"
+    )
 
     /** The PDS side (set by the ViewModel; null while signed out). */
     interface Remote {
@@ -61,6 +65,7 @@ object PublicFolders {
         )
         // (Only a picture that's already public: never a file from this device.)
         folder.cover?.takeIf { it.startsWith("https://") }?.let { record["cover"] = it }
+        if (folder.layout != "grid") record["layout"] = folder.layout
         later(folder.id, "Couldn't publish \"${folder.name}\"") { r.put(folder.id, record) }
         byAccount[r.did] = mine(r.did)
     }
@@ -68,7 +73,7 @@ object PublicFolders {
     /** Your own public folders, straight from this device: they show on your
      *  profile (and in your Home feeds) at once, whatever the PDS has yet. */
     private fun mine(did: String): List<Folder> = LocalData.bookmarkFolders.filter { it.public }.map { f ->
-        Folder(f.id, did, f.name, f.posts, f.cover?.takeIf { it.startsWith("https://") }, maxOf(f.updatedAt, f.createdAt))
+        Folder(f.id, did, f.name, f.posts, f.cover?.takeIf { it.startsWith("https://") }, maxOf(f.updatedAt, f.createdAt), f.layout)
     }
 
     /** Takes [id]'s public copy down (it went private, or was deleted). */
@@ -132,7 +137,8 @@ object PublicFolders {
                     rkey = (o["uri"] as? JsonPrimitive)?.content.orEmpty().substringAfterLast('/'),
                     did = did, name = text("name").orEmpty().ifBlank { "Folder" }, posts = posts,
                     cover = text("cover")?.takeIf { it.startsWith("https://") },
-                    updatedAt = text("updatedAt")?.let { runCatching { kotlin.time.Instant.parse(it).toEpochMilliseconds() }.getOrNull() } ?: 0L
+                    updatedAt = text("updatedAt")?.let { runCatching { kotlin.time.Instant.parse(it).toEpochMilliseconds() }.getOrNull() } ?: 0L,
+                    layout = text("layout")?.takeIf { it == "vertical" || it == "horizontal" } ?: "grid"
                 )
             }
             cursor = (root["cursor"] as? JsonPrimitive)?.content?.takeIf { records.isNotEmpty() }

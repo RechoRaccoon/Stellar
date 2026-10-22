@@ -104,7 +104,10 @@ data class BookmarkFolder(
     val public: Boolean = false,
     /** The picture it picked for itself (its first post's), kept while a
      *  picked [cover] is showing, so removing that one goes back to it. */
-    val autoCover: String? = null
+    val autoCover: String? = null,
+    /** How it's laid out when opened: "grid" (the usual), "vertical" (tall
+     *  9:16 tiles) or "horizontal" (wide 16:9 videos with their words). */
+    val layout: String = "grid"
 ) {
     /** Whether [cover] is one picked by hand (a local file), not its own. */
     val hasCustomCover: Boolean get() = cover != null && !cover.startsWith("http")
@@ -431,8 +434,8 @@ object LocalData {
     /** Folders, the one a post was added to most recently first. */
     val bookmarkFolders: List<BookmarkFolder> get() = folderSlot.value.sortedByDescending { maxOf(it.updatedAt, it.createdAt) }
 
-    fun createBookmarkFolder(name: String, cover: String?, public: Boolean = false): BookmarkFolder {
-        val folder = BookmarkFolder(id = newId(), name = name.trim().take(60), cover = cover, createdAt = currentTimeMillis(), public = public)
+    fun createBookmarkFolder(name: String, cover: String?, public: Boolean = false, layout: String = "grid"): BookmarkFolder {
+        val folder = BookmarkFolder(id = newId(), name = name.trim().take(60), cover = cover, createdAt = currentTimeMillis(), public = public, layout = layout)
         folderSlot.save(prefs, folderSlot.value + folder)
         if (public) PublicFolders.publish(folder)
         return folder
@@ -461,6 +464,11 @@ object LocalData {
     fun setBookmarkFolderPublic(id: String, public: Boolean) {
         folderSlot.save(prefs, folderSlot.value.map { if (it.id == id) it.copy(public = public) else it })
         if (public) republish(id) else PublicFolders.unpublish(id)
+    }
+
+    fun setBookmarkFolderLayout(id: String, layout: String) {
+        folderSlot.save(prefs, folderSlot.value.map { if (it.id == id) it.copy(layout = layout) else it })
+        republish(id)
     }
 
     /** A public folder's PDS copy follows each change to it. */

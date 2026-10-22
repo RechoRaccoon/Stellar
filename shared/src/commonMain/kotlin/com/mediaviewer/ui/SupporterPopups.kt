@@ -218,6 +218,7 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
     var cover by remember { mutableStateOf<String?>(null) }
     // New folders are private (the lock) unless switched to public.
     var makePublic by remember { mutableStateOf(false) }
+    var layout by remember { mutableStateOf("grid") }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             cover = withContext(ioDispatcher) { LocalPlatform.importMedia(context, uri, "covers")?.toString() }
@@ -352,20 +353,18 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                 Spacer(Modifier.width(6.dp))
                 FolderPrivacyToggle(makePublic, tint) { makePublic = !makePublic }
             }
-            Text(
-                if (makePublic) "Public: anyone can see this folder on your profile." else "Private: encrypted, only you can see it.",
-                color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, start = 2.dp)
-            )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
+            FolderLayoutChoice(layout) { layout = it }
+            Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LocalPillButton("Cancel", liquidGlass, tint, { creating = false; name = ""; cover = null; makePublic = false }, Modifier.weight(1f))
+                LocalPillButton("Cancel", liquidGlass, tint, { creating = false; name = ""; cover = null; makePublic = false; layout = "grid" }, Modifier.weight(1f))
                 LocalPillButton(
                     "Create", liquidGlass, tint,
                     {
-                        val made = LocalData.createBookmarkFolder(name, cover, public = makePublic)
+                        val made = LocalData.createBookmarkFolder(name, cover, public = makePublic, layout = layout)
                         toggleAll(made.id, false)
                         placed(false)
-                        creating = false; name = ""; cover = null; makePublic = false
+                        creating = false; name = ""; cover = null; makePublic = false; layout = "grid"
                     },
                     Modifier.weight(1f), enabled = name.isNotBlank()
                 )
@@ -418,17 +417,20 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
             onClose()
         }
     ) {
+        // (Laid out like making a folder: cover, name and privacy in one
+        // row, then its layout.)
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The cover: tap to pick a picture. A picked one has a small X
             // to go back to the folder's own.
-            Box(Modifier.size(64.dp)) {
+            Box(Modifier.size(44.dp)) {
                 Box(
-                    Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp))
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(11.dp))
                         .clickable { tap(); coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                 ) { FolderCover(folder, tint, Modifier.fillMaxSize()) }
                 if (folder.hasCustomCover) Box(
-                    Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp).size(22.dp).clip(CircleShape)
+                    Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp).size(20.dp).clip(CircleShape)
                         .background(lerp(tint, Color.Black, 0.2f))
                         .border(1.dp, lerp(tint, Color.White, 0.4f), CircleShape)
                         .clickable {
@@ -439,26 +441,16 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
                             }
                         },
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.Close, contentDescription = "Remove custom cover", tint = Color.White, modifier = Modifier.size(13.dp)) }
+                ) { Icon(Icons.Default.Close, contentDescription = "Remove custom cover", tint = Color.White, modifier = Modifier.size(12.dp)) }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                LocalTextField(name, { name = it.take(60) }, "Folder name", tint, capitalization = KeyboardCapitalization.Words)
-                Text(
-                    "${folder.posts.size} post${if (folder.posts.size == 1) "" else "s"}",
-                    color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, start = 6.dp)
-                )
-            }
+            Spacer(Modifier.width(8.dp))
+            LocalTextField(name, { name = it.take(60) }, "Folder name", tint, Modifier.weight(1f), capitalization = KeyboardCapitalization.Words)
+            Spacer(Modifier.width(6.dp))
+            FolderPrivacyToggle(folder.public, tint) { LocalData.setBookmarkFolderPublic(id, !folder.public) }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Visibility", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-        ConnectedChoice(
-            options = listOf(ChoiceOption("Private", Icons.Default.Lock), ChoiceOption("Public", Icons.Default.Public)),
-            selected = if (folder.public) 1 else 0,
-            onSelect = { LocalData.setBookmarkFolderPublic(id, it == 1) },
-            modifier = Modifier.fillMaxWidth(), height = 38.dp, fill = true
-        )
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
+        FolderLayoutChoice(folder.layout) { LocalData.setBookmarkFolderLayout(id, it) }
+        Spacer(Modifier.height(10.dp))
         LocalPillButton("Done", liquidGlass, tint, ::close, Modifier.fillMaxWidth())
     }
 }
@@ -819,6 +811,20 @@ fun FolderPrivacyToggle(public: Boolean, tint: Color, modifier: Modifier = Modif
             tint = Color.White, modifier = Modifier.size(18.dp)
         )
     }
+}
+
+/** How a folder is laid out when opened: the usual grid, tall (vertical)
+ *  videos, or wide (horizontal) videos with their words. */
+@Composable
+fun FolderLayoutChoice(layout: String, onPick: (String) -> Unit) {
+    val options = listOf("grid", "vertical", "horizontal")
+    Text("Folder Layout", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
+    ConnectedChoice(
+        options = listOf(ChoiceOption("Grid"), ChoiceOption("Vertical"), ChoiceOption("Horizontal")),
+        selected = options.indexOf(layout).coerceAtLeast(0),
+        onSelect = { onPick(options[it]) },
+        modifier = Modifier.fillMaxWidth(), height = 38.dp, fill = true
+    )
 }
 
 /**

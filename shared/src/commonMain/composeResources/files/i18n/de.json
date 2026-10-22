@@ -2241,5 +2241,8 @@
 "Small": "Klein",
 "Large": "Groß",
 "Stellar encrypts your private data and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.": "Stellar verschlüsselt deine privaten Daten und hält sie über deinen PDS auf all deinen Geräten synchron. Nur dein Sync-Schlüssel kann sie entsperren. Zeig ihn niemals jemandem.",
-"If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "Wenn du Stellar hauptsächlich auf diesem Gerät nutzt, tippe auf „Synchronisierung starten“. Wenn deine Stellar-Daten auf einem anderen Gerät sind, tippe zuerst dort auf „Synchronisierung starten“, starte Stellar hier neu und gib den Schlüssel ein, den du dort bekommst."
+"If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "Wenn du Stellar hauptsächlich auf diesem Gerät nutzt, tippe auf „Synchronisierung starten“. Wenn deine Stellar-Daten auf einem anderen Gerät sind, tippe zuerst dort auf „Synchronisierung starten“, starte Stellar hier neu und gib den Schlüssel ein, den du dort bekommst.",
+"Folder Layout": "Ordner-Layout",
+"Grid": "Raster",
+"Vertical": "Vertikal"
 }

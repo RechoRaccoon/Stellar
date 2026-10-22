@@ -588,23 +588,45 @@ fun CommentsSheet(
                                         imeAction = androidx.compose.ui.text.input.ImeAction.Send
                                     ),
                                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { if (ghost == null || !acceptGhost()) send() }),
-                                    modifier = Modifier.fillMaxWidth()
+                                    // (The whole bubble is the field: a touch anywhere on it
+                                    // keeps the keyboard up, and the swipe can start anywhere.)
+                                    modifier = Modifier.fillMaxSize()
                                         .onFocusChanged { focused = it.isFocused }
                                         .onPreviewKeyEvent { e ->
                                             e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Tab && ghost != null && acceptGhost()
                                         }
                                         .pointerInput(ghost != null) {
                                             if (ghost == null) return@pointerInput
-                                            detectHorizontalDragGestures { change, amount -> if (amount > 6f && acceptGhost()) change.consume() }
-                                        }
+                                            // A swipe right fills the handle in. Watched before the
+                                            // field's own gestures (they'd take the drag for
+                                            // moving the caret), and only taken once it's clearly
+                                            // a sideways swipe.
+                                            androidx.compose.foundation.gestures.awaitEachGesture {
+                                                val down = androidx.compose.foundation.gestures.awaitFirstDown(
+                                                    requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial
+                                                )
+                                                while (true) {
+                                                    val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                                    val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                                    if (!c.pressed) break
+                                                    val dx = c.position.x - down.position.x
+                                                    val dy = c.position.y - down.position.y
+                                                    if (dx > 24.dp.toPx() && kotlin.math.abs(dy) < dx) {
+                                                        if (acceptGhost()) ev.changes.forEach { it.consume() }
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    decorationBox = { inner -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) { inner() } }
                                 )
                                 if (commentText.isEmpty()) Text(if (replyTarget != null) "Reply…" else "Add a comment…", color = Color.White, fontSize = 14.sp)
                             }
                         }
                         if (liquidGlass) {
-                            LiquidGlassSurface(Modifier.weight(1f).height(46.dp), shape = fieldShape, tint = dominantColor, backdrop = backdrop) { FieldContent() }
+                            LiquidGlassSurface(Modifier.weight(1f).height(46.dp).keyboardRegion(0.dp), shape = fieldShape, tint = dominantColor, backdrop = backdrop) { FieldContent() }
                         } else {
-                            Box(Modifier.weight(1f).height(46.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { FieldContent() }
+                            Box(Modifier.weight(1f).height(46.dp).keyboardRegion(0.dp).clip(fieldShape).background(Color.White.copy(0.08f))) { FieldContent() }
                         }
                         val sendModifier = Modifier.size(46.dp).clickable(enabled = canSend) { tap(); send() }
                         @Composable

@@ -164,8 +164,25 @@ fun GridScreen(
     // Landscape: the slider's column count, and two layouts instead of three
     // (see Landscape and effectiveGridMode).
     val wideDp = rememberLandscapeWidthDp()
-    val gridMode = effectiveGridMode(kind, resultsGridMode(gridScreen, kind), wideDp > 0)
-    val spec = resultsLayoutSpec(kind, gridMode, roundedGridTiles, wideDp)
+    // A folder laid out as tall (vertical) or wide (horizontal) videos: its
+    // posts are drawn that way, whatever the sub-tab (see Folder Layout).
+    val folderLayout = run {
+        val a = authorFeedState?.author
+        val rkey = a?.takeIf { it.isProfileFeed() }?.handle?.substringAfter("stellar-folder://", "")?.takeIf { it.isNotBlank() }
+        val openId = LocalOverlays.bookmarkFolderId
+        when {
+            openId != null -> com.mediaviewer.util.LocalData.bookmarkFolders.firstOrNull { it.id == openId }?.layout
+            a != null && rkey != null -> com.mediaviewer.util.PublicFolders.byAccount[a.did]?.firstOrNull { it.rkey == rkey }?.layout
+            else -> null
+        }
+    }
+    val layoutKind = when (folderLayout) {
+        "vertical" -> PostKindFilter.VERTICAL_VIDEOS
+        "horizontal" -> PostKindFilter.HORIZONTAL_VIDEOS
+        else -> kind
+    }
+    val gridMode = effectiveGridMode(layoutKind, resultsGridMode(gridScreen, layoutKind), wideDp > 0)
+    val spec = resultsLayoutSpec(layoutKind, gridMode, roundedGridTiles, wideDp)
     // Saved Posts / From Friends / History all use your own DID, so the
     // name is part of the key too — switching between them starts fresh.
     val memoryScope = "$appMode|${authorFeedState?.author?.let { it.did + "|" + it.handle + "|" + it.displayName } ?: selectedFeedUri}"
@@ -240,7 +257,9 @@ fun GridScreen(
     val ownFolderPage = appMode == AppMode.BLUESKY && LocalOverlays.bookmarkFolderId != null &&
         authorFeedState?.author?.let { it.isProfileFeed() && it.handle.contains("stellar-folder://") } == true
     val folderTools = savedPostsPage || ownFolderPage
-    val selectablePage = folderTools || (appMode == AppMode.BLUESKY && authorFeedState?.author?.let { !it.isSpecialFeed() } == true)
+    // (Anyone's folder opened from their profile's Collections too.)
+    val folderPage = authorFeedState?.author?.let { it.isProfileFeed() && it.handle.contains("stellar-folder://") } == true
+    val selectablePage = folderTools || (appMode == AppMode.BLUESKY && (folderPage || authorFeedState?.author?.let { !it.isSpecialFeed() } == true))
     DisposableEffect(savedPostsPage) {
         LocalOverlays.savedPostsShowing = savedPostsPage
         onDispose { LocalOverlays.savedPostsShowing = false }
@@ -536,7 +555,7 @@ fun GridScreen(
                     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
                 }) {
                     // (Room for the fixed Back button above the first row.)
-                    Spacer(Modifier.height(topClearance + if (onBack != null && !titleBesideBack) 44.dp else 0.dp))
+                    Spacer(Modifier.height(topClearance + if (onBack != null && !titleBesideBack && wideDp <= 0) 44.dp else 0.dp))
                     if (!sideways) HeaderRows()
                     Spacer(Modifier.height(4.dp))
                 }
@@ -560,14 +579,14 @@ fun GridScreen(
             items(
                 count = matched.size,
                 key = { i -> POST_KEY_PREFIX + matched[i].id },
-                contentType = { gridMode * 10 + kind.ordinal }
+                contentType = { gridMode * 10 + layoutKind.ordinal }
             ) { i ->
                 val item = matched[i]
                 val tile: @Composable () -> Unit = {
                     // (Only a profile's posts, or Saved Posts, can be picked.)
                     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides selectablePage) {
                     PostResultTile(
-                        item = item, filter = kind, gridMode = gridMode, tint = tint,
+                        item = item, filter = layoutKind, gridMode = gridMode, tint = tint,
                         liquidGlass = liquidGlass, roundedGridTiles = roundedGridTiles,
                         onSeedSubImageIndex = { id, page -> pendingSeed[0] = id to page },
                         videoCards = wideDp > 0,
@@ -605,10 +624,11 @@ fun GridScreen(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             refreshing = isLoading, animateRefresh = !reducedAnimations,
             onRefresh = onRefresh,
-            filter = kind, gridMode = gridMode,
+            // (A folder laid out as videos has no other layouts to switch to.)
+            filter = layoutKind, gridMode = gridMode,
             onGrid = {
                 pendingAnchor = middleAnchor(gridState)
-                cycleResultsGridMode(gridScreen, kind, landscape = wideDp > 0)
+                cycleResultsGridMode(gridScreen, layoutKind, landscape = wideDp > 0)
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),
             refreshAnchor = "ex.refresh", gridAnchor = "ex.layout",
@@ -674,14 +694,16 @@ fun GridScreen(
         // Back, fixed at the top left: the very button profiles have. While
         // picking posts it's Cancel (an X), and the count sits at the right
         // where a profile's Follow / Edit is.
-        if (onBack != null || PostSelection.active) Row(
+        // (Landscape: Back is the side list's own, so there's only the one.)
+        val floatingBack = onBack != null && wideDp <= 0
+        if (floatingBack || PostSelection.active) Row(
             Modifier.align(Alignment.TopStart).fillMaxWidth()
                 .padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp, top = rememberTopCutoutClearance())
                 .padding(start = 12.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (PostSelection.active) SelectionCancelBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
-            else if (onBack != null) ProfileBackBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack)
+            else if (floatingBack) ProfileBackBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack!!)
             Spacer(Modifier.weight(1f))
             if (PostSelection.active) SelectionCountBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
         }
