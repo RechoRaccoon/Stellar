@@ -577,6 +577,9 @@ fun ProfileOverlay(
     val homeFeeds = com.mediaviewer.util.ProfileHome.byAccount[author.did].orEmpty()
     val homeAvailable = isOwn || homeFeeds.isNotEmpty()
     val homeShowing = homeAvailable && ProfileHomeTab.showing[author.did] == true && state.selectedTab == MainViewModel.ProfileTab.POSTS
+    // Customizing ends on leaving the Home tab, or the profile.
+    LaunchedEffect(homeShowing) { if (!homeShowing) ProfileHomeTab.customizing.remove(author.did) }
+    DisposableEffect(author.did) { onDispose { ProfileHomeTab.customizing.remove(author.did) } }
     val feedRowFlow = LocalOverlays.feedRows
     val feedRows = if (feedRowFlow != null) feedRowFlow.collectAsState().value else emptyMap()
 
@@ -912,7 +915,9 @@ fun ProfileOverlay(
                         PostKindRowWithFacets(
                             postKindFilter, liquidGlass, blended, onSelectPostKindFilter,
                             home = homeAvailable, homeOn = homeShowing,
-                            onHome = { ProfileHomeTab.showing[author.did] = it }
+                            onHome = { ProfileHomeTab.showing[author.did] = it },
+                            customizing = if (isOwn && homeShowing) ProfileHomeTab.customizing[author.did] == true else null,
+                            onCustomize = { ProfileHomeTab.customizing[author.did] = it }
                         )
                     }
                     // Feature request #5: Reposts/Likes now use the
@@ -2708,10 +2713,14 @@ private fun PostKindRowWithFacets(
     selected: PostKindFilter, liquidGlass: Boolean, tint: Color, onSelect: (PostKindFilter) -> Unit,
     /** Posts only: the profile has a Home tab (see ProfileHome) — a "Home"
      *  option goes first; [homeOn] = it's the one showing. */
-    home: Boolean = false, homeOn: Boolean = false, onHome: (Boolean) -> Unit = {}
+    home: Boolean = false, homeOn: Boolean = false, onHome: (Boolean) -> Unit = {},
+    /** Your own Home tab showing: Customize (or Done, while customizing)
+     *  beside it, where Media's Images / Videos go. null = not offered. */
+    customizing: Boolean? = null, onCustomize: (Boolean) -> Unit = {}
 ) {
     val parent = selected.profileParent()
     val facets = if (parent == PostKindFilter.MEDIA && !homeOn) listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS) else emptyList()
+    val customizeLabel = customizing?.let { if (it) "Done" else "Customize" }
     // (null stands for Home.)
     val options: List<PostKindFilter?> = (if (home) listOf(null) else emptyList<PostKindFilter?>()) + PROFILE_POST_KINDS
     fun pick(option: PostKindFilter?) {
@@ -2726,11 +2735,17 @@ private fun PostKindRowWithFacets(
             options.forEach { option ->
                 SideListButton(
                     option?.label() ?: "Home", if (option == null) homeOn else option == parent && !homeOn, liquidGlass, tint, small = true,
-                    trailing = if (option != PostKindFilter.MEDIA || facets.isEmpty()) null else ({
-                        MediaFacetEnd(facets.map { it.label() }, facets.indexOf(selected)) { i ->
-                            onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
-                        }
-                    })
+                    trailing = when {
+                        option == null && homeOn && customizeLabel != null -> ({
+                            MediaFacetEnd(listOf(customizeLabel), if (customizing == true) 0 else -1) { onCustomize(customizing != true) }
+                        })
+                        option != PostKindFilter.MEDIA || facets.isEmpty() -> null
+                        else -> ({
+                            MediaFacetEnd(facets.map { it.label() }, facets.indexOf(selected)) { i ->
+                                onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
+                            }
+                        })
+                    }
                 ) { pick(option) }
             }
         }
@@ -2740,11 +2755,17 @@ private fun PostKindRowWithFacets(
         options = options, selected = if (homeOn) null else parent,
         liquidGlass = liquidGlass, tint = tint, labelOf = { it?.label() ?: "Home" },
         onSelect = { pick(it) },
-        trailing = if (facets.isEmpty()) null else ({
-            FacetPill(facets.map { it.label() }, facets.indexOf(selected), liquidGlass, tint) { i ->
-                onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
-            }
-        })
+        trailing = when {
+            homeOn && customizeLabel != null -> ({
+                FacetPill(listOf(customizeLabel), if (customizing == true) 0 else -1, liquidGlass, tint) { onCustomize(customizing != true) }
+            })
+            facets.isEmpty() -> null
+            else -> ({
+                FacetPill(facets.map { it.label() }, facets.indexOf(selected), liquidGlass, tint) { i ->
+                    onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
+                }
+            })
+        }
     )
 }
 

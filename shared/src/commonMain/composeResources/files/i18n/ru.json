@@ -2114,5 +2114,19 @@
 "Edit folder": "Изменить папку",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "Общедоступная: название и посты сохраняются на вашем PDS без шифрования и показываются в профиле, где их видят все.",
 "Use the default cover": "Обложка по умолчанию",
-"Visibility": "Видимость"
+"Visibility": "Видимость",
+"Hub Settings": "Настройки хаба",
+"Hub Layout": "Раскладка хаба",
+"Home Settings": "Настройки главной",
+"Home Layout": "Раскладка главной",
+"Header Lines": "Линии у заголовков",
+"Header Alignment": "Выравнивание заголовков",
+"Gradient Buttons": "Градиентные кнопки",
+"Divider Headers": "Заголовки-разделители",
+"Customize": "Настроить",
+"Center": "По центру",
+"Add Default": "Добавить стандартный",
+"Small names between two lines, like the Hub's": "Небольшие названия между двумя линиями, как в хабе",
+"Lines out from each big name to the page's edges": "Линии от каждого большого названия до краёв",
+"Every button filled like a popup's buttons": "Все кнопки залиты как во всплывающих окнах"
 }

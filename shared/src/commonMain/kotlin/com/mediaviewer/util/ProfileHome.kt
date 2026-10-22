@@ -57,6 +57,39 @@ object ProfileHome {
         later(id) { r.delete(id) }
     }
 
+    /** Moves your feed at [from] to [to] (dragged in Customize). Every row
+     *  that changed place gets its new position (each write waits a moment
+     *  and only the last of a quick run of moves is sent). */
+    fun moveTo(from: Int, to: Int) {
+        val r = remote ?: return
+        val list = byAccount[r.did].orEmpty().toMutableList()
+        if (from !in list.indices || to !in list.indices || from == to) return
+        list.add(to, list.removeAt(from))
+        byAccount[r.did] = list
+        for (i in minOf(from, to)..maxOf(from, to)) write(i, list[i])
+    }
+
+    /** How a Home tab's row names look (Home Settings; see RowHeaderStyle):
+     *  [align] 0 left, 1 center, 2 right; [divider] small between lines;
+     *  [lines] beside a big name. Public like the rows (it's how others see
+     *  the tab), kept in one more record, [SETTINGS_RKEY]. */
+    data class Header(val align: Int = 0, val divider: Boolean = false, val lines: Boolean = false)
+    const val SETTINGS_RKEY = "settings"
+    val headers = mutableStateMapOf<String, Header>()
+
+    fun setHeader(header: Header) {
+        val r = remote ?: return
+        headers[r.did] = header
+        val record = linkedMapOf<String, Any>(
+            "\$type" to COLLECTION,
+            "headerAlign" to header.align,
+            "dividerHeaders" to header.divider,
+            "headerLines" to header.lines,
+            "createdAt" to isoFromMillis(com.mediaviewer.platform.currentTimeMillis())
+        )
+        later(SETTINGS_RKEY) { r.put(SETTINGS_RKEY, record) }
+    }
+
     /** Moves your feed [id] one place up ([by] = -1) or down (1). */
     fun move(id: String, by: Int) {
         val r = remote ?: return
@@ -116,6 +149,15 @@ object ProfileHome {
         val records = root["records"] as? JsonArray ?: return emptyList()
         for (r in records) {
             val value = (r as? JsonObject)?.get("value") as? JsonObject ?: continue
+            if ((r["uri"] as? JsonPrimitive)?.content.orEmpty().endsWith("/$SETTINGS_RKEY")) {
+                fun prim(k: String) = value[k] as? JsonPrimitive
+                headers[did] = Header(
+                    align = prim("headerAlign")?.content?.toIntOrNull()?.coerceIn(0, 2) ?: 0,
+                    divider = prim("dividerHeaders")?.content == "true",
+                    lines = prim("headerLines")?.content == "true"
+                )
+                continue
+            }
             val spec = (value["spec"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
             val feed = runCatching { StellarJson.default.decodeFromString(LocalFeed.serializer(), spec) }.getOrNull() ?: continue
             val rkey = (r["uri"] as? JsonPrimitive)?.content.orEmpty().substringAfterLast('/')

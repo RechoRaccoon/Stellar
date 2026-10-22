@@ -2114,5 +2114,19 @@
 "Edit folder": "Editar carpeta",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "Pública: su nombre y publicaciones se guardan sin cifrar en tu PDS y se muestran en tu perfil, donde cualquiera puede verlos.",
 "Use the default cover": "Usar la portada predeterminada",
-"Visibility": "Visibilidad"
+"Visibility": "Visibilidad",
+"Hub Settings": "Ajustes del Hub",
+"Hub Layout": "Diseño del Hub",
+"Home Settings": "Ajustes de Inicio",
+"Home Layout": "Diseño de Inicio",
+"Header Lines": "Líneas en los títulos",
+"Header Alignment": "Alineación de títulos",
+"Gradient Buttons": "Botones con degradado",
+"Divider Headers": "Títulos con separador",
+"Customize": "Personalizar",
+"Center": "Centro",
+"Add Default": "Añadir predeterminada",
+"Small names between two lines, like the Hub's": "Nombres pequeños entre dos líneas, como en el Hub",
+"Lines out from each big name to the page's edges": "Líneas desde cada nombre grande hasta los bordes",
+"Every button filled like a popup's buttons": "Todos los botones rellenos como en las ventanas"
 }

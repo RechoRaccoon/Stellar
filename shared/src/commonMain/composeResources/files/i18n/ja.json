@@ -2114,5 +2114,19 @@
 "Edit folder": "フォルダーを編集",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "公開: 名前と投稿は暗号化されずにPDSに保存され、プロフィールで誰でも見られます。",
 "Use the default cover": "標準のカバーを使う",
-"Visibility": "公開範囲"
+"Visibility": "公開範囲",
+"Hub Settings": "ハブの設定",
+"Hub Layout": "ハブのレイアウト",
+"Home Settings": "ホームの設定",
+"Home Layout": "ホームのレイアウト",
+"Header Lines": "見出しの線",
+"Header Alignment": "見出しの配置",
+"Gradient Buttons": "グラデーションボタン",
+"Divider Headers": "区切り線の見出し",
+"Customize": "カスタマイズ",
+"Center": "中央",
+"Add Default": "デフォルトを追加",
+"Small names between two lines, like the Hub's": "ハブのように、2本の線の間に小さな名前",
+"Lines out from each big name to the page's edges": "大きな名前からページの端まで線を引く",
+"Every button filled like a popup's buttons": "すべてのボタンをポップアップのように塗りつぶす"
 }

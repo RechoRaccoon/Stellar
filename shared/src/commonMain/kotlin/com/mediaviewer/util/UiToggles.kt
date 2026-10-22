@@ -40,6 +40,10 @@ object UiToggles {
     private const val KEY_SIDE_LIST_SCALE = "side_list_scale"
     private const val KEY_HUB_SCALE = "hub_scale"
     private const val KEY_HUB_LEFT_TITLES = "hub_left_titles"
+    private const val KEY_HUB_HEADER_ALIGN = "hub_header_align"
+    private const val KEY_HUB_DIVIDER_HEADERS = "hub_divider_headers"
+    private const val KEY_HUB_HEADER_LINES = "hub_header_lines"
+    private const val KEY_DEV_GRADIENT_BUTTONS = "dev_gradient_buttons"
     private const val KEY_STATUS_AMOUNT = "status_amount_" // + unit name
     private const val KEY_STATUS_UNIT = "status_unit"
     // Override App Colors is saved per signed-in account: these are the old
@@ -263,15 +267,37 @@ object UiToggles {
         if (save) prefs?.edit()?.putFloat(KEY_SIDE_LIST_SCALE, sideListScale)?.apply()
     }
 
-    /** Customize Hub → "Row Names on the Left": each Hub row named at its
-     *  left, bigger, like Settings' headings, instead of centered between
-     *  two lines. */
-    var hubLeftTitles by mutableStateOf(false)
+    /** Customize Hub → Hub Settings: where each row's name sits (0 left,
+     *  1 center, 2 right), whether it's the small name between two lines
+     *  (the Hub's divider look) or a big heading, and — big — whether
+     *  lines in the profile color run out from it to the page's edges. */
+    var hubHeaderAlign by mutableStateOf(1)
+        private set
+    var hubDividerHeaders by mutableStateOf(true)
+        private set
+    var hubHeaderLines by mutableStateOf(false)
         private set
 
-    fun updateHubLeftTitles(on: Boolean) {
-        hubLeftTitles = on
-        prefs?.edit()?.putBoolean(KEY_HUB_LEFT_TITLES, on)?.apply()
+    fun updateHubHeaderAlign(align: Int) {
+        hubHeaderAlign = align.coerceIn(0, 2)
+        prefs?.edit()?.putInt(KEY_HUB_HEADER_ALIGN, hubHeaderAlign)?.apply()
+    }
+    fun updateHubDividerHeaders(on: Boolean) {
+        hubDividerHeaders = on
+        prefs?.edit()?.putBoolean(KEY_HUB_DIVIDER_HEADERS, on)?.apply()
+    }
+    fun updateHubHeaderLines(on: Boolean) {
+        hubHeaderLines = on
+        prefs?.edit()?.putBoolean(KEY_HUB_HEADER_LINES, on)?.apply()
+    }
+
+    /** Dev Tools: every button gets the filled popups' gradient (the one
+     *  "Create" and the Home tab's buttons have) instead of glass. */
+    var devGradientButtons by mutableStateOf(false)
+        private set
+    fun updateDevGradientButtons(on: Boolean) {
+        devGradientButtons = on
+        prefs?.edit()?.putBoolean(KEY_DEV_GRADIENT_BUTTONS, on)?.apply()
     }
 
     /** Landscape: how big the Hub's rows are (the Hub Size slider). */
@@ -460,7 +486,12 @@ object UiToggles {
         landscapeListColumns = p.getInt(KEY_LANDSCAPE_LIST_COLUMNS, LANDSCAPE_DEFAULT_LIST_COLUMNS).coerceIn(LANDSCAPE_MIN_COLUMNS, LANDSCAPE_MAX_COLUMNS)
         sideListScale = p.getFloat(KEY_SIDE_LIST_SCALE, 1f).coerceIn(SIDE_LIST_MIN_SCALE, SIDE_LIST_MAX_SCALE)
         hubScale = p.getFloat(KEY_HUB_SCALE, 1f).coerceIn(HUB_MIN_SCALE, HUB_MAX_SCALE)
-        hubLeftTitles = p.getBoolean(KEY_HUB_LEFT_TITLES, false)
+        // (The old "Row Names on the Left" switch: on was big names at the left.)
+        val leftTitles = p.getBoolean(KEY_HUB_LEFT_TITLES, false)
+        hubHeaderAlign = p.getInt(KEY_HUB_HEADER_ALIGN, if (leftTitles) 0 else 1).coerceIn(0, 2)
+        hubDividerHeaders = p.getBoolean(KEY_HUB_DIVIDER_HEADERS, !leftTitles)
+        hubHeaderLines = p.getBoolean(KEY_HUB_HEADER_LINES, false)
+        devGradientButtons = p.getBoolean(KEY_DEV_GRADIENT_BUTTONS, false)
         overrideDid = p.getString(KEY_OVERRIDE_ACTIVE_DID, null) ?: ""
         loadOverride(p, overrideDid)
         devToolsUnlocked = p.getBoolean(KEY_DEV_TOOLS_UNLOCKED, false)

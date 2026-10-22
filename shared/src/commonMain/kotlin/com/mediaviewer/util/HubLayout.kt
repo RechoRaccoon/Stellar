@@ -154,9 +154,21 @@ object HubLayout {
         if (separateOrientations) reloadRows(p)
     }
 
-    private fun reloadRows(p: SharedPreferences) {
-        removedDefaults = readRemoved(p, accountDid)
-        rows = normalize(parse(readFor(p, accountDid)))
+    private fun reloadRows(p: SharedPreferences) = loadRows(p, accountDid)
+
+    /** Reads [did]'s rows. Rows can't be switched off any more (only
+     *  removed): one saved switched off is taken out — a default or widget
+     *  can be added back from Add Default — and any other is shown again. */
+    private fun loadRows(p: SharedPreferences, did: String) {
+        removedDefaults = readRemoved(p, did)
+        val parsed = parse(readFor(p, did))
+        val off = parsed.filter { !it.enabled && (it.isBuiltIn || it.isWidget) }
+        if (off.isNotEmpty()) {
+            removedDefaults = removedDefaults + off.filter { it.isBuiltIn }.map { it.id }
+            p.edit().putString(removedKey(did), removedDefaults.joinToString(",")).apply()
+        }
+        rows = normalize(parsed.filterNot { it in off }.map { if (it.enabled) it else it.copy(enabled = true) })
+        if (parsed.any { !it.enabled }) p.edit().putString(rowsKey(did), serialize(rows)).apply()
     }
 
     private var prefs: SharedPreferences? = null
@@ -179,8 +191,7 @@ object HubLayout {
         prefs = p
         accountDid = p.getString(KEY_ACTIVE_DID, null) ?: ""
         separateOrientations = p.getBoolean(separateKeyFor(accountDid), false)
-        removedDefaults = readRemoved(p, accountDid)
-        rows = normalize(parse(readFor(p, accountDid)))
+        loadRows(p, accountDid)
         launchpad = readLaunchpad(p, accountDid)
     }
 
@@ -272,8 +283,7 @@ object HubLayout {
         accountDid = did
         p.edit().putString(KEY_ACTIVE_DID, did).commit()
         separateOrientations = p.getBoolean(separateKeyFor(did), false)
-        removedDefaults = readRemoved(p, did)
-        rows = normalize(parse(readFor(p, did)))
+        loadRows(p, did)
         launchpad = readLaunchpad(p, did)
     }
 
@@ -417,8 +427,7 @@ object HubLayout {
     fun reload() {
         val p = prefs ?: return
         separateOrientations = p.getBoolean(separateKeyFor(accountDid), false)
-        removedDefaults = readRemoved(p, accountDid)
-        rows = normalize(parse(readFor(p, accountDid)))
+        loadRows(p, accountDid)
         launchpad = readLaunchpad(p, accountDid)
     }
 

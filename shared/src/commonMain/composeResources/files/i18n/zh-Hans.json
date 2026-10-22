@@ -2114,5 +2114,19 @@
 "Edit folder": "编辑文件夹",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "公开:名称和帖子会以未加密形式保存到你的 PDS,并显示在你的个人资料上,任何人都能看到。",
 "Use the default cover": "使用默认封面",
-"Visibility": "可见性"
+"Visibility": "可见性",
+"Hub Settings": "中心设置",
+"Hub Layout": "中心布局",
+"Home Settings": "主页设置",
+"Home Layout": "主页布局",
+"Header Lines": "标题线",
+"Header Alignment": "标题对齐",
+"Gradient Buttons": "渐变按钮",
+"Divider Headers": "分隔线标题",
+"Customize": "自定义",
+"Center": "居中",
+"Add Default": "添加默认",
+"Small names between two lines, like the Hub's": "像中心那样,小名称位于两条线之间",
+"Lines out from each big name to the page's edges": "从每个大标题延伸到页面边缘的线",
+"Every button filled like a popup's buttons": "所有按钮都像弹窗按钮一样填充"
 }

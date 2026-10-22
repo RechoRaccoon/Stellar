@@ -568,9 +568,7 @@ fun FeedBuilderPopup(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var tagIdeas by remember { mutableStateOf<List<String>>(emptyList()) }
-    var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { onLoadLists() }
-    LaunchedEffect(confirmDelete) { if (confirmDelete) { kotlinx.coroutines.delay(3000); confirmDelete = false } }
     // Tags: what's typed so far, completed from the tag database as it's typed.
     LaunchedEffect(adding, input) {
         if (adding != "tag" || input.isBlank()) { tagIdeas = emptyList(); return@LaunchedEffect }
@@ -619,7 +617,15 @@ fun FeedBuilderPopup(
     // (Only the X closes it: a stray tap outside would lose the feed.)
     // (One height whatever's in it, so adding or removing a source doesn't
     // make it jump up and down as it re-centers.)
-    LocalPopup(title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop, dismissOnOutsideTap = false, fixedHeight = true) {
+    // Deleting a feed: the trash at the top right (then "Really?").
+    LocalPopup(
+        title = title, liquidGlass = liquidGlass, tint = tint, onClose = onClose, maxHeight = 680.dp, backdrop = backdrop,
+        dismissOnOutsideTap = false, fixedHeight = true,
+        onDelete = if (!editing) null else ({
+            if (onDelete != null) onDelete(initial) else LocalData.deleteLocalFeed(initial.id)
+            onDeleted(initial); onClose()
+        })
+    ) {
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -759,17 +765,6 @@ fun FeedBuilderPopup(
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (editing) LocalPillButton(
-                if (confirmDelete) "Delete?" else "Delete", liquidGlass, tint,
-                {
-                    if (confirmDelete) {
-                        if (onDelete != null) onDelete(initial) else LocalData.deleteLocalFeed(initial.id)
-                        onDeleted(initial); onClose()
-                    } else confirmDelete = true
-                },
-                // (In the popup's own color, not red.)
-                Modifier.weight(1f)
-            )
             LocalPillButton(
                 if (editing) "Save" else "Create", liquidGlass, tint,
                 {
@@ -783,7 +778,7 @@ fun FeedBuilderPopup(
                     onSaved(saved)
                     onClose()
                 },
-                Modifier.weight(if (editing) 1.4f else 1f),
+                Modifier.weight(1f),
                 enabled = sources.isNotEmpty() && (textPosts || images || hVideos || vVideos || polls || blogs || reviews)
             )
         }

@@ -137,7 +137,7 @@ private val DangerRed = Color(0xFFEF5350)
 /** The section titles' color: the same reflected profile color every rim on
  *  this page uses, lifted to a readable brightness (a dominant color sampled
  *  from an avatar is often too dark to read as text on the dark background). */
-private fun headerColorFor(tint: Color): Color {
+internal fun headerColorFor(tint: Color): Color {
     val hsv = FloatArray(3)
     com.mediaviewer.ui.compat.PlatformColor.colorToHSV(tint.toArgb(), hsv)
     hsv[2] = hsv[2].coerceAtLeast(0.85f)
@@ -486,10 +486,14 @@ private fun PillButton(
     enabled: Boolean = true, color: Color = Color.White
 ) {
     val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(10.dp)
     Box(
         modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (enabled) Color.White.copy(0.12f) else Color.White.copy(0.05f))
+            .then(
+                // (Dev Tools → Gradient Buttons: filled like a popup's button.)
+                if (com.mediaviewer.util.UiToggles.devGradientButtons && enabled) Modifier.popupButtonFill(LocalSettingsAccent.current, shape)
+                else Modifier.clip(shape).background(if (enabled) Color.White.copy(0.12f) else Color.White.copy(0.05f))
+            )
             .clickable(enabled = enabled) { tap(); onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
@@ -1618,6 +1622,11 @@ internal fun SettingsPageContent(
                     }
                     BubbleDivider()
                     BubbleRow {
+                        RowLabel("Gradient Buttons", Modifier.weight(1f), sub = "Every button filled like a popup's buttons")
+                        CompactSwitch(com.mediaviewer.util.UiToggles.devGradientButtons) { com.mediaviewer.util.UiToggles.updateDevGradientButtons(it) }
+                    }
+                    BubbleDivider()
+                    BubbleRow {
                         RowLabel("Preview Loading Animation", Modifier.weight(1f))
                         PillButton("Play", { com.mediaviewer.util.UiToggles.devLoadingPreview = true })
                     }
@@ -2366,130 +2375,291 @@ private fun FitToHeight(modifier: Modifier = Modifier, content: @Composable () -
  * and adding and the settings on the right, like Settings. Everything is
  * saved in [com.mediaviewer.util.HubLayout].
  */
+/**
+ * One row of a Hub or Home layout list (see [LayoutRowsList]): a default
+ * row has [onRemove] (its X, two taps); a custom one has [onEdit] (its own
+ * popup, which deletes it too) — never both. [trailing] goes before them
+ * (a list row's Posts / Profiles). [stuck]: can't be removed.
+ */
+internal class LayoutRowItem(
+    val id: String,
+    val label: String,
+    val onEdit: (() -> Unit)? = null,
+    val onRemove: (() -> Unit)? = null,
+    val trailing: (@Composable () -> Unit)? = null
+)
+
+/**
+ * The Hub's and the Home tab's layout lists, the same everywhere: a short
+ * bubble per row, held by its handle and dragged to move it. [liveIds]
+ * reads the order as it is right now (a move just made counts straight
+ * away); [onMove] moves one row from an index to another.
+ */
 @Composable
-internal fun CustomizeHubSection(
-    extras: SettingsExtras, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, split: Boolean = false
+internal fun LayoutRowsList(
+    items: List<LayoutRowItem>,
+    liveIds: () -> List<String>,
+    onMove: (Int, Int) -> Unit,
+    liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    modifier: Modifier = Modifier
 ) {
-    val hub = com.mediaviewer.util.HubLayout
-    val rows = hub.rows
     val density = androidx.compose.ui.platform.LocalDensity.current
     val view = com.mediaviewer.ui.compat.rememberPlatformView()
     val gapPx = with(density) { 8.dp.toPx() }
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val heights = remember { mutableStateMapOf<String, Int>() }
-
     fun buzz() { runCatching { view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CLOCK_TICK) } }
-    // The Profiles row whose edit button was pressed.
-    var editingProfilesRow by remember { mutableStateOf<com.mediaviewer.util.HubLayout.Row?>(null) }
-
-    @Composable
-    fun RowsPart() {
-        rows.forEach { row ->
-            key(row.id) {
-                val dragging = draggingId == row.id
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { item ->
+            key(item.id) {
+                val dragging = draggingId == item.id
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .zIndex(if (dragging) 1f else 0f)
-                        .onSizeChanged { heights[row.id] = it.height }
+                        .onSizeChanged { heights[item.id] = it.height }
                         .graphicsLayer {
                             translationY = if (dragging) dragOffset else 0f
                             val s = if (dragging) 1.02f else 1f
                             scaleX = s; scaleY = s
                         }
                 ) {
-                    val handle = Modifier.pointerInput(row.id) {
+                    val handle = Modifier.pointerInput(item.id) {
                         detectDragGestures(
-                            onDragStart = { draggingId = row.id; dragOffset = 0f; buzz() },
+                            onDragStart = { draggingId = item.id; dragOffset = 0f; buzz() },
                             onDragEnd = { draggingId = null; dragOffset = 0f },
                             onDragCancel = { draggingId = null; dragOffset = 0f },
                             onDrag = { change, amount ->
                                 change.consume()
                                 dragOffset += amount.y
-                                // Read live (not the composition's copy): a
-                                // move just made must count straight away.
-                                val list = hub.rows
-                                val idx = list.indexOfFirst { it.id == row.id }
+                                val list = liveIds()
+                                val idx = list.indexOf(item.id)
                                 if (idx < 0) return@detectDragGestures
                                 if (dragOffset > 0f && idx < list.lastIndex) {
-                                    val step = (heights[list[idx + 1].id] ?: 0) + gapPx
-                                    if (step > gapPx && dragOffset > step / 2f) {
-                                        hub.move(idx, idx + 1); dragOffset -= step; buzz()
-                                    }
+                                    val step = (heights[list[idx + 1]] ?: 0) + gapPx
+                                    if (step > gapPx && dragOffset > step / 2f) { onMove(idx, idx + 1); dragOffset -= step; buzz() }
                                 } else if (dragOffset < 0f && idx > 0) {
-                                    val step = (heights[list[idx - 1].id] ?: 0) + gapPx
-                                    if (step > gapPx && -dragOffset > step / 2f) {
-                                        hub.move(idx, idx - 1); dragOffset += step; buzz()
-                                    }
+                                    val step = (heights[list[idx - 1]] ?: 0) + gapPx
+                                    if (step > gapPx && -dragOffset > step / 2f) { onMove(idx, idx - 1); dragOffset += step; buzz() }
                                 }
                             }
                         )
                     }
-                    HubRowBubble(
-                        row = row, handle = handle, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                        // A built feed's edit (the round pencil) is here, not on the Hub's row.
-                        onEdit = when {
-                            row.isProfiles -> ({ editingProfilesRow = row })
-                            row.isFeed -> ({
-                                com.mediaviewer.util.LocalData.localFeed(com.mediaviewer.util.LocalData.LOCAL_FEED_PREFIX + row.feedId)?.let { feed ->
-                                    LocalOverlays.feedBuilderForHub = true; LocalOverlays.feedBuilder = feed
-                                }
-                            })
-                            else -> null
-                        }
-                    )
+                    LayoutRowBubble(item, handle, liquidGlass, tint, backdrop)
                 }
             }
         }
-
     }
-    @Composable
-    fun AddPart() {
-        // ── Add: Default / Create Feed ──
-        var menuOpen by remember { mutableStateOf(false) }
-        var defaultMenuOpen by remember { mutableStateOf(false) }
-        var profilesPopupOpen by remember { mutableStateOf(false) }
-        var urlPopupOpen by remember { mutableStateOf(false) }
-        var widgetMenuOpen by remember { mutableStateOf(false) }
-        val supporter = com.mediaviewer.util.Supporter.active
+}
+
+/** One row of [LayoutRowsList]: grab handle, name, then its edit or its X. */
+@Composable
+private fun LayoutRowBubble(item: LayoutRowItem, handle: Modifier, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    val editTap = rememberHapticTap()
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            Box(handle.size(width = 30.dp, height = 34.dp), contentAlignment = Alignment.CenterStart) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Default.DragIndicator,
+                    contentDescription = "Drag to reorder", tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Text(
+                item.label, color = Color.White, fontSize = 14.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
+            item.trailing?.let { it(); Spacer(Modifier.width(8.dp)) }
+            if (item.onEdit != null) {
+                // The same pen as editing your own profile, as a grey circle.
+                Box(
+                    Modifier.size(28.dp).clip(CircleShape).background(Color.White.copy(0.12f))
+                        .clickable { editTap(); item.onEdit.invoke() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(androidx.compose.material.icons.Icons.Default.Edit, contentDescription = "Edit", tint = Color.White, modifier = Modifier.size(15.dp))
+                }
+            } else if (item.onRemove != null) {
+                RemoveLayoutRowButton("row:" + item.id, item.onRemove)
+            }
+        }
+    }
+}
+
+/** A layout row's X: the first tap asks "Really?", the second removes it
+ *  (a tap anywhere else puts the X back). */
+@Composable
+private fun RemoveLayoutRowButton(key: String, onRemove: () -> Unit) {
+    if (ReallyPrompt.isArmed(key)) {
+        PillButton("Really?", { ReallyPrompt.tap(key, onRemove) }, modifier = Modifier.reallyTarget(key))
+    } else {
+        CancelXButton({ ReallyPrompt.arm(key) }, modifier = Modifier.reallyTarget(key))
+    }
+}
+
+/** "Hub Layout", "Home Settings"…: a section's name centered between two
+ *  lines in the profile color, like the Hub's own dividers. */
+@Composable
+internal fun LayoutSectionDivider(label: String, tint: Color, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+        Text(
+            label, color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.35f), fontSize = 13.sp, lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp)
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+    }
+}
+
+/** How row names look (Hub and Home Settings): Header Alignment, the
+ *  divider look, and lines beside a big name (see RowHeaderStyle). */
+@Composable
+internal fun HeaderStyleSettings(
+    style: RowHeaderStyle,
+    onChange: (RowHeaderStyle) -> Unit,
+    liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    extra: (@Composable ColumnScope.() -> Unit)? = null
+) {
+    CompositionLocalProvider(LocalSettingsAccent provides headerColorFor(tint)) {
         SettingsBubble(liquidGlass, tint, backdrop) {
             BubbleRow {
-                RowLabel("Add", Modifier.weight(1f))
-                Box {
-                    PillButton("Default", { defaultMenuOpen = true })
-                    // Every default row, in the default order; the ones
-                    // already in the Hub are greyed out.
-                    DropdownMenu(expanded = defaultMenuOpen, onDismissRequest = { defaultMenuOpen = false }) {
-                        hub.defaultRowIds.forEach { id ->
-                            val added = rows.any { it.id == id }
-                            DropdownMenuItem(
-                                text = { Text(hub.BUILT_IN_LABELS[id] ?: id, color = if (added) DimGray else Color.Unspecified) },
-                                onClick = { defaultMenuOpen = false; hub.addDefault(id) },
-                                enabled = !added
-                            )
-                        }
-                        // The widgets (supporters) are default rows too.
-                        hub.WIDGET_LABELS.forEach { (id, label) ->
-                            val added = rows.any { it.id == id }
-                            DropdownMenuItem(
-                                text = { Text(label, color = if (added) DimGray else Color.Unspecified, modifier = Modifier.supporterShine(!supporter)) },
-                                onClick = { defaultMenuOpen = false; if (supporter) hub.addWidget(id) else com.mediaviewer.util.Supporter.openPage() },
-                                enabled = !added
-                            )
-                        }
+                RowLabel("Header Alignment", Modifier.weight(1f))
+                ConnectedChoice(
+                    options = listOf(
+                        ChoiceOption(icon = androidx.compose.material.icons.Icons.AutoMirrored.Filled.FormatAlignLeft, description = "Left"),
+                        ChoiceOption(icon = androidx.compose.material.icons.Icons.Default.FormatAlignCenter, description = "Center"),
+                        ChoiceOption(icon = androidx.compose.material.icons.Icons.AutoMirrored.Filled.FormatAlignRight, description = "Right")
+                    ),
+                    selected = style.align,
+                    onSelect = { onChange(style.copy(align = it)) }
+                )
+            }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel("Divider Headers", Modifier.weight(1f), sub = "Small names between two lines, like the Hub's")
+                CompactSwitch(style.divider) { onChange(style.copy(divider = it)) }
+            }
+            BubbleDivider()
+            BubbleRow {
+                RowLabel("Header Lines", Modifier.weight(1f), sub = "Lines out from each big name to the page's edges", dim = style.divider)
+                CompactSwitch(style.lines, enabled = !style.divider) { onChange(style.copy(lines = it)) }
+            }
+            extra?.invoke(this)
+        }
+    }
+}
+
+/** A layout page's button (Create, Add Default): clear like the rest of
+ *  the page's glass — or, with Dev Tools' gradient buttons on, filled. */
+@Composable
+internal fun LayoutPillButton(label: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val tap = rememberHapticTap()
+    val shape = RoundedCornerShape(20.dp)
+    val m = modifier.height(40.dp).clip(shape).clickable { tap(); onClick() }
+    val text: @Composable () -> Unit = {
+        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp))
+    }
+    when {
+        com.mediaviewer.util.UiToggles.devGradientButtons -> Box(m.popupButtonFill(tint, shape), contentAlignment = Alignment.Center) { text() }
+        liquidGlass -> LiquidGlassSurface(m, shape = shape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) { text() }
+        else -> Box(m.background(Color.White.copy(alpha = 0.04f)).border(1.dp, tint.copy(alpha = 0.6f), shape), contentAlignment = Alignment.Center) { text() }
+    }
+}
+
+/**
+ * Customize Hub's page: Hub Layout (its rows, to drag, remove — or, for
+ * your own rows, edit — then Add Default and Create) and Hub Settings
+ * (how row names look, one layout per orientation). Everything takes
+ * effect as it's changed.
+ */
+@Composable
+internal fun CustomizeHubSection(
+    extras: SettingsExtras, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, split: Boolean = false
+) {
+    val hub = com.mediaviewer.util.HubLayout
+    val rows = hub.rows
+    val supporter = com.mediaviewer.util.Supporter.active
+    // The Profiles row whose edit button was pressed.
+    var editingProfilesRow by remember { mutableStateOf<com.mediaviewer.util.HubLayout.Row?>(null) }
+
+    @Composable
+    fun LayoutPart() {
+        LayoutSectionDivider("Hub Layout", tint)
+        LayoutRowsList(
+            items = rows.map { row ->
+                val custom = row.isProfiles || row.isFeed
+                LayoutRowItem(
+                    id = row.id, label = row.label,
+                    onEdit = when {
+                        row.isProfiles -> ({ editingProfilesRow = row })
+                        row.isFeed -> ({
+                            com.mediaviewer.util.LocalData.localFeed(com.mediaviewer.util.LocalData.LOCAL_FEED_PREFIX + row.feedId)?.let { feed ->
+                                LocalOverlays.feedBuilderForHub = true; LocalOverlays.feedBuilder = feed
+                            }
+                        })
+                        else -> null
+                    },
+                    // (Stellar Supporters stays for non-supporters.)
+                    onRemove = if (custom || (row.id == com.mediaviewer.util.HubLayout.SUPPORTERS && !supporter)) null else ({ hub.remove(row.id) }),
+                    trailing = if (!row.hasMembers) null else ({
+                        PillButton(if (row.showPosts) "Posts" else "Profiles", { hub.setShowPosts(row.id, !row.showPosts) })
+                    })
+                )
+            },
+            liveIds = { hub.rows.map { it.id } },
+            onMove = { from, to -> hub.move(from, to) },
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+        )
+        // ── Add Default / Create ──
+        var defaultMenuOpen by remember { mutableStateOf(false) }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+        ) {
+            Box {
+                LayoutPillButton("Add Default", liquidGlass, tint, backdrop, { defaultMenuOpen = true })
+                // Every default row, in the default order; the ones already
+                // in the Hub are greyed out.
+                DropdownMenu(expanded = defaultMenuOpen, onDismissRequest = { defaultMenuOpen = false }) {
+                    hub.defaultRowIds.forEach { id ->
+                        val added = rows.any { it.id == id }
+                        DropdownMenuItem(
+                            text = { Text(hub.BUILT_IN_LABELS[id] ?: id, color = if (added) DimGray else Color.Unspecified) },
+                            onClick = { defaultMenuOpen = false; hub.addDefault(id) },
+                            enabled = !added
+                        )
+                    }
+                    // The widgets (supporters) are default rows too.
+                    hub.WIDGET_LABELS.forEach { (id, label) ->
+                        val added = rows.any { it.id == id }
+                        DropdownMenuItem(
+                            text = { Text(label, color = if (added) DimGray else Color.Unspecified, modifier = Modifier.supporterShine(!supporter)) },
+                            onClick = { defaultMenuOpen = false; if (supporter) hub.addWidget(id) else com.mediaviewer.util.Supporter.openPage() },
+                            enabled = !added
+                        )
                     }
                 }
-                Spacer(Modifier.width(8.dp))
-                PillButton("Create Feed", {
-                    LocalOverlays.feedBuilderForHub = true
-                    LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
-                })
             }
+            LayoutPillButton("Create", liquidGlass, tint, backdrop, {
+                LocalOverlays.feedBuilderForHub = true
+                LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
+            })
         }
-        // One Hub layout for both ways up, or one each (see HubLayout):
-        // with it on, this section edits the one the screen is in now.
-        SettingsBubble(liquidGlass, tint, backdrop) {
+    }
+    @Composable
+    fun SettingsPart() {
+        LayoutSectionDivider("Hub Settings", tint)
+        val t = com.mediaviewer.util.UiToggles
+        HeaderStyleSettings(
+            style = RowHeaderStyle.hub,
+            onChange = { s -> t.updateHubHeaderAlign(s.align); t.updateHubDividerHeaders(s.divider); t.updateHubHeaderLines(s.lines) },
+            liquidGlass = liquidGlass, tint = tint, backdrop = backdrop
+        ) {
+            BubbleDivider()
+            // One Hub layout for both ways up, or one each (see HubLayout):
+            // with it on, this page edits the one the screen is in now.
             BubbleRow {
                 Column(Modifier.weight(1f)) {
                     RowLabel("Custom Hub Layouts per Orientation")
@@ -2502,126 +2672,28 @@ internal fun CustomizeHubSection(
                 }
                 CompactSwitch(hub.separateOrientations) { hub.useSeparateOrientations(it) }
             }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel("Row Names on the Left", Modifier.weight(1f))
-                CompactSwitch(com.mediaviewer.util.UiToggles.hubLeftTitles) { com.mediaviewer.util.UiToggles.updateHubLeftTitles(it) }
-            }
         }
-        if (urlPopupOpen) {
-            HubListUrlDialog(
-                liquidGlass = liquidGlass, tint = tint,
-                onAdd = { url, done -> extras.onAddHubListFromUrl(url) { err -> done(err); if (err == null) urlPopupOpen = false } },
-                onDismiss = { urlPopupOpen = false }
-            )
-        }
-        editingProfilesRow?.let { row ->
-            HubProfilesDialog(
-                candidates = extras.hubProfileCandidates, searching = extras.hubProfileSearching, tint = tint,
-                onSearch = extras.onSearchHubProfiles,
-                onLoadMoreSuggestions = extras.onLoadMoreHubProfileSuggestions,
-                onAdd = { name, members -> editingProfilesRow = null; extras.onEditHubProfiles(row.id, name, members) },
-                onClose = { editingProfilesRow = null },
-                initialName = row.name,
-                initialSelected = row.profiles.map { com.mediaviewer.model.AuthorInfo(it.did, it.handle, it.displayName, it.avatarUrl) },
-                editing = true
-            )
-        }
-        if (profilesPopupOpen) {
-            HubProfilesDialog(
-                candidates = extras.hubProfileCandidates, searching = extras.hubProfileSearching, tint = tint,
-                onSearch = extras.onSearchHubProfiles,
-                onLoadMoreSuggestions = extras.onLoadMoreHubProfileSuggestions,
-                onAdd = { name, members -> profilesPopupOpen = false; extras.onAddHubProfiles(name, members) },
-                onClose = { profilesPopupOpen = false }
-            )
-        }
+    }
+    editingProfilesRow?.let { row ->
+        HubProfilesDialog(
+            candidates = extras.hubProfileCandidates, searching = extras.hubProfileSearching, tint = tint,
+            onSearch = extras.onSearchHubProfiles,
+            onLoadMoreSuggestions = extras.onLoadMoreHubProfileSuggestions,
+            onAdd = { name, members -> editingProfilesRow = null; extras.onEditHubProfiles(row.id, name, members) },
+            onClose = { editingProfilesRow = null },
+            initialName = row.name,
+            initialSelected = row.profiles.map { com.mediaviewer.model.AuthorInfo(it.did, it.handle, it.displayName, it.avatarUrl) },
+            editing = true,
+            onDelete = { editingProfilesRow = null; hub.remove(row.id) }
+        )
     }
     if (split) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Column(Modifier.weight(1.3f), verticalArrangement = Arrangement.spacedBy(8.dp)) { RowsPart() }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) { AddPart() }
+            Column(Modifier.weight(1.3f)) { LayoutPart() }
+            Column(Modifier.weight(1f)) { SettingsPart() }
         }
     } else {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { RowsPart(); AddPart() }
-    }
-}
-
-/** One row of Customize Hub: grab handle, name, (list/profiles: Profiles/Posts), on/off, X. */
-@Composable
-private fun HubRowBubble(
-    row: com.mediaviewer.util.HubLayout.Row,
-    handle: Modifier,
-    liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
-    /** Profiles rows: reopen the picker to add/remove accounts or rename. */
-    onEdit: (() -> Unit)? = null
-) {
-    val hub = com.mediaviewer.util.HubLayout
-    val editTap = rememberHapticTap()
-    SettingsBubble(liquidGlass, tint, backdrop) {
-        BubbleRow {
-            Box(
-                handle.size(width = 30.dp, height = 34.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Icon(
-                    androidx.compose.material.icons.Icons.Default.DragIndicator,
-                    contentDescription = "Drag to reorder", tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Text(
-                row.label, color = if (row.enabled) Color.White else DimGray, fontSize = 14.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
-            )
-            if (onEdit != null) {
-                // The same pen as editing your own profile, as a grey circle.
-                Box(
-                    Modifier.size(28.dp).clip(CircleShape).background(Color.White.copy(0.12f))
-                        .clickable { editTap(); onEdit() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(androidx.compose.material.icons.Icons.Default.Edit, contentDescription = "Edit", tint = Color.White, modifier = Modifier.size(15.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-            if (row.hasMembers) {
-                PillButton(if (row.showPosts) "Posts" else "Profiles", { hub.setShowPosts(row.id, !row.showPosts) })
-                Spacer(Modifier.width(8.dp))
-            }
-            if (row.id == com.mediaviewer.util.HubLayout.SUPPORTERS && !com.mediaviewer.util.Supporter.active) {
-                // Not a supporter: the row can't be switched off or removed
-                // (it can still be dragged). Its switch wears the supporter
-                // pink and opens the Support page instead.
-                Box(Modifier.supporterShine(recolor = false)) {
-                    androidx.compose.runtime.CompositionLocalProvider(LocalSettingsAccent provides SupporterPink) {
-                        CompactSwitch(true) { com.mediaviewer.util.Supporter.openPage() }
-                    }
-                }
-            } else {
-                CompactSwitch(row.enabled) { hub.setEnabled(row.id, it) }
-                // Every row can be taken out; default ones come back from
-                // Add → Default.
-                Spacer(Modifier.width(8.dp))
-                RemoveHubListButton(onRemove = { hub.remove(row.id) })
-            }
-        }
-    }
-}
-
-/** The X on a Hub list row: the first tap asks ("Remove?" in red), the
- *  second removes it — the same two-tap confirm as deleting a post. */
-@Composable
-private fun RemoveHubListButton(onRemove: () -> Unit) {
-    var confirming by remember { mutableStateOf(false) }
-    LaunchedEffect(confirming) {
-        if (confirming) { kotlinx.coroutines.delay(3000); confirming = false }
-    }
-    if (confirming) {
-        PillButton("Remove?", { confirming = false; onRemove() }, color = DangerRed)
-    } else {
-        CancelXButton({ confirming = true })
+        Column(Modifier.fillMaxWidth()) { LayoutPart(); SettingsPart() }
     }
 }
 

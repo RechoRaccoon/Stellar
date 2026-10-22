@@ -2114,5 +2114,19 @@
 "Edit folder": "폴더 편집",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "공개: 이름과 게시물이 암호화되지 않은 채 PDS에 저장되고 프로필에 표시되어 누구나 볼 수 있어요.",
 "Use the default cover": "기본 표지 사용",
-"Visibility": "공개 범위"
+"Visibility": "공개 범위",
+"Hub Settings": "허브 설정",
+"Hub Layout": "허브 레이아웃",
+"Home Settings": "홈 설정",
+"Home Layout": "홈 레이아웃",
+"Header Lines": "제목 선",
+"Header Alignment": "제목 정렬",
+"Gradient Buttons": "그라데이션 버튼",
+"Divider Headers": "구분선 제목",
+"Customize": "맞춤 설정",
+"Center": "가운데",
+"Add Default": "기본 항목 추가",
+"Small names between two lines, like the Hub's": "허브처럼 두 선 사이의 작은 이름",
+"Lines out from each big name to the page's edges": "큰 이름에서 페이지 가장자리까지 선",
+"Every button filled like a popup's buttons": "모든 버튼을 팝업 버튼처럼 채우기"
 }

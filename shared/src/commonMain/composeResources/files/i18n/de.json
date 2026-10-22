@@ -2114,5 +2114,19 @@
 "Edit folder": "Ordner bearbeiten",
 "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them.": "Öffentlich: Name und Beiträge werden unverschlüsselt auf deinem PDS gespeichert und auf deinem Profil gezeigt, wo alle sie sehen können.",
 "Use the default cover": "Standard-Titelbild verwenden",
-"Visibility": "Sichtbarkeit"
+"Visibility": "Sichtbarkeit",
+"Hub Settings": "Hub-Einstellungen",
+"Hub Layout": "Hub-Layout",
+"Home Settings": "Start-Einstellungen",
+"Home Layout": "Start-Layout",
+"Header Lines": "Linien an Überschriften",
+"Header Alignment": "Ausrichtung der Überschriften",
+"Gradient Buttons": "Verlaufs-Schaltflächen",
+"Divider Headers": "Trennlinien-Überschriften",
+"Customize": "Anpassen",
+"Center": "Mitte",
+"Add Default": "Standard hinzufügen",
+"Small names between two lines, like the Hub's": "Kleine Namen zwischen zwei Linien, wie im Hub",
+"Lines out from each big name to the page's edges": "Linien von jedem großen Namen bis zum Seitenrand",
+"Every button filled like a popup's buttons": "Jede Schaltfläche gefüllt wie in Pop-ups"
 }

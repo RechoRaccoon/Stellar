@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
@@ -409,6 +410,8 @@ fun SettingsSheet(
     }
 
     val feedDrag = remember { HubFeedDragState() }
+    // (Customize Hub doesn't stay open behind a closed Hub.)
+    DisposableEffect(Unit) { onDispose { HubCustomize.open = false } }
 
     // Settings/Timeline/Explore/Post: at the bottom, or (landscape, the
     // main page) in the top row beside the search bar.
@@ -658,6 +661,61 @@ fun SettingsSheet(
 
         // The held feed chip, popped up and following the finger.
         HubFeedDragGhost(feedDrag, liquidGlass, dominantColor)
+
+        // Customize Hub: a page of its own over the whole Hub (no search
+        // bar or Timeline / Explore), with a Back button at its top left.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = HubCustomize.open && bskyLoggedIn,
+            enter = androidx.compose.animation.slideInHorizontally(tween(220)) { it } + androidx.compose.animation.fadeIn(tween(220)),
+            exit = androidx.compose.animation.slideOutHorizontally(tween(220)) { it } + androidx.compose.animation.fadeOut(tween(220))
+        ) {
+            CustomizeHubPage(settingsExtras, liquidGlass, dominantColor, hubBackgroundBackdrop)
+        }
+    }
+}
+
+/** Whether Customize Hub's page is open (it's left with Back). */
+internal object HubCustomize {
+    var open by mutableStateOf(false)
+}
+
+/** Customize Hub's own page (see CustomizeHubSection): the Hub's starry
+ *  background, Back at the top left with the page's name beside it, and
+ *  the layout and settings under them, edged like the Hub's search bar. */
+@Composable
+private fun CustomizeHubPage(extras: SettingsExtras, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    com.mediaviewer.ui.compat.BackHandler { HubCustomize.open = false }
+    val top = rememberTopCutoutClearance()
+    val landscape = rememberLandscape()
+    Box(
+        Modifier.fillMaxSize()
+            // (Touches stop here: nothing under the page reacts.)
+            .blockClicksBehind()
+            .then(if (liquidGlass) Modifier else Modifier.background(OledBlack))
+    ) {
+        if (liquidGlass) SpaceSky(tint, Modifier.matchParentSize())
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .then(if (landscape) Modifier.padding(horizontal = rememberLandscapeEdgePadding()) else Modifier)
+                .padding(start = 16.dp, end = 16.dp, top = top, bottom = 24.dp)
+                .windowInsetsPadding(WindowInsets.navBarSpace)
+        ) {
+            Box(Modifier.fillMaxWidth().height(BACK_BUBBLE_SIZE), contentAlignment = Alignment.Center) {
+                Text(
+                    "Customize Hub", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 52.dp)
+                )
+            }
+            CustomizeHubSection(
+                extras = extras, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                // Landscape: the layout on the left, the settings on the right.
+                split = landscape
+            )
+        }
+        // Back, fixed at the top left: the very button profiles have.
+        Box(Modifier.padding(start = 12.dp, top = top)) {
+            ProfileBackBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = { HubCustomize.open = false })
+        }
     }
 }
 
@@ -1599,59 +1657,34 @@ private fun AtProtocolPageContent(
         }
         SideListEdge(dominantColor)
     }
-    // Customize Hub (the floating button at the bottom): the rows give way
-    // to the list of them, to reorder, switch, remove and add to; the
-    // button then says Save once something's changed (Cancel until then).
-    var customizing by remember { mutableStateOf(false) }
-    var customizeStart by remember { mutableStateOf<Pair<List<com.mediaviewer.util.HubLayout.Row>, Boolean>?>(null) }
-    com.mediaviewer.ui.compat.BackHandler(enabled = customizing) { customizing = false }
-    // The Customize Hub button: the last thing in the Hub, under its rows
-    // (and under the list while customizing, saying Save or Cancel) — part
-    // of the page, not floating over it.
+    // The Customize Hub button: the last thing in the Hub, under its rows —
+    // part of the page, not floating over it. It opens Customize Hub, a
+    // page of its own (see CustomizeHubPage).
     @Composable
     fun CustomizeHubButton() {
         if (!bskyLoggedIn) return
-        val edited = customizeStart?.let { (rows, left) ->
-            rows != com.mediaviewer.util.HubLayout.rows || left != com.mediaviewer.util.UiToggles.hubLeftTitles
-        } == true
-        val label = if (!customizing) "Customize Hub" else if (edited) "Save" else "Cancel"
         val tap = rememberHapticTap()
         val shape = RoundedCornerShape(22.dp)
         Box(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 14.dp), contentAlignment = Alignment.Center) {
-            val m = Modifier.height(44.dp)
-                .clip(shape).clickable {
-                    tap()
-                    if (customizing) { customizing = false; customizeStart = null }
-                    else {
-                        customizeStart = com.mediaviewer.util.HubLayout.rows to com.mediaviewer.util.UiToggles.hubLeftTitles
-                        customizing = true
-                    }
-                }
+            val m = Modifier.height(44.dp).clip(shape).clickable { tap(); HubCustomize.open = true }
             @Composable
             fun ButtonLabel() {
-                Box(Modifier.fillMaxHeight().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
-                    Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    Modifier.fillMaxHeight().padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Customize Hub", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
-            if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop) { ButtonLabel() }
-            else Box(m.background(androidx.compose.ui.graphics.lerp(dominantColor, Color.Black, 0.35f)).border(1.dp, dominantColor.copy(alpha = 0.7f), shape)) { ButtonLabel() }
+            when {
+                com.mediaviewer.util.UiToggles.devGradientButtons -> Box(m.popupButtonFill(dominantColor, shape)) { ButtonLabel() }
+                liquidGlass -> LiquidGlassSurface(m, shape = shape, tint = dominantColor, backdrop = backdrop) { ButtonLabel() }
+                else -> Box(m.background(androidx.compose.ui.graphics.lerp(dominantColor, Color.Black, 0.35f)).border(1.dp, dominantColor.copy(alpha = 0.7f), shape)) { ButtonLabel() }
+            }
         }
     }
     Box(Modifier.weight(1f).fillMaxHeight()) {
-    if (customizing) {
-        Column(
-            Modifier.fillMaxSize().clipToBounds().verticalScroll(rememberScrollState())
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
-        ) {
-            CustomizeHubSection(
-                extras = settingsExtras, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
-                // Landscape: the rows on the left, adding and the Hub's
-                // settings on the right, like Settings.
-                split = rememberLandscape()
-            )
-            CustomizeHubButton()
-        }
-    } else
     Column(
         Modifier
             .fillMaxSize()
@@ -1717,7 +1750,7 @@ private fun AtProtocolPageContent(
                             val key = row.id
                             BuiltFeedRow(
                                 feed = feed, title = feed.name.ifBlank { row.label }, state = hubLists[key],
-                                liquidGlass = liquidGlass, tint = dominantColor, leftTitle = com.mediaviewer.util.UiToggles.hubLeftTitles,
+                                liquidGlass = liquidGlass, tint = dominantColor, headerStyle = RowHeaderStyle.hub,
                                 onLoad = { LocalOverlays.loadFeedRow?.invoke(key, feed, false) },
                                 onLoadMore = { LocalOverlays.loadFeedRow?.invoke(key, feed, true) },
                                 onOpenPost = { index -> onOpenHubListPost(key, feed.name.ifBlank { row.label }, index) },
@@ -2002,7 +2035,7 @@ private fun HubListSection(
         }
     }
     val loading = state == null || (state.loading && state.members.isEmpty() && state.posts.isEmpty())
-    FeedRowTitle(row.label, tint, left = com.mediaviewer.util.UiToggles.hubLeftTitles)
+    FeedRowTitle(row.label, tint, RowHeaderStyle.hub)
     val tap = rememberHapticTap()
     if (!row.showPosts) {
         val members = state?.members ?: emptyList()
@@ -3664,16 +3697,18 @@ internal fun HubDropBubble(
 private fun hubDividerLabel(tint: Color): Color = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.35f)
 
 
-/** A Hub row's name, as Customize Hub's "Row Names on the Left" says: at
- *  the left and bigger, or centered between two lines (see FeedRowTitle). */
+/** A Hub row's name, as Hub Settings say (see RowHeaderStyle). The built-in
+ *  rows' divider look sits a little tighter than a feed row's (no gap above
+ *  it of its own: the section before it ends with one). */
 @Composable
 internal fun HubRowHeader(label: String, tint: Color) {
-    if (com.mediaviewer.util.UiToggles.hubLeftTitles) FeedRowTitle(label, tint, left = true)
+    val style = RowHeaderStyle.hub
+    if (!style.divider) FeedRowTitle(label, tint, style)
     else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+        if (style.align != 0) HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
         Text(label, color = hubDividerLabel(tint), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 10.dp))
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+            modifier = Modifier.padding(start = if (style.align == 0) 0.dp else 10.dp, end = if (style.align == 2) 0.dp else 10.dp))
+        if (style.align != 2) HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
     }
 }
 

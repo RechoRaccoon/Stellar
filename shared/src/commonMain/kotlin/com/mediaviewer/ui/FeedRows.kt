@@ -54,44 +54,69 @@ import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.viewmodel.MainViewModel
 
 /**
- * A Hub (or profile Home tab) row's name: centered between two lines in the
- * row's color, or — [left] (Customize Hub's "Row Names on the Left", and
- * every Home tab) — bigger, at the left, like Settings' headings. [onEdit]
- * puts a small edit button at its end.
+ * How a Hub (or profile Home tab) row's name looks, from Hub / Home
+ * Settings: where it sits ([align] 0 left, 1 center, 2 right); small
+ * between lines in the row's color ([divider], the Hub's own look) or a
+ * big heading in the profile color; and — big — [lines] running out from
+ * it to the page's edges.
+ */
+data class RowHeaderStyle(val align: Int = 1, val divider: Boolean = true, val lines: Boolean = false) {
+    companion object {
+        /** The Hub's, from its settings (this device's). */
+        val hub: RowHeaderStyle
+            get() = com.mediaviewer.util.UiToggles.let { RowHeaderStyle(it.hubHeaderAlign, it.hubDividerHeaders, it.hubHeaderLines) }
+    }
+}
+
+/**
+ * A row's name in [style] (see [RowHeaderStyle]). [edge] is how far in from
+ * the page's sides it starts and ends (lined up with the rest of the page).
+ * [onEdit] puts a small edit button after it.
  */
 @Composable
-fun FeedRowTitle(label: String, tint: Color, left: Boolean, onEdit: (() -> Unit)? = null) {
+fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() -> Unit)? = null, edge: Dp = 16.dp) {
     val tap = rememberHapticTap()
-    val labelColor = lerp(tint, Color.White, 0.35f)
-    if (left) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 16.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                label, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-            )
-            if (onEdit != null) Box(
-                Modifier.size(32.dp).clip(CircleShape).clickable { tap(); onEdit() },
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = labelColor, modifier = Modifier.size(16.dp)) }
-        }
-    } else {
+    val lineColor = tint.copy(alpha = 0.6f)
+    @Composable
+    fun Line(m: Modifier) = HorizontalDivider(modifier = m, color = lineColor)
+    if (style.divider) {
         Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+        Row(Modifier.fillMaxWidth().padding(horizontal = edge), verticalAlignment = Alignment.CenterVertically) {
+            if (style.align != 0) Line(Modifier.weight(1f))
             Text(
-                label, color = labelColor, fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 10.dp).widthIn(max = 220.dp)
+                label, color = lerp(tint, Color.White, 0.35f), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = if (style.align == 0) 0.dp else 10.dp, end = if (style.align == 2 && onEdit == null) 0.dp else 10.dp).widthIn(max = 220.dp)
             )
             if (onEdit != null) Box(
                 Modifier.padding(end = 8.dp).size(24.dp).clip(CircleShape).clickable { tap(); onEdit() },
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = labelColor, modifier = Modifier.size(13.dp)) }
-            HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
+            ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = lerp(tint, Color.White, 0.35f), modifier = Modifier.size(13.dp)) }
+            if (style.align != 2) Line(Modifier.weight(1f))
         }
         Spacer(Modifier.height(8.dp))
+    } else {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = edge).padding(top = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = when (style.align) {
+                0 -> Arrangement.Start; 2 -> Arrangement.End; else -> Arrangement.Center
+            }
+        ) {
+            // Lines (or nothing) on whichever sides have room.
+            if (style.align != 0) { if (style.lines) Line(Modifier.weight(1f).padding(end = 12.dp)) }
+            Text(
+                label, color = headerColorFor(tint), fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                // (With lines, they take what's left on either side.)
+                modifier = if (style.lines) Modifier else Modifier.weight(1f, fill = false)
+            )
+            if (onEdit != null) Box(
+                Modifier.padding(start = 4.dp).size(32.dp).clip(CircleShape).clickable { tap(); onEdit() },
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = lerp(tint, Color.White, 0.35f), modifier = Modifier.size(16.dp)) }
+            if (style.align != 2) { if (style.lines) Line(Modifier.weight(1f).padding(start = 12.dp)) }
+        }
     }
 }
 
@@ -121,16 +146,17 @@ private fun styleSpacing(style: String): Dp = when (style) {
 @Composable
 fun BuiltFeedRow(
     feed: LocalFeed, title: String, state: MainViewModel.HubListState?,
-    liquidGlass: Boolean, tint: Color, leftTitle: Boolean,
+    liquidGlass: Boolean, tint: Color, headerStyle: RowHeaderStyle,
     onLoad: () -> Unit, onLoadMore: () -> Unit,
     onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    headerEdge: Dp = 16.dp
 ) {
     LaunchedEffect(feed) { onLoad() }
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
-    FeedRowTitle(title, tint, leftTitle, onEdit)
+    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
         if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)

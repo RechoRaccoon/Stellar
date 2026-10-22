@@ -85,7 +85,9 @@ fun HubProfilesDialog(
     /** Editing an existing row: its name and accounts to start from. */
     initialName: String = "",
     initialSelected: List<AuthorInfo> = emptyList(),
-    editing: Boolean = false
+    editing: Boolean = false,
+    /** Editing: the row's two-tap delete (top right). */
+    onDelete: (() -> Unit)? = null
 ) {
     val tap = rememberHapticTap()
     val selected = remember { mutableStateListOf<AuthorInfo>().apply { addAll(initialSelected) } }
@@ -95,7 +97,7 @@ fun HubProfilesDialog(
 
     Dialog(onDismissRequest = onClose, properties = com.mediaviewer.ui.compat.edgeToEdgeDialogProperties()) {
         com.mediaviewer.ui.compat.DialogBlurBehind(radius = 48, dimAmount = 0.45f)
-        BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(Modifier.fillMaxSize().imePadding().disarmReallyOnTapElsewhere(), contentAlignment = Alignment.Center) {
             val shape = RoundedCornerShape(26.dp)
             val panel = lerp(Color(0xFF101014), tint, 0.16f)
             Column(
@@ -127,6 +129,10 @@ fun HubProfilesDialog(
                             color = if (selected.isEmpty()) DimGray else lerp(tint, Color.White, 0.6f),
                             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
                         )
+                    }
+                    if (onDelete != null) {
+                        Spacer(Modifier.width(8.dp))
+                        PopupDeleteBubble("profilesrow:$initialName", { onDelete() })
                     }
                 }
 
