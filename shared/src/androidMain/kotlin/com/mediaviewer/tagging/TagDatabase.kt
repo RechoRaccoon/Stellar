@@ -183,6 +183,12 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.setForeignKeyConstraintsEnabled(true)
+        // Write-ahead logging: with the rollback journal, one long write
+        // transaction (a dataset install) blocks every read behind it for
+        // as long as it runs, so search, the Tagged page and Settings'
+        // dataset list all sit frozen until it ends. In WAL mode reads
+        // keep working off the last committed state while a write goes on.
+        db.enableWriteAheadLogging()
     }
 
     /** True if this post has already been scanned/tagged (so a resumed
@@ -528,9 +534,6 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
             val insertSource = db.compileStatement("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)")
             val insertTag = db.compileStatement("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)")
             val raiseTag = db.compileStatement("UPDATE media_tags SET confidence = MAX(confidence, ?) WHERE post_uri = ? AND tag_name = ? AND manual = 0")
-            val addTagIfMissing = db.compileStatement(
-                "INSERT INTO media_tags (post_uri, tag_name, confidence) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE post_uri = ? AND tag_name = ?)"
-            )
             val insertTagSource = db.compileStatement("INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) VALUES (?, ?, ?)")
             try {
                 val total = posts.size.coerceAtLeast(1)
@@ -548,20 +551,45 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     insertSource.executeInsert()
                     count++
                     // (One post's tags once each — the highest score.)
-                    val tags = if (isNew) post.tags.groupBy { it.first }.map { (t, l) -> t to l.maxOf { it.second } } else post.tags
+                    val tags = post.tags.groupBy { it.first }.map { (t, l) -> t to l.maxOf { it.second } }
+                    // A post that's already here (an update, where most
+                    // posts are): read its tags once, so the merge below
+                    // only writes what actually changed. Writing every tag
+                    // unconditionally — an UPDATE plus an existence-checked
+                    // INSERT per tag — made updating the shared dataset
+                    // ~a million statements and a minutes-long install.
+                    // Hand tags count as full confidence (they're never
+                    // raised or replaced, same as the statements did).
+                    val current: HashMap<String, Float>? = if (isNew) null else {
+                        val map = HashMap<String, Float>()
+                        db.rawQuery("SELECT tag_name, confidence, manual FROM media_tags WHERE post_uri = ?", arrayOf(post.postUri)).use { c ->
+                            while (c.moveToNext()) map[c.getString(0)] = if (c.getInt(2) == 1) Float.POSITIVE_INFINITY else c.getFloat(1)
+                        }
+                        map
+                    }
                     for ((tag, confidence) in tags) {
                         if (isNew) {
                             insertTag.clearBindings()
                             insertTag.bindString(1, post.postUri); insertTag.bindString(2, tag); insertTag.bindDouble(3, confidence.toDouble())
                             insertTag.executeInsert()
                         } else {
-                            raiseTag.clearBindings()
-                            raiseTag.bindDouble(1, confidence.toDouble()); raiseTag.bindString(2, post.postUri); raiseTag.bindString(3, tag)
-                            raiseTag.executeUpdateDelete()
-                            addTagIfMissing.clearBindings()
-                            addTagIfMissing.bindString(1, post.postUri); addTagIfMissing.bindString(2, tag); addTagIfMissing.bindDouble(3, confidence.toDouble())
-                            addTagIfMissing.bindString(4, post.postUri); addTagIfMissing.bindString(5, tag)
-                            addTagIfMissing.executeInsert()
+                            val cur = current!![tag]
+                            when {
+                                cur == null -> {
+                                    insertTag.clearBindings()
+                                    insertTag.bindString(1, post.postUri); insertTag.bindString(2, tag); insertTag.bindDouble(3, confidence.toDouble())
+                                    insertTag.executeInsert()
+                                    current[tag] = confidence
+                                }
+                                cur < confidence -> {
+                                    raiseTag.clearBindings()
+                                    raiseTag.bindDouble(1, confidence.toDouble()); raiseTag.bindString(2, post.postUri); raiseTag.bindString(3, tag)
+                                    raiseTag.executeUpdateDelete()
+                                    current[tag] = confidence
+                                }
+                                // else: already there at least as strong —
+                                // nothing to write.
+                            }
                         }
                         insertTagSource.clearBindings()
                         insertTagSource.bindString(1, post.postUri); insertTagSource.bindString(2, tag); insertTagSource.bindString(3, id)
@@ -570,7 +598,7 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                     if (i % 500 == 0) onProgress(i.toFloat() / total)
                 }
             } finally {
-                insertPost.close(); insertSource.close(); insertTag.close(); raiseTag.close(); addTagIfMissing.close(); insertTagSource.close()
+                insertPost.close(); insertSource.close(); insertTag.close(); raiseTag.close(); insertTagSource.close()
             }
             db.setTransactionSuccessful()
             onProgress(1f)

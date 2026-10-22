@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -164,15 +165,23 @@ object SharedTagDataset {
                 // search never goes empty in between.
                 val old = installedDatasetId()
                 var lastShown = -1
-                val info = svc.importDataset(NAME, posts) { f ->
-                    val pct = (f * 100).toInt()
-                    if (pct != lastShown) {
-                        lastShown = pct
-                        scope.launch(Dispatchers.Main) { if (job?.isActive == true) prompt = Prompt.Downloading(0.95f + 0.05f * f, "Adding it to your tags… $pct%") }
+                // The install itself can't be cancelled — the database
+                // work is blocking and runs to completion either way — so
+                // the bookkeeping around it runs uncancellable too. Letting
+                // Cancel orphan it used to leave the new copy imported but
+                // unregistered, the old copy undeleted, and the saved
+                // version pointing at the old copy.
+                withContext(NonCancellable) {
+                    val info = svc.importDataset(NAME, posts) { f ->
+                        val pct = (f * 100).toInt()
+                        if (pct != lastShown) {
+                            lastShown = pct
+                            scope.launch(Dispatchers.Main) { if (job?.isActive == true) prompt = Prompt.Downloading(0.95f + 0.05f * f, "Adding it to your tags… $pct%") }
+                        }
                     }
+                    if (old != null && old != info.id) runCatching { svc.deleteDataset(old) }
+                    prefs?.edit()?.putString("dataset_id", info.id)?.putString("version", m.version)?.apply()
                 }
-                if (old != null && old != info.id) runCatching { svc.deleteDataset(old) }
-                prefs?.edit()?.putString("dataset_id", info.id)?.putString("version", m.version)?.apply()
                 withContext(Dispatchers.Main) {
                     prompt = null
                     sessionSettled = true
