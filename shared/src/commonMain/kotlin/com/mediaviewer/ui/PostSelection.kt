@@ -75,7 +75,8 @@ object PostSelection {
 
     fun clear() { selected.clear() }
 
-    /** The touch the outermost selectable tile under it took (see postSelectable). */
+    /** The touch the outermost selectable tile under it took (see
+     *  postSelectable): held only while that touch lasts. */
     internal var claimed: androidx.compose.ui.input.pointer.PointerId? = null
 
     /** Saved Posts, with a folder open: a post held until it's picked and
@@ -119,47 +120,55 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                 // (A tile inside another selectable one: only the outer one acts.)
                 if (PostSelection.claimed == down.id) return@awaitEachGesture
                 PostSelection.claimed = down.id
-                // A right click, or Ctrl / Shift / ⌘ + click: picks (or unpicks)
-                // straight away, no holding.
-                val mods = currentEvent.keyboardModifiers
-                if (currentEvent.buttons.isSecondaryPressed || mods.isCtrlPressed || mods.isShiftPressed || mods.isMetaPressed) {
-                    currentEvent.changes.forEach { it.consume() }
-                    pick()
-                    return@awaitEachGesture
-                }
-                val selecting = PostSelection.active
-                var moved = false
-                var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
-                val held = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                    while (true) {
-                        val ev = awaitPointerEvent(PointerEventPass.Initial)
-                        if (ev.changes.count { it.pressed } > 1) { moved = true; break }
-                        val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                        if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) { moved = true; break }
-                        if (!c.pressed) { up = c; break }
+                // (The claim is this touch's alone, and is given back when
+                // the touch ends: a pointer's id is reused (a mouse is always
+                // the same id), so keeping it forever stopped every later
+                // long-press and right-click from ever picking again.)
+                try {
+                    // A right click, or Ctrl / Shift / ⌘ + click: picks (or unpicks)
+                    // straight away, no holding.
+                    val mods = currentEvent.keyboardModifiers
+                    if (currentEvent.buttons.isSecondaryPressed || mods.isCtrlPressed || mods.isShiftPressed || mods.isMetaPressed) {
+                        currentEvent.changes.forEach { it.consume() }
+                        pick()
+                        return@awaitEachGesture
                     }
-                } == null
-                if (moved) return@awaitEachGesture
-                if (held) {
-                    // Saved Posts: held from outside selection mode, picking
-                    // it and then moving drags it to a new place instead.
-                    val reorder = PostSelection.reorder.takeIf { !selecting }
-                    pick()
-                    var dragging = false
-                    // The rest of this touch is selection's: the tile doesn't open.
-                    while (true) {
-                        val ev = awaitPointerEvent(PointerEventPass.Initial)
-                        ev.changes.forEach { it.consume() }
-                        val c = ev.changes.firstOrNull { it.id == down.id }
-                        if (c == null || !c.pressed) break
-                        if (reorder != null && (dragging || (c.position - down.position).getDistance() > viewConfiguration.touchSlop)) {
-                            // (A drag, not a pick: the post goes back to unpicked.)
-                            if (!dragging) { dragging = true; PostSelection.clear() }
-                            coords[0]?.takeIf { it.isAttached }?.let { reorder(latest, it.localToRoot(c.position)) }
+                    val selecting = PostSelection.active
+                    var moved = false
+                    var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                    val held = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        while (true) {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            if (ev.changes.count { it.pressed } > 1) { moved = true; break }
+                            val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) { moved = true; break }
+                            if (!c.pressed) { up = c; break }
                         }
+                    } == null
+                    if (moved) return@awaitEachGesture
+                    if (held) {
+                        // Saved Posts: held from outside selection mode, picking
+                        // it and then moving drags it to a new place instead.
+                        val reorder = PostSelection.reorder.takeIf { !selecting }
+                        pick()
+                        var dragging = false
+                        // The rest of this touch is selection's: the tile doesn't open.
+                        while (true) {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            ev.changes.forEach { it.consume() }
+                            val c = ev.changes.firstOrNull { it.id == down.id }
+                            if (c == null || !c.pressed) break
+                            if (reorder != null && (dragging || (c.position - down.position).getDistance() > viewConfiguration.touchSlop)) {
+                                // (A drag, not a pick: the post goes back to unpicked.)
+                                if (!dragging) { dragging = true; PostSelection.clear() }
+                                coords[0]?.takeIf { it.isAttached }?.let { reorder(latest, it.localToRoot(c.position)) }
+                            }
+                        }
+                    } else if (selecting) {
+                        up?.let { it.consume(); PostSelection.toggle(latest) }
                     }
-                } else if (selecting) {
-                    up?.let { it.consume(); PostSelection.toggle(latest) }
+                } finally {
+                    if (PostSelection.claimed == down.id) PostSelection.claimed = null
                 }
             }
         }
