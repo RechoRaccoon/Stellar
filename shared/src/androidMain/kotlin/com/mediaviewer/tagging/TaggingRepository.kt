@@ -49,6 +49,7 @@ class TaggingRepository(
 
 
     override fun currentCounts(): Pair<Int, Int> = db.scannedCount() to db.taggedCount()
+    override fun ownDatasetCount(): Int = db.ownDatasetCount()
     override fun datasetSizeBytes(): Long = db.datasetSizeBytes()
     override fun isModelReady(): Boolean = modelManager.isReady()
 

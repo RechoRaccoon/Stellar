@@ -192,6 +192,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val taggingOverlayOpen     by viewModel.taggingOverlayOpen.collectAsState()
     val taggingQueueView       by viewModel.taggingQueueView.collectAsState()
     val taggingUiState         by viewModel.taggingUiState.collectAsState()
+    val ownDatasetCount        by viewModel.ownDatasetCount.collectAsState()
     val hasTaggedDataset       by viewModel.hasTaggedDataset.collectAsState()
     val likedTagSearchResults  by viewModel.likedTagSearchResults.collectAsState()
     val taggedLoadingMore by viewModel.likedTagLoadingMore.collectAsState()
@@ -819,6 +820,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             taggingRunning            = taggingUiState.isRunning,
             taggingScanned            = taggingUiState.scanned,
             taggingTagged             = taggingUiState.tagged,
+            ownDatasetCount           = ownDatasetCount,
             onLocallyTagAllLiked      = viewModel::startTaggingAllLiked,
             // (Settings' Delete beside Your Dataset: this device's own tags only.)
             onDeleteTaggedDatabase    = viewModel::deleteOwnTagDataset,

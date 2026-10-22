@@ -238,6 +238,10 @@ private class TagStore(private val engine: TaggerEngine) {
     }
 
     fun scannedCount(): Int = locked { posts.size }
+    /** This device's own posts only (it tagged them, or they carry a hand
+     *  tag) — the same set exportOne("") exports. scannedCount() counts
+     *  every dataset's posts together. */
+    fun ownCount(): Int = locked { posts.values.count { p -> "" in p.sources || p.tags.any { it.m } } }
     fun taggedCount(): Int = locked { posts.values.count { it.tags.isNotEmpty() } }
     fun sizeBytes(): Long = synchronizedCompat(lock) { bytesOnDisk }
 
@@ -376,6 +380,7 @@ class EngineTaggingRepository(
     @Volatile private var entries: List<TagEntry>? = null
 
     override fun currentCounts(): Pair<Int, Int> = store.scannedCount() to store.taggedCount()
+    override fun ownDatasetCount(): Int = store.ownCount()
     override fun datasetSizeBytes(): Long = store.sizeBytes()
     override fun isModelReady(): Boolean = engine.hasModel()
     override fun isTaggerLoaded(): Boolean = engine.isLoaded()

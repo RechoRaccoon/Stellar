@@ -285,6 +285,16 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         }
     }
 
+    /** Posts in this device's own dataset only — the same set
+     *  [localPostsForExport] exports, counted the same way
+     *  [listImportedDatasets] counts each imported one. (scannedCount
+     *  counts every dataset's posts together.) */
+    fun ownDatasetCount(): Int {
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM post_sources WHERE dataset_id = ?", arrayOf(LOCAL_DATASET_ID)).use {
+            return if (it.moveToFirst()) it.getInt(0) else 0
+        }
+    }
+
     /** Size on disk of the dataset as it's being built — shown live in the
      *  tagging overlay per the "total storage size" request. SQLite keeps
      *  writes in -wal/-shm files until checkpointed, so this sums all three. */

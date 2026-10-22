@@ -52,6 +52,12 @@ interface TaggingService {
     /** False where the platform has no on-device tagger. */
     val isSupported: Boolean get() = true
     fun currentCounts(): Pair<Int, Int>
+    /** Posts in this device's OWN dataset only (its AI's tags and hand
+     *  tags) — the set [exportDataset] with a null id exports, and what
+     *  Settings' "Your Dataset" row counts. Imported datasets' posts are
+     *  not in it (they're counted per dataset in [listImportedDatasets]);
+     *  [currentCounts]' scanned figure counts every dataset together. */
+    fun ownDatasetCount(): Int
     fun datasetSizeBytes(): Long
     fun isModelReady(): Boolean
     fun tagVocabulary(): List<String>
@@ -131,6 +137,7 @@ fun normalizeTypedTag(text: String): String =
 object UnavailableTaggingService : TaggingService {
     override val isSupported: Boolean get() = false
     override fun currentCounts(): Pair<Int, Int> = 0 to 0
+    override fun ownDatasetCount(): Int = 0
     override fun datasetSizeBytes(): Long = 0L
     override fun isModelReady(): Boolean = false
     override fun tagVocabulary(): List<String> = emptyList()

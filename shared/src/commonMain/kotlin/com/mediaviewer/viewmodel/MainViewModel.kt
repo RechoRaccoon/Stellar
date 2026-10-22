@@ -6470,6 +6470,15 @@ class MainViewModel(
             refreshTaggingCounts()
             _hasTaggedDataset.value = true
             viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
+            // The All tab's results are a snapshot taken when its search
+            // ran — from before the install it couldn't match a tag, so its
+            // Tagged row would stay missing until the person searched
+            // again by hand. Re-run that search now (the cached tag
+            // vocabulary goes first, so the match reads the fresh
+            // dataset's own tag names, not the pre-install list).
+            tagVocabularyCache = null
+            val st = _searchState.value
+            if (st.filter == SearchFilter.ALL && st.query.isNotBlank()) runSearch(st.query)
         }
         // Public bookmark folders: one plain record each on your own PDS.
         com.mediaviewer.util.PublicFolders.remote = object : com.mediaviewer.util.PublicFolders.Remote {
@@ -8443,6 +8452,12 @@ class MainViewModel(
 
     private val _taggingUiState = MutableStateFlow(TaggingUiState())
     val taggingUiState: StateFlow<TaggingUiState> = _taggingUiState
+    /** Posts in this device's OWN tag dataset (Settings' "Your Dataset"
+     *  row). Kept apart from TaggingUiState.scanned, which counts every
+     *  dataset's posts together — showing that on the row made it mirror
+     *  an imported dataset's size. */
+    private val _ownDatasetCount = MutableStateFlow(0)
+    val ownDatasetCount: StateFlow<Int> = _ownDatasetCount
 
     // True once at least one liked post has ever been scanned — this is what
     // gates the Search page's "Liked" tab between showing the "Start
@@ -8552,6 +8567,7 @@ class MainViewModel(
             // made only of posts that came back with no tags (text-only
             // posts, say) would just be an empty tab.
             _hasTaggedDataset.value = tagged > 0
+            _ownDatasetCount.value = taggingRepo.ownDatasetCount()
             tagVocabularyCache = null
             _taggingUiState.value = _taggingUiState.value.copy(scanned = scanned, tagged = tagged, datasetBytes = taggingRepo.datasetSizeBytes())
         }
@@ -8727,6 +8743,7 @@ class MainViewModel(
         viewModelScope.launch(ioDispatcher) {
             taggingRepo.deleteDatabase()
             _hasTaggedDataset.value = false
+            _ownDatasetCount.value = 0
             _taggingUiState.value = TaggingUiState()
             _importedDatasets.value = emptyList() // clearAll() wipes the datasets table too
             performLikedTagSearch("")

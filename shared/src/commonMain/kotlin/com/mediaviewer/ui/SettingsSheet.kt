@@ -206,6 +206,7 @@ fun SettingsSheet(
     taggingRunning: Boolean,
     taggingScanned: Int,
     taggingTagged: Int,
+    ownDatasetCount: Int = 0,
     onLocallyTagAllLiked: () -> Unit,
     onDeleteTaggedDatabase: () -> Unit = {},
     // Import/Export (item 4)
@@ -531,6 +532,7 @@ fun SettingsSheet(
                                     downloadProgress = downloadProgress, onDownloadAllLiked = onDownloadAllLiked, onCancelDownload = onCancelDownload,
                                     tagPostWhenLiked = tagPostWhenLiked, onToggleTagPostWhenLiked = onToggleTagPostWhenLiked,
                                     taggingRunning = taggingRunning, taggingScanned = taggingScanned, taggingTagged = taggingTagged,
+                                    ownDatasetCount = ownDatasetCount,
                                     onLocallyTagAllLiked = onLocallyTagAllLiked,
                                     onDeleteTaggedDatabase = onDeleteTaggedDatabase,
                                     importedDatasets = importedDatasets,

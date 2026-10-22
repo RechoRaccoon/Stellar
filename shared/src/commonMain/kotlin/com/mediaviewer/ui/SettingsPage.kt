@@ -665,6 +665,7 @@ internal fun SettingsPageContent(
     taggingRunning: Boolean,
     taggingScanned: Int,
     taggingTagged: Int,
+    ownDatasetCount: Int = 0,
     onLocallyTagAllLiked: () -> Unit,
     onDeleteTaggedDatabase: () -> Unit,
     importedDatasets: List<com.mediaviewer.tagging.TagDatasetInfo>,
@@ -1231,12 +1232,12 @@ internal fun SettingsPageContent(
                     // Your own dataset first (what this device tagged, and tags
                     // added by hand), then every imported one — each with its
                     // own Export and Delete.
-                    if (taggingScanned > 0) {
+                    if (ownDatasetCount > 0) {
                         BubbleDivider()
                         DatasetRow(
-                            "Your Dataset", taggingScanned,
+                            "Your Dataset", ownDatasetCount,
                             onExport = { exportTarget = null to if (ownName.isBlank()) "My Tag Dataset" else "$ownName's Tag Dataset" },
-                            onDelete = { deleteTarget = com.mediaviewer.tagging.TagDatasetInfo("", "Your Dataset", 0L, taggingScanned) }
+                            onDelete = { deleteTarget = com.mediaviewer.tagging.TagDatasetInfo("", "Your Dataset", 0L, ownDatasetCount) }
                         )
                     }
                     importedDatasets.forEach { dataset ->
