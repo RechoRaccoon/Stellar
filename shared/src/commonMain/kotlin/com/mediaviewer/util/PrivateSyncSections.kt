@@ -34,8 +34,9 @@ import kotlinx.serialization.json.longOrNull
  * and stellar-sync://media/… so they mean the same file on every device.
  *
  * Left out on purpose: every app setting (each device keeps its own; the
- * Hub's layout is the one exception), sign-ins and tokens, caches, where
- * you last were in the app and viewing history. The tag database itself
+ * Hub's layout, Add To's order and Add To after a follow are the
+ * exceptions), sign-ins and tokens, caches, where you last were in the app
+ * and viewing history (Search's recents, asked for, being the exception). The tag database itself
  * (tagged posts, datasets) is a separate on-device database that's never
  * read here.
  */
@@ -81,7 +82,11 @@ internal object Sections {
     /** From the app's settings file only these travel: they're lists you
      *  built (Blogs/Reviews subscriptions, followed e621 artists), not
      *  settings. Everything else in it stays on its device. */
-    private val SETTINGS_DATA = setOf("subscribed_review_dids", "subscribed_blog_dids", "e621_followed_artists")
+    private val SETTINGS_DATA = setOf(
+        "subscribed_review_dids", "subscribed_blog_dids", "e621_followed_artists",
+        // (Asked to travel: Add To opening after a follow.)
+        "auto_add_to_on_follow"
+    )
 
     private fun settingSynced(name: String) =
         name in SETTINGS_DATA && name !in SETTINGS_EXCLUDED && !name.startsWith(PrefKeys.BSKY_ACCOUNT_STATE_PREFIX) &&
@@ -95,7 +100,8 @@ internal object Sections {
     )
 
     private class Prefs(val section: String, val file: String, private val rule: (key: String, did: String) -> Boolean) {
-        fun keep(key: String, did: String) = rule(key, did) && (section == "status" || (!isViewingData(key) && !deviceOnly(key)))
+        fun keep(key: String, did: String) = rule(key, did) &&
+            (section == "status" || section == "recentSearches" || (!isViewingData(key) && !deviceOnly(key)))
     }
 
     private val PREFS = listOf(
@@ -103,7 +109,11 @@ internal object Sections {
         Prefs("hub", "hub_layout") { key, did -> key != "active_did" && key != "legacy_claimed" && (!key.contains('@') || key.contains("@$did")) },
         Prefs("local", LocalData.PREFS) { key, _ -> key !in LOCAL_SETTINGS },
         Prefs("status", "status_history") { key, did -> key == "entries_$did" },
-        Prefs("emojiAccounts", "emoji_accounts") { key, did -> key == "saved_$did" }
+        Prefs("emojiAccounts", "emoji_accounts") { key, did -> key == "saved_$did" },
+        // Asked to travel: Search's recent accounts and searches, and Add
+        // To's order (when each list was last added to).
+        Prefs("recentSearches", "recent_account_searches") { _, _ -> true },
+        Prefs("listRecency", "list_recency") { _, _ -> true }
     )
 
     suspend fun collect(ctx: PlatformContext, did: String): JsonObject {
@@ -192,6 +202,7 @@ internal object Sections {
                 "local" -> LocalData.reload(ctx)
                 "status" -> StatusHistory.reload(did)
                 "emojiAccounts" -> EmojiAccounts.reload()
+                "recentSearches" -> RecentAccountSearches.reload(ctx)
             }
         }
         (changed["archive"] as? JsonArray)?.let { incoming ->

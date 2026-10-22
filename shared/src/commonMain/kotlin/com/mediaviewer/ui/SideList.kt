@@ -150,10 +150,10 @@ fun SideListButton(
 ) {
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(if (small) 11.dp else 13.dp)
-    // (Sized to the list's width: big, readable labels with little empty
-    // padding around them.)
+    // (The same size as the portrait buttons — the Launchpad's, Timeline /
+    // Explore's — so a page reads the same either way round.)
     Row(
-        modifier.fillMaxWidth().heightIn(min = if (small) 42.dp else 48.dp)
+        modifier.fillMaxWidth().heightIn(min = if (small) 36.dp else 40.dp)
             .then(if (trailing != null) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier)
             .then(
                 if (liquidGlass) Modifier.glassPanel(true, tint = if (selected) tint else tint.copy(alpha = 0.4f), shape = shape)
@@ -163,19 +163,19 @@ fun SideListButton(
             .clickable { tap(); onClick() }
             .padding(start = 11.dp, end = if (trailing != null) 0.dp else 11.dp, top = if (trailing != null) 0.dp else 4.dp, bottom = if (trailing != null) 0.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (iconUrl != null) {
             AsyncImage(
                 model = iconUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(if (small) 24.dp else 26.dp).clip(CircleShape)
+                modifier = Modifier.size(if (small) 18.dp else 20.dp).clip(CircleShape)
             )
         } else if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 23.dp else 25.dp))
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (small) 17.dp else 19.dp))
         }
         Text(
             label, color = if (selected || locked) Color.White else DimGray,
-            fontSize = if (small) 17.sp else 18.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = if (small) 13.sp else 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).supporterShine(locked)
         )

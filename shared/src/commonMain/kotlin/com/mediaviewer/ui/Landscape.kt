@@ -16,6 +16,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -260,7 +262,8 @@ fun Modifier.shrinkToFit(reference: Dp): Modifier = this.then(
 fun Modifier.sideListScaled(): Modifier = this
     .pinchToScale(
         get = { com.mediaviewer.util.UiToggles.sideListScale },
-        set = { v, save -> com.mediaviewer.util.UiToggles.updateSideListScale(v, save) }
+        set = { v, save -> com.mediaviewer.util.UiToggles.updateSideListScale(v, save) },
+        reset = { com.mediaviewer.util.UiToggles.updateSideListScale(1f, true) }
     )
     .drawnAtScale { com.mediaviewer.util.UiToggles.sideListScale }
 
@@ -326,10 +329,11 @@ fun Modifier.drawnAtScale(scale: () -> Float): Modifier = this.then(
 /**
  * Two fingers pinched on this, or Ctrl + the mouse wheel (a trackpad pinch
  * on a computer arrives as that too), changes a size: [get] reads it, [set]
- * changes it ([save] true at the end of a pinch and for each wheel step).
+ * changes it ([save] true at the end of a pinch and for each wheel step);
+ * Ctrl + a click calls [reset].
  * Two fingers here zoom instead of scrolling; one finger is left alone.
  */
-fun Modifier.pinchToScale(get: () -> Float, set: (Float, Boolean) -> Unit): Modifier = this
+fun Modifier.pinchToScale(get: () -> Float, set: (Float, Boolean) -> Unit, reset: (() -> Unit)? = null): Modifier = this
     .pointerInput(Unit) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
@@ -349,6 +353,13 @@ fun Modifier.pinchToScale(get: () -> Float, set: (Float, Boolean) -> Unit): Modi
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                // Ctrl + a click (or a wheel click): back to the usual size.
+                if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press && event.keyboardModifiers.isCtrlPressed &&
+                    (event.buttons.isPrimaryPressed || event.buttons.isTertiaryPressed)) {
+                    reset?.invoke()
+                    event.changes.forEach { it.consume() }
+                    continue
+                }
                 if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
                 val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
                 if (dy == 0f) continue

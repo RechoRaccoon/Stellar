@@ -234,6 +234,9 @@ private fun installMiddleClickScroll(): Unit = js("""{
     };
     window.addEventListener('mousedown', (e) => {
         if (active && sticky) { e.preventDefault(); e.stopPropagation(); stop(); return; }
+        // (Ctrl + a wheel click is the app's own — resetting the side
+        // list's size — so it never starts this scrolling or its marker.)
+        if (e.button === 1 && (e.ctrlKey || e.metaKey)) { e.preventDefault(); return; }
         if (e.button === 1) { e.preventDefault(); e.stopPropagation(); start(e); }
     }, true);
     window.addEventListener('mousemove', (e) => {

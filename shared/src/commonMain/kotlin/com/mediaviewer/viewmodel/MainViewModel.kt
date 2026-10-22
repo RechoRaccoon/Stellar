@@ -3067,11 +3067,14 @@ class MainViewModel(
             if (uri.startsWith("profiles:")) return
             _hubLists.value = _hubLists.value + (uri to (cur ?: HubListState()).copy(loading = true))
         }
+        val turn = hubTurn()
         viewModelScope.launch(ioDispatcher) {
+            try {
             var result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
             }
+            awaitHubTurn(turn)
             result.onSuccess { content ->
                 val posts = filterHidden(content.posts)
                 com.mediaviewer.platform.synchronizedCompat(hubListLock) { hubMemberFeeds.remove(uri) }
@@ -3094,7 +3097,26 @@ class MainViewModel(
             }.onFailure {
                 setHubList(uri) { it.copy(loading = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
+            } finally { releaseHubTurn(turn) }
         }
+    }
+
+    // The Hub's rows load side by side but show in order, top to bottom: a
+    // row's first page waits (a few seconds at most) for every row asked
+    // for before it — the rows above it — to show theirs first.
+    private val hubTurnLock = Any()
+    private var hubTurnNext = 0L
+    private val hubTurnFinished = HashSet<Long>()
+    private val hubTurnDone = MutableStateFlow(0L)
+    private fun hubTurn(): Long = com.mediaviewer.platform.synchronizedCompat(hubTurnLock) { hubTurnNext++ }
+    private suspend fun awaitHubTurn(turn: Long) {
+        kotlinx.coroutines.withTimeoutOrNull(4000) { hubTurnDone.first { it >= turn } }
+    }
+    private fun releaseHubTurn(turn: Long) = com.mediaviewer.platform.synchronizedCompat(hubTurnLock) {
+        hubTurnFinished.add(turn)
+        var d = hubTurnDone.value
+        while (d in hubTurnFinished) { hubTurnFinished.remove(d); d++ }
+        hubTurnDone.value = d
     }
 
     /** A Hub list row in Posts mode scrolled to its end: the next page.
@@ -10153,12 +10175,16 @@ class MainViewModel(
                 cur.postsCursor
             }
         }
+        // (A first page takes its turn among the Hub's rows; more pages don't.)
+        val turn = if (more) null else hubTurn()
         viewModelScope.launch(ioDispatcher) {
+            try {
             val seen = com.mediaviewer.platform.synchronizedCompat(hubListLock) { feedRowSeen.getOrPut(key) { HashSet() } }
             var result = if (feed.showsPosts) loadFeedSpecPage(feed, cursor, seen) else Result.success(Pair(emptyList<MediaItem>(), null))
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
                 result = loadFeedSpecPage(feed, cursor, seen)
             }
+            turn?.let { awaitHubTurn(it) }
             result.onSuccess { (posts, next) ->
                 setHubList(key) { cur ->
                     val all = if (more) cur.posts + posts else posts
@@ -10174,6 +10200,7 @@ class MainViewModel(
             }.onFailure {
                 setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
+            } finally { turn?.let { releaseHubTurn(it) } }
         }
     }
 

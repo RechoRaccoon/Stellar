@@ -1374,7 +1374,8 @@ private fun SearchAllResults(
     onOpenListEntry: (com.mediaviewer.model.ProfileListEntry) -> Unit
 ) {
     val tap = rememberHapticTap()
-    val side = rememberLandscapeSidePadding()
+    // (Landscape: the whole width, like the Hub — not a narrow column.)
+    val side = 0.dp
     val wide = rememberLandscapeWidthDp() > 0
     val nothing = state.accounts.isEmpty() && state.posts.isEmpty() && state.allTagged.isEmpty() &&
         state.feeds.isEmpty() && state.starterPacks.isEmpty()
@@ -1487,10 +1488,11 @@ private fun SearchAllResults(
             item(key = "all_tagged_h") { Header("Tagged", sub = tag.replace('_', ' '), onAll = { onOpenTag(tag) }) }
             item(key = "all_tagged") { Thumbs(state.allTagged.distinctBy { it.postUri.ifBlank { it.id } }) { onOpenTag(tag) } }
         }
-        if (state.feeds.isNotEmpty()) {
-            item(key = "all_feeds_h") { Header("Feeds", onAll = if (state.feeds.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.FEEDS) }) else null) }
+        @Composable
+        fun FeedsBlock() {
+            Header("Feeds", onAll = if (state.feeds.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.FEEDS) }) else null)
             state.feeds.distinctBy { it.uri }.take(3).forEach { feed ->
-                item(key = "all_feed_" + feed.uri) {
+                androidx.compose.runtime.key(feed.uri) {
                     val entry = remember(feed) {
                         com.mediaviewer.model.ProfileListEntry(
                             kind = com.mediaviewer.model.ProfileListKind.FEED, uri = feed.uri,
@@ -1511,10 +1513,11 @@ private fun SearchAllResults(
                 }
             }
         }
-        if (state.starterPacks.isNotEmpty()) {
-            item(key = "all_packs_h") { Header("Starter Packs", onAll = if (state.starterPacks.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.STARTER_PACKS) }) else null) }
+        @Composable
+        fun PacksBlock() {
+            Header("Starter Packs", onAll = if (state.starterPacks.size > 3) ({ onSeeAll(MainViewModel.SearchFilter.STARTER_PACKS) }) else null)
             state.starterPacks.distinctBy { it.uri }.take(3).forEach { pack ->
-                item(key = "all_pack_" + pack.uri) {
+                androidx.compose.runtime.key(pack.uri) {
                     val entry = remember(pack) {
                         com.mediaviewer.model.ProfileListEntry(
                             kind = com.mediaviewer.model.ProfileListKind.STARTER_PACK, uri = pack.uri,
@@ -1531,6 +1534,20 @@ private fun SearchAllResults(
                     )
                 }
             }
+        }
+        val hasFeeds = state.feeds.isNotEmpty()
+        val hasPacks = state.starterPacks.isNotEmpty()
+        if (wide && hasFeeds && hasPacks) {
+            // Landscape: feeds and starter packs side by side.
+            item(key = "all_feeds_packs") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) { FeedsBlock() }
+                    Column(Modifier.weight(1f)) { PacksBlock() }
+                }
+            }
+        } else {
+            if (hasFeeds) item(key = "all_feeds") { Column { FeedsBlock() } }
+            if (hasPacks) item(key = "all_packs") { Column { PacksBlock() } }
         }
     }
 }

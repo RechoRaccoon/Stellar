@@ -12,7 +12,7 @@ import com.mediaviewer.platform.sharedPreferences
 
 /**
  * The Search page's recents: accounts you searched for and opened, and the
- * searches you made, newest first. Kept on this device only.
+ * searches you made, newest first. Synced, encrypted, by Private Sync.
  */
 object RecentAccountSearches {
     private const val PREFS = "recent_account_searches"
@@ -50,6 +50,12 @@ object RecentAccountSearches {
             val arr = JSONArray(p.getString(KEY_QUERIES, "[]") ?: "[]")
             (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
         }.getOrDefault(emptyList())
+    }
+
+    /** Read again (Private Sync brought another device's). */
+    fun reload(context: PlatformContext) {
+        prefs = null
+        ensureLoaded(context)
     }
 
     /** A search was made (submitted, or a result opened from it). */
