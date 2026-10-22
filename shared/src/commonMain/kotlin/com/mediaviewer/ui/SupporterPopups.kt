@@ -300,7 +300,18 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                     FolderCover(folder, tint, Modifier.size(40.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(folder.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                folder.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+                            )
+                            // Private (the lock) or public (the world), right after its name.
+                            Icon(
+                                if (folder.public) Icons.Default.Public else Icons.Default.Lock,
+                                contentDescription = if (folder.public) "Public" else "Private",
+                                tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(start = 6.dp).size(13.dp)
+                            )
+                        }
                         Text(
                             "${folder.posts.size} post${if (folder.posts.size == 1) "" else "s"}",
                             color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp

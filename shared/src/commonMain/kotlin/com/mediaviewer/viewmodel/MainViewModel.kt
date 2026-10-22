@@ -6470,6 +6470,14 @@ class MainViewModel(
             }
             override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putProfileHomeFeed(bskyToken, _bskyDid.value, rkey, record) }
             override suspend fun delete(rkey: String) = signedIn { bskyRepo.deleteProfileHomeFeed(bskyToken, _bskyDid.value, rkey) }
+            override suspend fun list(did: String): List<Pair<String, kotlinx.serialization.json.JsonObject>> {
+                val token = bskyToken.takeIf { _bskyLoggedIn.value && it.isNotBlank() }
+                return try { bskyRepo.listRecordValues(token, did, com.mediaviewer.util.ProfileHome.COLLECTION) } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (token != null && isAuthError(e.message) && refreshBskyTokenIfPossible()) bskyRepo.listRecordValues(bskyToken, did, com.mediaviewer.util.ProfileHome.COLLECTION)
+                    else throw e
+                }
+            }
         }
         com.mediaviewer.util.PublicFolders.onError = { msg -> _errorMessage.value = msg }
         // Status history lives on your own PDS (one record per status).

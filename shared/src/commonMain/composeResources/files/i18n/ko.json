@@ -2235,5 +2235,11 @@
 "National Champagne Day": "샴페인의 날",
 "Couldn't load the Home tab": "홈 탭을 불러오지 못했어요",
 "Remove Custom Cover?": "사용자 표지를 삭제할까요?",
-"Remove custom cover": "사용자 표지 삭제"
+"Remove custom cover": "사용자 표지 삭제",
+"Adds all {0} of their emoji to your PDS.": "이 사람의 이모지 {0}개를 모두 내 PDS에 추가합니다.",
+"Header Size": "헤더 크기",
+"Small": "작게",
+"Large": "크게",
+"Stellar encrypts your private data and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.": "Stellar는 비공개 데이터를 암호화하고 PDS를 통해 모든 기기에서 동기화합니다. 동기화 키로만 열 수 있습니다. 절대 다른 사람에게 보여주지 마세요.",
+"If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "이 기기에서 Stellar를 주로 사용한다면 동기화 시작을 탭하세요. Stellar 데이터가 다른 기기에 있다면 먼저 그 기기에서 동기화 시작을 탭한 다음, 여기서 Stellar를 다시 시작하고 받은 키를 입력하세요."
 }

@@ -55,10 +55,10 @@ import com.mediaviewer.viewmodel.MainViewModel
 
 /**
  * How a Hub (or profile Home tab) row's name looks, from Hub / Home
- * Settings: where it sits ([align] 0 left, 1 center, 2 right); small
- * between lines in the row's color ([divider], the Hub's own look) or a
- * big heading in the profile color; and — big — [lines] running out from
- * it to the page's edges.
+ * Settings: where it sits ([align] 0 left, 1 center, 2 right), and its
+ * Header Size: small between lines in the row's color ([divider], S) or a
+ * big heading in the profile color (L). Either way lines run out from it
+ * to the page's edges ([lines] is no longer optional).
  */
 data class RowHeaderStyle(val align: Int = 1, val divider: Boolean = true, val lines: Boolean = false) {
     companion object {
@@ -104,18 +104,18 @@ fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() 
             }
         ) {
             // Lines (or nothing) on whichever sides have room.
-            if (style.align != 0) { if (style.lines) Line(Modifier.weight(1f).padding(end = 12.dp)) }
+            if (style.align != 0) Line(Modifier.weight(1f).padding(end = 12.dp))
             Text(
                 label, color = headerColorFor(tint), fontSize = 19.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
-                // (With lines, they take what's left on either side.)
-                modifier = if (style.lines) Modifier else Modifier.weight(1f, fill = false)
+                // (The lines take what's left on either side.)
+                modifier = Modifier.widthIn(max = 260.dp)
             )
             if (onEdit != null) Box(
                 Modifier.padding(start = 4.dp).size(32.dp).clip(CircleShape).clickable { tap(); onEdit() },
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = lerp(tint, Color.White, 0.35f), modifier = Modifier.size(16.dp)) }
-            if (style.align != 2) { if (style.lines) Line(Modifier.weight(1f).padding(start = 12.dp)) }
+            if (style.align != 2) Line(Modifier.weight(1f).padding(start = 12.dp))
         }
     }
 }

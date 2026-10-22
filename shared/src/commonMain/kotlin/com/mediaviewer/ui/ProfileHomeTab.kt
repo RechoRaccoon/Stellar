@@ -84,6 +84,10 @@ internal fun LazyListScope.profileHomeRows(
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Couldn't load the Home tab", color = DimGray, fontSize = 13.sp)
+                // (Why, while this is being tracked down.)
+                ProfileHome.errors[did]?.takeIf { it.isNotBlank() }?.let { why ->
+                    Text(why, color = DimGray.copy(alpha = 0.7f), fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                }
                 Box(Modifier.padding(top = 10.dp)) {
                     LayoutPillButton("Try Again", liquidGlass, tint, null, { scope.launch { ProfileHome.load(did, fresh = true) } })
                 }

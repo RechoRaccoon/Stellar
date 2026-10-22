@@ -604,14 +604,14 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                     .padding(top = 8.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                LocalChip("Bold", false, tint, { tap(); wrap("**") })
-                LocalChip("Italic", false, tint, { wrap("*") })
-                LocalChip("Heading", false, tint, { prefixLine("# ") })
-                LocalChip("List", false, tint, { prefixLine("- ") })
-                LocalChip("Checklist", false, tint, { prefixLine("- [ ] ") })
-                LocalChip("Quote", false, tint, { prefixLine("> ") })
-                LocalChip("Code", false, tint, { wrap("`") })
-                LocalChip("Image", false, tint, { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                LocalChip("Bold", false, tint, { tap(); wrap("**") }, filled = true)
+                LocalChip("Italic", false, tint, { wrap("*") }, filled = true)
+                LocalChip("Heading", false, tint, { prefixLine("# ") }, filled = true)
+                LocalChip("List", false, tint, { prefixLine("- ") }, filled = true)
+                LocalChip("Checklist", false, tint, { prefixLine("- [ ] ") }, filled = true)
+                LocalChip("Quote", false, tint, { prefixLine("> ") }, filled = true)
+                LocalChip("Code", false, tint, { wrap("`") }, filled = true)
+                LocalChip("Image", false, tint, { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, filled = true)
                 // Sends this note to the home-screen Note widget(s) (tap
                 // again: a widget showing it goes back to its list of
                 // notes). A note can also be chosen on the widget itself.
@@ -619,7 +619,7 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 LocalChip("Widget", onWidget, tint, {
                     save()
                     if (id.isNotBlank()) LocalData.updateWidgetNote(if (onWidget) "" else id)
-                })
+                }, filled = true)
             }
         }
     }

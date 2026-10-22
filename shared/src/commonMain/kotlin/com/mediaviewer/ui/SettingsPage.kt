@@ -2539,13 +2539,13 @@ internal fun HeaderStyleSettings(
             }
             BubbleDivider()
             BubbleRow {
-                RowLabel("Divider Headers", Modifier.weight(1f))
-                CompactSwitch(style.divider) { onChange(style.copy(divider = it)) }
-            }
-            BubbleDivider()
-            BubbleRow {
-                RowLabel("Header Lines", Modifier.weight(1f), dim = style.divider)
-                CompactSwitch(style.lines, enabled = !style.divider) { onChange(style.copy(lines = it)) }
+                // S: the small name between lines. L: a big name with lines.
+                RowLabel("Header Size", Modifier.weight(1f))
+                ConnectedChoice(
+                    options = listOf(ChoiceOption("S", description = "Small"), ChoiceOption("L", description = "Large")),
+                    selected = if (style.divider) 0 else 1,
+                    onSelect = { onChange(style.copy(divider = it == 0, lines = true)) }
+                )
             }
             extra?.invoke(this)
         }

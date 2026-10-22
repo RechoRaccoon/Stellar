@@ -73,32 +73,22 @@ private fun StepTitle(text: String) =
 private fun StepBody(text: String) =
     Text(text, color = DimGray, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
 
-/** No sync yet: what it is, and Copy Key / Start Syncing. */
+/** No sync yet: what it is, and Start Syncing (there's no key to copy
+ *  until it has started). */
 @Composable
 private fun SetupStep(tint: Color, onStarted: () -> Unit) {
     val scope = rememberCoroutineScope()
     val tap = rememberHapticTap()
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var working by remember { mutableStateOf(false) }
-    var copied by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         StepTitle("Private Data Sync")
         Spacer(Modifier.height(10.dp))
-        StepBody("Stellar encrypts your private data (drafts, notes, bookmark folders, archive and Hub layout) and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.")
+        StepBody("Stellar encrypts your private data and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.")
         Spacer(Modifier.height(10.dp))
-        StepBody("If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then reload Stellar here and enter the key it gives you.")
+        StepBody("If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.")
         Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = {
-                    tap()
-                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(PrivateSync.newSecretKey))
-                    copied = true
-                },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                modifier = Modifier.weight(1f).height(48.dp)
-            ) { Text(if (copied) "Copied" else "Copy Key", maxLines = 1) }
+        Row(Modifier.fillMaxWidth()) {
             Button(
                 onClick = {
                     tap(); working = true; error = null
@@ -110,7 +100,7 @@ private fun SetupStep(tint: Color, onStarted: () -> Unit) {
                 },
                 enabled = !working,
                 colors = ButtonDefaults.buttonColors(containerColor = tint),
-                modifier = Modifier.weight(1f).height(48.dp)
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 if (working) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                 else Text("Start Syncing", color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)

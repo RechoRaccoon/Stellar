@@ -244,14 +244,20 @@ fun LocalChip(
     tint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    /** Filled like a filled popup's buttons (Notes' formatting row). */
+    filled: Boolean = false
 ) {
     val tap = rememberHapticTap()
     val shape = RoundedCornerShape(15.dp)
     Box(
         modifier.height(30.dp).clip(shape)
-            .background(if (selected) lerp(tint, Color.White, 0.15f).copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.28f))
-            .border(1.dp, lerp(tint, Color.White, 0.3f).copy(alpha = if (selected) 0.9f else 0.35f), shape)
+            .then(
+                if (filled && !selected) Modifier.popupButtonFill(tint, shape)
+                else Modifier
+                    .background(if (selected) lerp(tint, Color.White, 0.15f).copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.28f))
+                    .border(1.dp, lerp(tint, Color.White, 0.3f).copy(alpha = if (selected) 0.9f else 0.35f), shape)
+            )
             .combinedClickable(
                 onClick = { tap(); onClick() },
                 onLongClick = if (onLongClick != null) ({ tap(); onLongClick() }) else null
@@ -260,7 +266,7 @@ fun LocalChip(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            label, color = Color.White.copy(alpha = if (selected) 1f else 0.7f), fontSize = 12.sp,
+            label, color = Color.White.copy(alpha = if (selected || filled) 1f else 0.7f), fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1
         )
     }

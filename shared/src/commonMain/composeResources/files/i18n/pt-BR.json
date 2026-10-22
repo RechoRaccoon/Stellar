@@ -2235,5 +2235,11 @@
 "National Champagne Day": "Dia Nacional do Champanhe",
 "Couldn't load the Home tab": "Não foi possível carregar a aba Início",
 "Remove Custom Cover?": "Remover a capa personalizada?",
-"Remove custom cover": "Remover a capa personalizada"
+"Remove custom cover": "Remover a capa personalizada",
+"Adds all {0} of their emoji to your PDS.": "Adiciona todos os {0} emojis dessa pessoa ao seu PDS.",
+"Header Size": "Tamanho do cabeçalho",
+"Small": "Pequeno",
+"Large": "Grande",
+"Stellar encrypts your private data and keeps it in sync across your devices through your PDS. Only your sync key can unlock it. Never show it to anyone.": "O Stellar criptografa seus dados privados e os mantém sincronizados entre seus dispositivos pelo seu PDS. Só a sua chave de sincronização pode desbloqueá-los. Nunca a mostre a ninguém.",
+"If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "Se este é o dispositivo em que você mais usa o Stellar, toque em Começar a sincronizar. Se seus dados do Stellar estão em outro dispositivo, toque em Começar a sincronizar lá primeiro, depois reinicie o Stellar aqui e digite a chave que ele der."
 }

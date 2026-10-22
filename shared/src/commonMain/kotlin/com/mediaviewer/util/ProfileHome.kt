@@ -28,6 +28,9 @@ object ProfileHome {
         val did: String
         suspend fun put(rkey: String, record: Map<String, Any>)
         suspend fun delete(rkey: String)
+        /** Every Home record in [did]'s repo (its at:// URI and value),
+         *  read the same way the app's other public records are. */
+        suspend fun list(did: String): List<Pair<String, JsonObject>>
     }
     var remote: Remote? = null
 
@@ -142,10 +145,12 @@ object ProfileHome {
             val result = runCatching { kotlinx.coroutines.withContext(ioDispatcher) { read(did) } }
             result.getOrNull()?.let { list ->
                 byAccount[did] = list
-                failed.remove(did)
+                failed.remove(did); errors.remove(did)
                 return list
             }
-            com.mediaviewer.platform.Log.w("Stellar", "Home tab of $did: ${result.exceptionOrNull()?.message}")
+            val why = result.exceptionOrNull()?.let { it.message ?: it::class.simpleName }.orEmpty()
+            errors[did] = why
+            com.mediaviewer.platform.Log.w("Stellar", "Home tab of $did: $why")
             if (attempt < 2) delay(800L * (attempt + 1))
         }
         failed[did] = true
@@ -156,35 +161,57 @@ object ProfileHome {
      *  way to try again — never as an empty tab). */
     val failed = mutableStateMapOf<String, Boolean>()
 
+    /** Why each account's Home tab last failed to load (shown with Try Again). */
+    val errors = mutableStateMapOf<String, String>()
+
     private suspend fun read(did: String): List<LocalFeed> {
-        val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
+        // (Through the app's own API client first — how status history and
+        // the rest of the public records are read; straight from the
+        // account's PDS when that can't be used.)
+        val viaApi = remote?.let { r -> runCatching { r.list(did) } }
+        val records = viaApi?.getOrNull() ?: try { readDirect(did) } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            val first = viaApi?.exceptionOrNull()?.message
+            throw IllegalStateException(listOfNotNull(first, e.message ?: e::class.simpleName).joinToString(" · "))
+        }
         val out = ArrayList<Pair<Int, LocalFeed>>()
-        val resp = com.mediaviewer.network.PlainHttp.get(
-            "$pds/xrpc/com.atproto.repo.listRecords",
-            listOf("repo" to did, "collection" to COLLECTION, "limit" to "50")
-        )
-        if (resp.code !in 200..299) error("Home ${resp.code}")
-        val root = StellarJson.default.parseToJsonElement(resp.body.decodeToString()) as? JsonObject ?: return out.map { it.second }
-        val records = root["records"] as? JsonArray ?: return emptyList()
-        for (r in records) {
-            val value = (r as? JsonObject)?.get("value") as? JsonObject ?: continue
-            if ((r["uri"] as? JsonPrimitive)?.content.orEmpty().endsWith("/$SETTINGS_RKEY")) {
-                fun prim(k: String) = value[k] as? JsonPrimitive
-                headers[did] = Header(
-                    align = prim("headerAlign")?.content?.toIntOrNull()?.coerceIn(0, 2) ?: 0,
-                    divider = prim("dividerHeaders")?.content == "true",
-                    lines = prim("headerLines")?.content == "true"
-                )
-                continue
+        for ((uri, value) in records) {
+            // (One record that can't be read is skipped, never the whole tab.)
+            runCatching {
+                val rkey = uri.substringAfterLast('/')
+                if (rkey == SETTINGS_RKEY) {
+                    fun prim(k: String) = value[k] as? JsonPrimitive
+                    headers[did] = Header(
+                        align = prim("headerAlign")?.content?.toIntOrNull()?.coerceIn(0, 2) ?: 0,
+                        divider = prim("dividerHeaders")?.content == "true",
+                        lines = prim("headerLines")?.content == "true"
+                    )
+                    return@runCatching
+                }
+                val spec = (value["spec"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@runCatching
+                val feed = StellarJson.default.decodeFromString(LocalFeed.serializer(), spec)
+                val position = (value["position"] as? JsonPrimitive)?.content?.toIntOrNull() ?: Int.MAX_VALUE
+                // (Someone else's private folders can't be read anyway; only
+                // public ones are kept as sources.)
+                out += position to feed.copy(id = rkey.ifBlank { feed.id }, sources = feed.sources.filter { it.kind != "folder" })
             }
-            val spec = (value["spec"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-            val feed = runCatching { StellarJson.default.decodeFromString(LocalFeed.serializer(), spec) }.getOrNull() ?: continue
-            val rkey = (r["uri"] as? JsonPrimitive)?.content.orEmpty().substringAfterLast('/')
-            val position = (value["position"] as? JsonPrimitive)?.content?.toIntOrNull() ?: Int.MAX_VALUE
-            // (Someone else's private folders can't be read anyway; only
-            // public ones are kept as sources.)
-            out += position to feed.copy(id = rkey.ifBlank { feed.id }, sources = feed.sources.filter { it.kind != "folder" })
         }
         return out.sortedBy { it.first }.map { it.second }
+    }
+
+    private suspend fun readDirect(did: String): List<Pair<String, JsonObject>> {
+        val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
+        val resp = com.mediaviewer.network.PlainHttp.get(
+            "$pds/xrpc/com.atproto.repo.listRecords",
+            listOf("repo" to did, "collection" to COLLECTION, "limit" to "100")
+        )
+        if (resp.code !in 200..299) error("HTTP ${resp.code}")
+        val root = StellarJson.default.parseToJsonElement(resp.body.decodeToString()) as? JsonObject ?: return emptyList()
+        val records = root["records"] as? JsonArray ?: return emptyList()
+        return records.mapNotNull { r ->
+            val o = r as? JsonObject ?: return@mapNotNull null
+            val value = o["value"] as? JsonObject ?: return@mapNotNull null
+            (o["uri"] as? JsonPrimitive)?.content.orEmpty() to value
+        }
     }
 }

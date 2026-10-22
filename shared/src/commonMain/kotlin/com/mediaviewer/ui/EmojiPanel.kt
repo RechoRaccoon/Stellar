@@ -709,7 +709,7 @@ internal fun EmojiPanel(
             }
             is EmojiAsk.SaveFolder -> ConfirmRequest(
                 if (a.folder == null) "Save All Emoji?" else "Save Folder?",
-                if (a.folder == null) "Adds all ${a.emoji.size} of their emoji to your own emoji."
+                if (a.folder == null) "Adds all ${a.emoji.size} of their emoji to your PDS."
                     else "Adds \"${a.folder}\" and its ${a.emoji.size} emoji to your own emoji.",
                 "Save", tint, destructive = false
             ) {

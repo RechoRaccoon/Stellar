@@ -4406,6 +4406,25 @@ class BlueskyRepository {
         out.sortedByDescending { it.createdAt }
     }
 
+    /** Every record of [collection] in [did]'s repo (up to [maxPages] pages):
+     *  each one's at:// URI and value. */
+    suspend fun listRecordValues(token: String?, did: String, collection: String, maxPages: Int = 5): List<Pair<String, kotlinx.serialization.json.JsonObject>> = withContext(ioDispatcher) {
+        val out = ArrayList<Pair<String, kotlinx.serialization.json.JsonObject>>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            val resp = api.listRecords(token?.let { "Bearer $it" }, did, collection, 100, cursor)
+            if (!resp.isSuccessful) error("$collection ${resp.code()}: ${errorBodyText(resp).take(120)}")
+            val body = resp.body() ?: break
+            for (rec in body.records) {
+                val value = rec.value?.takeIf { it.isJsonObject }?.toKx() as? kotlinx.serialization.json.JsonObject ?: continue
+                out += rec.uri to value
+            }
+            cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
+        } while (cursor != null && ++pages < maxPages)
+        out
+    }
+
     /** Saves one status to [did]'s history; returns its record key. */
     suspend fun addStatusHistory(token: String, did: String, entry: com.mediaviewer.util.StatusHistory.Entry): String = withContext(ioDispatcher) {
         val record = linkedMapOf<String, Any>(

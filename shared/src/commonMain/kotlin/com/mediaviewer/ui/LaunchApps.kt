@@ -304,12 +304,7 @@ fun CalculatorPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
         val tapeState = androidx.compose.foundation.lazy.rememberLazyListState()
         LaunchedEffect(tape.size) { if (tape.isNotEmpty()) tapeState.scrollToItem(tape.lastIndex) }
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            if (tape.isEmpty()) {
-                Text(
-                    "Your calculations will show up here", color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else androidx.compose.foundation.lazy.LazyColumn(
+            if (tape.isNotEmpty()) androidx.compose.foundation.lazy.LazyColumn(
                 state = tapeState, modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)
             ) {
@@ -791,7 +786,6 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
         // The picked day's events and days, every one of them: they fill the
         // rest of the page and scroll once there are more than fit.
         val sm = selected / 100 % 100
