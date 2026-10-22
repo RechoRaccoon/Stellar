@@ -431,12 +431,15 @@ private fun BubbleRow(modifier: Modifier = Modifier, content: @Composable RowSco
 @Composable
 private fun RowLabel(text: String, modifier: Modifier = Modifier, sub: String? = null, dim: Boolean = false, singleLine: Boolean = false) {
     Column(modifier.padding(end = 12.dp)) {
-        // (singleLine: the words draw in full on one line, spilling over
-        // this label's own end padding if the row is a few dp short —
-        // nothing else in the row moves or resizes.)
+        // (singleLine: the words draw in full on one line. The default
+        // overflow clips a no-wrap text at its own box edge, so the last
+        // letter was cut where this label's end padding begins; Visible
+        // lets the words paint over that padding instead — nothing else
+        // in the row moves or resizes.)
         Text(
             text, color = if (dim) DimGray else Color.White, fontSize = 14.sp,
-            maxLines = if (singleLine) 1 else Int.MAX_VALUE, softWrap = !singleLine
+            maxLines = if (singleLine) 1 else Int.MAX_VALUE, softWrap = !singleLine,
+            overflow = if (singleLine) TextOverflow.Visible else TextOverflow.Clip
         )
         if (sub != null) Text(sub, color = DimGray, fontSize = 11.sp, lineHeight = 13.sp)
     }
