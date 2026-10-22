@@ -305,7 +305,11 @@ fun HubSizeSlider(tint: Color) {
     val square = com.mediaviewer.util.UiToggles.squareCorners
     val shape = if (square) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(50)
     var widthPx by remember { mutableStateOf(1) }
-    fun at(x: Float): Float = min + (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f) * (max - min)
+    // (Near the usual size it snaps onto it, so it's easy to go back to.)
+    fun at(x: Float): Float {
+        val v = min + (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f) * (max - min)
+        return if (kotlin.math.abs(v - 1f) <= (max - min) * 0.05f) 1f else v
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         Text("Hub Size", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         androidx.compose.foundation.layout.BoxWithConstraints(
@@ -325,6 +329,12 @@ fun HubSizeSlider(tint: Color) {
             val thumbW = 6.dp
             Box(Modifier.fillMaxWidth().height(10.dp).clip(shape).background(Color.White.copy(alpha = 0.15f)))
             Box(Modifier.fillMaxWidth(fraction).height(10.dp).clip(shape).background(accent))
+            // Where the usual size is.
+            val home = ((1f - min) / (max - min)).coerceIn(0f, 1f)
+            Box(
+                Modifier.padding(start = ((maxWidth - 2.dp) * home).coerceAtLeast(0.dp))
+                    .size(width = 2.dp, height = 16.dp).background(Color.White.copy(alpha = 0.45f))
+            )
             Box(
                 Modifier.padding(start = ((maxWidth - thumbW) * fraction).coerceAtLeast(0.dp))
                     .size(width = thumbW, height = 24.dp).clip(shape).background(Color.White)
