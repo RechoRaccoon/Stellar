@@ -1,0 +1,27 @@
+{
+ "format": 1,
+ "version": "692690350e186395",
+ "updatedAt": "2026-10-22T12:20:31Z",
+ "posts": 10316,
+ "tags": 499080,
+ "bytes": 13245922,
+ "parts": [
+  {
+   "file": "part-000.json",
+   "bytes": 7998458,
+   "sha256": "3fbc65ef7723ca0b67106148619fbc319efd43d247434bf684dcbd7f4f08f01d"
+  },
+  {
+   "file": "part-001.json",
+   "bytes": 5247464,
+   "sha256": "0a403ef8fde6a0d924caa727ff5b4634fa56af5326fb02f57b9c9caa3c3c3720"
+  }
+ ],
+ "sources": [
+  {
+   "file": "Recho.Raccoon.s.Tag.Dataset.x10k.json",
+   "name": "\ud81a\udd10Recho Raccoon\ud81a\udd10's Tag Dataset",
+   "posts": 10316
+  }
+ ]
+}
