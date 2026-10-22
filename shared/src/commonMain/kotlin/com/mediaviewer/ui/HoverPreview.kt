@@ -16,17 +16,18 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import com.mediaviewer.ui.compat.LocalContext
 
 /**
  * Explore's video tiles play, muted, while the pointer rests on them
  * (desktop and web) or while a finger rests on one (phones): a resting
  * finger is the touch hover, so the preview starts the moment it lands,
- * like a mouse entering. It stops when the finger lifts or moves off to
- * scroll. A quick tap never sees it (the preview shows nothing until its
- * first frame) and still opens the post; letting go after a real rest
- * doesn't open the post.
+ * like a mouse entering. It stops when the finger lifts or leaves the
+ * tile — scrolling under a resting finger keeps it playing, because the
+ * tile travels with the finger; it only ends when the finger isn't on
+ * that tile anymore. A quick tap never sees it (the preview shows
+ * nothing until its first frame) and still opens the post; letting go
+ * after a real rest doesn't open the post.
  */
 fun Modifier.videoPreviewTrigger(onPreview: (Boolean) -> Unit): Modifier = this
     .pointerInput(Unit) {
@@ -51,7 +52,6 @@ fun Modifier.videoPreviewTrigger(onPreview: (Boolean) -> Unit): Modifier = this
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             if (down.type == PointerType.Mouse) return@awaitEachGesture
             onPreview(true)
-            var moved = 0f
             try {
                 while (true) {
                     val e = awaitPointerEvent(PointerEventPass.Initial)
@@ -62,8 +62,12 @@ fun Modifier.videoPreviewTrigger(onPreview: (Boolean) -> Unit): Modifier = this
                         if (ch.uptimeMillis - down.uptimeMillis >= 350) ch.consume()
                         break
                     }
-                    moved += ch.positionChange().getDistance()
-                    if (moved > viewConfiguration.touchSlop) break
+                    // Movement alone doesn't end it — scrolling with the
+                    // finger still on the tile keeps it playing, since the
+                    // tile travels with the finger. It ends when the finger
+                    // actually leaves the tile.
+                    if (ch.position.x < 0f || ch.position.y < 0f ||
+                        ch.position.x > size.width || ch.position.y > size.height) break
                 }
             } finally {
                 onPreview(false)
