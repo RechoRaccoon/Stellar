@@ -68,6 +68,8 @@ object LocalOverlays {
     var profileNoteFor by mutableStateOf<AuthorInfo?>(null)
     /** A bookmark folder being edited (name, privacy, cover, delete), by id. */
     var editFolder by mutableStateOf<String?>(null)
+    /** A profile's Followers / Following list (tapping those counts). */
+    var followList by mutableStateOf<FollowListRequest?>(null)
     /** Hub → the "+" after the feeds: the Feed Builder (null = closed;
      *  blank id = a new feed). */
     var feedBuilder by mutableStateOf<com.mediaviewer.util.LocalFeed?>(null)
@@ -117,7 +119,7 @@ object LocalOverlays {
 
     /** One of the popups is up: the app behind it blurs. */
     val popupOpen: Boolean
-        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || editFolder != null || feedBuilder != null || pinDmFor != null ||
+        get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || editFolder != null || followList != null || feedBuilder != null || pinDmFor != null ||
             confirm != null || com.mediaviewer.tagging.SharedTagDataset.prompt != null
 
     /** Floating web pages, drawn over everything. */
@@ -151,6 +153,7 @@ object LocalOverlays {
         bookmarkFolderForMany = null
         profileNoteFor = null
         editFolder = null
+        followList = null
         feedBuilder = null
         editWarningOpen = false
         pinDmFor = null
@@ -224,3 +227,7 @@ object LocalOverlays {
     /** See MainViewModel.placeBookmark. */
     var onPlaceBookmark: ((com.mediaviewer.model.MediaItem, Boolean) -> Unit)? = null
 }
+
+/** Which list [LocalOverlays.followList] shows: [did]'s followers, or the
+ *  accounts they follow. */
+data class FollowListRequest(val did: String, val followers: Boolean)

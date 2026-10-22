@@ -2789,7 +2789,9 @@ private fun TranslationIndicatorPill(
 @Composable
 private fun StatusPill(
     label: String, spinning: Boolean, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** On a solid fill (over something it covers, like the Hub's search bar). */
+    filled: Boolean = false
 ) {
     val shape = RoundedCornerShape(14.dp)
 
@@ -2814,7 +2816,9 @@ private fun StatusPill(
         }
     }
 
-    if (liquidGlass) {
+    if (filled) {
+        Box(modifier.widthIn(max = 300.dp).popupButtonFill(tint, shape)) { PillBody() }
+    } else if (liquidGlass) {
         LiquidGlassSurface(modifier = modifier.widthIn(max = 300.dp), shape = shape, tint = tint, backdrop = backdrop) { PillBody() }
     } else {
         Box(modifier.widthIn(max = 300.dp).clip(shape).background(Color.Black.copy(0.5f))) { PillBody() }
@@ -3262,7 +3266,7 @@ internal fun taggingStatusLabelFor(tagPostWhenLiked: Boolean, phase: MainViewMod
 @Composable
 internal fun TaggingStatusPill(
     label: String, liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, reducedAnimations: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier, filled: Boolean = false
 ) {
     val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "tagPillDrift")
     val dx by drift.animateFloat(-3f, 3f, androidx.compose.animation.core.infiniteRepeatable(tween(23_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillX")
@@ -3270,7 +3274,7 @@ internal fun TaggingStatusPill(
     val glow by drift.animateFloat(0.72f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(9_000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "tagPillAlpha")
     StatusPill(
         label = label, spinning = true, liquidGlass = liquidGlass,
-        tint = tint, backdrop = backdrop,
+        tint = tint, backdrop = backdrop, filled = filled,
         onClick = { LocalOverlays.onOpenTaggingQueue?.invoke() },
         modifier = modifier.graphicsLayer {
             if (!reducedAnimations) { translationX = dx * density; translationY = dy * density; alpha = glow }
@@ -3281,11 +3285,11 @@ internal fun TaggingStatusPill(
 /** The tagging status on pages other than the Timeline (the Hub, profiles):
  *  centered, growing in and shrinking out like the Timeline's. */
 @Composable
-internal fun PageTaggingStatus(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, modifier: Modifier = Modifier) {
+internal fun PageTaggingStatus(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, modifier: Modifier = Modifier, filled: Boolean = false) {
     val label = LocalOverlays.taggingStatusLabel
     val reduced = LocalOverlays.reducedAnimations
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        AnimatedStatus(label, reduced) { TaggingStatusPill(it, liquidGlass, tint, backdrop, reduced) }
+        AnimatedStatus(label, reduced) { TaggingStatusPill(it, liquidGlass, tint, backdrop, reduced, filled = filled) }
     }
 }
 
@@ -3449,7 +3453,8 @@ private fun MultiImageGrid(
     val topClear = if (landscape) 76.dp else 104.dp
     val bottomClear = if (landscape) 76.dp else 176.dp
     BoxWithConstraints(
-        Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp),
+        // (Portrait: edged like the text bubble and bars under it.)
+        Modifier.fillMaxSize().padding(horizontal = if (landscape) 16.dp else 12.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         val gap = 8.dp
@@ -3479,6 +3484,11 @@ private fun MultiImageGrid(
         val starts = remember(rows) { rows.runningFold(0) { acc, n -> acc + n } }
         val shown = rows.sum()
         val cell = cellFor(rows).coerceAtLeast(48.dp)
+        // Portrait: the tiles always reach both edges; when the height runs
+        // short they get a little wider than tall instead of shrinking away
+        // from the edges.
+        val cols = rows.maxOrNull() ?: 1
+        val cellW = if (landscape) cell else ((maxWidth - gap * (cols - 1)) / cols).coerceAtLeast(cell)
         val groupH = cell * rows.size + gap * (rows.size - 1)
         val centeredTop = (maxHeight - groupH) / 2
         val maxTop = (maxHeight - bottomClear - groupH).coerceAtLeast(topClear)
@@ -3498,7 +3508,7 @@ private fun MultiImageGrid(
                         val img = images.getOrNull(i) ?: continue
                         Box(
                             Modifier
-                                .size(cell)
+                                .size(cellW, cell)
                                 .onGloballyPositioned { onTileBounds(i, it.boundsInRoot()) }
                                 .graphicsLayer { this.alpha = if (hiddenIndex == i) 0f else 1f }
                                 .clip(shape)

@@ -2244,5 +2244,6 @@
 "If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "Если вы чаще всего пользуетесь Stellar на этом устройстве, нажмите «Начать синхронизацию». Если ваши данные Stellar на другом устройстве, сначала нажмите «Начать синхронизацию» там, затем перезапустите Stellar здесь и введите ключ, который оно выдаст.",
 "Folder Layout": "Вид папки",
 "Grid": "Сетка",
-"Vertical": "Вертикально"
+"Vertical": "Вертикально",
+"Unfollow": "Отписаться"
 }

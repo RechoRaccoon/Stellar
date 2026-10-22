@@ -239,6 +239,17 @@ fun LocalOverlayHost(
     FadingPopupHost(LocalOverlays.editFolder, Modifier.zIndex(10.6f)) { id ->
         FolderEditPopup(id, liquidGlass, tint, backdrop, onClose = { LocalOverlays.editFolder = null })
     }
+    FadingPopupHost(LocalOverlays.followList, Modifier.zIndex(10.6f)) { req ->
+        FollowListPopup(
+            request = req, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+            loadPage = { c -> viewModel.followListPage(req.did, req.followers, c) },
+            setFollow = { a, on -> viewModel.followFromList(a, on) },
+            selfDid = selfDidNow,
+            // (The account opens on top of everything, the popup gone.)
+            onOpen = { a -> LocalOverlays.followList = null; viewModel.openProfile(a) },
+            onClose = { LocalOverlays.followList = null }
+        )
+    }
     FadingPopupHost(LocalOverlays.profileNoteFor, Modifier.zIndex(10.6f)) { author ->
         ProfileNotePopup(author, liquidGlass, tint, backdrop, onClose = { LocalOverlays.profileNoteFor = null })
     }

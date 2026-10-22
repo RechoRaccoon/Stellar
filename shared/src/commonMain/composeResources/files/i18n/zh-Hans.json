@@ -2244,5 +2244,6 @@
 "If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "如果这是你最常使用 Stellar 的设备，请点按“开始同步”。如果你的 Stellar 数据在另一台设备上，请先在那台设备上点按“开始同步”，然后在这里重启 Stellar 并输入它给你的密钥。",
 "Folder Layout": "文件夹布局",
 "Grid": "网格",
-"Vertical": "竖向"
+"Vertical": "竖向",
+"Unfollow": "取消关注"
 }

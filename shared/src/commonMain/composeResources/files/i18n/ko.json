@@ -2244,5 +2244,6 @@
 "If this is the device you mostly use Stellar on, tap Start Syncing. If your Stellar data is on another device, tap Start Syncing there first, then restart Stellar here and enter the key it gives you.": "이 기기에서 Stellar를 주로 사용한다면 동기화 시작을 탭하세요. Stellar 데이터가 다른 기기에 있다면 먼저 그 기기에서 동기화 시작을 탭한 다음, 여기서 Stellar를 다시 시작하고 받은 키를 입력하세요.",
 "Folder Layout": "폴더 레이아웃",
 "Grid": "그리드",
-"Vertical": "세로"
+"Vertical": "세로",
+"Unfollow": "언팔로우"
 }

@@ -1316,13 +1316,17 @@ fun ProfileOverlay(
 
         // ── Scroll-to-top bubble — appears once scrolled past the tabs ──
         // (Level with the fixed Back / Follow row: its touch area is bigger
-        // than the bubble, so it starts that much higher.)
+        // than the bubble, so it starts that much higher. The tagging status
+        // sits there too while it shows, so it moves down under it.)
+        val statusPush by androidx.compose.animation.core.animateDpAsState(
+            if (LocalOverlays.taggingStatusLabel != null) 38.dp else 0.dp, label = "topArrowUnderStatus"
+        )
         AnimatedVisibility(
             visible = pastTabs,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = rememberTopCutoutClearance())
-                .offset(y = profileFixedRowGap(com.mediaviewer.util.UiToggles.profileLayout) - SCROLL_TOP_HIT_EXTRA),
+                .offset(y = profileFixedRowGap(com.mediaviewer.util.UiToggles.profileLayout) - SCROLL_TOP_HIT_EXTRA + statusPush),
             enter = fadeIn(tween(if (reducedAnimations) 0 else 180)) + scaleIn(initialScale = 0.8f),
             exit = fadeOut(tween(if (reducedAnimations) 0 else 180)) + scaleOut(targetScale = 0.8f)
         ) {
@@ -1850,13 +1854,12 @@ private fun ProfileHeaderSection(
         val bannerBackdrop = remember(liquidGlass, backdropLayer) {
             if (liquidGlass) GlassBackdrop(backdropLayer) { backdropOrigin } else null
         }
-        // The banner is always seen whole and edge to edge: exactly as tall
-        // as its own shape needs at this width (Bluesky's are 3:1), so it's
-        // never cropped and never boxed in with copies of itself at the
-        // sides (as it was on wide windows, when its height was capped).
-        var bannerAspect by remember(profile?.bannerUrl) { mutableStateOf(3f) }
+        // The banner is always Bluesky's own shape, 3:1 (1500×500), on every
+        // platform and orientation: whatever picture was uploaded is cropped
+        // to it, as Bluesky shows it. Tapped, it opens whole.
+        val bannerAspect = BANNER_VIDEO_ASPECT
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val bannerHeight = maxWidth / bannerAspect.coerceIn(0.5f, 8f)
+        val bannerHeight = maxWidth / bannerAspect
         Box(Modifier.fillMaxWidth().height(bannerHeight)) {
             // Only the raw photo + wash gets recorded into the shared backdrop
             // layer — ProfileBannerOverlayLayout (a SubcomposeLayout) is kept
@@ -1880,24 +1883,17 @@ private fun ProfileHeaderSection(
                 val bannerVideo = com.mediaviewer.util.ProfileStyles.of(author.did)?.bannerVideo
                 if (profile?.bannerUrl != null) {
                     // (With a video banner the picture isn't shown at all —
-                    // switching between the two flickered — it's only read
-                    // for the banner's shape.)
-                    AsyncImage(
+                    // switching between the two flickered.)
+                    if (bannerVideo == null) AsyncImage(
                         model = profile.bannerUrl, contentDescription = null,
-                        contentScale = ContentScale.Fit, modifier = Modifier.matchParentSize(),
-                        alpha = if (bannerVideo != null) 0f else 1f,
-                        onSuccess = { st ->
-                            val sz = st.painter.intrinsicSize
-                            if (sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) bannerAspect = sz.width / sz.height
-                        }
+                        contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()
                     )
                 } else if (bannerVideo == null) {
                     Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(bannerColor.copy(0.55f), Color.Black))))
                 }
-                // A video banner (muted, looping), when they have one.
-                // (Fitted, like the picture: a wide window — or dragging the
-                // side list — never crops it.)
-                bannerVideo?.let { video -> ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize(), fill = false) }
+                // A video banner (muted, looping), when they have one: the
+                // same 3:1, filled like the picture.
+                bannerVideo?.let { video -> ProfileBannerVideo(author.did, video.cid, Modifier.matchParentSize(), fill = true) }
                 // (No dark wash over it any more: that's what made banners look
                 // dimmer here than elsewhere. Just a faint shade along the
                 // bottom, under the name pills.)
@@ -2064,8 +2060,8 @@ private fun ProfileHeaderSection(
                 Modifier.fillMaxWidth().padding(start = PROFILE_EDGE, top = 4.dp, end = PROFILE_EDGE, bottom = 0.dp)
             ) {
                 CountStat(profile.postsCount, "Posts")
-                CountStat(profile.followersCount, "Followers")
-                CountStat(profile.followsCount, "Following")
+                CountStat(profile.followersCount, "Followers") { LocalOverlays.followList = FollowListRequest(author.did, followers = true) }
+                CountStat(profile.followsCount, "Following") { LocalOverlays.followList = FollowListRequest(author.did, followers = false) }
                 // Stellar supporters: a shining "Supporter" after the stats.
                 if (isSupporter) SupporterBadge(onClick = onOpenSupportPage)
             }
@@ -2481,8 +2477,8 @@ private fun ProfileCompactIdentity(
                 if (profile != null) {
                     ShrinkToFitRow(Modifier.fillMaxWidth()) {
                         CountStat(profile.postsCount, "Posts")
-                        CountStat(profile.followersCount, "Followers")
-                        CountStat(profile.followsCount, "Following")
+                        CountStat(profile.followersCount, "Followers") { LocalOverlays.followList = FollowListRequest(author.did, followers = true) }
+                        CountStat(profile.followsCount, "Following") { LocalOverlays.followList = FollowListRequest(author.did, followers = false) }
                         if (isSupporter) SupporterBadge(onClick = onOpenSupportPage)
                     }
                 }
@@ -2532,8 +2528,12 @@ private val FILTER_CHIP_HEIGHT = 24.dp
 private val BANNER_OVERLAY_REFERENCE = 140.dp
 
 @Composable
-private fun CountStat(count: Int, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun CountStat(count: Int, label: String, onClick: (() -> Unit)? = null) {
+    val tap = rememberHapticTap()
+    Row(
+        (if (onClick != null) Modifier.clip(RoundedCornerShape(6.dp)).clickable { tap(); onClick() } else Modifier),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         Text(formatCount(count), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text(label, color = DimGray, fontSize = 12.sp)
     }
@@ -2838,14 +2838,16 @@ private fun ProfileTabsRow(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             tabs.forEach { tab ->
                 val split = tab == MainViewModel.ProfileTab.REVIEWS && reviewsHaveBacklog
-                SideListButton(
-                    tab.label(), tab == selected, liquidGlass, tint,
-                    trailing = if (!split) null else ({
-                        MediaFacetEnd(listOf("Reviews", "Backlog"), if (tab == selected) (if (backlogSelected) 1 else 0) else -1) { i ->
-                            onSelect(if (i == 1) MainViewModel.ProfileTab.BACKLOG else MainViewModel.ProfileTab.REVIEWS)
-                        }
-                    })
-                ) { onSelect(tab) }
+                // Reviews with a Backlog: the button split evenly down the
+                // middle, one half each, so either is a single tap away.
+                if (split) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SideListButton("Reviews", tab == selected && !backlogSelected, liquidGlass, tint, Modifier.weight(1f)) {
+                        onSelect(MainViewModel.ProfileTab.REVIEWS)
+                    }
+                    SideListButton("Backlog", tab == selected && backlogSelected, liquidGlass, tint, Modifier.weight(1f)) {
+                        onSelect(MainViewModel.ProfileTab.BACKLOG)
+                    }
+                } else SideListButton(tab.label(), tab == selected, liquidGlass, tint) { onSelect(tab) }
             }
         }
         return

@@ -590,3 +590,5 @@ Noto Sans Bamum
 Noto Sans Symbols
 Noto Sans Symbols 2
 Home tab of {0}: {1}
+No follow to undo
+getFollowers {0}: {1}

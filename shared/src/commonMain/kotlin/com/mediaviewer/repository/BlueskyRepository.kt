@@ -2531,6 +2531,29 @@ class BlueskyRepository {
             "createdAt" to com.mediaviewer.platform.nowIsoString()
         ))
 
+    /** One page (100) of [did]'s followers, or of the accounts they follow,
+     *  with whether you follow each; and the cursor for the next page. */
+    suspend fun getFollowListPage(token: String, did: String, followers: Boolean, cursor: String?): Result<Pair<List<AuthorInfo>, String?>> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val (people, next) = if (followers) {
+                    val r = api.getFollowers("Bearer $token", did, 100, cursor)
+                    if (!r.isSuccessful) error("getFollowers ${r.code()}: ${errorBodyText(r).take(120)}")
+                    r.body().let { (it?.followers ?: emptyList()) to it?.cursor }
+                } else {
+                    val r = api.getFollows("Bearer $token", did, 100, cursor)
+                    if (!r.isSuccessful) error("getFollows ${r.code()}: ${errorBodyText(r).take(120)}")
+                    r.body().let { (it?.follows ?: emptyList()) to it?.cursor }
+                }
+                people.map { p ->
+                    AuthorInfo(
+                        did = p.did, handle = p.handle, displayName = p.displayName?.ifBlank { null } ?: p.handle,
+                        avatarUrl = p.avatar, followingUri = p.viewer?.following, isFollowing = p.viewer?.following != null
+                    )
+                } to next?.takeIf { people.isNotEmpty() }
+            }
+        }
+
     suspend fun unfollowUser(token: String, did: String, followUri: String): Result<Unit> =
         deleteRecord(token, did, "app.bsky.graph.follow", followUri.rkey())
 

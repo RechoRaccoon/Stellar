@@ -7619,6 +7619,26 @@ class MainViewModel(
         }
     }
 
+    /** The Followers / Following popup: one page of [did]'s list. */
+    suspend fun followListPage(did: String, followers: Boolean, cursor: String?): Result<Pair<List<AuthorInfo>, String?>> {
+        if (!_bskyLoggedIn.value) return Result.failure(IllegalStateException("Not signed in"))
+        var r = bskyRepo.getFollowListPage(bskyToken, did, followers, cursor)
+        if (r.isFailure && isAuthError(r.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) r = bskyRepo.getFollowListPage(bskyToken, did, followers, cursor)
+        return r
+    }
+
+    /** Follows (or unfollows) [author] from the Followers / Following popup;
+     *  the new follow record's URI (null once unfollowed), or a failure. */
+    suspend fun followFromList(author: AuthorInfo, follow: Boolean): Result<String?> = withContext(ioDispatcher) {
+        if (follow) bskyRepo.followUser(bskyToken, _bskyDid.value, author.did).map { uri -> uri as String? }
+            .also { if (it.isSuccess && _autoAddToOnFollow.value) openListPicker(author.did) }
+        else {
+            val uri = author.followingUri ?: return@withContext Result.failure(IllegalStateException("No follow to undo"))
+            bskyRepo.unfollowUser(bskyToken, _bskyDid.value, uri).map { null as String? }
+                .also { if (it.isSuccess) unsubscribeOnUnfollow(author.did) }
+        }
+    }
+
     fun toggleFollow() {
         if (_appMode.value == AppMode.E621) { toggleE621Follow(); return }
         val item   = currentItem.value ?: return

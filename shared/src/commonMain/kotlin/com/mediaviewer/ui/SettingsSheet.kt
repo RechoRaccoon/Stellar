@@ -953,10 +953,12 @@ private fun AtProtocolPageContent(
         }
         }
         if (!hubSidebar) {
-            // The tagging status, right under the camera (it pushes the
-            // search bar down while it shows).
-            PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
-            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            // The tagging status: in front of the search bar, on a solid
+            // fill (nothing moves while it shows).
+            Box(Modifier.fillMaxWidth()) {
+                SearchRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.align(Alignment.Center), filled = true)
+            }
             Spacer(Modifier.height(6.dp))
         }
     // At the very bottom of the Hub, a further swipe up returns to the
@@ -1630,8 +1632,10 @@ private fun AtProtocolPageContent(
     Row(Modifier.fillMaxWidth().weight(1f)) {
     if (hubSidebar) {
         Column(Modifier.width(rememberSideListWidth()).fillMaxHeight().sideListScaled()) {
-            PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.padding(bottom = 2.dp))
-            SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
+            Box(Modifier.fillMaxWidth()) {
+                SearchRow(Modifier.fillMaxWidth().padding(horizontal = 6.dp))
+                PageTaggingStatus(liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, modifier = Modifier.align(Alignment.Center), filled = true)
+            }
             Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState())) {
                 // (The Launchpad at its normal size: drawn smaller to fit a
                 // narrow side list, never squeezed.)

@@ -164,7 +164,7 @@ fun BlockedAccountsDialog(
 }
 
 @Composable
-private fun BlockedSearchField(value: String, tint: Color, onChange: (String) -> Unit) {
+internal fun BlockedSearchField(value: String, tint: Color, placeholder: String = "Search blocked accounts", onChange: (String) -> Unit) {
     Row(
         Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth().height(42.dp)
             .clip(RoundedCornerShape(21.dp)).background(Color.Black.copy(alpha = 0.28f))
@@ -183,7 +183,7 @@ private fun BlockedSearchField(value: String, tint: Color, onChange: (String) ->
                 keyboardActions = KeyboardActions(onSearch = { }),
                 modifier = Modifier.fillMaxWidth()
             )
-            if (value.isEmpty()) Text("Search blocked accounts", color = DimGray, fontSize = 14.sp)
+            if (value.isEmpty()) Text(placeholder, color = DimGray, fontSize = 14.sp)
         }
         if (value.isNotEmpty()) {
             Icon(
@@ -195,7 +195,7 @@ private fun BlockedSearchField(value: String, tint: Color, onChange: (String) ->
 }
 
 @Composable
-private fun BlockedAvatar(author: AuthorInfo, size: Dp) {
+internal fun BlockedAvatar(author: AuthorInfo, size: Dp) {
     Box(Modifier.size(size).clip(AvatarShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
         if (author.avatarUrl != null) AsyncImage(
             model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
