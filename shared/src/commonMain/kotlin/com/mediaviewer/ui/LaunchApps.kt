@@ -11,7 +11,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -726,13 +724,15 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
                 Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
             }
         }
-        // The month grid takes whatever height is left over.
+        // The month grid is a fixed size: square days, always six weeks
+        // (so changing month moves nothing under it). The events get the
+        // rest of the page.
         val first = CalendarMath.daysFromCivil(year, month, 1)
         val lead = CalendarMath.weekday(first)
         val count = CalendarMath.daysInMonth(year, month)
-        val weeks = (lead + count + 6) / 7
+        val weeks = 6
         Column(
-            Modifier.fillMaxWidth().weight(1f).padding(top = 4.dp)
+            Modifier.fillMaxWidth().padding(top = 4.dp)
                 .pointerInput(Unit) {
                     var dragged = 0f
                     var fired = false
@@ -748,18 +748,18 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             for (w in 0 until weeks) {
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     for (d in 0 until 7) {
                         val day = w * 7 + d - lead + 1
                         if (day < 1 || day > count) {
-                            Spacer(Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f).aspectRatio(1f))
                         } else {
                             val key = CalendarMath.key(year, month, day)
                             val isSel = key == selected
                             val isToday = key == today
                             val shape = RoundedCornerShape(14.dp)
                             Box(
-                                Modifier.weight(1f).fillMaxHeight().clip(shape)
+                                Modifier.weight(1f).aspectRatio(1f).clip(shape)
                                     .background(
                                         when {
                                             isSel -> accent.copy(alpha = 0.55f)
@@ -792,8 +792,8 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        // The picked day's events and days, every one of them: the list
-        // grows (the month above gives it room) and scrolls past that.
+        // The picked day's events and days, every one of them: they fill the
+        // rest of the page and scroll once there are more than fit.
         val sm = selected / 100 % 100
         val sd = selected % 100
         Text(
@@ -801,7 +801,7 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold
         )
         Column(
-            Modifier.fillMaxWidth().heightIn(min = 108.dp, max = 236.dp).padding(top = 4.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().weight(1f).padding(top = 4.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (dayEvents.isEmpty()) Text("Nothing planned.", color = Color.White.copy(alpha = 0.45f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
