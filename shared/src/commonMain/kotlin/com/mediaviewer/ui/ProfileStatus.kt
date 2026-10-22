@@ -589,10 +589,14 @@ fun ProfileBannerVideo(
         Box(modifier) { if (poster != null) Box(Modifier.matchParentSize()) { poster() } }
         return
     }
-    // (Some players don't report the first frame: playing past the start counts.)
+    // (Some players don't report the first frame: playing past the start
+    // counts.) And it keeps playing: anything that paused it meanwhile (the
+    // app going to the background and back, another screen) is undone.
     LaunchedEffect(player) {
-        while (!firstFrame) {
-            if (player.isPlaying && player.currentPosition > 150L) firstFrame = true
+        var ticks = 0
+        while (true) {
+            if (!firstFrame && player.isPlaying && player.currentPosition > 150L) firstFrame = true
+            if (++ticks % 5 == 0 && !player.isPlaying && !player.isBuffering) player.play()
             kotlinx.coroutines.delay(200)
         }
     }

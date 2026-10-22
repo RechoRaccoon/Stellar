@@ -64,6 +64,14 @@ actual object FeedVideos {
     actual fun releaseIdle() = FeedVideoPool.releaseIdle()
 }
 
+/**
+ * Every view showing each player, newest last. A player draws into one view
+ * at a time — the newest takes it — so when that view goes (a profile's
+ * picture drawn twice for a moment, say), the one before it takes the
+ * player back instead of being left frozen on its last frame.
+ */
+private val viewsOf = HashMap<ExoPlayer, LinkedHashSet<PlayerView>>()
+
 @Composable
 actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Boolean, cornerPercent: Int) {
     val exo = (player as ExoFeedVideoPlayer).exo
@@ -79,6 +87,7 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Bool
                 // with it on pops the system controls up for a moment.
                 useController = false
                 this.player = exo
+                viewsOf.getOrPut(exo) { LinkedHashSet() }.add(this)
                 // The pooled player outlives this view; keep the
                 // last frame instead of flashing black on reattach.
                 setKeepContentOnPlayerReset(true)
@@ -102,6 +111,14 @@ actual fun FeedVideoView(player: FeedVideoPlayer, modifier: Modifier, fill: Bool
         },
         // Detach from the pooled player when this view goes away, so
         // it can be handed to the next view cleanly.
-        onRelease = { it.player = null }
+        onRelease = { view ->
+            val others = viewsOf[exo]
+            // (Only the newest view is the one the player is drawing into.)
+            val wasShowing = others?.lastOrNull() === view
+            others?.remove(view)
+            view.player = null
+            if (others.isNullOrEmpty()) viewsOf.remove(exo)
+            else if (wasShowing) others.last().let { back -> back.player = null; back.player = exo }
+        }
     )
 }

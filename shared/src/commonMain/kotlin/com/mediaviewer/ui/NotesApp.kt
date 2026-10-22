@@ -18,6 +18,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
+import com.mediaviewer.ui.compat.navBarSpace
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -188,11 +195,14 @@ internal fun markdownInline(text: String): AnnotatedString = buildAnnotatedStrin
 internal fun MarkdownView(
     body: String, tint: Color, modifier: Modifier = Modifier,
     /** A checklist row was tapped (its line number in [body]). */
-    onToggleCheck: ((lineIndex: Int) -> Unit)? = null
+    onToggleCheck: ((lineIndex: Int) -> Unit)? = null,
+    /** Where each line of [body] starts, down the page (in pixels). */
+    onLineTop: ((lineIndex: Int, y: Int) -> Unit)? = null
 ) {
     val tap = rememberHapticTap()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         body.split('\n').forEachIndexed { lineIndex, raw ->
+            Box(Modifier.fillMaxWidth().then(if (onLineTop != null) Modifier.onPlaced { onLineTop(lineIndex, it.positionInParent().y.toInt()) } else Modifier)) {
             val line = raw.trimEnd()
             val image = noteImageLine.find(line.trim())
             val check = checklistLine.find(line)
@@ -248,6 +258,7 @@ internal fun MarkdownView(
                     )
                 }
                 else -> Text(markdownInline(line), color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, lineHeight = 21.sp)
+            }
             }
         }
     }
@@ -398,6 +409,62 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     var preview by remember { mutableStateOf(initial.id.isNotBlank() && initial.body.isNotBlank()) }
     val folders = LocalData.noteFolders
 
+    // Switching between writing and reading keeps the same line at the top
+    // (the two are laid out a little differently, so the same scroll amount
+    // would land elsewhere): where each line starts in both, in pixels.
+    var editLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    val viewLineTops = remember { HashMap<Int, Int>() }
+    var anchorLine by remember { mutableStateOf<Int?>(null) }
+    fun lineOfOffset(offset: Int): Int {
+        val t = body.text
+        var n = 0
+        for (i in 0 until offset.coerceIn(0, t.length)) if (t[i] == '\n') n++
+        return n
+    }
+    fun topLineNow(): Int {
+        val y = bodyScroll.value
+        return if (preview) viewLineTops.entries.filter { it.value <= y + 2 }.maxByOrNull { it.value }?.key ?: 0
+        else editLayout?.let { l -> lineOfOffset(l.getLineStart(l.getLineForVerticalPosition(y.toFloat()))) } ?: 0
+    }
+    fun switchMode() { anchorLine = topLineNow(); preview = !preview }
+    LaunchedEffect(preview) {
+        val line = anchorLine ?: return@LaunchedEffect
+        anchorLine = null
+        // (Once the other view has been laid out.)
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+        val y = if (preview) {
+            viewLineTops.entries.filter { it.key <= line }.maxByOrNull { it.key }?.value ?: 0
+        } else {
+            val l = editLayout ?: return@LaunchedEffect
+            var start = 0
+            repeat(line) { start = body.text.indexOf('\n', start).let { i -> if (i < 0) body.text.length else i + 1 } }
+            l.getLineTop(l.getLineForOffset(start.coerceIn(0, body.text.length))).toInt()
+        }
+        bodyScroll.scrollTo(if (line == 0) 0 else y)
+    }
+
+    // The keyboard: the page doesn't shrink for it (that moved the words
+    // under a finger the moment it came up, mid-press, so the first
+    // selection jumped and missed). The note just gets room to scroll past
+    // it, and the formatting row rides up on top of it.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val keyboardLift = (WindowInsets.ime.getBottom(density) -
+        WindowInsets.navBarSpace.getBottom(density)).coerceAtLeast(0)
+    // Typing under the keyboard: the line being written scrolls up into view
+    // (only as the words change — never just for a press or a selection).
+    var panelHeight by remember { mutableStateOf(0) }
+    LaunchedEffect(body.text) {
+        if (preview || keyboardLift == 0) return@LaunchedEffect
+        val l = editLayout ?: return@LaunchedEffect
+        val caret = body.selection.end.coerceIn(0, body.text.length)
+        val padTop = with(density) { 12.dp.roundToPx() }
+        val margin = with(density) { 24.dp.roundToPx() }
+        val caretBottom = l.getCursorRect(caret).bottom.toInt() + padTop
+        val shown = panelHeight - keyboardLift
+        if (shown > 0 && caretBottom + margin > bodyScroll.value + shown) bodyScroll.scrollTo(caretBottom + margin - shown)
+    }
+
     fun save() {
         if (id.isBlank() && title.isBlank() && body.text.isBlank()) return
         id = LocalData.saveNote(NoteEntry(id = id, folderId = folderId, title = title.trim(), body = body.text)).id
@@ -444,9 +511,10 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
         actions = {
             AppBubble(
                 if (preview) Icons.Default.Edit else Icons.Default.Visibility, if (preview) "Edit" else "Preview",
-                liquidGlass, tint, { preview = !preview }
+                liquidGlass, tint, { switchMode() }
             )
         },
+        resizeForKeyboard = false,
         // The page's title is the note's own title: tap it to rename.
         titleContent = {
             BasicTextField(
@@ -480,7 +548,8 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                     onToggleCheck = { line ->
                         val next = toggleChecklistLine(body.text, line)
                         if (next != body.text) body = TextFieldValue(next, body.selection.let { TextRange(it.start.coerceAtMost(next.length), it.end.coerceAtMost(next.length)) })
-                    }
+                    },
+                    onLineTop = { line, y -> viewLineTops[line] = y }
                 )
             } else {
                 // Written in the reading view's own letters: the same size and
@@ -491,7 +560,9 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                 BasicTextField(
                     // Return on a list / checklist row carries the marker on.
                     value = body, onValueChange = { body = continueMarkdownList(body, it) },
-                    textStyle = TextStyle(color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, lineHeight = 21.sp),
+                    // (The reading view's letters: its font too, not the system's.)
+                    textStyle = androidx.compose.material3.LocalTextStyle.current.merge(TextStyle(color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, lineHeight = 21.sp)),
+                    onTextLayout = { editLayout = it },
                     visualTransformation = styled,
                     cursorBrush = SolidColor(Color.White),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -501,18 +572,20 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                             inner()
                         }
                     },
-                    modifier = Modifier.fillMaxSize().verticalScroll(bodyScroll).padding(horizontal = 14.dp, vertical = 12.dp)
+                    modifier = Modifier.fillMaxSize().verticalScroll(bodyScroll)
+                        .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + with(density) { keyboardLift.toDp() } + if (keyboardLift > 0) 48.dp else 0.dp)
                 )
             }
         }
-        val m = Modifier.fillMaxWidth().weight(1f)
+        val m = Modifier.fillMaxWidth().weight(1f).onSizeChanged { panelHeight = it.height }
         if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = tint, contentAlignment = Alignment.TopStart) { panel() }
         else Box(m.clip(shape).background(Color.White.copy(alpha = 0.06f)).border(1.dp, Color.White.copy(alpha = 0.1f), shape)) { panel() }
 
         if (!preview) {
             // Formatting, right above the keyboard (in thumb's reach).
             Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(rememberScrollState()),
+                Modifier.fillMaxWidth().offset { androidx.compose.ui.unit.IntOffset(0, -keyboardLift) }
+                    .padding(top = 8.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 LocalChip("Bold", false, tint, { tap(); wrap("**") })

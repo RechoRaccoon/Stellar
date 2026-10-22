@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,10 +49,10 @@ import com.mediaviewer.util.rememberHapticTap
 /**
  * A profile's picture or banner, full screen over the blurred page: the
  * picture (or, when they have one, its video) as big as it fits. Pinch
- * or scroll the mouse wheel to zoom in, drag to look around; a
- * tap closes it only when it isn't zoomed in (and never as part of a
- * pinch). Download, near the bottom, saves what's showing — the video
- * when there is one, else the full-size picture.
+ * or scroll the mouse wheel to zoom in, drag to look around (never past
+ * the picture's own edges); a tap closes it, zoomed in or not (but never
+ * as part of a pinch). Download, near the bottom, saves what's showing —
+ * the video when there is one, else the full-size picture.
  */
 @Composable
 fun ProfileMediaViewer(
@@ -78,24 +79,35 @@ fun ProfileMediaViewer(
     // is part of it, not a close.
     var lastZoomMs by remember { mutableLongStateOf(0L) }
     fun now() = com.mediaviewer.platform.currentTimeMillis()
+    // The page's size and the picture's (unzoomed), in pixels: dragging
+    // stops where the zoomed picture's edge meets the page's.
+    var pageSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    var mediaSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    fun clamped(o: Offset): Offset {
+        val maxX = ((mediaSize.width * scale - pageSize.width) / 2f).coerceAtLeast(0f)
+        val maxY = ((mediaSize.height * scale - pageSize.height) / 2f).coerceAtLeast(0f)
+        return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+    }
     fun zoomTo(s: Float) {
         scale = s.coerceIn(1f, MAX_ZOOM)
         if (scale <= 1.01f) { scale = 1f; offset = Offset.Zero }
+        offset = clamped(offset)
         lastZoomMs = now()
     }
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))
+            .onSizeChanged { pageSize = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }
             .pointerInput(Unit) {
                 // (No double-tap zoom: waiting to see if a second tap comes
                 // is what held every close back. Pinch or the wheel zoom.)
                 detectTapGestures(
-                    onTap = { if (scale <= 1.01f && now() - lastZoomMs > 300) onClose() }
+                    onTap = { if (now() - lastZoomMs > 300) onClose() }
                 )
             }
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     if (zoom != 1f) zoomTo(scale * zoom)
-                    if (scale > 1f) { offset += pan; lastZoomMs = now() }
+                    if (scale > 1f) { offset = clamped(offset + pan); lastZoomMs = now() }
                 }
             }
             .pointerInput(Unit) {
@@ -115,7 +127,9 @@ fun ProfileMediaViewer(
         val w = minOf(maxWidth * 0.94f, maxHeight * 0.8f * a)
         val h = w / a
         Box(
-            Modifier.size(w, h).graphicsLayer {
+            Modifier.size(w, h)
+                .onSizeChanged { mediaSize = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }
+                .graphicsLayer {
                 scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
             }
         ) {

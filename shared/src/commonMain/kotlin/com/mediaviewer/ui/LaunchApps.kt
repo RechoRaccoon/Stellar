@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -103,13 +104,16 @@ internal fun LaunchAppPage(
     /** Drawn where the title goes instead of [title] (Notes: the note's
      *  own, editable title). */
     titleContent: (@Composable () -> Unit)? = null,
+    /** False: the page keeps its size while the keyboard is up (Notes lays
+     *  itself out around the keyboard, so nothing under a finger moves). */
+    resizeForKeyboard: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
     Box(Modifier.fillMaxSize().background(dimSpaceColor(tint)).blockClicksBehind()) {
         SpaceSky(tint, Modifier.matchParentSize())
         Column(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navBarSpace).imePadding()
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navBarSpace).then(if (resizeForKeyboard) Modifier.imePadding() else Modifier)
                 // (Landscape: the app in a column of a comfortable width.)
                 .landscapeReadable()
                 .padding(horizontal = 14.dp)
@@ -788,7 +792,8 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        // The picked day's events (they scroll if there are more than fit).
+        // The picked day's events and days, every one of them: the list
+        // grows (the month above gives it room) and scrolls past that.
         val sm = selected / 100 % 100
         val sd = selected % 100
         Text(
@@ -796,7 +801,7 @@ fun CalendarPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
             color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold
         )
         Column(
-            Modifier.fillMaxWidth().height(108.dp).padding(top = 4.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().heightIn(min = 108.dp, max = 236.dp).padding(top = 4.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (dayEvents.isEmpty()) Text("Nothing planned.", color = Color.White.copy(alpha = 0.45f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
