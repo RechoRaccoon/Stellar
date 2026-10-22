@@ -6471,9 +6471,6 @@ class MainViewModel(
             _hasTaggedDataset.value = true
             viewModelScope.launch(ioDispatcher) { performLikedTagSearch(_searchState.value.query) }
         }
-        // Ask once at launch too, so a shared-tags update doesn't have to
-        // wait for a visit to a tag surface (dismissing lasts the session).
-        com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
         // Public bookmark folders: one plain record each on your own PDS.
         com.mediaviewer.util.PublicFolders.remote = object : com.mediaviewer.util.PublicFolders.Remote {
             override val did: String get() = _bskyDid.value
