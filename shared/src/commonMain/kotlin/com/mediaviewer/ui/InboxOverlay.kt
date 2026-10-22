@@ -111,7 +111,7 @@ fun InboxOverlay(
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .then(
                     if (liquidGlass) Modifier.drawWithContent {
-                        if (LiteGlass.LIVE) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
+                        if (GradientGlass.recording) { backdropLayer.record { this@drawWithContent.drawContent() }; drawLayer(backdropLayer) } else drawContent()
                     } else Modifier.background(OledBlack)
                 )
         ) {

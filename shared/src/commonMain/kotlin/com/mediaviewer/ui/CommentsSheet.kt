@@ -339,6 +339,8 @@ fun CommentsSheet(
                 if (showTags && currentItem != null) {
                     // Per request: tags shown alphabetically.
                     val tags = currentItem.tags.split(" ").filter { it.isNotBlank() }.sortedBy { it.lowercase() }
+                    // (The Tags page follows Gradient Buttons; the comments don't.)
+                    androidx.compose.runtime.CompositionLocalProvider(LocalKeepGlass provides false) {
                     LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
@@ -366,6 +368,7 @@ fun CommentsSheet(
                         }
                         // Clear of the gesture bar.
                         item { Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navBarSpace)) }
+                    }
                     }
                 } else {
                     // Item 16: reply-chain navigation. The AnimatedContent's

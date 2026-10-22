@@ -140,6 +140,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -3909,7 +3910,9 @@ private fun LazyListScope.postsHorizontalVideoRows(
 private fun TimelineShapedTextTile(
     item: MediaItem, liquidGlass: Boolean, tint: Color, onOpen: () -> Unit,
     /** At least this tall, its words centered (the Hub's square tiles). */
-    minHeight: Dp = 0.dp
+    minHeight: Dp = 0.dp,
+    /** How much bigger its words are drawn, as laid out (same line breaks). */
+    zoom: Float = 1f
 ) {
     val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
     val tap = rememberHapticTap()
@@ -3934,7 +3937,9 @@ private fun TimelineShapedTextTile(
         ) {
             FittedPostText(
                 item.text.ifBlank { " " }, maxSp = 19f, minSp = 11f, maxHeight = maxCardHeight - 52.dp,
-                modifier = Modifier.fillMaxWidth().then(if (blurNsfw) Modifier.blur(40.dp) else Modifier)
+                modifier = Modifier.fillMaxWidth()
+                    .then(if (zoom != 1f) Modifier.graphicsLayer { scaleX = zoom; scaleY = zoom } else Modifier)
+                    .then(if (blurNsfw) Modifier.blur(40.dp) else Modifier)
             )
             if (blurNsfw) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)))
         }
@@ -4116,8 +4121,13 @@ private fun openedTextCardWidth(): Dp {
 @Composable
 private fun HubTextTile(item: MediaItem, tint: Color, liquidGlass: Boolean, height: Dp, onClick: () -> Unit) {
     val cardWidth = openedTextCardWidth()
+    val words = rememberOpenedTextSize(item, cardWidth)
+    // A square one's words are drawn bigger, as laid out, until they reach
+    // its padding (so a line or two doesn't sit tiny in the middle).
+    val zoom = if (words.height + 52.dp >= cardWidth) 1f
+        else minOf((cardWidth - 36.dp) / words.width.coerceAtLeast(1.dp), (cardWidth - 52.dp) / words.height.coerceAtLeast(1.dp)).coerceIn(1f, 3f)
     androidx.compose.ui.layout.Layout(
-        content = { TimelineShapedTextTile(item, liquidGlass, tint, onClick, minHeight = cardWidth) },
+        content = { TimelineShapedTextTile(item, liquidGlass, tint, onClick, minHeight = cardWidth, zoom = zoom) },
         modifier = Modifier.height(height)
     ) { measurables, _ ->
         val w0 = cardWidth.roundToPx()
@@ -4133,27 +4143,34 @@ private fun HubTextTile(item: MediaItem, tint: Color, liquidGlass: Boolean, heig
     }
 }
 
+/** A text post's words as its opened card lays them out (19 sp, centered,
+ *  at the card's inner width): the widest line, and their height. */
+@Composable
+private fun rememberOpenedTextSize(item: MediaItem, cardWidth: Dp): androidx.compose.ui.unit.DpSize {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = LocalDensity.current
+    val base = LocalTextStyle.current
+    return remember(item.text, cardWidth, base) {
+        with(density) {
+            val style = base.merge(androidx.compose.ui.text.TextStyle(fontSize = 19.sp, lineHeight = (19f * 1.3f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
+            val r = measurer.measure(
+                androidx.compose.ui.text.AnnotatedString(item.text.ifBlank { " " }), style,
+                constraints = androidx.compose.ui.unit.Constraints(maxWidth = (cardWidth - 36.dp).roundToPx().coerceAtLeast(1))
+            )
+            val widest = (0 until r.lineCount).maxOfOrNull { r.getLineRight(it) - r.getLineLeft(it) } ?: 0f
+            androidx.compose.ui.unit.DpSize(widest.toDp(), r.size.height.toDp())
+        }
+    }
+}
+
 /** How wide a Hub tile is for [item] at [height] (a text post: its card's
  *  shape, as [HubTextTile] draws it). */
 @Composable
 fun rememberHubPostTileWidth(item: MediaItem, height: Dp): Dp {
     if (!item.isTextOnly || item.isEmojiTextshot) return hubPostTileWidth(item, height)
     val cardWidth = openedTextCardWidth()
-    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val density = LocalDensity.current
-    val base = LocalTextStyle.current
-    // The card's height when opened: its words (at most as tall as the
-    // opened card lets them be), plus its padding — at least square.
-    val cardHeight = remember(item.text, cardWidth, base) {
-        with(density) {
-            val style = base.merge(androidx.compose.ui.text.TextStyle(fontSize = 19.sp, lineHeight = (19f * 1.3f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
-            val text = measurer.measure(
-                androidx.compose.ui.text.AnnotatedString(item.text.ifBlank { " " }), style,
-                constraints = androidx.compose.ui.unit.Constraints(maxWidth = (cardWidth - 36.dp).roundToPx().coerceAtLeast(1))
-            ).size.height.toDp()
-            maxOf(text + 52.dp, cardWidth)
-        }
-    }
+    // The card's height when opened: its words plus its padding — at least square.
+    val cardHeight = maxOf(rememberOpenedTextSize(item, cardWidth).height + 52.dp, cardWidth)
     return height * (cardWidth / cardHeight)
 }
 
@@ -6692,6 +6709,8 @@ fun ProfileStyleTabRow(
     onTrailing: ((Int) -> Unit)? = null,
     /** A tab pressed and held (Saved Posts: rename that folder). */
     onLongPress: ((Int) -> Unit)? = null,
+    /** Where the first tab starts: the page's own edge. */
+    edge: Dp = PROFILE_EDGE,
     onSelect: (Int) -> Unit
 ) {
     // Landscape's side list: an even list of buttons.
@@ -6721,7 +6740,7 @@ fun ProfileStyleTabRow(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             // (Edged like the filters and posts under it.)
-            .padding(horizontal = PROFILE_EDGE, vertical = 8.dp),
+            .padding(horizontal = edge, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         labels.forEachIndexed { index, label ->

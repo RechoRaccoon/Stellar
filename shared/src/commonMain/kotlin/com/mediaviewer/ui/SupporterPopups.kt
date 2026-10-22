@@ -306,25 +306,6 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                             color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp
                         )
                     }
-                    // Delete the folder (two taps). Its posts stay saved.
-                    val armKey = "folder:" + folder.id
-                    val confirming = ReallyPrompt.isArmed(armKey)
-                    Box(
-                        Modifier.reallyTarget(armKey).clip(RoundedCornerShape(11.dp))
-                            .background(if (confirming) Color.White.copy(alpha = 0.12f) else Color.Transparent)
-                            .clickable {
-                                tap()
-                                ReallyPrompt.tap(armKey) {
-                                    folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
-                                    LocalData.deleteBookmarkFolder(folder.id)
-                                }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                    ) {
-                        if (confirming) Text("Really?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        else Icon(Icons.Default.Close, contentDescription = "Delete folder", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(14.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
                     Box(
                         Modifier.size(26.dp).clip(CircleShape)
                             .background(if (inFolder) lerp(tint, Color.White, 0.2f) else Color.White.copy(alpha = 0.10f)),
@@ -435,7 +416,7 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
                         .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
                         .clickable { tap(); coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                 ) { FolderCover(folder, tint, Modifier.fillMaxSize()) }
-                if (folder.cover != null) Box(
+                if (folder.hasCustomCover) Box(
                     Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp).size(22.dp).clip(CircleShape)
                         .background(lerp(tint, Color.Black, 0.2f))
                         .border(1.dp, lerp(tint, Color.White, 0.4f), CircleShape)

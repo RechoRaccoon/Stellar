@@ -659,7 +659,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val appBackdrop = remember(appLayer) { GlassBackdrop(appLayer) { androidx.compose.ui.geometry.Offset.Zero } }
     com.mediaviewer.ui.NotchGeometry.backdrop = appBackdrop
     Box(Modifier.fillMaxSize().then(
-        if (localPopupShown) Modifier.recordBackdrop(appLayer) else Modifier
+        if (localPopupShown) Modifier.recordBackdrop(appLayer, followsGradient = false) else Modifier
     ).then(
         if (onboardingBlurActive || onboardingShown) Modifier.graphicsLayer {
             val amount = onboardingBlur.value

@@ -226,7 +226,9 @@ fun LocalPillButton(
         )
     }
     if (PopupStyle.glass(liquidGlass)) {
-        LiquidGlassSurface(m, shape = shape, tint = color, contentAlignment = Alignment.Center) { text() }
+        // (On the same dim backing as the popup's other bubbles, or it's
+        // the one bright thing in it.)
+        LiquidGlassSurface(m.popupTextShadow(shape), shape = shape, tint = color, contentAlignment = Alignment.Center) { text() }
     } else {
         // Filled popups' buttons: a brighter fill of the color (see PopupStyle).
         Box(m.popupButtonFill(color, shape), contentAlignment = Alignment.Center) { text() }

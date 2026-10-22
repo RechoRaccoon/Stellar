@@ -430,6 +430,8 @@ fun SearchOverlay(
             ProfileStyleTabRow(
                 labels = tabs.map { it.label() }, selectedIndex = tabs.indexOf(state.filter),
                 liquidGlass = liquidGlass, tint = profileTint,
+                // (Search's edge is its search bar's, like the Hub's.)
+                edge = SEARCH_EDGE,
                 // Web Browser is a supporter benefit: pink for everyone else,
                 // and tapping it opens the Support page.
                 lockedIndex = if (supporter || webPlatform) -1 else tabs.indexOf(MainViewModel.SearchFilter.WEB),
@@ -626,7 +628,7 @@ fun SearchOverlay(
                             val rows = remember(state.accounts, columns) { state.accounts.chunked(columns) }
                             LazyColumn(
                                 Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+                                contentPadding = PaddingValues(start = SEARCH_EDGE, end = SEARCH_EDGE, top = 8.dp, bottom = 96.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 items(rows, key = { it.first().author.did }) { row ->
@@ -984,7 +986,7 @@ private fun TrendingSearchesList(
     val side = rememberLandscapeSidePadding()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 10.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = SEARCH_EDGE + side, end = SEARCH_EDGE + side, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item(key = "trending_header") {
@@ -1131,6 +1133,8 @@ private fun AccountResultRow(
  */
 private val RECENT_AVATAR_SIZE = 78.dp
 private val RECENT_SLOT_WIDTH = 92.dp
+/** Search's edge: its search bar's (everything under it starts there too). */
+private val SEARCH_EDGE = 16.dp
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -1157,9 +1161,10 @@ private fun RecentSearchesPage(
     ) {
         if (recents.isNotEmpty()) item(key = "recent_people") {
             androidx.compose.foundation.lazy.LazyRow(
-                // (Each picture sits centered in a slot 14dp wider than it:
-                // the first one's edge lines up with the rows under it.)
-                contentPadding = PaddingValues(horizontal = 12.dp - (RECENT_SLOT_WIDTH - RECENT_AVATAR_SIZE) / 2),
+                // (Each picture sits centered in a slot 14dp wider than it, so
+                // the whole row is moved left by that much: the first
+                // picture's edge is the page's, and the gaps stay even.)
+                contentPadding = PaddingValues(horizontal = SEARCH_EDGE - (RECENT_SLOT_WIDTH - RECENT_AVATAR_SIZE) / 2),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(recents, key = { "rp_" + it.did }) { author ->
@@ -1202,12 +1207,12 @@ private fun RecentSearchesPage(
             item(key = "recent_header") {
                 Text(
                     "Recent Searches", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.fillMaxWidth().padding(start = 18.dp, top = 6.dp, bottom = 2.dp)
+                    modifier = Modifier.fillMaxWidth().padding(start = SEARCH_EDGE, top = 6.dp, bottom = 2.dp)
                 )
             }
             items(queries, key = { "rq_" + it }) { q ->
                 val shape = RoundedCornerShape(20.dp)
-                val m = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(shape).clickable { tap(); onSearch(q) }
+                val m = Modifier.padding(horizontal = SEARCH_EDGE).fillMaxWidth().clip(shape).clickable { tap(); onSearch(q) }
                 val row: @Composable () -> Unit = {
                     Row(
                         Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
@@ -1245,7 +1250,7 @@ private fun RecentAccountSearchesList(liquidGlass: Boolean, backdrop: GlassBackd
     val side = rememberLandscapeSidePadding()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp + side, end = 12.dp + side, top = 10.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = SEARCH_EDGE + side, end = SEARCH_EDGE + side, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item(key = "recent_header") {
@@ -1399,7 +1404,7 @@ private fun SearchAllResults(
     fun Thumbs(items: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
         val size = if (wide) 150.dp else 112.dp
         com.mediaviewer.ui.compat.LazyRow(
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = SEARCH_EDGE),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // (Keyed by place too: two posts can share one picture, and so an id.)
@@ -1439,7 +1444,7 @@ private fun SearchAllResults(
             item(key = "all_people_h") { Header("People", onAll = { onSeeAll(MainViewModel.SearchFilter.ACCOUNTS) }) }
             item(key = "all_people") {
                 com.mediaviewer.ui.compat.LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    contentPadding = PaddingValues(horizontal = SEARCH_EDGE),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(state.accounts.size.coerceAtMost(20), key = { "all_person_" + state.accounts[it].author.did }) { i ->

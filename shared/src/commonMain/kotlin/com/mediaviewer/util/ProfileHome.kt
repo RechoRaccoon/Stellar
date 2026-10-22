@@ -138,7 +138,8 @@ object ProfileHome {
         // giving up says so, rather than showing the tab as if it were
         // empty: an empty-looking Home is easy to take for a lost one.)
         for (attempt in 0 until 3) {
-            val result = runCatching { read(did) }
+            // (Off the main thread: the read and its parsing are network work.)
+            val result = runCatching { kotlinx.coroutines.withContext(ioDispatcher) { read(did) } }
             result.getOrNull()?.let { list ->
                 byAccount[did] = list
                 failed.remove(did)

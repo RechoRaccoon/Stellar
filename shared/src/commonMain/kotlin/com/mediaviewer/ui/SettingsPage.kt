@@ -1113,6 +1113,9 @@ internal fun SettingsPageContent(
             // Every rounded corner in the app made square (profile icons and
             // the camera notch bubble stay round).
             ToggleBubble("Squared-Off Corners", com.mediaviewer.util.UiToggles.squareCorners, { com.mediaviewer.util.UiToggles.updateSquareCorners(it) }, liquidGlass, tint, backdrop)
+            // Glass buttons, tabs and bars filled with a gradient instead (the
+            // comments stay glass).
+            ToggleBubble("Gradient Buttons", com.mediaviewer.util.UiToggles.devGradientButtons, { com.mediaviewer.util.UiToggles.updateDevGradientButtons(it) }, liquidGlass, tint, backdrop)
             ToggleBubble("Reduced Animations", reducedAnimations, onToggleReducedAnimations, liquidGlass, tint, backdrop)
             ToggleBubble("Rounded Grid Tiles", squareGridRounded, onToggleSquareGridRounded, liquidGlass, tint, backdrop)
         }
@@ -1622,11 +1625,6 @@ internal fun SettingsPageContent(
                     BubbleRow {
                         RowLabel("Show Scan Bubble in Hub", Modifier.weight(1f))
                         CompactSwitch(com.mediaviewer.util.UiToggles.devForceScanBubble) { com.mediaviewer.util.UiToggles.updateDevForceScanBubble(it) }
-                    }
-                    BubbleDivider()
-                    BubbleRow {
-                        RowLabel("Gradient Buttons", Modifier.weight(1f))
-                        CompactSwitch(com.mediaviewer.util.UiToggles.devGradientButtons) { com.mediaviewer.util.UiToggles.updateDevGradientButtons(it) }
                     }
                     BubbleDivider()
                     BubbleRow {

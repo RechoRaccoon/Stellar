@@ -101,8 +101,14 @@ data class BookmarkFolder(
     val updatedAt: Long = 0L,
     /** Public (the world icon): also kept, unencrypted, on your PDS for
      *  anyone to see (see PublicFolders). Private (the lock) by default. */
-    val public: Boolean = false
-)
+    val public: Boolean = false,
+    /** The picture it picked for itself (its first post's), kept while a
+     *  picked [cover] is showing, so removing that one goes back to it. */
+    val autoCover: String? = null
+) {
+    /** Whether [cover] is one picked by hand (a local file), not its own. */
+    val hasCustomCover: Boolean get() = cover != null && !cover.startsWith("http")
+}
 
 @Serializable
 data class LocalFeedSource(
@@ -436,7 +442,9 @@ object LocalData {
         folderSlot.save(prefs, folderSlot.value.map {
             if (it.id != id) it else it.copy(
                 name = name?.trim()?.take(60)?.ifBlank { null } ?: it.name,
-                cover = if (clearCover) null else cover ?: it.cover
+                // (Removing a picked cover goes back to the folder's own.)
+                cover = if (clearCover) it.autoCover else cover ?: it.cover,
+                autoCover = if (it.cover?.startsWith("http") == true) it.cover else it.autoCover
             )
         })
         republish(id)
@@ -478,7 +486,10 @@ object LocalData {
         folderSlot.save(prefs, folderSlot.value.map { f ->
             if (f.id != id) f
             else if (postUri in f.posts) f.copy(posts = f.posts - postUri)
-            else { nowIn = true; f.copy(posts = listOf(postUri) + f.posts, cover = f.cover ?: thumb?.takeIf { it.isNotBlank() }, updatedAt = currentTimeMillis()) }
+            else { nowIn = true; f.copy(
+                posts = listOf(postUri) + f.posts, cover = f.cover ?: thumb?.takeIf { it.isNotBlank() },
+                autoCover = f.autoCover ?: thumb?.takeIf { it.isNotBlank() }, updatedAt = currentTimeMillis()
+            ) }
         })
         republish(id)
         return nowIn

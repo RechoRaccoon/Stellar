@@ -291,7 +291,7 @@ object UiToggles {
         prefs?.edit()?.putBoolean(KEY_HUB_HEADER_LINES, on)?.apply()
     }
 
-    /** Dev Tools: every button gets the filled popups' gradient (the one
+    /** UI Customization → Gradient Buttons: every button gets the filled popups' gradient (the one
      *  "Create" and the Home tab's buttons have) instead of glass. */
     var devGradientButtons by mutableStateOf(false)
         private set

@@ -580,11 +580,37 @@ object LiteGlass {
         androidx.compose.ui.graphics.lerp(Color(0xFF0B0B10), tint, 0.30f).copy(alpha = 0.40f + 0.45f * intensity)
 }
 
+/**
+ * UI Customization → Gradient Buttons: glass buttons, tabs, bars and
+ * bubbles are filled with the filled popups' gradient instead of blurring.
+ * The comments keep their glass (their Tags page aside): [LocalKeepGlass].
+ */
+object GradientGlass {
+    val on: Boolean get() = com.mediaviewer.util.UiToggles.devGradientButtons
+    /** The comments are open over a post (their glass blurs the post, so
+     *  it keeps being recorded). */
+    var commentsShowing by mutableStateOf(false)
+    /** Whether a page records its backdrop for glass right now: no one sees
+     *  it with Gradient Buttons on, so that work stops — unless the
+     *  comments are showing. */
+    val recording: Boolean get() = LiteGlass.LIVE && (!on || commentsShowing)
+}
+
+/** True inside the comments, which stay glass with Gradient Buttons on. */
+val LocalKeepGlass = compositionLocalOf { false }
+
+/** Whether glass here is drawn as Gradient Buttons' fill. */
+@Composable
+@androidx.compose.runtime.ReadOnlyComposable
+fun gradientGlassHere(): Boolean = GradientGlass.on && !LocalKeepGlass.current
+
 /** Records this node into [layer] (a [GlassBackdrop]'s source) while it
- *  draws — only where glass blurs live ([LiteGlass.LIVE]); elsewhere it's
- *  drawn exactly as before, with nothing recorded. */
-fun Modifier.recordBackdrop(layer: GraphicsLayer, enabled: Boolean = true): Modifier =
-    if (!enabled || !LiteGlass.LIVE) this
+ *  draws — only where glass blurs live ([LiteGlass.LIVE]), and (with
+ *  [followsGradient]) not while Gradient Buttons hides every blur
+ *  ([GradientGlass.recording]); elsewhere it's drawn exactly as before,
+ *  with nothing recorded. */
+fun Modifier.recordBackdrop(layer: GraphicsLayer, enabled: Boolean = true, followsGradient: Boolean = true): Modifier =
+    if (!enabled || !LiteGlass.LIVE || (followsGradient && !GradientGlass.recording)) this
     else this.drawWithContent {
         layer.record { this@drawWithContent.drawContent() }
         drawContent()
@@ -697,10 +723,22 @@ fun glassRimBrush(tint: Color, rimIntensity: Float, vibrantSecondary: Boolean, e
  * the glass panel alone is so faint over black that those cards looked
  * plain black — with the glass rim.
  */
-fun Modifier.textPostFill(tint: Color, shape: Shape): Modifier = composed {
+fun Modifier.textPostFill(color: Color, shape: Shape): Modifier = composed {
+    // (A very dark color is lifted first: mixed into black as it is, it was
+    // black, and the post looked like it had no bubble at all.)
+    val tint = remember(color) { liftedForFill(color) }
     this.clip(shape)
         .background(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(com.mediaviewer.ui.theme.OledBlack, tint, 0.34f), androidx.compose.ui.graphics.lerp(com.mediaviewer.ui.theme.OledBlack, tint, 0.22f))))
         .border(1.dp, glassRimBrush(tint, LocalGlassRimIntensity.current, LocalGlassRimVibrantSecondary.current, edgeAlpha = 0.85f, midAlpha = 0.5f), shape)
+}
+
+/** [c] at least fairly bright (its hue and saturation kept). */
+private fun liftedForFill(c: Color): Color {
+    val hsv = FloatArray(3)
+    com.mediaviewer.ui.compat.PlatformColor.colorToHSV(c.toArgb(), hsv)
+    if (hsv[2] >= 0.6f) return c
+    hsv[2] = 0.6f
+    return Color(com.mediaviewer.ui.compat.PlatformColor.HSVToColor(hsv)).copy(alpha = c.alpha)
 }
 
 fun Modifier.glassPanel(
@@ -708,8 +746,8 @@ fun Modifier.glassPanel(
     tint: Color = NeutralGlassTint,
     shape: Shape = RoundedCornerShape(12.dp)
 ): Modifier = composed {
-    // (Dev Tools → Gradient Buttons: the filled popups' gradient, glass or not.)
-    if (com.mediaviewer.util.UiToggles.devGradientButtons) return@composed this.popupButtonFill(tint, shape)
+    // (Gradient Buttons: the filled popups' gradient, glass or not.)
+    if (gradientGlassHere()) return@composed this.popupButtonFill(tint, shape)
     if (!liquidGlass) return@composed this.clip(shape).background(Color.White.copy(alpha = 0.08f))
 
     // Item 26: fade the background tint/scrim toward nothing as background
@@ -875,9 +913,9 @@ fun LiquidGlassSurface(
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit
 ) {
-    // Dev Tools → Gradient Buttons: every glass surface (buttons, tabs, bars,
+    // Gradient Buttons: every glass surface (buttons, tabs, bars,
     // bubbles) is filled with the filled popups' gradient instead.
-    if (com.mediaviewer.util.UiToggles.devGradientButtons) {
+    if (gradientGlassHere()) {
         Box(modifier.popupButtonFill(tint, shape), contentAlignment = contentAlignment, content = content)
         return
     }

@@ -461,7 +461,7 @@ fun SettingsSheet(
                     if (liquidGlass) Modifier
                         .onGloballyPositioned { hubBackgroundOrigin = it.positionInRoot() }
                         .drawWithContent {
-                            if (LiteGlass.LIVE) { hubBackgroundLayer.record { this@drawWithContent.drawContent() }; drawLayer(hubBackgroundLayer) } else drawContent()
+                            if (GradientGlass.recording) { hubBackgroundLayer.record { this@drawWithContent.drawContent() }; drawLayer(hubBackgroundLayer) } else drawContent()
                         }
                     else Modifier.background(OledBlack)
                 )

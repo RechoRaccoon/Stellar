@@ -304,7 +304,7 @@ fun GridScreen(
         Modifier.fillMaxSize()
             .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
             .drawWithContent {
-                if (liquidGlass && LiteGlass.LIVE) backdropLayer.record { this@drawWithContent.drawContent() }
+                if (liquidGlass && GradientGlass.recording) backdropLayer.record { this@drawWithContent.drawContent() }
                 drawContent()
             }
             .then(if (liquidGlass) Modifier else Modifier.background(OledBlack))

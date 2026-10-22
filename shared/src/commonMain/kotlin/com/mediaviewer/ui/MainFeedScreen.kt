@@ -437,6 +437,10 @@ fun MainFeedScreen(
     // faded) rather than replacing it. commentsOpenAnim drives the blur/fade;
     // the sheet's own drag-to-close eases it back off as it's pulled down.
     val commentsOpen = screenState == ScreenState.COMMENTS
+    // (The comments keep their glass with Gradient Buttons on, so the post
+    // under them keeps being recorded while they're open.)
+    androidx.compose.runtime.SideEffect { GradientGlass.commentsShowing = commentsOpen }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { GradientGlass.commentsShowing = false } }
     // (Read by the post's long-lived swipe gesture, so it's always current.)
     val latestScreenState by rememberUpdatedState(screenState)
     val commentsOpenAnim by androidx.compose.animation.core.animateFloatAsState(
@@ -811,6 +815,8 @@ fun MainFeedScreen(
         // down the right-hand side, beside the post (see FeedView above).
         @Composable
         fun Comments() {
+            // (Glass, even with Gradient Buttons on.)
+            androidx.compose.runtime.CompositionLocalProvider(LocalKeepGlass provides true) {
             CommentsSheet(
                 currentItem     = currentItem,
                 comments        = comments,
@@ -834,6 +840,7 @@ fun MainFeedScreen(
                 // (Landscape: a comment's picture opens over the whole screen.)
                 onOpenMedia = if (isLandscape) { list, i -> commentViewer = list to i } else null
             )
+            }
         }
         LaunchedEffect(commentsOpen, isLandscape) { if (!commentsOpen || !isLandscape) commentViewer = null }
         AnimatedVisibility(

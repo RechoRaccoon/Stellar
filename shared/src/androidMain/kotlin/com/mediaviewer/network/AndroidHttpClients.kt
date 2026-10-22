@@ -145,22 +145,29 @@ private class OkHttpEngine(private val client: OkHttpClient) : HttpEngine {
         }
         builder.method(request.method, okBody ?: if (request.method == "POST" || request.method == "PUT" || request.method == "PATCH") ByteArray(0).toRequestBody(null) else null)
         val call = client.newCall(builder.build())
-        val response = suspendCancellableCoroutine<okhttp3.Response> { cont ->
+        // (The body is read on OkHttp's own thread, inside the callback: read
+        // after resuming, it ran on whatever thread the caller was on — the
+        // main thread for a read started by the UI, which Android refuses.)
+        return suspendCancellableCoroutine<HttpResponseData> { cont ->
             cont.invokeOnCancellation { runCatching { call.cancel() } }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: java.io.IOException) { cont.resumeWithException(e) }
-                override fun onResponse(call: Call, response: okhttp3.Response) { cont.resume(response) }
+                override fun onResponse(call: Call, response: okhttp3.Response) {
+                    val data = runCatching {
+                        response.use { r ->
+                            val bytes = r.body?.bytes() ?: ByteArray(0)
+                            HttpResponseData(
+                                code = r.code,
+                                message = r.message,
+                                headers = r.headers.map { it.first to it.second },
+                                body = bytes,
+                                contentType = r.body?.contentType()?.toString(),
+                            )
+                        }
+                    }
+                    data.fold({ cont.resume(it) }, { cont.resumeWithException(it) })
+                }
             })
-        }
-        return response.use { r ->
-            val bytes = r.body?.bytes() ?: ByteArray(0)
-            HttpResponseData(
-                code = r.code,
-                message = r.message,
-                headers = r.headers.map { it.first to it.second },
-                body = bytes,
-                contentType = r.body?.contentType()?.toString(),
-            )
         }
     }
 }
