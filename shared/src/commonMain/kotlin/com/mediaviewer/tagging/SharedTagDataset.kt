@@ -9,7 +9,6 @@ import com.mediaviewer.network.bodyString
 import com.mediaviewer.network.isSuccessful
 import com.mediaviewer.platform.PlatformContext
 import com.mediaviewer.platform.SharedPreferences
-import com.mediaviewer.platform.currentTimeMillis
 import com.mediaviewer.platform.ioDispatcher
 import com.mediaviewer.platform.sharedPreferences
 import kotlinx.coroutines.CancellationException
@@ -40,7 +39,6 @@ import kotlinx.serialization.json.longOrNull
 object SharedTagDataset {
     private const val BASE = "https://raw.githubusercontent.com/${com.mediaviewer.util.AppUpdates.REPO}/tag-dataset/"
     const val NAME = "Stellar Shared Tags"
-    private const val CHECK_EVERY_MS = 24 * 60 * 60 * 1000L
 
     sealed class Prompt {
         /** Never downloaded ([isUpdate] false), or a newer version is out. */
@@ -67,6 +65,13 @@ object SharedTagDataset {
     private var manifest: Manifest? = null
     private var job: Job? = null
 
+    // Session-only memory (this object lives as long as the app runs):
+    // whether a check already found everything current this session, and
+    // which version's offer was dismissed. Nothing is timed — dismissing
+    // lasts the session, and restarting the app asks again.
+    private var sessionSettled = false
+    private var dismissedVersion: String? = null
+
     fun init(context: PlatformContext) {
         if (prefs == null) prefs = context.sharedPreferences("shared_tag_dataset")
     }
@@ -75,13 +80,15 @@ object SharedTagDataset {
     fun installedDatasetId(): String? = prefs?.getString("dataset_id", null)?.takeIf { it.isNotBlank() }
     private fun installedVersion(): String? = prefs?.getString("version", null)?.takeIf { it.isNotBlank() }
 
-    /** Somewhere tags are used was opened (Tagged or All search, a row built
-     *  from tags): checks for a new version (once a day). */
+    /** Somewhere tags are used was opened (the app launching, Tagged or
+     *  All search, a row built from tags): checks for a new version.
+     *  There's no timed gate — an offer dismissed stays dismissed for
+     *  the session, and the next launch asks again. */
     fun onTaggedSearchOpened() {
         val p = prefs ?: return
-        if (checking || prompt != null || job?.isActive == true) return
-        val now = currentTimeMillis()
-        if (now - p.getLong("last_check", 0L) < CHECK_EVERY_MS) return
+        if (checking || prompt != null || job?.isActive == true || sessionSettled) return
+        // Dismissed this session: the remembered manifest is enough to know.
+        if (dismissedVersion != null && manifest?.version == dismissedVersion) return
         checking = true
         scope.launch {
             try {
@@ -92,15 +99,16 @@ object SharedTagDataset {
                     p.edit().remove("dataset_id").remove("version").apply()
                 }
                 val m = fetchManifest()
-                // Installed, but the app was closed before it noted so (a
-                // long install the system stopped): it's taken as is
-                // instead of being offered again and again.
+                // On the device but never noted (a manual import, or the
+                // app was closed before a long install noted itself):
+                // taken as is (see adopt) instead of offered endlessly.
                 if (installedDatasetId() == null) adopt(sets.orEmpty(), m)
-                p.edit().putLong("last_check", now).apply()
                 manifest = m
                 if (m.posts > 0 && m.version != installedVersion()) {
-                    withContext(Dispatchers.Main) { prompt = Prompt.Offer(installedVersion() != null, m.bytes, m.posts) }
-                }
+                    if (m.version != dismissedVersion) {
+                        withContext(Dispatchers.Main) { prompt = Prompt.Offer(installedVersion() != null, m.bytes, m.posts) }
+                    }
+                } else sessionSettled = true
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -113,15 +121,19 @@ object SharedTagDataset {
 
     /** Copies of the shared dataset already in the list that this device
      *  never noted (or leftover duplicates): the newest is kept and noted
-     *  as installed — as this version when it has all its posts — and the
-     *  rest removed. */
+     *  as installed, and the rest removed. Its version is only taken as
+     *  the published one when it holds exactly the published post count —
+     *  "nearly all of them" isn't proof it's the same dataset, and calling
+     *  an older copy current would silently swallow the update it's
+     *  missing. Anything else is noted as "adopted", so the real download
+     *  is offered once instead. */
     private suspend fun adopt(sets: List<TagDatasetInfo>, m: Manifest) {
         val copies = sets.filter { it.name == NAME }.sortedByDescending { it.importedAt }
         val keep = copies.firstOrNull() ?: return
         copies.drop(1).forEach { runCatching { service?.deleteDataset(it.id) } }
-        val complete = m.posts > 0 && keep.postCount >= m.posts * 0.98
+        val same = m.posts > 0 && keep.postCount == m.posts
         prefs?.edit()?.putString("dataset_id", keep.id)?.apply {
-            if (complete) putString("version", m.version) else putString("version", "partial")
+            if (same) putString("version", m.version) else putString("version", "adopted")
         }?.apply()
     }
 
@@ -163,6 +175,8 @@ object SharedTagDataset {
                 prefs?.edit()?.putString("dataset_id", info.id)?.putString("version", m.version)?.apply()
                 withContext(Dispatchers.Main) {
                     prompt = null
+                    sessionSettled = true
+                    dismissedVersion = null
                     onInstalled?.invoke()
                 }
             } catch (e: CancellationException) {
@@ -174,8 +188,10 @@ object SharedTagDataset {
         }
     }
 
-    /** "Not Now" / "Cancel" / "Close": asked again on the next day's check. */
+    /** "Not Now" / "Cancel" / "Close": dismissed for this session only —
+     *  the same version isn't offered again until the app restarts. */
     fun dismiss() {
+        if (prompt is Prompt.Offer || prompt is Prompt.Failed) dismissedVersion = manifest?.version ?: dismissedVersion
         job?.cancel()
         job = null
         prompt = null
