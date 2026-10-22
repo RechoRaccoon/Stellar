@@ -1623,14 +1623,21 @@ private fun AtProtocolPageContent(
                     }
                 }
             }
-            // Create Feed (the Feed Builder; supporters).
+            // Create Feed (the Feed Builder; supporters): a feed chip in
+            // the same wrapper as the feeds above it, so it lines up with
+            // them — same shape, width and spacing. (It was a SideListButton:
+            // the nav lists' shape, wider and taller than the feeds.)
             val supporter = com.mediaviewer.util.Supporter.active
-            SideListButton(
-                "Create Feed", selected = false, liquidGlass = liquidGlass, tint = dominantColor,
-                icon = Icons.Default.Add, small = true, locked = !supporter
-            ) {
-                if (supporter) LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
-                else com.mediaviewer.util.Supporter.openPage()
+            Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)) {
+                FeedChip(
+                    "Create Feed", avatarUrl = null, isSelected = false,
+                    liquidGlass = liquidGlass, dominantColor = dominantColor,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.Add, locked = !supporter
+                ) {
+                    if (supporter) LocalOverlays.feedBuilder = com.mediaviewer.util.LocalFeed()
+                    else com.mediaviewer.util.Supporter.openPage()
+                }
             }
         }
     }
@@ -3145,7 +3152,7 @@ fun AuthorChip(
 }
 
 @Composable
-fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass: Boolean = false, dominantColor: Color = NeutralGlassTint, modifier: Modifier = Modifier, pinned: Boolean = false, onClick: (() -> Unit)?) {
+fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass: Boolean = false, dominantColor: Color = NeutralGlassTint, modifier: Modifier = Modifier, pinned: Boolean = false, icon: ImageVector? = null, locked: Boolean = false, onClick: (() -> Unit)?) {
     Row(
         modifier = modifier
             .then(
@@ -3165,9 +3172,15 @@ fun FeedChip(name: String, avatarUrl: String?, isSelected: Boolean, liquidGlass:
             AsyncImage(model = avatarUrl, contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(16.dp).clip(AvatarShape))
+        } else if (icon != null) {
+            // (No picture: an icon in the picture's spot instead, so the
+            // label still lines up with the feeds that have one.)
+            Icon(icon, contentDescription = null, tint = Color.White,
+                modifier = Modifier.size(16.dp).supporterShine(locked))
         }
-        Text(name, color = if (isSelected) Color.White else DimGray, fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+        Text(name, color = if (isSelected || locked) Color.White else DimGray, fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.supporterShine(locked))
         // A pinned feed (Bluesky's pinned feeds): a small pin at its right.
         if (pinned) Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = Color.White.copy(alpha = if (isSelected) 0.9f else 0.6f), modifier = Modifier.size(12.dp))
     }
