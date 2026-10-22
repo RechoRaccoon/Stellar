@@ -429,9 +429,15 @@ private fun BubbleRow(modifier: Modifier = Modifier, content: @Composable RowSco
 }
 
 @Composable
-private fun RowLabel(text: String, modifier: Modifier = Modifier, sub: String? = null, dim: Boolean = false) {
+private fun RowLabel(text: String, modifier: Modifier = Modifier, sub: String? = null, dim: Boolean = false, singleLine: Boolean = false) {
     Column(modifier.padding(end = 12.dp)) {
-        Text(text, color = if (dim) DimGray else Color.White, fontSize = 14.sp)
+        // (singleLine: the words draw in full on one line, spilling over
+        // this label's own end padding if the row is a few dp short —
+        // nothing else in the row moves or resizes.)
+        Text(
+            text, color = if (dim) DimGray else Color.White, fontSize = 14.sp,
+            maxLines = if (singleLine) 1 else Int.MAX_VALUE, softWrap = !singleLine
+        )
         if (sub != null) Text(sub, color = DimGray, fontSize = 11.sp, lineHeight = 13.sp)
     }
 }
@@ -2878,7 +2884,9 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
     }
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
-            RowLabel("Data Sync Key", Modifier.weight(1f), sub = status)
+            // (Three buttons leave this label a few dp short of one line,
+            // so it never wraps: the words draw in full instead.)
+            RowLabel("Data Sync Key", Modifier.weight(1f), sub = status, singleLine = true)
             if (ready) {
                 PillButton("Copy", { sync.savedSecretKey()?.let { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) } })
                 Spacer(Modifier.width(6.dp))
