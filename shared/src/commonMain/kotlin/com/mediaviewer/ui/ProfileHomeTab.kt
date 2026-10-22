@@ -79,12 +79,14 @@ internal fun LazyListScope.profileHomeRows(
         }
         return
     }
-    if (feeds.isEmpty() && ProfileHome.failed[did] == true) item(key = "home_failed") {
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
-        Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Couldn't load the Home tab", color = DimGray, fontSize = 13.sp)
-            Box(Modifier.padding(top = 10.dp)) {
-                LayoutPillButton("Try Again", liquidGlass, tint, null, { scope.launch { ProfileHome.load(did, fresh = true) } })
+    if (feeds.isEmpty() && ProfileHome.failed[did] == true) {
+        item(key = "home_failed") {
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Couldn't load the Home tab", color = DimGray, fontSize = 13.sp)
+                Box(Modifier.padding(top = 10.dp)) {
+                    LayoutPillButton("Try Again", liquidGlass, tint, null, { scope.launch { ProfileHome.load(did, fresh = true) } })
+                }
             }
         }
         return
