@@ -110,16 +110,19 @@ jobs:
           if-no-files-found: error
 
       - name: Upload for GitHub Pages
-        if: github.ref == 'refs/heads/main'
+        # (The fix branch publishes too, so its build can be tested at the
+        # usual Pages link before it lands on main; main's next publish
+        # puts main's build back.)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/home-slider-status-emoji'
         uses: actions/upload-pages-artifact@v3
         with:
           path: webApp/build/dist/wasmJs/productionExecutable
 
-  # Publishes the site (main only).
+  # Publishes the site (main, and the fix branch while it's being tested).
   pages:
     name: Publish to GitHub Pages
     needs: web
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/home-slider-status-emoji'
     runs-on: ubuntu-latest
     permissions:
       pages: write
