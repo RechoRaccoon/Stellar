@@ -41,6 +41,9 @@ interface FeedVideoPlayer : VideoController {
     fun setVolumeMuted(muted: Boolean) {}
     /** 0–1: how loud it plays while not muted (see [VideoVolume]). */
     fun setVolume(level: Float) {}
+    /** Plays again after stopping for any reason — a load that failed
+     *  included (that one is loaded afresh). Still loading: left to it. */
+    fun restart() { if (!isBuffering) play() }
 }
 
 /** The video player's volume slider: one level for every video, half

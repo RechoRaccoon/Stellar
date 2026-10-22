@@ -145,7 +145,8 @@ fun ProfileMediaViewer(
                     if (raw != null) AsyncImage(model = raw, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onSuccess = measure)
                 }
             }
-            if (videoCid != null) ProfileBannerVideo(did, videoCid, Modifier.fillMaxSize(), poster = poster, fill = false, borrow = true)
+            // (A video is only the video: no picture before it.)
+            if (videoCid != null) ProfileBannerVideo(did, videoCid, Modifier.fillMaxSize(), fill = false)
             else poster()
         }
         DownloadPill(

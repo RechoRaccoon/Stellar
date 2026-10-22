@@ -50,6 +50,16 @@ internal class ExoFeedVideoPlayer(val exo: ExoPlayer) : FeedVideoPlayer {
     private var level = VideoVolume.level
     override fun setVolumeMuted(muted: Boolean) { this.muted = muted; exo.volume = if (muted) 0f else level }
     override fun setVolume(level: Float) { this.level = level; if (!muted) exo.volume = level }
+
+    override fun restart() {
+        when {
+            // Failed (a dropped connection mid-file): load it afresh.
+            exo.playerError != null || exo.playbackState == Player.STATE_IDLE -> { exo.prepare(); exo.play() }
+            exo.playbackState == Player.STATE_ENDED -> { exo.seekTo(0); exo.play() }
+            exo.playbackState == Player.STATE_BUFFERING -> {}
+            else -> exo.play()
+        }
+    }
 }
 
 actual object FeedVideos {

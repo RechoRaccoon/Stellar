@@ -194,14 +194,8 @@ internal fun HubUpcomingEventsSection(
     val label = lerp(tint, Color.White, 0.35f)
     val accent = vividAccent(tint)
     Spacer(Modifier.height(14.dp))
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
-        Text(
-            "Upcoming Events", color = label, fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 10.dp)
-        )
-        HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
-    }
+    // (Named as Hub Settings say, like every Hub row.)
+    HubRowHeader("Upcoming Events", tint)
     Spacer(Modifier.height(8.dp))
     val shape = RoundedCornerShape(18.dp)
     val body: @Composable () -> Unit = {

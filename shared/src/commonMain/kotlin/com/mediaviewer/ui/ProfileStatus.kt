@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.i18n.Text
 import com.mediaviewer.ui.compat.LocalContext
+import kotlinx.coroutines.launch
 import com.mediaviewer.util.ProfileStatus
 import com.mediaviewer.util.rememberHapticTap
 
@@ -544,60 +545,44 @@ fun newProfileStatus(text: String, minutes: Long, emoji: List<com.mediaviewer.ut
 }
 
 /**
- * A profile's video banner (or icon), muted and looping over the banner
- * picture. Until the video's first frame is showing, [poster] (the regular
- * picture) is drawn on top of it, so it never shows black while loading.
- * Played straight from the blob on the owner's PDS.
+ * A profile's video banner (or icon), muted and looping. Only the video:
+ * no picture under or before it (switching between the two flickered).
+ * Played straight from the blob on the owner's PDS, each view with its own
+ * player (see SharedProfileVideos), so two views of one video both play.
+ * [fill] false: the whole video, fitted inside (a banner is never cropped).
  */
 @Composable
 fun ProfileBannerVideo(
     did: String, cid: String, modifier: Modifier = Modifier, cornerPercent: Int = 0,
-    poster: (@Composable () -> Unit)? = null,
-    /** False: the whole video, fitted inside (a profile's banner — never cropped). */
-    fill: Boolean = true,
-    /** Full screen: shows the very player the profile's own copy is
-     *  playing (which steps aside meanwhile) instead of starting another. */
-    borrow: Boolean = false
+    fill: Boolean = true
 ) {
     var url by remember(did, cid) { mutableStateOf<String?>(null) }
     LaunchedEffect(did, cid) {
         url = runCatching { com.mediaviewer.worker.BlueskyBlobResolver.resolveBlobUrl(did, cid) }.getOrNull()
     }
-    val u = url ?: return
+    val u = url
+    if (u == null) { Box(modifier); return }
     val context = LocalContext.current
     val player = remember(u) { SharedProfileVideos.take(context, u) }
-    var firstFrame by remember(u) { mutableStateOf(false) }
     var aspect by remember(u) { mutableStateOf(player.aspectRatio.takeIf { it > 0f }) }
     DisposableEffect(player) {
         val l = object : FeedVideoListener {
-            override fun onFirstFrame() { firstFrame = true }
             override fun onAspectRatio(ratio: Float) { if (ratio > 0f) aspect = ratio }
         }
         player.addListener(l)
         player.setVolumeMuted(true)
         player.play()
-        if (borrow) SharedProfileVideos.borrowed[u] = (SharedProfileVideos.borrowed[u] ?: 0) + 1
         onDispose {
             player.removeListener(l)
-            if (borrow) SharedProfileVideos.borrowed[u] = (SharedProfileVideos.borrowed[u] ?: 1) - 1
             SharedProfileVideos.give(u, player)
         }
     }
-    // (While full screen has it, this copy shows its picture instead: a
-    // player draws into one view at a time. It takes it back on return.)
-    if (!borrow && (SharedProfileVideos.borrowed[u] ?: 0) > 0) {
-        Box(modifier) { if (poster != null) Box(Modifier.matchParentSize()) { poster() } }
-        return
-    }
-    // (Some players don't report the first frame: playing past the start
-    // counts.) And it keeps playing: anything that paused it meanwhile (the
-    // app going to the background and back, another screen) is undone.
+    // It keeps playing: one that stopped (a load that failed, the app
+    // going to the background and back) is started again.
     LaunchedEffect(player) {
-        var ticks = 0
         while (true) {
-            if (!firstFrame && player.isPlaying && player.currentPosition > 150L) firstFrame = true
-            if (++ticks % 5 == 0 && !player.isPlaying && !player.isBuffering) player.play()
-            kotlinx.coroutines.delay(200)
+            kotlinx.coroutines.delay(1000)
+            if (!player.isPlaying) player.restart()
         }
     }
     Box(modifier) {
@@ -609,35 +594,37 @@ fun ProfileBannerVideo(
             val w = minOf(maxWidth, maxHeight * a)
             FeedVideoView(player, Modifier.size(w, w / a), fill = true, cornerPercent = cornerPercent)
         }
-        if (!firstFrame && poster != null) Box(Modifier.matchParentSize()) { poster() }
     }
 }
 
 /**
- * One player per profile video on screen, shared by every view of it (the
- * profile's banner or icon and the same one full screen), so opening it full
- * screen doesn't start (and closing it doesn't shut down) a second one.
- * Nothing is lost by sharing: these videos always play the original file,
- * straight from the owner's PDS (see ProfileBannerVideo), never a
- * compressed copy. (Pictures aren't shared: full screen loads the original.)
+ * Players for profile videos: one per view (a player draws into one view
+ * at a time — shared, the view left behind froze on its last frame). A
+ * view that goes away leaves its player playing for a few seconds, so one
+ * coming right back (the picture scrolled back to, the profile reopened)
+ * picks it up mid-loop instead of starting black again. Nothing is lost by
+ * this: these videos always play the original file, from the owner's PDS.
  */
 internal object SharedProfileVideos {
-    private class Held(val player: FeedVideoPlayer, var count: Int)
-    private val held = HashMap<String, Held>()
-    /** Views of a video showing full screen right now, by its link. */
-    val borrowed = androidx.compose.runtime.mutableStateMapOf<String, Int>()
+    private class Parked(val player: FeedVideoPlayer, val job: kotlinx.coroutines.Job)
+    private val parked = HashMap<String, ArrayDeque<Parked>>()
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
 
     fun take(context: com.mediaviewer.platform.PlatformContext, url: String): FeedVideoPlayer {
-        held[url]?.let { it.count++; return it.player }
-        return FeedVideos.acquire(context, url).also { held[url] = Held(it, 1) }
+        parked[url]?.removeLastOrNull()?.let { it.job.cancel(); return it.player }
+        return FeedVideos.acquire(context, url)
     }
 
     fun give(url: String, player: FeedVideoPlayer) {
-        val h = held[url]
-        if (h == null || h.player !== player) { FeedVideos.recycle(url, player); return }
-        if (--h.count > 0) return
-        held.remove(url)
-        player.setVolumeMuted(false)
-        FeedVideos.recycle(url, player)
+        lateinit var entry: Parked
+        val job = scope.launch {
+            kotlinx.coroutines.delay(5_000)
+            parked[url]?.remove(entry)
+            if (parked[url]?.isEmpty() == true) parked.remove(url)
+            player.setVolumeMuted(false)
+            FeedVideos.recycle(url, player)
+        }
+        entry = Parked(player, job)
+        parked.getOrPut(url) { ArrayDeque() }.addLast(entry)
     }
 }

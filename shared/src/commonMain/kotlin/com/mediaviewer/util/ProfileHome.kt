@@ -42,6 +42,8 @@ object ProfileHome {
      *  returns it with its id. */
     fun save(feed: LocalFeed): LocalFeed {
         val r = remote ?: return feed
+        // (Not until your Home tab has been read: positions would clash.)
+        if (byAccount[r.did] == null) return feed
         val saved = if (feed.id.isNotBlank()) feed else feed.copy(id = "h" + com.mediaviewer.platform.currentTimeMillis().toString(36))
         val mine = byAccount[r.did].orEmpty()
         val i = mine.indexOfFirst { it.id == saved.id }
@@ -132,10 +134,26 @@ object ProfileHome {
      *  session; [fresh] reads again). */
     suspend fun load(did: String, fresh: Boolean = false): List<LocalFeed> {
         if (!fresh) byAccount[did]?.let { return it }
-        val list = runCatching { read(did) }.getOrNull() ?: return byAccount[did].orEmpty()
-        byAccount[did] = list
-        return list
+        // (A read that fails is tried twice more before giving up — and
+        // giving up says so, rather than showing the tab as if it were
+        // empty: an empty-looking Home is easy to take for a lost one.)
+        for (attempt in 0 until 3) {
+            val result = runCatching { read(did) }
+            result.getOrNull()?.let { list ->
+                byAccount[did] = list
+                failed.remove(did)
+                return list
+            }
+            com.mediaviewer.platform.Log.w("Stellar", "Home tab of $did: ${result.exceptionOrNull()?.message}")
+            if (attempt < 2) delay(800L * (attempt + 1))
+        }
+        failed[did] = true
+        return byAccount[did].orEmpty()
     }
+
+    /** Accounts whose Home tab couldn't be read (shown as such, with a
+     *  way to try again — never as an empty tab). */
+    val failed = mutableStateMapOf<String, Boolean>()
 
     private suspend fun read(did: String): List<LocalFeed> {
         val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)

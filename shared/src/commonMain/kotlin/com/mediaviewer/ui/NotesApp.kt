@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import com.mediaviewer.ui.compat.navBarSpace
@@ -451,6 +452,19 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     val density = androidx.compose.ui.platform.LocalDensity.current
     val keyboardLift = (WindowInsets.ime.getBottom(density) -
         WindowInsets.navBarSpace.getBottom(density)).coerceAtLeast(0)
+    // The press that starts writing (or picks a word) mustn't move the note:
+    // the field scrolls itself to the caret as it takes focus, which moved
+    // the words out from under the finger and lost the selection. For a
+    // moment after focus, the note is held where it was.
+    var pinnedScroll by remember { mutableStateOf<Int?>(null) }
+    var bodyFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(pinnedScroll) {
+        val y = pinnedScroll ?: return@LaunchedEffect
+        kotlinx.coroutines.withTimeoutOrNull(900) {
+            androidx.compose.runtime.snapshotFlow { bodyScroll.value }.collect { if (it != y) bodyScroll.scrollTo(y) }
+        }
+        pinnedScroll = null
+    }
     // Typing under the keyboard: the line being written scrolls up into view
     // (only as the words change — never just for a press or a selection).
     var panelHeight by remember { mutableStateOf(0) }
@@ -572,7 +586,9 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
                             inner()
                         }
                     },
-                    modifier = Modifier.fillMaxSize().verticalScroll(bodyScroll)
+                    modifier = Modifier.fillMaxSize()
+                        .onFocusChanged { f -> if (f.isFocused && !bodyFocused) pinnedScroll = bodyScroll.value; bodyFocused = f.isFocused }
+                        .verticalScroll(bodyScroll)
                         .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + with(density) { keyboardLift.toDp() } + if (keyboardLift > 0) 48.dp else 0.dp)
                 )
             }

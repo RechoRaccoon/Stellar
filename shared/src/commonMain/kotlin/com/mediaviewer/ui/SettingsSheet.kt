@@ -986,16 +986,7 @@ private fun AtProtocolPageContent(
         @Composable
         fun ButtonsSection() {
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).tipAnchor("hub.launchpad.label"), verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-            Text(
-                selfProfile?.author?.displayName?.ifBlank { null } ?: bskyHandle,
-                color = hubDividerLabel(dominantColor), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 10.dp)
-            )
-            HorizontalDivider(modifier = Modifier.weight(1f), color = dominantColor.copy(alpha = 0.6f))
-        }
+        HubRowHeader(selfProfile?.author?.displayName?.ifBlank { null } ?: bskyHandle, dominantColor, Modifier.tipAnchor("hub.launchpad.label"))
         // The Launchpad swipes sideways between two pages. Hold any button
         // and drag it to rearrange: anywhere on its page, onto the other
         // page (hold it at the side of the pad to turn the page), or into a
@@ -2137,7 +2128,7 @@ private fun HubListSection(
                 items(posts.size, key = { i -> posts[i].postUri.ifBlank { posts[i].id } + "#" + i }) { i ->
                     val post = posts[i]
                     val authorTint = rememberAuthorProfileTint(post.author.did, post.author.avatarUrl)
-                    val tileWidth = hubPostTileWidth(post, HUB_BLOG_CARD_HEIGHT)
+                    val tileWidth = rememberHubPostTileWidth(post, HUB_BLOG_CARD_HEIGHT)
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         HubAuthorBubble(
                             displayName = post.author.displayName, avatarUrl = post.author.avatarUrl,
@@ -3701,12 +3692,13 @@ private fun hubDividerLabel(tint: Color): Color = androidx.compose.ui.graphics.l
  *  rows' divider look sits a little tighter than a feed row's (no gap above
  *  it of its own: the section before it ends with one). */
 @Composable
-internal fun HubRowHeader(label: String, tint: Color) {
+internal fun HubRowHeader(label: String, tint: Color, modifier: Modifier = Modifier) {
     val style = RowHeaderStyle.hub
-    if (!style.divider) FeedRowTitle(label, tint, style)
-    else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    if (!style.divider) Box(modifier) { Column { FeedRowTitle(label, tint, style) } }
+    else Row(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         if (style.align != 0) HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
         Text(label, color = hubDividerLabel(tint), fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = if (style.align == 0) 0.dp else 10.dp, end = if (style.align == 2) 0.dp else 10.dp))
         if (style.align != 2) HorizontalDivider(modifier = Modifier.weight(1f), color = tint.copy(alpha = 0.6f))
     }

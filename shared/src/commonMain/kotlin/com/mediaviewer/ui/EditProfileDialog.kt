@@ -208,7 +208,8 @@ fun EditProfileDialog(
                             model = newAvatar ?: author.avatarUrl, contentDescription = "Avatar",
                             contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
                         )
-                        EditPictureBadge()
+                        // (Only an empty slot says what it's for.)
+                        if (newAvatar == null && author.avatarUrl == null) EditPictureBadge()
                     }
                     Box(
                         Modifier.weight(1f).height(rowH).clip(bannerSlotShape).background(
@@ -228,8 +229,7 @@ fun EditProfileDialog(
                                     if (sz.width > 0f && sz.height > 0f && sz.width.isFinite() && sz.height.isFinite()) bannerShape = sz.width / sz.height
                                 }
                             )
-                        }
-                        EditPictureBadge()
+                        } else EditPictureBadge()
                     }
                 } else {
                     @Composable
@@ -247,10 +247,7 @@ fun EditProfileDialog(
                         ) {
                             when {
                                 picked != null -> LoopingVideoPreview(picked, Modifier.fillMaxSize(), fill = !fit, cornerPercent = cornerPercent)
-                                saved != null -> ProfileBannerVideo(
-                                    author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent, fill = !fit,
-                                    poster = { Box(Modifier.fillMaxSize().background(fieldColor)) }
-                                )
+                                saved != null -> ProfileBannerVideo(author.did, saved.cid, Modifier.fillMaxSize(), cornerPercent = cornerPercent, fill = !fit)
                             }
                             if (picked == null && saved == null) {
                                 Icon(Icons.Default.Videocam, contentDescription = "Pick a video", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(24.dp))

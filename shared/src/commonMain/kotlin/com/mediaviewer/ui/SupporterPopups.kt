@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -426,20 +427,27 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
         }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The cover: tap to pick a picture.
-            Box(
-                Modifier.size(64.dp).clip(RoundedCornerShape(14.dp))
-                    .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                    .clickable { tap(); coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                contentAlignment = Alignment.Center
-            ) {
-                FolderCover(folder, tint, Modifier.fillMaxSize())
-                // A pencil in the corner says it can be changed.
+            // The cover: tap to pick a picture. A picked one has a small X
+            // to go back to the folder's own.
+            Box(Modifier.size(64.dp)) {
                 Box(
-                    Modifier.align(Alignment.BottomEnd).padding(4.dp).size(20.dp).clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f)),
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, lerp(tint, Color.White, 0.25f).copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .clickable { tap(); coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                ) { FolderCover(folder, tint, Modifier.fillMaxSize()) }
+                if (folder.cover != null) Box(
+                    Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp).size(22.dp).clip(CircleShape)
+                        .background(lerp(tint, Color.Black, 0.2f))
+                        .border(1.dp, lerp(tint, Color.White, 0.4f), CircleShape)
+                        .clickable {
+                            tap()
+                            LocalOverlays.confirm = ConfirmRequest("Remove Custom Cover?", "", "Remove", tint, destructive = false) {
+                                folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
+                                LocalData.updateBookmarkFolder(id, clearCover = true)
+                            }
+                        },
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.Image, contentDescription = "Change cover", tint = Color.White, modifier = Modifier.size(12.dp)) }
+                ) { Icon(Icons.Default.Close, contentDescription = "Remove custom cover", tint = Color.White, modifier = Modifier.size(13.dp)) }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -450,15 +458,6 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
                 )
             }
         }
-        if (folder.cover != null) Text(
-            "Use the default cover",
-            color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 8.dp).clip(RoundedCornerShape(8.dp)).clickable {
-                tap()
-                folder.cover?.takeIf { !it.startsWith("http") }?.let { LocalPlatform.deleteMedia(context, it) }
-                LocalData.updateBookmarkFolder(id, clearCover = true)
-            }.padding(horizontal = 4.dp, vertical = 4.dp)
-        )
         Spacer(Modifier.height(14.dp))
         Text("Visibility", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
         ConnectedChoice(
@@ -466,12 +465,6 @@ fun FolderEditPopup(id: String, liquidGlass: Boolean, tint: Color, backdrop: Gla
             selected = if (folder.public) 1 else 0,
             onSelect = { LocalData.setBookmarkFolderPublic(id, it == 1) },
             modifier = Modifier.fillMaxWidth(), height = 38.dp, fill = true
-        )
-        Text(
-            if (folder.public) "Public: its name and posts are saved unencrypted to your PDS and shown on your profile, where anyone can see them."
-            else "Private: encrypted, only you can see it.",
-            color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, lineHeight = 15.sp,
-            modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp)
         )
         Spacer(Modifier.height(14.dp))
         LocalPillButton("Done", liquidGlass, tint, ::close, Modifier.fillMaxWidth())

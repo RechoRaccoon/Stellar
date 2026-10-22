@@ -110,6 +110,8 @@ fun SearchOverlay(
     /** The accounts among [tagSuggestions] ("@handle" → who). */
     tagSuggestionAccounts: Map<String, com.mediaviewer.model.AuthorInfo> = emptyMap(),
     onQueryChange: (String) -> Unit,
+    /** All: what's typed, without searching (it searches on the search key). */
+    onQueryTextChange: (String) -> Unit = onQueryChange,
     // Item 2: Liked tab's query text updates live (so the field shows what
     // you're typing + suggestions can react to it) but must NOT re-run the
     // actual dataset search until Enter/search is pressed — unlike the
@@ -360,7 +362,8 @@ fun SearchOverlay(
                         // comments on MainViewModel.
                         BasicTextFieldWithPlaceholder(
                             value = if (isWeb) webQuery else state.query,
-                            onValueChange = if (isWeb) ({ webQuery = it }) else if (isTagInputFilter) onLikedQueryTextChange else onQueryChange,
+                            onValueChange = if (isWeb) ({ webQuery = it }) else if (isTagInputFilter) onLikedQueryTextChange
+                                else if (state.filter == MainViewModel.SearchFilter.ALL) onQueryTextChange else onQueryChange,
                             // Item 1: just "Search" — no app-name text needed.
                             placeholder = if (isWeb) "Search the web" else "Search", focusRequester = focusRequester,
                             // Item 8: haptic tap when the keyboard's search
@@ -1126,6 +1129,9 @@ private fun AccountResultRow(
  * little bigger), then the searches you made — tap one to search it again.
  * Hold a picture, or tap a search's X, to take it off.
  */
+private val RECENT_AVATAR_SIZE = 78.dp
+private val RECENT_SLOT_WIDTH = 92.dp
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RecentSearchesPage(
@@ -1151,13 +1157,15 @@ private fun RecentSearchesPage(
     ) {
         if (recents.isNotEmpty()) item(key = "recent_people") {
             androidx.compose.foundation.lazy.LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp),
+                // (Each picture sits centered in a slot 14dp wider than it:
+                // the first one's edge lines up with the rows under it.)
+                contentPadding = PaddingValues(horizontal = 12.dp - (RECENT_SLOT_WIDTH - RECENT_AVATAR_SIZE) / 2),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(recents, key = { "rp_" + it.did }) { author ->
                     val ring = vividAccent(rememberAuthorProfileTint(author.did, author.avatarUrl))
                     Column(
-                        Modifier.width(92.dp).clip(RoundedCornerShape(14.dp))
+                        Modifier.width(RECENT_SLOT_WIDTH).clip(RoundedCornerShape(14.dp))
                             .then(Modifier.combinedClickable(
                                 onClick = { tap(); onOpen(author) },
                                 onLongClick = {
@@ -1172,7 +1180,7 @@ private fun RecentSearchesPage(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(
-                            Modifier.size(78.dp).clip(AvatarShape)
+                            Modifier.size(RECENT_AVATAR_SIZE).clip(AvatarShape)
                                 .border(2.dp, ring.copy(alpha = 0.9f), AvatarShape)
                                 .padding(3.dp).clip(AvatarShape).background(Color.White.copy(0.1f))
                         ) {

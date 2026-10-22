@@ -19,6 +19,7 @@ import com.mediaviewer.ui.theme.DimGray
 import com.mediaviewer.util.LocalFeed
 import com.mediaviewer.util.ProfileHome
 import com.mediaviewer.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 /** A profile's Posts → Home view (see ProfileHome), by account. */
 object ProfileHomeTab {
@@ -78,9 +79,20 @@ internal fun LazyListScope.profileHomeRows(
         }
         return
     }
+    if (feeds.isEmpty() && ProfileHome.failed[did] == true) item(key = "home_failed") {
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Couldn't load the Home tab", color = DimGray, fontSize = 13.sp)
+            Box(Modifier.padding(top = 10.dp)) {
+                LayoutPillButton("Try Again", liquidGlass, tint, null, { scope.launch { ProfileHome.load(did, fresh = true) } })
+            }
+        }
+        return
+    }
     if (feeds.isEmpty()) item(key = "home_empty") {
         // (Your own empty Home tab is just its Create button.)
-        if (own) Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
+        // (As far below the filters as they are below the tabs.)
+        if (own) Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp), contentAlignment = Alignment.Center) {
             LayoutPillButton("Create", liquidGlass, tint, null, { openHomeBuilder(LocalFeed()) })
         } else Text(
             "Nothing here yet",

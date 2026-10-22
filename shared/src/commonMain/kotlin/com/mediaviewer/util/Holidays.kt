@@ -362,6 +362,16 @@ object Holidays {
         minor("National Champagne Day", 12, 31)
     )
 
+    /** The long tail of fun days (see MORE_FUN_DAYS), minor like the rest. */
+    private val MORE: List<Entry> by lazy {
+        MORE_FUN_DAYS.flatMap { it.lineSequence() }.mapNotNull { line ->
+            val m = line.take(2).toIntOrNull() ?: return@mapNotNull null
+            val d = line.drop(3).take(2).toIntOrNull() ?: return@mapNotNull null
+            val title = line.drop(6).trim().ifEmpty { return@mapNotNull null }
+            minor(title, m, d)
+        }
+    }
+
     /** Easter Sunday of [year] (Gregorian), as days since 1970. */
     private fun easter(year: Int): Long {
         val a = year % 19
@@ -410,7 +420,7 @@ object Holidays {
     private fun year(year: Int): Map<Int, List<Day>> = com.mediaviewer.platform.synchronizedCompat(cache) {
         cache.getOrPut(year) {
             val out = HashMap<Int, MutableList<Day>>()
-            for (entry in MAJOR + MINOR) {
+            for (entry in MAJOR + MINOR + MORE) {
                 val day = resolve(entry.rule, year) ?: continue
                 out.getOrPut(day) { ArrayList() }.add(Day(day, entry.title, entry.major))
             }

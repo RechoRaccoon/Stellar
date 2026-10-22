@@ -708,6 +708,8 @@ fun Modifier.glassPanel(
     tint: Color = NeutralGlassTint,
     shape: Shape = RoundedCornerShape(12.dp)
 ): Modifier = composed {
+    // (Dev Tools → Gradient Buttons: the filled popups' gradient, glass or not.)
+    if (com.mediaviewer.util.UiToggles.devGradientButtons) return@composed this.popupButtonFill(tint, shape)
     if (!liquidGlass) return@composed this.clip(shape).background(Color.White.copy(alpha = 0.08f))
 
     // Item 26: fade the background tint/scrim toward nothing as background
@@ -822,10 +824,6 @@ fun scrimAlphaFor(color: Color): Float {
     return ((l - 0.35f) * 0.9f).coerceIn(0f, 0.42f)
 }
 
-/** Whether this modifier makes something tappable (a clickable in it). */
-internal fun Modifier.isTappable(): Boolean =
-    any { it::class.simpleName.orEmpty().contains("Clickable") }
-
 /**
  * A clear "liquid glass" panel (Big Update #1 / #8 / #9): mostly transparent
  * so whatever is really behind it shows through, an adaptive dark scrim so
@@ -877,9 +875,9 @@ fun LiquidGlassSurface(
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit
 ) {
-    // Dev Tools → Gradient Buttons: a glass button (one that's tapped) is
-    // filled with the filled popups' gradient instead.
-    if (com.mediaviewer.util.UiToggles.devGradientButtons && modifier.isTappable()) {
+    // Dev Tools → Gradient Buttons: every glass surface (buttons, tabs, bars,
+    // bubbles) is filled with the filled popups' gradient instead.
+    if (com.mediaviewer.util.UiToggles.devGradientButtons) {
         Box(modifier.popupButtonFill(tint, shape), contentAlignment = contentAlignment, content = content)
         return
     }
