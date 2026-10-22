@@ -21,9 +21,12 @@ import com.mediaviewer.ui.compat.LocalContext
 
 /**
  * Explore's video tiles play, muted, while the pointer rests on them
- * (desktop and web) or while a finger holds still on one (phones). Letting
- * go after a hold doesn't open the post; a tap still does, and a finger
- * that moves (scrolling) never starts it.
+ * (desktop and web) or while a finger rests on one (phones): a resting
+ * finger is the touch hover, so the preview starts the moment it lands,
+ * like a mouse entering. It stops when the finger lifts or moves off to
+ * scroll. A quick tap never sees it (the preview shows nothing until its
+ * first frame) and still opens the post; letting go after a real rest
+ * doesn't open the post.
  */
 fun Modifier.videoPreviewTrigger(onPreview: (Boolean) -> Unit): Modifier = this
     .pointerInput(Unit) {
@@ -40,26 +43,31 @@ fun Modifier.videoPreviewTrigger(onPreview: (Boolean) -> Unit): Modifier = this
         }
     }
     .pointerInput(Unit) {
-        // Touch: a still hold.
+        // Touch: a resting finger. The preview starts at the press itself —
+        // it used to wait for a still hold of 350 ms, checked only when a
+        // pointer event arrived, and a truly still finger sends no events,
+        // so the check never ran and the preview (almost) never started.
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             if (down.type == PointerType.Mouse) return@awaitEachGesture
-            val holdAt = down.uptimeMillis + 350
+            onPreview(true)
             var moved = 0f
-            var holding = false
-            while (true) {
-                val e = awaitPointerEvent(PointerEventPass.Initial)
-                val ch = e.changes.firstOrNull { it.id == down.id } ?: break
-                if (!ch.pressed) {
-                    // (The hold was the point: no tap to open the post.)
-                    if (holding) { ch.consume(); onPreview(false) }
-                    break
+            try {
+                while (true) {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    if (e.changes.count { it.pressed } > 1) break
+                    val ch = e.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!ch.pressed) {
+                        // (A rest, not a tap: don't let go into opening the post.)
+                        if (ch.uptimeMillis - down.uptimeMillis >= 350) ch.consume()
+                        break
+                    }
+                    moved += ch.positionChange().getDistance()
+                    if (moved > viewConfiguration.touchSlop) break
                 }
-                moved += ch.positionChange().getDistance()
-                if (!holding && moved > viewConfiguration.touchSlop) break
-                if (!holding && ch.uptimeMillis >= holdAt) { holding = true; onPreview(true) }
+            } finally {
+                onPreview(false)
             }
-            if (holding) onPreview(false)
         }
     }
 
