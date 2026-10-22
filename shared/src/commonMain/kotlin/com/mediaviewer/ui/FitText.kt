@@ -41,12 +41,14 @@ fun FitText(
     shadow: Boolean = true,
     /** Drawn instead of [text] (the same words, with styles of their own:
      *  colors that don't change its size). */
-    styled: androidx.compose.ui.text.AnnotatedString? = null
+    styled: androidx.compose.ui.text.AnnotatedString? = null,
+    /** Where it sits in its box. */
+    alignment: Alignment = Alignment.Center
 ) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val base = LocalTextStyle.current
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier, contentAlignment = alignment) {
         val maxW = constraints.maxWidth
         val maxH = constraints.maxHeight
         fun style(size: Float) = base.merge(TextStyle(

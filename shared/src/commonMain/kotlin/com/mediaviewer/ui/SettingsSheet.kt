@@ -930,7 +930,12 @@ private fun AtProtocolPageContent(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = DimGray, modifier = Modifier.size(16.dp))
-                    Text("Search", color = DimGray, fontSize = 13.sp)
+                    // (One line, shrinking with a narrow side list rather than wrapping.)
+                    FitText(
+                        com.mediaviewer.i18n.tr("Search"), Modifier.weight(1f), maxSize = 13.sp, minSize = 6.sp,
+                        color = DimGray, fontWeight = FontWeight.Normal, textAlign = TextAlign.Start,
+                        singleLine = true, shadow = false, alignment = Alignment.CenterStart
+                    )
                 }
             }
             if (liquidGlass) {

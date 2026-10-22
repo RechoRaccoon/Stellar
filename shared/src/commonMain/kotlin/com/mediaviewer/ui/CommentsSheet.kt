@@ -601,8 +601,8 @@ fun CommentsSheet(
                                             // field's own gestures (they'd take the drag for
                                             // moving the caret), and only taken once it's clearly
                                             // a sideways swipe.
-                                            androidx.compose.foundation.gestures.awaitEachGesture {
-                                                val down = androidx.compose.foundation.gestures.awaitFirstDown(
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(
                                                     requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial
                                                 )
                                                 while (true) {

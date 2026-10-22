@@ -3914,7 +3914,10 @@ private fun TimelineShapedTextTile(
     /** At least this tall, its words centered (the Hub's square tiles). */
     minHeight: Dp = 0.dp,
     /** How much bigger its words are drawn, as laid out (same line breaks). */
-    zoom: Float = 1f
+    zoom: Float = 1f,
+    /** Its corners (the Hub shrinks the whole card, so it asks for bigger
+     *  ones that end up the size of its other tiles'). */
+    cornerRadius: Dp = 28.dp
 ) {
     val authorTint = if (item.author.did.isNotBlank()) rememberAuthorProfileTint(item.author.did, item.author.avatarUrl) else tint
     val tap = rememberHapticTap()
@@ -3922,7 +3925,7 @@ private fun TimelineShapedTextTile(
     val sideways = screen.width > screen.height
     val cardWidth = if (sideways) minOf(screen.width * 0.94f, 640f).dp else (screen.width * 0.94f).dp
     val maxCardHeight = (screen.height - 104 - 176).coerceAtLeast(160).dp
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(cornerRadius)
     val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
     Box(Modifier.fillMaxWidth().shrinkToWidth(cardWidth)) {
         Box(
@@ -4128,8 +4131,12 @@ private fun HubTextTile(item: MediaItem, tint: Color, liquidGlass: Boolean, heig
     // its padding (so a line or two doesn't sit tiny in the middle).
     val zoom = if (words.height + 52.dp >= cardWidth) 1f
         else minOf((cardWidth - 36.dp) / words.width.coerceAtLeast(1.dp), (cardWidth - 52.dp) / words.height.coerceAtLeast(1.dp)).coerceIn(1f, 3f)
+    // (Shrunk to the row, the card's own corners all but vanished on a wide
+    // window: these come out the same as the row's other tiles.)
+    val cardHeight = maxOf(words.height + 52.dp, cardWidth)
+    val corner = 12.dp * (cardHeight / height.coerceAtLeast(1.dp))
     androidx.compose.ui.layout.Layout(
-        content = { TimelineShapedTextTile(item, liquidGlass, tint, onClick, minHeight = cardWidth, zoom = zoom) },
+        content = { TimelineShapedTextTile(item, liquidGlass, tint, onClick, minHeight = cardWidth, zoom = zoom, cornerRadius = corner) },
         modifier = Modifier.height(height)
     ) { measurables, _ ->
         val w0 = cardWidth.roundToPx()

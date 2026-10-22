@@ -478,6 +478,7 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
     var panelTop by remember { mutableStateOf(0) }
     var rootHeight by remember { mutableStateOf(0) }
     val formatRowPx = with(density) { 46.dp.roundToPx() }
+    val imeBottom = WindowInsets.ime.getBottom(density)
     LaunchedEffect(body.text) {
         if (preview || !bodyFocused) return@LaunchedEffect
         // (Once the new text has been laid out.)
@@ -488,7 +489,7 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
         val rect = l.getCursorRect(caret)
         val caretBottom = rect.bottom.toInt() + padTopPx
         val caretTop = rect.top.toInt() + padTopPx
-        val shown = if (keyboardLift > 0) minOf(panelHeight, rootHeight - WindowInsets.ime.getBottom(density) - panelTop - formatRowPx)
+        val shown = if (keyboardLift > 0) minOf(panelHeight, rootHeight - imeBottom - panelTop - formatRowPx)
             else panelHeight
         if (shown <= 0) return@LaunchedEffect
         if (caretBottom + margin > bodyScroll.value + shown) bodyScroll.scrollTo(caretBottom + margin - shown)
