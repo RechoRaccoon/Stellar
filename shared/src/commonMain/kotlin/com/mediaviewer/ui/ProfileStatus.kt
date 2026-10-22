@@ -306,6 +306,14 @@ fun ProfileStatusEditor(
     LaunchedEffect(Unit) { emojiStore.load(); if (!touched) setText(editable(current?.text.orEmpty(), current?.emoji.orEmpty())) }
     val currentEditable = remember(current, emojiStore.state) { current?.let { editable(it.text, it.emoji) } }
     var emojiOpen by remember { mutableStateOf(false) }
+    // (The library follows the account, like in DMs and the composer:
+    // synced when the emoji menu opens, and again when it closes — this
+    // is what brings the library down on a device that hasn't loaded it
+    // yet. Loading from disk alone leaves a new device's menu empty.)
+    LaunchedEffect(emojiOpen) {
+        if (emojiOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, did)
+        else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, did, force = true)
+    }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val statusFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val statusFieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
