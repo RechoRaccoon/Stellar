@@ -153,6 +153,8 @@ fun BuiltFeedRow(
     headerEdge: Dp = 16.dp
 ) {
     LaunchedEffect(feed) { onLoad() }
+    // A row built from tags: the shared tags are offered (or updated).
+    LaunchedEffect(feed.id) { if (feed.sources.any { it.kind == "tag" }) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened() }
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }

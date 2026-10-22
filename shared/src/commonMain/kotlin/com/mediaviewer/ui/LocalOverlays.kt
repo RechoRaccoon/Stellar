@@ -118,7 +118,7 @@ object LocalOverlays {
     /** One of the popups is up: the app behind it blurs. */
     val popupOpen: Boolean
         get() = editWarningOpen || editHistoryFor != null || bookmarkFolderFor != null || bookmarkFolderForMany != null || profileNoteFor != null || editFolder != null || feedBuilder != null || pinDmFor != null ||
-            confirm != null
+            confirm != null || com.mediaviewer.tagging.SharedTagDataset.prompt != null
 
     /** Floating web pages, drawn over everything. */
     val popouts = mutableStateListOf<BrowserPopout>()

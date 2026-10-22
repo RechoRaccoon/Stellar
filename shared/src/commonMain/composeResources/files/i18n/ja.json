@@ -2128,5 +2128,7 @@
 "Add Default": "デフォルトを追加",
 "Small names between two lines, like the Hub's": "ハブのように、2本の線の間に小さな名前",
 "Lines out from each big name to the page's edges": "大きな名前からページの端まで線を引く",
-"Every button filled like a popup's buttons": "すべてのボタンをポップアップのように塗りつぶす"
+"Every button filled like a popup's buttons": "すべてのボタンをポップアップのように塗りつぶす",
+"Name or handle": "名前またはハンドル",
+"Remove from Recent Searches?": "最近の検索から削除しますか?"
 }

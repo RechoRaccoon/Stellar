@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import com.mediaviewer.ui.theme.AvatarShape
 
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -256,7 +257,7 @@ fun SearchOverlay(
             }
             isE621Filter -> onE621SearchSubmit()
             isLiked -> { TaggedSearchPlace.top(); onLikedSearchSubmit() }
-            else -> onQueryChange(state.query)
+            else -> { com.mediaviewer.util.RecentAccountSearches.recordQuery(state.query); onQueryChange(state.query) }
         }
         // Searching puts the keyboard away (iOS has no key for that).
         webFocus.clearFocus()
@@ -533,8 +534,14 @@ fun SearchOverlay(
                         SearchAllResults(
                             state = state, liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
                             savedFeedUris = savedFeedUris,
-                            onOpenAccount = { author -> com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author) },
-                            onOpenPost = { item -> state.posts.indexOf(item).takeIf { it >= 0 }?.let(onOpenPost) },
+                            onOpenAccount = { author ->
+                                com.mediaviewer.util.RecentAccountSearches.recordQuery(state.query)
+                                com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author)
+                            },
+                            onOpenPost = { item ->
+                                com.mediaviewer.util.RecentAccountSearches.recordQuery(state.query)
+                                state.posts.indexOf(item).takeIf { it >= 0 }?.let(onOpenPost)
+                            },
                             onSeeAll = onSelectFilter,
                             // A tagged post (or its See all): the Tagged tab, on that tag.
                             onOpenTag = { tag ->
@@ -545,7 +552,16 @@ fun SearchOverlay(
                             onOpenFeed = onOpenFeed, onFeedAction = onListEntryAction, onOpenListEntry = onOpenListEntry
                         )
                     }
-                    (state.filter == MainViewModel.SearchFilter.ACCOUNTS || state.filter == MainViewModel.SearchFilter.ALL) && state.query.isBlank() -> {
+                    // All, before searching: the accounts you opened (a row
+                    // of pictures) over the searches you made.
+                    state.filter == MainViewModel.SearchFilter.ALL && state.query.isBlank() -> {
+                        RecentSearchesPage(
+                            liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
+                            onOpen = { author -> com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author) },
+                            onSearch = { q -> com.mediaviewer.util.RecentAccountSearches.recordQuery(q); onQueryChange(q) }
+                        )
+                    }
+                    state.filter == MainViewModel.SearchFilter.ACCOUNTS && state.query.isBlank() -> {
                         RecentAccountSearchesList(
                             liquidGlass = liquidGlass, backdrop = searchBackdrop,
                             onOpen = { author -> com.mediaviewer.util.RecentAccountSearches.record(author); onOpenAccount(author) }
@@ -868,16 +884,19 @@ fun SearchOverlay(
                 destructive = false
             )
         }
-        if (state.filter == MainViewModel.SearchFilter.LIKED_TAGS) {
-            SharedTagDatasetPopup(liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop)
+        // All: results found by a tag offer the shared tags too. (The
+        // popup itself is drawn over the whole app: see LocalOverlayHost.)
+        LaunchedEffect(state.filter, state.allTag) {
+            if (state.filter == MainViewModel.SearchFilter.ALL && state.allTag != null) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
         }
     }
 }
 
-/** The shared tag dataset's popup over Tagged search: the offer (first
- *  time, or an update), the download's progress, or what went wrong. */
+/** The shared tag dataset's popup, wherever tags are used (Tagged and All
+ *  search, a Hub or Home row built from tags): the offer (first time, or
+ *  an update), the download's progress, or what went wrong. */
 @Composable
-private fun SharedTagDatasetPopup(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+internal fun SharedTagDatasetPopup(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
     val shared = com.mediaviewer.tagging.SharedTagDataset
     when (val p = shared.prompt) {
         null -> {}
@@ -1040,7 +1059,10 @@ private fun AccountResultRow(
     liquidGlass: Boolean,
     backdrop: GlassBackdrop?,
     onClick: () -> Unit,
-    onRemove: (() -> Unit)? = null
+    onRemove: (() -> Unit)? = null,
+    /** A line for their bio (always there, blank without one, so a grid
+     *  of results lines up). Recent Searches has none: just name and handle. */
+    bioLine: Boolean = true
 ) {
     val tap = rememberHapticTap()
     val color = rememberAuthorProfileTint(author.did, author.avatarUrl)
@@ -1069,7 +1091,7 @@ private fun AccountResultRow(
                 Text("@${author.handle}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // (Always a third line, empty without a bio, so every bubble
                 // in the People grid is the same height and the rows line up.)
-                Text(
+                if (bioLine) Text(
                     description?.replace('\n', ' ')?.takeIf { it.isNotBlank() } ?: " ",
                     color = Color.White.copy(0.78f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp)
                 )
@@ -1095,6 +1117,107 @@ private fun AccountResultRow(
         LiquidGlassSurface(modifier = m, shape = shape, tint = color, backdrop = backdrop) { content() }
     } else {
         Box(m.background(androidx.compose.ui.graphics.lerp(OffBlack, color, 0.18f))) { content() }
+    }
+}
+
+/**
+ * The All tab before a search: the accounts you searched for and opened, as
+ * a row of pictures with their names under (like the Hub's Mutuals, a
+ * little bigger), then the searches you made — tap one to search it again.
+ * Hold a picture, or tap a search's X, to take it off.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun RecentSearchesPage(
+    liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
+    onOpen: (AuthorInfo) -> Unit, onSearch: (String) -> Unit
+) {
+    val context = com.mediaviewer.ui.compat.LocalContext.current
+    remember { com.mediaviewer.util.RecentAccountSearches.ensureLoaded(context); true }
+    val recents = com.mediaviewer.util.RecentAccountSearches.accounts
+    val queries = com.mediaviewer.util.RecentAccountSearches.queries
+    if (recents.isEmpty() && queries.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Search posts, accounts, and starter packs", color = DimGray, fontSize = 13.sp)
+        }
+        return
+    }
+    val tap = rememberHapticTap()
+    val side = rememberLandscapeSidePadding()
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = side, end = side, top = 10.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (recents.isNotEmpty()) item(key = "recent_people") {
+            androidx.compose.foundation.lazy.LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(recents, key = { "rp_" + it.did }) { author ->
+                    val ring = vividAccent(rememberAuthorProfileTint(author.did, author.avatarUrl))
+                    Column(
+                        Modifier.width(92.dp).clip(RoundedCornerShape(14.dp))
+                            .then(Modifier.combinedClickable(
+                                onClick = { tap(); onOpen(author) },
+                                onLongClick = {
+                                    tap()
+                                    LocalOverlays.confirm = ConfirmRequest(
+                                        "Remove from Recent Searches?", author.displayName.ifBlank { "@" + author.handle },
+                                        "Remove", tint, destructive = false
+                                    ) { com.mediaviewer.util.RecentAccountSearches.remove(author.did) }
+                                }
+                            ))
+                            .padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            Modifier.size(78.dp).clip(AvatarShape)
+                                .border(2.dp, ring.copy(alpha = 0.9f), AvatarShape)
+                                .padding(3.dp).clip(AvatarShape).background(Color.White.copy(0.1f))
+                        ) {
+                            if (author.avatarUrl != null) AsyncImage(
+                                model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                            ) else Icon(Icons.Default.Person, contentDescription = null, tint = DimGray, modifier = Modifier.align(Alignment.Center).size(30.dp))
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        // (The whole name, over two lines when it needs them.)
+                        Text(
+                            author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 12.sp, lineHeight = 14.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+        if (queries.isNotEmpty()) {
+            item(key = "recent_header") {
+                Text(
+                    "Recent Searches", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth().padding(start = 18.dp, top = 6.dp, bottom = 2.dp)
+                )
+            }
+            items(queries, key = { "rq_" + it }) { q ->
+                val shape = RoundedCornerShape(20.dp)
+                val m = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(shape).clickable { tap(); onSearch(q) }
+                val row: @Composable () -> Unit = {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(q, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Box(
+                            Modifier.size(30.dp).clip(CircleShape).clickable { tap(); com.mediaviewer.util.RecentAccountSearches.removeQuery(q) },
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.Default.Close, contentDescription = "Remove from recent searches", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(15.dp)) }
+                    }
+                }
+                if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = tint, backdrop = backdrop) { row() }
+                else Box(m.background(Color.White.copy(0.06f))) { row() }
+            }
+        }
     }
 }
 
@@ -1128,7 +1251,8 @@ private fun RecentAccountSearchesList(liquidGlass: Boolean, backdrop: GlassBackd
                 author = author, description = null, isFollowing = false,
                 liquidGlass = liquidGlass, backdrop = backdrop,
                 onClick = { onOpen(author) },
-                onRemove = { com.mediaviewer.util.RecentAccountSearches.remove(author.did) }
+                onRemove = { com.mediaviewer.util.RecentAccountSearches.remove(author.did) },
+                bioLine = false
             )
         }
     }

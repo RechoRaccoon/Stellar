@@ -849,18 +849,26 @@ private fun AccountGuessField(
 ) {
     var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
     if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length))
-    var guess by remember { mutableStateOf<String?>(null) }
+    // The single most likely account: by a handle's start (the rest of it
+    // shown dimmed after the caret, as in the composer) or a display name's
+    // (its handle shown dimmed after what's typed) — with or without "@".
+    var guess by remember { mutableStateOf<com.mediaviewer.util.MentionSuggest.Candidate?>(null) }
     val typed = value.trim().removePrefix("@")
     LaunchedEffect(typed) {
         if (typed.isEmpty()) { guess = null; onGuess(null); return@LaunchedEffect }
-        if (guess?.startsWith(typed.lowercase()) != true) { guess = null; onGuess(null) }
-        kotlinx.coroutines.delay(120)
-        guess = com.mediaviewer.util.MentionSuggest.complete(typed)
-        onGuess(guess)
+        kotlinx.coroutines.delay(150)
+        guess = com.mediaviewer.util.MentionSuggest.account(typed)
+        onGuess(guess?.handle?.lowercase())
     }
-    val ghost = guess?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) && it.length > typed.length }?.drop(typed.length)
+    val handleMatch = guess?.handle?.lowercase()?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) }
+    val ghost = when {
+        typed.isEmpty() || guess == null -> null
+        handleMatch != null -> handleMatch.takeIf { it.length > typed.length }?.drop(typed.length)
+        else -> "  @" + guess!!.handle.lowercase()
+    }
     fun accept(): Boolean {
-        val g = guess?.takeIf { typed.isNotEmpty() && it.startsWith(typed.lowercase()) } ?: return false
+        val g = guess?.handle?.lowercase()?.takeIf { typed.isNotEmpty() } ?: return false
+        if (g == typed.lowercase()) return false
         guess = null; onGuess(null)
         onValueChange(g)
         return true
@@ -887,6 +895,6 @@ private fun AccountGuessField(
                     detectHorizontalDragGestures { change, amount -> if (amount > 6f && accept()) change.consume() }
                 })
         )
-        if (value.isEmpty()) Text("handle.bsky.social", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, maxLines = 1)
+        if (value.isEmpty()) Text("Name or handle", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, maxLines = 1)
     }
 }

@@ -2128,5 +2128,7 @@
 "Add Default": "添加默认",
 "Small names between two lines, like the Hub's": "像中心那样,小名称位于两条线之间",
 "Lines out from each big name to the page's edges": "从每个大标题延伸到页面边缘的线",
-"Every button filled like a popup's buttons": "所有按钮都像弹窗按钮一样填充"
+"Every button filled like a popup's buttons": "所有按钮都像弹窗按钮一样填充",
+"Name or handle": "名称或用户名",
+"Remove from Recent Searches?": "从最近搜索中移除?"
 }

@@ -75,7 +75,8 @@ object SharedTagDataset {
     fun installedDatasetId(): String? = prefs?.getString("dataset_id", null)?.takeIf { it.isNotBlank() }
     private fun installedVersion(): String? = prefs?.getString("version", null)?.takeIf { it.isNotBlank() }
 
-    /** Tagged search was opened: checks for a new version (once a day). */
+    /** Somewhere tags are used was opened (Tagged or All search, a row built
+     *  from tags): checks for a new version (once a day). */
     fun onTaggedSearchOpened() {
         val p = prefs ?: return
         if (checking || prompt != null || job?.isActive == true) return

@@ -231,6 +231,11 @@ fun LocalOverlayHost(
     FadingPopupHost(LocalOverlays.bookmarkFolderForMany, Modifier.zIndex(10.6f)) { items ->
         BookmarkFolderPopup(items, liquidGlass, tint, backdrop, onClose = { LocalOverlays.bookmarkFolderForMany = null; PostSelection.clear() })
     }
+    // The shared tags' offer / download (see SharedTagDataset): asked for
+    // wherever tags are used, shown over everything like the rest.
+    if (com.mediaviewer.tagging.SharedTagDataset.prompt != null) Box(Modifier.fillMaxSize().zIndex(10.65f)) {
+        SharedTagDatasetPopup(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+    }
     FadingPopupHost(LocalOverlays.editFolder, Modifier.zIndex(10.6f)) { id ->
         FolderEditPopup(id, liquidGlass, tint, backdrop, onClose = { LocalOverlays.editFolder = null })
     }

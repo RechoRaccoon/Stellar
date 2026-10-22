@@ -11,18 +11,22 @@ import com.mediaviewer.platform.SharedPreferences
 import com.mediaviewer.platform.sharedPreferences
 
 /**
- * The Search page's "Recent Searches" (People tab): accounts you searched
- * for and opened, newest first. Kept on this device only.
+ * The Search page's recents: accounts you searched for and opened, and the
+ * searches you made, newest first. Kept on this device only.
  */
 object RecentAccountSearches {
     private const val PREFS = "recent_account_searches"
     private const val KEY = "accounts"
+    private const val KEY_QUERIES = "queries"
     private const val MAX = 20
 
     private var prefs: SharedPreferences? = null
 
     /** Newest first — Compose state. */
     var accounts by mutableStateOf<List<AuthorInfo>>(emptyList())
+        private set
+    /** The words searched, newest first — Compose state. */
+    var queries by mutableStateOf<List<String>>(emptyList())
         private set
 
     fun ensureLoaded(context: PlatformContext) {
@@ -42,6 +46,29 @@ object RecentAccountSearches {
                 )
             }
         }.getOrDefault(emptyList())
+        queries = runCatching {
+            val arr = JSONArray(p.getString(KEY_QUERIES, "[]") ?: "[]")
+            (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
+    /** A search was made (submitted, or a result opened from it). */
+    fun recordQuery(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        queries = (listOf(q) + queries.filterNot { it.equals(q, ignoreCase = true) }).take(MAX)
+        saveQueries()
+    }
+
+    fun removeQuery(query: String) {
+        queries = queries.filterNot { it == query }
+        saveQueries()
+    }
+
+    private fun saveQueries() {
+        val arr = JSONArray()
+        queries.forEach { arr.put(it) }
+        prefs?.edit()?.putString(KEY_QUERIES, arr.toString())?.apply()
     }
 
     /** An account was opened from search results. */

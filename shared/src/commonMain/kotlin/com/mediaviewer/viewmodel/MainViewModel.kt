@@ -6413,7 +6413,8 @@ class MainViewModel(
                 .map {
                     com.mediaviewer.util.MentionSuggest.Candidate(
                         it.handle, mutual = it.viewer?.following != null && it.viewer.followedBy != null,
-                        following = it.viewer?.following != null
+                        following = it.viewer?.following != null,
+                        displayName = it.displayName.orEmpty()
                     )
                 }
         }
