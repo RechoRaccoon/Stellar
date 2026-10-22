@@ -3039,6 +3039,14 @@ class MainViewModel(
     fun loadHubListIfNeeded(uri: String, force: Boolean = false) {
         if (!_bskyLoggedIn.value || uri.isBlank()) return
         com.mediaviewer.platform.synchronizedCompat(hubListLock) {
+            // Built-feed rows (the Hub's Feed Builder rows, a profile's
+            // Home tab rows) share this map but are filled by loadFeedRow,
+            // never as lists — their keys aren't list URIs, so loading one
+            // as a list can only fail and stamp the row failed. (The
+            // foreground sweep passes every key in the map here, which is
+            // how a viewer's still-empty Home folder rows got stuck on
+            // "Couldn't load this feed".)
+            if (feedRowSpecs.containsKey(uri)) return
             val cur = _hubLists.value[uri]
             if (cur?.loading == true) return
             // Loaded content is kept for 5 minutes; a failure only briefly,

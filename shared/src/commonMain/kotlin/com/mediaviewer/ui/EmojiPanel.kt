@@ -438,7 +438,10 @@ internal fun EmojiPanel(
         }
 
         // ── Accounts row: you · saved accounts · the person you're messaging   Import/Save ──
-        if (showAccounts) {
+        // (Hidden while a tab is being renamed: the compact panel is only
+        // tall enough for the one tab row — with this row shown too, the
+        // folders row and its rename field were squeezed out of sight.)
+        if (showAccounts && !compact) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
