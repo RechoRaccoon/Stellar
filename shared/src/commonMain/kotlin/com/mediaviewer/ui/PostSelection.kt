@@ -125,15 +125,13 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                 // picked, while holding the left button, which re-reads
                 // each event as it comes, worked.)
                 var downEvent: androidx.compose.ui.input.pointer.PointerEvent? = null
-                val down = run {
-                    var found: androidx.compose.ui.input.pointer.PointerInputChange? = null
-                    while (found == null) {
-                        val ev = awaitPointerEvent(PointerEventPass.Initial)
-                        val c = ev.changes.firstOrNull { it.changedToDownIgnoreConsumed() }
-                        if (c != null) { downEvent = ev; found = c }
-                    }
-                    found!!
+                var found: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                while (found == null) {
+                    val ev = awaitPointerEvent(PointerEventPass.Initial)
+                    val c = ev.changes.firstOrNull { it.changedToDownIgnoreConsumed() }
+                    if (c != null) { downEvent = ev; found = c }
                 }
+                val down = found!!
                 val firstEvent = downEvent!!
                 // (A tile inside another selectable one: only the outer one acts.)
                 if (PostSelection.claimed == down.id) return@awaitEachGesture
