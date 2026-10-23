@@ -135,6 +135,12 @@ internal object Sections {
             val values = linkedMapOf<String, JsonElement>()
             for ((k, v) in ctx.sharedPreferences(p.file).getAll()) {
                 if (v == null || !p.keep(k, did)) continue
+                // (The local file's account slots under their old shared
+                // names aren't gathered: a shared name sitting in the file
+                // is a leftover, not this account's to claim. The vault's
+                // own copy of it is what counts — apply puts that under
+                // this account's key. See apply.)
+                if (p.section == "local" && k in LocalData.accountSlotKeys) continue
                 encode(v, roots)?.let { values[k] = it }
             }
             out[p.section] = JsonObject(values)
@@ -182,21 +188,38 @@ internal object Sections {
         for (p in PREFS) {
             val incoming = changed[p.section] as? JsonObject ?: continue
             val sp = ctx.sharedPreferences(p.file)
+            // The local file's account slots are kept per account on the
+            // device, under "name@did" keys (see LocalData) — but a vault
+            // written before that holds them under their old shared
+            // names. The vault being applied is this account's own, so a
+            // shared name in it is this account's data: it lands under
+            // this account's key. (Without this, the apply wrote it
+            // under the shared name — where nothing reads it anymore —
+            // and deleted the live per-account copy as "not in the
+            // vault", which is how the per-account update emptied
+            // people's folders, drafts and notes on its first sync.)
+            fun storedName(k: String): String =
+                if (p.section == "local" && k in LocalData.accountSlotKeys) "$k@$did" else k
+            val present = incoming.keys.mapTo(HashSet()) { storedName(it) }
             val edit = sp.edit()
-            for (k in sp.getAll().keys) if (p.keep(k, did) && k !in incoming) edit.remove(k)
-            for ((k, el) in incoming) {
-                if (!p.keep(k, did)) continue
+            for (k in sp.getAll().keys) if (p.keep(k, did) && k !in present) edit.remove(k)
+            // (Shared names first, so if a vault somehow holds both
+            // copies, the one under the account's own key sticks.)
+            val ordered = incoming.entries.sortedBy { if (storedName(it.key) == it.key) 1 else 0 }
+            for ((k, el) in ordered) {
+                val sk = storedName(k)
+                if (!p.keep(sk, did)) continue
                 val o = el as? JsonObject ?: continue
                 val (t, v) = o.entries.firstOrNull() ?: continue
                 runCatching {
                     when (t) {
-                        "s" -> edit.putString(k, untokenize(v.jsonPrimitive.content, roots))
-                        "j" -> edit.putString(k, untokenize(v, roots).toString())
-                        "b" -> edit.putBoolean(k, v.jsonPrimitive.booleanOrNull ?: return@runCatching)
-                        "i" -> edit.putInt(k, v.jsonPrimitive.intOrNull ?: return@runCatching)
-                        "l" -> edit.putLong(k, v.jsonPrimitive.longOrNull ?: return@runCatching)
-                        "f", "d" -> edit.putFloat(k, v.jsonPrimitive.doubleOrNull?.toFloat() ?: return@runCatching)
-                        "ss" -> edit.putStringSet(k, (v as JsonArray).map { untokenize(it.jsonPrimitive.content, roots) }.toSet())
+                        "s" -> edit.putString(sk, untokenize(v.jsonPrimitive.content, roots))
+                        "j" -> edit.putString(sk, untokenize(v, roots).toString())
+                        "b" -> edit.putBoolean(sk, v.jsonPrimitive.booleanOrNull ?: return@runCatching)
+                        "i" -> edit.putInt(sk, v.jsonPrimitive.intOrNull ?: return@runCatching)
+                        "l" -> edit.putLong(sk, v.jsonPrimitive.longOrNull ?: return@runCatching)
+                        "f", "d" -> edit.putFloat(sk, v.jsonPrimitive.doubleOrNull?.toFloat() ?: return@runCatching)
+                        "ss" -> edit.putStringSet(sk, (v as JsonArray).map { untokenize(it.jsonPrimitive.content, roots) }.toSet())
                     }
                 }
             }

@@ -360,6 +360,11 @@ object LocalData {
             eventSlot, noteFolderSlot, notesSlot, pollVoteSlot, calcSlot
         )
 
+    /** The account slots' shared-file names, as sync written before the
+     *  slots were kept per account calls them (see PrivateSyncSections,
+     *  which puts a vault's copies under the account's own keys). */
+    val accountSlotKeys: Set<String> get() = accountSlots.map { it.key }.toSet()
+
     /** The signed-in account changed (or became known): show ITS stored
      *  things. They're kept per account on this device — each account's
      *  copies live under its own keys — so one account's drafts, folders
