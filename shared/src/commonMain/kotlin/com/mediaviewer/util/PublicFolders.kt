@@ -103,6 +103,13 @@ object PublicFolders {
         }
     }
 
+    /** The ids of [did]'s public folders as they stand on their PDS —
+     *  read straight from there, never the device's own shortcut: how
+     *  the app can prove a folder found on this device is that
+     *  account's (see LocalData.resolveLegacyData). */
+    suspend fun publishedIds(did: String): Set<String> =
+        runCatching { read(did) }.getOrNull()?.mapTo(HashSet()) { it.rkey } ?: emptySet()
+
     /** [did]'s public folders, newest first, straight from their own PDS
      *  (remembered this session; [fresh] reads again). */
     suspend fun load(did: String, fresh: Boolean = false): List<Folder> {

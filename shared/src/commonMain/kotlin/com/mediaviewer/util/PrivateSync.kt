@@ -458,6 +458,27 @@ object PrivateSync {
         lastError = null
     }
 
+    /** The entry ids in this account's last synced copy of the local
+     *  data (its folders, drafts, notes and the like, by their own
+     *  ids): how LocalData can prove a set of that data found on this
+     *  device is this account's. The ids are random UUIDs out of the
+     *  account's own vault, so a match is proof, not a resemblance.
+     *  Empty when this account has never synced on this device. */
+    fun baseLocalEntryIds(): Set<String> {
+        val base = prefs?.getString(k("base"), null)
+            ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() } ?: return emptySet()
+        val local = sectionsOf(base)["local"] as? JsonObject ?: return emptySet()
+        val out = HashSet<String>()
+        for ((_, wrapped) in local) {
+            val payload = (wrapped as? JsonObject)?.get("j") as? JsonArray ?: continue
+            for (e in payload) {
+                val id = ((e as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (!id.isNullOrBlank()) out += id
+            }
+        }
+        return out
+    }
+
     // ── One sync ───────────────────────────────────────────────────────
 
     private suspend fun sync(force: Boolean) {

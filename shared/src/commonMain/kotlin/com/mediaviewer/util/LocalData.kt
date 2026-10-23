@@ -14,6 +14,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Who is signed in, whether they're a Stellar Supporter, and how to send
@@ -308,15 +313,10 @@ object LocalData {
         /** An account slot's storage-key ending ("@<did>", or
          *  "@signed_out"): kept current by [setAccount] and [init]. */
         var suffix: String = ""
-        /** Whether the old shared key may still stand in for this slot:
-         *  only until the first account claims the shared keys (see
-         *  setAccount) — afterwards a shared key appearing again (an
-         *  older version's vault, applied) is nobody's to read. */
-        var legacyOpen: Boolean = false
         fun storageKey(): String = if (accountScoped) key + suffix else key
         var value by mutableStateOf(default)
         fun load(p: SharedPreferences) {
-            val raw = p.getString(storageKey(), null) ?: if (accountScoped && legacyOpen) p.getString(key, null) else null
+            val raw = p.getString(storageKey(), null)
             value = raw?.let { runCatching { StellarJson.default.decodeFromString(serializer, it) }.getOrNull() } ?: default
         }
         fun save(p: SharedPreferences?, v: T) {
@@ -343,7 +343,6 @@ object LocalData {
     private val calcSlot = Slot("calculator_tape", ListSerializer(CalcEntry.serializer()), emptyList(), accountScoped = true)
 
     private const val KEY_ACTIVE_DID = "local_active_did"
-    private const val KEY_SLOTS_CLAIMED = "local_slots_claimed"
 
     /** The account the account slots currently belong to ("" until one
      *  is known, and while signed out — those read the "@signed_out"
@@ -372,11 +371,15 @@ object LocalData {
      *  vault used to be the only thing keeping them apart, and only once
      *  it had run: an account that hadn't set sync up, or hadn't unlocked
      *  it on this device, simply inherited whatever the last account had
-     *  left stored here.) Data written before they were kept apart sits
-     *  under the old shared keys; the first account set here claims it —
-     *  in practice the account it belongs to, the one signed in when the
-     *  update landed (and the one whose session the stored data was last
-     *  written under). */
+     *  left stored here.)
+     *
+     *  Data written before they were kept apart sits under the old
+     *  shared keys and is deliberately NOT assigned here: it doesn't
+     *  record whose it is, so signing in proves nothing. An earlier
+     *  version of this claimed it for whoever signed in first after the
+     *  update — a guess, and it handed one account's folders, drafts
+     *  and notes to another. [resolveLegacyData] settles whose it is,
+     *  by proof, and runs when a session starts. */
     fun setAccount(did: String) {
         val p = prefs ?: return
         if (did == accountDid) return
@@ -384,25 +387,100 @@ object LocalData {
         p.edit().putString(KEY_ACTIVE_DID, did).commit()
         val suffix = "@" + did.ifBlank { "signed_out" }
         for (slot in accountSlots) slot.suffix = suffix
-        if (did.isNotBlank()) {
-            // Claim the old shared keys for this account (see above):
-            // moved under its own keys, and gone from the shared ones.
-            // Once, for one account only — a later account must never
-            // pick up what an older version's sync writes back under a
-            // shared key; that copy belongs to whoever claimed first.
-            if (!p.getBoolean(KEY_SLOTS_CLAIMED, false)) {
-                val edit = p.edit()
-                for (slot in accountSlots) {
-                    val legacy = p.getString(slot.key, null) ?: continue
-                    if (!p.contains(slot.storageKey())) edit.putString(slot.storageKey(), legacy)
-                    edit.remove(slot.key)
-                }
-                edit.putBoolean(KEY_SLOTS_CLAIMED, true)
-                edit.commit()
-            }
-            for (slot in accountSlots) slot.legacyOpen = false
-        }
         for (slot in accountSlots) slot.load(p)
+    }
+
+    /** The entry ids in a stored slot value: the "id" of each object in
+     *  a list of entries (folders, drafts, notes and the like — each a
+     *  random UUID the account's data was created with). Nothing weaker
+     *  counts: no map keys, no names, no post links, which different
+     *  accounts can share. One of these ids found in two copies means
+     *  they're the same account's data — proof, not resemblance. */
+    private fun entryIds(raw: String?): Set<String> {
+        raw ?: return emptySet()
+        val root = runCatching { StellarJson.default.parseToJsonElement(raw) }.getOrNull() ?: return emptySet()
+        if (root !is JsonArray) return emptySet()
+        val out = HashSet<String>()
+        for (e in root) {
+            val id = ((e as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (!id.isNullOrBlank()) out += id
+        }
+        return out
+    }
+
+    /** [candidate] merged into [own], own's entries winning: for lists,
+     *  own's entries plus candidate's whose ids own doesn't have; for
+     *  maps, candidate's entries under own's. Anything else keeps own. */
+    private fun mergedJson(own: String?, candidate: String?): String? {
+        if (candidate == null) return own
+        if (own == null) return candidate
+        val o = runCatching { StellarJson.default.parseToJsonElement(own) }.getOrNull() ?: return own
+        val c = runCatching { StellarJson.default.parseToJsonElement(candidate) }.getOrNull() ?: return own
+        fun identity(e: JsonElement): String =
+            ((e as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull ?: e.toString()
+        return when {
+            o is JsonArray && c is JsonArray -> {
+                val seen = o.mapTo(HashSet()) { identity(it) }
+                JsonArray(o + c.filter { identity(it) !in seen }).toString()
+            }
+            o is JsonObject && c is JsonObject -> JsonObject(c + o).toString()
+            else -> own
+        }
+    }
+
+    /** Settles whose an unassigned set of the account slots is — the
+     *  old shared set, or (from the first per-account version, which
+     *  assigned by sign-in order) a set sitting under the wrong
+     *  account's keys — and gives it to [did].
+     *
+     *  A set is [did]'s when [evidenceIds] — entry ids out of the
+     *  account's OWN records: its public folders as published on its
+     *  PDS, its last synced vault copy — share even one id with it. Or
+     *  when the set is the shared one and [soleAccount] says this
+     *  device has only ever had the one account, so there's nobody
+     *  else it could belong to. Anything else stays where it is,
+     *  unread by anyone: an unproven set is never handed over on a
+     *  guess, and a proven owner's set moves even out from under
+     *  another account's keys, which repairs a wrong assignment.
+     *
+     *  Moved sets merge into what's already under [did]'s keys (its
+     *  own entries win, nothing is overwritten) and the source keys
+     *  are removed. Returns true when a set moved. */
+    fun resolveLegacyData(did: String, evidenceIds: Set<String>, soleAccount: Boolean): Boolean {
+        val p = prefs ?: return false
+        if (did.isBlank()) return false
+        val ownSuffix = "@$did"
+        // (Everywhere a set can be sitting: the shared keys themselves,
+        // and under other accounts' keys — found by the key names
+        // actually present in the file.)
+        val sources = LinkedHashSet<String>()
+        sources += ""
+        for (k in p.getAll().keys) {
+            val at = k.lastIndexOf('@')
+            if (at <= 0) continue
+            if (accountSlots.none { it.key == k.substring(0, at) }) continue
+            val sfx = k.substring(at)
+            if (sfx != ownSuffix && sfx != "@signed_out") sources += sfx
+        }
+        var moved = false
+        for (source in sources) {
+            val candidateIds = HashSet<String>()
+            for (slot in accountSlots) candidateIds += entryIds(p.getString(slot.key + source, null))
+            if (candidateIds.isEmpty()) continue
+            val proven = evidenceIds.any { it in candidateIds }
+            if (!proven && !(soleAccount && source.isEmpty())) continue
+            val edit = p.edit()
+            for (slot in accountSlots) {
+                val from = slot.key + source
+                val raw = p.getString(from, null) ?: continue
+                mergedJson(p.getString(slot.key + ownSuffix, null), raw)?.let { edit.putString(slot.key + ownSuffix, it) }
+                edit.remove(from)
+            }
+            edit.commit()
+            moved = true
+        }
+        if (moved && did == accountDid) for (slot in accountSlots) slot.load(p)
+        return moved
     }
 
     /** Supporter Settings → Notifications (Android). */
@@ -463,8 +541,7 @@ object LocalData {
         // see setAccount.)
         accountDid = p.getString(KEY_ACTIVE_DID, null) ?: ""
         val suffix = "@" + accountDid.ifBlank { "signed_out" }
-        val claimed = p.getBoolean(KEY_SLOTS_CLAIMED, false)
-        for (slot in accountSlots) { slot.suffix = suffix; slot.legacyOpen = !claimed }
+        for (slot in accountSlots) slot.suffix = suffix
         listOf(
             draftSlot, folderSlot, noteSlot, feedSlot, streakSlot, pinSlot, effectSlot,
             eventSlot, noteFolderSlot, notesSlot, pollVoteSlot, calcSlot

@@ -6560,6 +6560,23 @@ class MainViewModel(
                     // Each signed-in account has its own emoji library.
                     if (did.isNotBlank()) launch(ioDispatcher) {
                         runCatching { com.mediaviewer.util.EmojiStore.get(platform.context).useAccount(did) }
+                        // Settle whose this device's pre-per-account data
+                        // is (the folders, drafts, notes and the rest from
+                        // before they were kept apart, or put under the
+                        // wrong account's keys by the first version that
+                        // kept them apart). By proof only: entry ids out
+                        // of this account's own public folders, read off
+                        // its PDS, and its own last synced vault copy —
+                        // or, when it's the only account this device has
+                        // ever had, there's nobody else it could be.
+                        runCatching {
+                            val sole = (_otherBskyAccounts.value.map { it.did } + did).distinct().size <= 1
+                            val evidence = com.mediaviewer.util.PrivateSync.baseLocalEntryIds() +
+                                com.mediaviewer.util.PublicFolders.publishedIds(did)
+                            if (_bskyDid.value == did) {
+                                com.mediaviewer.util.LocalData.resolveLegacyData(did, evidence, sole)
+                            }
+                        }
                     }
                 }
         }
