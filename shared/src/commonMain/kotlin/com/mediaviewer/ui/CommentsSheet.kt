@@ -620,7 +620,25 @@ fun CommentsSheet(
                                         },
                                     decorationBox = { inner -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) { inner() } }
                                 )
-                                if (commentText.isEmpty()) Text(if (replyTarget != null) "Reply…" else "Add a comment…", color = Color.White, fontSize = 14.sp)
+                                if (commentText.isEmpty()) {
+                                    // One line, always: the placeholder shrinks until it
+                                    // fits the bubble instead of wrapping to two lines —
+                                    // in landscape the comments side panel can be too
+                                    // narrow for it at full size. (The same step-down
+                                    // shrink the settings rows use, keyed on the words
+                                    // so each placeholder sizes itself.)
+                                    val placeholder = if (replyTarget != null) "Reply…" else "Add a comment…"
+                                    var placeholderSize by remember(placeholder) { mutableStateOf(14f) }
+                                    Text(
+                                        placeholder, color = Color.White, fontSize = placeholderSize.sp,
+                                        maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                                        onTextLayout = { result ->
+                                            if (result.didOverflowWidth && placeholderSize > 6f) {
+                                                placeholderSize = (placeholderSize - 0.5f).coerceAtLeast(6f)
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                         if (liquidGlass) {
