@@ -447,9 +447,10 @@ object LocalData {
      *  assigned by sign-in order) a set sitting under the wrong
      *  account's keys — and gives it to [did].
      *
-     *  A set is [did]'s when [evidenceIds] — entry ids out of the
-     *  account's OWN records: its public folders as published on its
-     *  PDS, its last synced vault copy — share even one id with it. Or
+     *  A set is [did]'s when the evidence — entry ids out of the
+     *  account's OWN records, [evidenceBySource] naming where each
+     *  batch came from: its public folders as published on its PDS,
+     *  its last synced vault copy — shares even one id with it. Or
      *  when the set is the shared one and [soleAccount] says this
      *  device has only ever had the one account, so there's nobody
      *  else it could belong to. Anything else stays where it is,
@@ -460,7 +461,9 @@ object LocalData {
      *  Moved sets merge into what's already under [did]'s keys (its
      *  own entries win, nothing is overwritten) and the source keys
      *  are removed. Returns true when a set moved. */
-    fun resolveLegacyData(did: String, evidenceIds: Set<String>, soleAccount: Boolean): Boolean {
+    fun resolveLegacyData(did: String, evidenceBySource: Map<String, Set<String>>, soleAccount: Boolean): Boolean {
+        val evidenceIds = evidenceBySource.values.fold(HashSet<String>()) { acc, ids -> acc += ids; acc }
+        val evidenceNote = evidenceBySource.entries.joinToString(", ") { "${it.value.size} from ${it.key}" }
         val p = prefs ?: run {
             legacyReport = "Ownership check couldn't run: this device's storage isn't ready"
             return false
@@ -491,7 +494,7 @@ object LocalData {
             val proven = matched.isNotEmpty()
             if (!proven && !(soleAccount && source.isEmpty())) {
                 findings += "$where holds ${candidateIds.size} entries (${samples(candidateIds)}); " +
-                    "this account's own records hold ${evidenceIds.size} ids (${samples(evidenceIds)}); none matched, so it stayed put"
+                    "this account's own records hold ${evidenceIds.size} ids ($evidenceNote); none matched, so it stayed put"
                 continue
             }
             val edit = p.edit()

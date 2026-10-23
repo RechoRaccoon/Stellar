@@ -6565,14 +6565,26 @@ class MainViewModel(
                         // before they were kept apart, or put under the
                         // wrong account's keys by the first version that
                         // kept them apart). By proof only: entry ids out
-                        // of this account's own public folders, read off
-                        // its PDS, and its own last synced vault copy —
-                        // or, when it's the only account this device has
-                        // ever had, there's nobody else it could be.
+                        // of this account's own records — its public
+                        // folders, listed off its PDS through the same
+                        // signed-in path Private Sync itself uses (an
+                        // earlier version of this read them through the
+                        // public-folder reader, which came back empty on
+                        // a real device and left the check with nothing
+                        // to prove with), and its own last synced vault
+                        // copy — or, when it's the only account this
+                        // device has ever had, there's nobody else it
+                        // could be.
                         try {
                             val sole = (_otherBskyAccounts.value.map { it.did } + did).distinct().size <= 1
-                            val evidence = com.mediaviewer.util.PrivateSync.baseLocalEntryIds() +
-                                com.mediaviewer.util.PublicFolders.publishedIds(did)
+                            val published = runCatching {
+                                com.mediaviewer.util.PrivateSync.remote?.list(did, com.mediaviewer.util.PublicFolders.COLLECTION)
+                                    ?.mapTo(HashSet()) { it.rkey } ?: emptySet()
+                            }.getOrDefault(emptySet())
+                            val evidence = mapOf(
+                                "your published folders" to published,
+                                "your last sync" to com.mediaviewer.util.PrivateSync.baseLocalEntryIds()
+                            )
                             if (_bskyDid.value == did) {
                                 com.mediaviewer.util.LocalData.resolveLegacyData(did, evidence, sole)
                             }
