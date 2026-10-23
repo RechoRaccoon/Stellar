@@ -27,13 +27,7 @@ data class TagDatasetInfo(val id: String, val name: String, val importedAt: Long
 /** One post as read back out for an export (was TagDatabase.ExportedPost). */
 data class TagExportedPost(val postUri: String, val cid: String, val mediaUrl: String, val tags: List<Pair<String, Float>>)
 
-/** Progress of a tagging run (was TaggingRepository.Progress).
- *
- *  [TaggingProgress.datasetBytes] is the repository's on-device storage
- *  size, reported while a run goes; it is NOT what the Tagging page
- *  displays. The displayed size is the dataset's export file size, which
- *  only the ViewModel can work out (the export format lives there) —
- *  see MainViewModel.refreshTaggingCounts. */
+/** Progress of a tagging run (was TaggingRepository.Progress). */
 data class TaggingProgress(
     val scanned: Int,
     val tagged: Int,
@@ -64,6 +58,7 @@ interface TaggingService {
      *  not in it (they're counted per dataset in [listImportedDatasets]);
      *  [currentCounts]' scanned figure counts every dataset together. */
     fun ownDatasetCount(): Int
+    fun datasetSizeBytes(): Long
     fun isModelReady(): Boolean
     fun tagVocabulary(): List<String>
     fun isTaggerLoaded(): Boolean
@@ -143,6 +138,7 @@ object UnavailableTaggingService : TaggingService {
     override val isSupported: Boolean get() = false
     override fun currentCounts(): Pair<Int, Int> = 0 to 0
     override fun ownDatasetCount(): Int = 0
+    override fun datasetSizeBytes(): Long = 0L
     override fun isModelReady(): Boolean = false
     override fun tagVocabulary(): List<String> = emptyList()
     override fun isTaggerLoaded(): Boolean = false

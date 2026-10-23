@@ -381,6 +381,7 @@ class EngineTaggingRepository(
 
     override fun currentCounts(): Pair<Int, Int> = store.scannedCount() to store.taggedCount()
     override fun ownDatasetCount(): Int = store.ownCount()
+    override fun datasetSizeBytes(): Long = store.sizeBytes()
     override fun isModelReady(): Boolean = engine.hasModel()
     override fun isTaggerLoaded(): Boolean = engine.isLoaded()
     override fun cancel() { cancelRequested = true }

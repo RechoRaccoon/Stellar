@@ -8577,7 +8577,7 @@ class MainViewModel(
             _hasTaggedDataset.value = tagged > 0
             _ownDatasetCount.value = taggingRepo.ownDatasetCount()
             tagVocabularyCache = null
-            _taggingUiState.value = _taggingUiState.value.copy(scanned = scanned, tagged = tagged, datasetBytes = ownDatasetExportBytes())
+            _taggingUiState.value = _taggingUiState.value.copy(scanned = scanned, tagged = tagged, datasetBytes = taggingRepo.datasetSizeBytes())
         }
     }
 
@@ -8677,9 +8677,7 @@ class MainViewModel(
                 _taggingUiState.value = TaggingUiState(
                     scanned = progress.scanned,
                     tagged = progress.tagged,
-                    // (The export file's size, kept from the last counts
-                    // refresh — a run's own storage figure isn't shown.)
-                    datasetBytes = _taggingUiState.value.datasetBytes,
+                    datasetBytes = progress.datasetBytes,
                     isRunning = progress.isRunning,
                     isComplete = progress.isComplete,
                     modelState = shownModelState(progress.modelState),
@@ -8728,9 +8726,7 @@ class MainViewModel(
         _taggingUiState.value = TaggingUiState(
             scanned = progress.scanned,
             tagged = progress.tagged,
-            // (The export file's size, kept from the last counts refresh —
-            // a run's own storage figure isn't shown.)
-            datasetBytes = _taggingUiState.value.datasetBytes,
+            datasetBytes = progress.datasetBytes,
             isRunning = progress.isRunning,
             isComplete = progress.isComplete,
             modelState = shownModelState(progress.modelState),
@@ -8799,33 +8795,6 @@ class MainViewModel(
     @kotlinx.serialization.Serializable
     private data class DatasetFileTag(val name: String, val confidence: Float)
 
-    /** The export file for [posts] under [name] — one builder, so the
-     *  size the Tagging page quotes (see [ownDatasetExportBytes]) is
-     *  measured on exactly what [exportDataset] writes. */
-    private fun datasetFile(name: String, posts: List<TagExportedPost>): DatasetFile = DatasetFile(
-        name = name,
-        exportedAt = com.mediaviewer.platform.currentTimeMillis(),
-        posts = posts.map { p ->
-            DatasetFilePost(p.postUri, p.cid, p.mediaUrl, p.tags.map { (tag, conf) -> DatasetFileTag(tag, conf) })
-        }
-    )
-
-    /** Your own dataset's size as the file an export writes — what the
-     *  Tagging page shows, so the number matches the file you actually
-     *  get. (The on-device storage is much bigger: on Android it's a
-     *  database holding every scanned post, one row per tag per post,
-     *  plus its indexes — the page used to quote that, which is how it
-     *  could say hundreds of MB for a dataset that exports to a small
-     *  fraction of it.) The name is the one an export starts with, so
-     *  even the file's few header bytes are counted as written. */
-    private suspend fun ownDatasetExportBytes(): Long {
-        val posts = taggingRepo.exportDataset(null)
-        val ownName = _selfProfile.value?.author?.displayName?.takeIf { it.isNotBlank() } ?: bskyHandle
-        val name = if (ownName.isBlank()) "My Tag Dataset" else "$ownName's Tag Dataset"
-        val json = com.mediaviewer.json.StellarJson.default.encodeToString(DatasetFile.serializer(), datasetFile(name, posts))
-        return json.encodeToByteArray().size.toLong()
-    }
-
 
     /** Settings' "Export" button, once the person has named the dataset and
      *  picked a save location via the system file picker (ActivityResult
@@ -8855,7 +8824,13 @@ class MainViewModel(
             try {
                 val posts = taggingRepo.exportDataset(datasetId)
                 _datasetExportState.value = DatasetExportState.Working("Writing ${posts.size} posts…", posts.size)
-                val file = datasetFile(name.ifBlank { "Untitled Dataset" }, posts)
+                val file = DatasetFile(
+                    name = name.ifBlank { "Untitled Dataset" },
+                    exportedAt = com.mediaviewer.platform.currentTimeMillis(),
+                    posts = posts.map { p ->
+                        DatasetFilePost(p.postUri, p.cid, p.mediaUrl, p.tags.map { (tag, conf) -> DatasetFileTag(tag, conf) })
+                    }
+                )
                 val json = com.mediaviewer.json.StellarJson.default.encodeToString(DatasetFile.serializer(), file)
                 platform.writeTextToUri(uri, json)
                 _datasetExportState.value = DatasetExportState.Done(posts.size)
