@@ -49,8 +49,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -866,8 +868,44 @@ private fun AccountGuessField(
     }
     val transformation = if (ghost == null || field.selection.end != field.text.length) androidx.compose.ui.text.input.VisualTransformation.None
         else remember(ghost, field.selection.end) { ghostTransformation(androidx.compose.ui.text.input.VisualTransformation.None, field.selection.end, ghost) }
+    // A left-to-right swipe across the field takes the guess — the
+    // composer's own watcher, on the field's box, reading presses before
+    // the text field's drag handling can make a selection of them. (A
+    // drag detector on the field itself lost that race — a mouse drag
+    // most of all — so the swipe never landed here.)
+    val ghostShown = androidx.compose.runtime.rememberUpdatedState(ghost != null)
+    val acceptLatest = androidx.compose.runtime.rememberUpdatedState { accept() }
+    val swipeTap = rememberHapticTap()
     Box(
-        modifier.fillMaxWidth().heightIn(min = 44.dp).popupFieldWell(tint, RoundedCornerShape(22.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+        modifier.fillMaxWidth().heightIn(min = 44.dp).popupFieldWell(tint, RoundedCornerShape(22.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+            .pointerInput(Unit) {
+                val reach = 36.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    if (!ghostShown.value) return@awaitEachGesture
+                    var dx = 0f
+                    var dy = 0f
+                    while (true) {
+                        val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) break
+                        val d = ch.positionChange()
+                        dx += d.x; dy += d.y
+                        if (kotlin.math.abs(dy) > reach || dx < -reach) break
+                        if (dx > reach && dx > kotlin.math.abs(dy) * 2f) {
+                            if (acceptLatest.value()) {
+                                swipeTap()
+                                // The rest of this swipe is ours, not a text selection.
+                                do {
+                                    val more = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    more.changes.forEach { it.consume() }
+                                } while (more.changes.any { it.pressed })
+                            }
+                            break
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.CenterStart
     ) {
         androidx.compose.foundation.text.BasicTextField(
@@ -880,10 +918,6 @@ private fun AccountGuessField(
             modifier = Modifier.fillMaxWidth()
                 .then(androidx.compose.ui.Modifier.onPreviewKeyEvent { e ->
                     e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Tab && ghost != null && accept()
-                })
-                .then(androidx.compose.ui.Modifier.pointerInput(ghost != null) {
-                    if (ghost == null) return@pointerInput
-                    detectHorizontalDragGestures { change, amount -> if (amount > 6f && accept()) change.consume() }
                 })
         )
         if (value.isEmpty()) Text("Name or handle", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, maxLines = 1)

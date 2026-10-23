@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.mediaviewer.ui.compat.mouseSideways
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -274,9 +275,12 @@ private fun BuiltFeedPosts(
         }.collect { near -> if (near && state?.postsCursor != null) latestMore() }
     }
     val spacing = styleSpacing(feed.style)
+    // (mouseSideways: the sideways rows above get mouse dragging from the
+    // compat LazyRow; a grid has to be given it — without it these rows
+    // couldn't be dragged sideways with a mouse on web or desktop.)
     LazyHorizontalGrid(
         rows = GridCells.Fixed(rows), state = gridState,
-        modifier = Modifier.fillMaxWidth().height(tileH * rows + spacing * (rows - 1)),
+        modifier = Modifier.fillMaxWidth().height(tileH * rows + spacing * (rows - 1)).mouseSideways(gridState),
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(spacing), verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
