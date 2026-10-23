@@ -343,6 +343,11 @@ object LocalData {
     private val calcSlot = Slot("calculator_tape", ListSerializer(CalcEntry.serializer()), emptyList(), accountScoped = true)
 
     private const val KEY_ACTIVE_DID = "local_active_did"
+    /** "owner<US>source;;owner<US>source…": which unassigned sets each
+     *  account has already reclaimed (see resolveLegacyData). Kept on
+     *  this device only — never synced (PrivateSyncSections' "local"
+     *  rule leaves it out). */
+    private const val KEY_RECLAIMED = "local_reclaimed_sources"
 
     /** The account the account slots currently belong to ("" until one
      *  is known, and while signed out — those read the "@signed_out"
@@ -449,14 +454,22 @@ object LocalData {
      *
      *  A set is [did]'s when the evidence — entry ids out of the
      *  account's OWN records, [evidenceBySource] naming where each
-     *  batch came from: its public folders as published on its PDS,
-     *  its last synced vault copy — shares even one id with it. Or
-     *  when the set is the shared one and [soleAccount] says this
-     *  device has only ever had the one account, so there's nobody
-     *  else it could belong to. Anything else stays where it is,
-     *  unread by anyone: an unproven set is never handed over on a
-     *  guess, and a proven owner's set moves even out from under
-     *  another account's keys, which repairs a wrong assignment.
+     *  batch came from: its public folders as published on its PDS —
+     *  shares even one id with it. (A synced vault copy is NOT
+     *  evidence: a vault written during a mix-up can itself hold
+     *  another account's data, so trusting it lets two accounts keep
+     *  "proving" the same set is theirs and drag it back and forth
+     *  between them on every switch.) Or when the set is the shared
+     *  one and [soleAccount] says this device has only ever had the
+     *  one account, so there's nobody else it could belong to.
+     *  Anything else stays where it is, unread by anyone: an unproven
+     *  set is never handed over on a guess, and a proven owner's set
+     *  moves even out from under another account's keys, which
+     *  repairs a wrong assignment. Each source is reclaimed by an
+     *  account at most once (see KEY_RECLAIMED): a set that turns up
+     *  under another account's keys again afterwards — written back
+     *  there by that account's own sync, from its own vault — is
+     *  that account's to keep or delete, and is never dragged back.
      *
      *  Moved sets merge into what's already under [did]'s keys (its
      *  own entries win, nothing is overwritten) and the source keys
@@ -483,9 +496,15 @@ object LocalData {
             if (sfx != ownSuffix && sfx != "@signed_out") sources += sfx
         }
         fun samples(ids: Set<String>) = ids.take(3).joinToString(", ") { it.take(8) }
+        // (Sources this account has already reclaimed once: never again —
+        // see the note above.)
+        val reclaimed = p.getString(KEY_RECLAIMED, null).orEmpty().split(";;")
+            .mapNotNull { e -> e.split('\u001F').takeIf { it.size == 2 } }
+            .filter { it[0] == did }.map { it[1] }.toSet()
         val findings = ArrayList<String>()
         var moved = false
         for (source in sources) {
+            if (source in reclaimed) continue
             val candidateIds = HashSet<String>()
             for (slot in accountSlots) candidateIds += entryIds(p.getString(slot.key + source, null))
             if (candidateIds.isEmpty()) continue
@@ -504,6 +523,10 @@ object LocalData {
                 mergedJson(p.getString(slot.key + ownSuffix, null), raw)?.let { edit.putString(slot.key + ownSuffix, it) }
                 edit.remove(from)
             }
+            // (This source, reclaimed by this account: remembered on
+            // this device, so it's never reclaimed a second time.)
+            val prior = p.getString(KEY_RECLAIMED, null).orEmpty()
+            edit.putString(KEY_RECLAIMED, (if (prior.isEmpty()) "" else "$prior;;") + did + "\u001F" + source)
             edit.commit()
             moved = true
             findings += if (proven) "$where: ${matched.size} of its entries match this account's own records — moved to this account"

@@ -6499,6 +6499,14 @@ class MainViewModel(
             }
             override suspend fun put(rkey: String, record: Map<String, Any>) = signedIn { bskyRepo.putPublicFolder(bskyToken, _bskyDid.value, rkey, record) }
             override suspend fun delete(rkey: String) = signedIn { bskyRepo.deletePublicFolder(bskyToken, _bskyDid.value, rkey) }
+            override suspend fun list(did: String): List<Pair<String, kotlinx.serialization.json.JsonObject>> {
+                val token = bskyToken.takeIf { _bskyLoggedIn.value && it.isNotBlank() }
+                return try { bskyRepo.listRecordValues(token, did, com.mediaviewer.util.PublicFolders.COLLECTION) } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (token != null && isAuthError(e.message) && refreshBskyTokenIfPossible()) bskyRepo.listRecordValues(bskyToken, did, com.mediaviewer.util.PublicFolders.COLLECTION)
+                    else throw e
+                }
+            }
         }
         // A profile's Home tab: one plain record per feed on your own PDS.
         com.mediaviewer.util.ProfileHome.remote = object : com.mediaviewer.util.ProfileHome.Remote {
@@ -6571,10 +6579,14 @@ class MainViewModel(
                         // earlier version of this read them through the
                         // public-folder reader, which came back empty on
                         // a real device and left the check with nothing
-                        // to prove with), and its own last synced vault
-                        // copy — or, when it's the only account this
-                        // device has ever had, there's nobody else it
-                        // could be.
+                        // to prove with) — or, when it's the only
+                        // account this device has ever had, there's
+                        // nobody else it could be. (The account's synced
+                        // vault copy is deliberately not evidence: a
+                        // vault written during a mix-up can itself hold
+                        // another account's data, and two accounts
+                        // "proving" the same set with it dragged the set
+                        // back and forth between them.)
                         try {
                             val sole = (_otherBskyAccounts.value.map { it.did } + did).distinct().size <= 1
                             val published = runCatching {
@@ -6582,8 +6594,7 @@ class MainViewModel(
                                     ?.mapTo(HashSet()) { it.rkey } ?: emptySet()
                             }.getOrDefault(emptySet())
                             val evidence = mapOf(
-                                "your published folders" to published,
-                                "your last sync" to com.mediaviewer.util.PrivateSync.baseLocalEntryIds()
+                                "your published folders" to published
                             )
                             if (_bskyDid.value == did) {
                                 com.mediaviewer.util.LocalData.resolveLegacyData(did, evidence, sole)

@@ -40,6 +40,9 @@ object PublicFolders {
         val did: String
         suspend fun put(rkey: String, record: Map<String, Any>)
         suspend fun delete(rkey: String)
+        /** Every public folder record in [did]'s repo (its at:// URI and
+         *  value), read the same way the app's other public records are. */
+        suspend fun list(did: String): List<Pair<String, JsonObject>>
     }
     var remote: Remote? = null
     /** Tells the person a folder couldn't be published (set by the ViewModel). */
@@ -108,9 +111,32 @@ object PublicFolders {
     suspend fun load(did: String, fresh: Boolean = false): List<Folder> {
         if (did == remote?.did) return mine(did).also { byAccount[did] = it }
         if (!fresh) byAccount[did]?.let { return it }
-        val list = runCatching { read(did) }.getOrNull() ?: return byAccount[did].orEmpty()
+        // (Through the app's own API client first — how Home tabs and the
+        // rest of the public records are read; straight from the account's
+        // PDS when that can't be used. This used to go direct only, and on
+        // real devices that came back empty, so other people's folders
+        // showed nowhere — not in Collections, not in Home rows — even
+        // though the records were sitting on their PDS the whole time.)
+        val viaApi = remote?.let { r -> runCatching { r.list(did) } }
+        val list = viaApi?.getOrNull()?.map { (uri, value) -> folderOf(uri.substringAfterLast('/'), did, value) }
+            ?: runCatching { read(did) }.getOrNull()
+            ?: return byAccount[did].orEmpty()
         byAccount[did] = list
         return list
+    }
+
+    /** One folder record's value as a [Folder]. */
+    private fun folderOf(rkey: String, did: String, value: JsonObject): Folder {
+        fun text(k: String) = (value[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val posts = (value["posts"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+            ?.filter { it.startsWith("at://") }.orEmpty()
+        return Folder(
+            rkey = rkey,
+            did = did, name = text("name").orEmpty().ifBlank { "Folder" }, posts = posts,
+            cover = text("cover")?.takeIf { it.startsWith("https://") },
+            updatedAt = text("updatedAt")?.let { runCatching { kotlin.time.Instant.parse(it).toEpochMilliseconds() }.getOrNull() } ?: 0L,
+            layout = text("layout")?.takeIf { it == "vertical" || it == "horizontal" } ?: "grid"
+        )
     }
 
     @OptIn(kotlin.time.ExperimentalTime::class)
@@ -130,16 +156,7 @@ object PublicFolders {
             for (r in records) {
                 val o = r as? JsonObject ?: continue
                 val value = o["value"] as? JsonObject ?: continue
-                fun text(k: String) = (value[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                val posts = (value["posts"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-                    ?.filter { it.startsWith("at://") }.orEmpty()
-                out += Folder(
-                    rkey = (o["uri"] as? JsonPrimitive)?.content.orEmpty().substringAfterLast('/'),
-                    did = did, name = text("name").orEmpty().ifBlank { "Folder" }, posts = posts,
-                    cover = text("cover")?.takeIf { it.startsWith("https://") },
-                    updatedAt = text("updatedAt")?.let { runCatching { kotlin.time.Instant.parse(it).toEpochMilliseconds() }.getOrNull() } ?: 0L,
-                    layout = text("layout")?.takeIf { it == "vertical" || it == "horizontal" } ?: "grid"
-                )
+                out += folderOf((o["uri"] as? JsonPrimitive)?.content.orEmpty().substringAfterLast('/'), did, value)
             }
             cursor = (root["cursor"] as? JsonPrimitive)?.content?.takeIf { records.isNotEmpty() }
         } while (cursor != null && ++pages < 10)

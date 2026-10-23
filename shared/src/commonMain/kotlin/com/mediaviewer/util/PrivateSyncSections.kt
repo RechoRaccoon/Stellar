@@ -111,7 +111,7 @@ internal object Sections {
         // device too (see LocalData.setAccount): a key naming an account
         // travels only for that account, and the file's own note of whose
         // data is loaded stays on the device.
-        Prefs("local", LocalData.PREFS) { key, did -> key !in LOCAL_SETTINGS && key != "local_active_did" && key != "local_slots_claimed" && (!key.contains('@') || key.contains("@$did")) },
+        Prefs("local", LocalData.PREFS) { key, did -> key !in LOCAL_SETTINGS && key != "local_active_did" && key != "local_slots_claimed" && key != "local_reclaimed_sources" && (!key.contains('@') || key.contains("@$did")) },
         Prefs("status", "status_history") { key, did -> key == "entries_$did" },
         Prefs("emojiAccounts", "emoji_accounts") { key, did -> key == "saved_$did" },
         // Asked to travel: Search's recent accounts and searches, and Add

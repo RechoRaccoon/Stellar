@@ -1554,6 +1554,20 @@ internal fun SettingsPageContent(
         // ── Dev Tools (hidden: hold the "Settings" tab for 10 seconds) ─
         if (com.mediaviewer.util.UiToggles.devToolsUnlocked) {
             CollapsibleSection("Dev Tools", tint) {
+                // The local-data ownership check's latest word (see
+                // LocalData.resolveLegacyData): what it found on this
+                // device and what it did. A developer diagnostic — it
+                // lives here, not with the everyday sync settings.
+                SettingsBubble(liquidGlass, tint, backdrop) {
+                    BubbleRow {
+                        RowLabel("Data Ownership Check", Modifier.weight(1f))
+                    }
+                    Text(
+                        com.mediaviewer.util.LocalData.legacyReport ?: "Not checked yet this session",
+                        color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+                    )
+                }
                 // Battery Saver (experimental): flat buttons instead of live
                 // blur, no starfield or visualizer, a 60 Hz cap and slower
                 // background checks.
@@ -2930,16 +2944,6 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
                 }, enabled = !regenerating && !sync.syncing)
             }
         }
-        // The local-data ownership check's latest word (see
-        // LocalData.resolveLegacyData): what it found on this device
-        // and what it did, in plain sight, so a set of folders, drafts
-        // or notes that didn't move to its account says why instead of
-        // failing silently.
-        Text(
-            com.mediaviewer.util.LocalData.legacyReport ?: "Folder and draft ownership: not checked yet this session",
-            color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
-            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
-        )
         if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyLine(key) }
     }
     if (newKeyShown) androidx.compose.ui.window.Dialog(
