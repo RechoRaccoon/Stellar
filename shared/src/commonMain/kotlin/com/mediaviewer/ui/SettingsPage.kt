@@ -314,9 +314,10 @@ private fun SearchEngineBubble(liquidGlass: Boolean, tint: Color, backdrop: Glas
 }
 
 /**
- * Settings → App Functionality → Check for Updates: whether Stellar looks
- * for a newer release on GitHub by itself (twice a day at most), and Check
- * Now. See AppUpdates.
+ * Settings → Data and Privacy → Check for Updates: whether Stellar looks
+ * for a newer release on GitHub by itself (each time it opens), and Check
+ * Now. See AppUpdates. Where a version can't check (the web), the
+ * [VersionBubble] stands in its place instead.
  */
 @Composable
 private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
@@ -341,6 +342,21 @@ private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBack
                     }
                 }
             })
+        }
+    }
+}
+
+/**
+ * Settings → Data and Privacy → Version: where this version of Stellar
+ * doesn't check for updates itself (the web), the top of Data and
+ * Privacy just names the version, in the same place the update check
+ * sits everywhere else.
+ */
+@Composable
+private fun VersionBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
+    SettingsBubble(liquidGlass, tint, backdrop) {
+        BubbleRow {
+            RowLabel("Version", Modifier.weight(1f), sub = "v" + com.mediaviewer.AppVersion.NAME)
         }
     }
 }
@@ -857,7 +873,6 @@ internal fun SettingsPageContent(
 
             // The language Stellar's own words are shown in (last in the section).
             LanguageBubble(liquidGlass, tint, backdrop)
-            if (com.mediaviewer.util.PlatformUpdater.checks) UpdatesBubble(liquidGlass, tint, backdrop)
         }
 
         // ── UI Customization ────────────────────────────────────────────
@@ -1363,6 +1378,11 @@ internal fun SettingsPageContent(
 
         // ── Data and Privacy ────────────────────────────────────────────
         CollapsibleSection("Data and Privacy", tint) {
+            // First in the section: the update check (it used to be the last
+            // bubble of App Functionality) — or, where this version doesn't
+            // check for updates (the web), a bubble naming the version.
+            if (com.mediaviewer.util.PlatformUpdater.checks) UpdatesBubble(liquidGlass, tint, backdrop)
+            else VersionBubble(liquidGlass, tint, backdrop)
             if (bskyLoggedIn) PrivateSyncBubble(liquidGlass, tint, backdrop)
             if (bskyLoggedIn) {
                 ActionBubble(

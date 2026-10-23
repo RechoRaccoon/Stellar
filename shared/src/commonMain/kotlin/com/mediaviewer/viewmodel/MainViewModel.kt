@@ -3995,6 +3995,7 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.Main.immediate) {
             com.mediaviewer.util.HubLayout.setAccount(did)
             com.mediaviewer.util.UiToggles.setAccount(did)
+            com.mediaviewer.util.LocalData.setAccount(did)
         }
     }
 

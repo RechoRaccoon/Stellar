@@ -304,33 +304,101 @@ object LocalData {
         runCatching { com.mediaviewer.platform.LocalPlatform.updateWidgets(c, null) }
     }
 
-    private class Slot<T>(val key: String, val serializer: KSerializer<T>, val default: T) {
+    private class Slot<T>(val key: String, val serializer: KSerializer<T>, val default: T, val accountScoped: Boolean = false) {
+        /** An account slot's storage-key ending ("@<did>", or
+         *  "@signed_out"): kept current by [setAccount] and [init]. */
+        var suffix: String = ""
+        /** Whether the old shared key may still stand in for this slot:
+         *  only until the first account claims the shared keys (see
+         *  setAccount) — afterwards a shared key appearing again (an
+         *  older version's vault, applied) is nobody's to read. */
+        var legacyOpen: Boolean = false
+        fun storageKey(): String = if (accountScoped) key + suffix else key
         var value by mutableStateOf(default)
         fun load(p: SharedPreferences) {
-            value = p.getString(key, null)?.let { runCatching { StellarJson.default.decodeFromString(serializer, it) }.getOrNull() } ?: default
+            val raw = p.getString(storageKey(), null) ?: if (accountScoped && legacyOpen) p.getString(key, null) else null
+            value = raw?.let { runCatching { StellarJson.default.decodeFromString(serializer, it) }.getOrNull() } ?: default
         }
         fun save(p: SharedPreferences?, v: T) {
             value = v
             // commit(): written before anything else can happen, so a draft
             // or note is never lost to a crash right after saving.
-            runCatching { p?.edit()?.putString(key, StellarJson.default.encodeToString(serializer, v))?.commit() }
+            runCatching { p?.edit()?.putString(storageKey(), StellarJson.default.encodeToString(serializer, v))?.commit() }
         }
     }
 
-    private val draftSlot = Slot("drafts", ListSerializer(PostDraftEntry.serializer()), emptyList())
-    private val folderSlot = Slot("bookmark_folders", ListSerializer(BookmarkFolder.serializer()), emptyList())
-    private val noteSlot = Slot("profile_notes", MapSerializer(String.serializer(), String.serializer()), emptyMap())
-    private val feedSlot = Slot("local_feeds", ListSerializer(LocalFeed.serializer()), emptyList())
-    private val streakSlot = Slot("dm_streaks", MapSerializer(String.serializer(), DmStreak.serializer()), emptyMap())
-    private val pinSlot = Slot("dm_pins", ListSerializer(String.serializer()), emptyList())
+    private val draftSlot = Slot("drafts", ListSerializer(PostDraftEntry.serializer()), emptyList(), accountScoped = true)
+    private val folderSlot = Slot("bookmark_folders", ListSerializer(BookmarkFolder.serializer()), emptyList(), accountScoped = true)
+    private val noteSlot = Slot("profile_notes", MapSerializer(String.serializer(), String.serializer()), emptyMap(), accountScoped = true)
+    private val feedSlot = Slot("local_feeds", ListSerializer(LocalFeed.serializer()), emptyList(), accountScoped = true)
+    private val streakSlot = Slot("dm_streaks", MapSerializer(String.serializer(), DmStreak.serializer()), emptyMap(), accountScoped = true)
+    private val pinSlot = Slot("dm_pins", ListSerializer(String.serializer()), emptyList(), accountScoped = true)
     private val effectSlot = Slot("dm_effects_played", ListSerializer(String.serializer()), emptyList())
-    private val eventSlot = Slot("calendar_events", ListSerializer(CalendarEvent.serializer()), emptyList())
-    private val noteFolderSlot = Slot("note_folders", ListSerializer(NoteFolder.serializer()), emptyList())
-    private val notesSlot = Slot("notes", ListSerializer(NoteEntry.serializer()), emptyList())
-    private val pollVoteSlot = Slot("poll_votes", MapSerializer(String.serializer(), String.serializer()), emptyMap())
+    private val eventSlot = Slot("calendar_events", ListSerializer(CalendarEvent.serializer()), emptyList(), accountScoped = true)
+    private val noteFolderSlot = Slot("note_folders", ListSerializer(NoteFolder.serializer()), emptyList(), accountScoped = true)
+    private val notesSlot = Slot("notes", ListSerializer(NoteEntry.serializer()), emptyList(), accountScoped = true)
+    private val pollVoteSlot = Slot("poll_votes", MapSerializer(String.serializer(), String.serializer()), emptyMap(), accountScoped = true)
     // ("tape", not "history": anything named history stays on its device,
     // and this one is meant to sync, encrypted, with the rest.)
-    private val calcSlot = Slot("calculator_tape", ListSerializer(CalcEntry.serializer()), emptyList())
+    private val calcSlot = Slot("calculator_tape", ListSerializer(CalcEntry.serializer()), emptyList(), accountScoped = true)
+
+    private const val KEY_ACTIVE_DID = "local_active_did"
+    private const val KEY_SLOTS_CLAIMED = "local_slots_claimed"
+
+    /** The account the account slots currently belong to ("" until one
+     *  is known, and while signed out — those read the "@signed_out"
+     *  bucket, so they show nothing of anyone's). */
+    private var accountDid: String = ""
+
+    /** The slots holding one account's own things: drafts, bookmark
+     *  folders, profile notes, local feeds, DM streaks and pins, calendar
+     *  events, notes, poll votes, the calculator tape. (Played DM effects
+     *  are this device's alone, like the settings below.) */
+    private val accountSlots: List<Slot<*>>
+        get() = listOf(
+            draftSlot, folderSlot, noteSlot, feedSlot, streakSlot, pinSlot,
+            eventSlot, noteFolderSlot, notesSlot, pollVoteSlot, calcSlot
+        )
+
+    /** The signed-in account changed (or became known): show ITS stored
+     *  things. They're kept per account on this device — each account's
+     *  copies live under its own keys — so one account's drafts, folders
+     *  and the rest never show while another is signed in. (The encrypted
+     *  vault used to be the only thing keeping them apart, and only once
+     *  it had run: an account that hadn't set sync up, or hadn't unlocked
+     *  it on this device, simply inherited whatever the last account had
+     *  left stored here.) Data written before they were kept apart sits
+     *  under the old shared keys; the first account set here claims it —
+     *  in practice the account it belongs to, the one signed in when the
+     *  update landed (and the one whose session the stored data was last
+     *  written under). */
+    fun setAccount(did: String) {
+        val p = prefs ?: return
+        if (did == accountDid) return
+        accountDid = did
+        p.edit().putString(KEY_ACTIVE_DID, did).commit()
+        val suffix = "@" + did.ifBlank { "signed_out" }
+        for (slot in accountSlots) slot.suffix = suffix
+        if (did.isNotBlank()) {
+            // Claim the old shared keys for this account (see above):
+            // moved under its own keys, and gone from the shared ones.
+            // Once, for one account only — a later account must never
+            // pick up what an older version's sync writes back under a
+            // shared key; that copy belongs to whoever claimed first.
+            if (!p.getBoolean(KEY_SLOTS_CLAIMED, false)) {
+                val edit = p.edit()
+                for (slot in accountSlots) {
+                    val legacy = p.getString(slot.key, null) ?: continue
+                    if (!p.contains(slot.storageKey())) edit.putString(slot.storageKey(), legacy)
+                    edit.remove(slot.key)
+                }
+                edit.putBoolean(KEY_SLOTS_CLAIMED, true)
+                edit.commit()
+            }
+            for (slot in accountSlots) slot.legacyOpen = false
+        }
+        for (slot in accountSlots) slot.load(p)
+    }
 
     /** Supporter Settings → Notifications (Android). */
     var notifyDms by mutableStateOf(false)
@@ -385,6 +453,13 @@ object LocalData {
         prefs = p
         appContext = context
         widgetPrefs = context.sharedPreferences("stellar_widgets").also { widgetNoteId = it.getString("note_id", null) ?: "" }
+        // (Whose the account slots are, remembered from when the account
+        // was last set, so they load as that account's from the start —
+        // see setAccount.)
+        accountDid = p.getString(KEY_ACTIVE_DID, null) ?: ""
+        val suffix = "@" + accountDid.ifBlank { "signed_out" }
+        val claimed = p.getBoolean(KEY_SLOTS_CLAIMED, false)
+        for (slot in accountSlots) { slot.suffix = suffix; slot.legacyOpen = !claimed }
         listOf(
             draftSlot, folderSlot, noteSlot, feedSlot, streakSlot, pinSlot, effectSlot,
             eventSlot, noteFolderSlot, notesSlot, pollVoteSlot, calcSlot

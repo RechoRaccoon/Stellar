@@ -1,7 +1,6 @@
 package com.mediaviewer.ui
 
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
@@ -116,7 +116,25 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
         .onGloballyPositioned { coords[0] = it }
         .pointerInput(Unit) {
             awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                // The first press of the touch, kept with the event it
+                // arrived in: which mouse button it was is read from THAT
+                // event below. (It used to be read from the scope's
+                // current event after a plain wait for the press — which
+                // has moved on to a later event of the gesture by then,
+                // so a right click's buttons were never seen and it never
+                // picked, while holding the left button, which re-reads
+                // each event as it comes, worked.)
+                var downEvent: androidx.compose.ui.input.pointer.PointerEvent? = null
+                val down = run {
+                    var found: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                    while (found == null) {
+                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                        val c = ev.changes.firstOrNull { it.changedToDownIgnoreConsumed() }
+                        if (c != null) { downEvent = ev; found = c }
+                    }
+                    found!!
+                }
+                val firstEvent = downEvent!!
                 // (A tile inside another selectable one: only the outer one acts.)
                 if (PostSelection.claimed == down.id) return@awaitEachGesture
                 PostSelection.claimed = down.id
@@ -127,9 +145,9 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                 try {
                     // A right click, or Ctrl / Shift / ⌘ + click: picks (or unpicks)
                     // straight away, no holding.
-                    val mods = currentEvent.keyboardModifiers
-                    if (currentEvent.buttons.isSecondaryPressed || mods.isCtrlPressed || mods.isShiftPressed || mods.isMetaPressed) {
-                        currentEvent.changes.forEach { it.consume() }
+                    val mods = firstEvent.keyboardModifiers
+                    if (firstEvent.buttons.isSecondaryPressed || mods.isCtrlPressed || mods.isShiftPressed || mods.isMetaPressed) {
+                        firstEvent.changes.forEach { it.consume() }
                         pick()
                         return@awaitEachGesture
                     }
