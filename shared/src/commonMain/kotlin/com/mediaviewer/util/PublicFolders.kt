@@ -126,6 +126,7 @@ object PublicFolders {
     }
 
     /** One folder record's value as a [Folder]. */
+    @OptIn(kotlin.time.ExperimentalTime::class)
     private fun folderOf(rkey: String, did: String, value: JsonObject): Folder {
         fun text(k: String) = (value[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val posts = (value["posts"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
