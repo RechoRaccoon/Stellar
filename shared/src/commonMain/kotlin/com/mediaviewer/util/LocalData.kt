@@ -428,6 +428,20 @@ object LocalData {
         }
     }
 
+    /** The ownership check's latest word, shown in Settings → Data and
+     *  Privacy: what [resolveLegacyData] found on this device and what
+     *  it did — so a set that didn't move says why, in plain sight,
+     *  instead of failing silently. Null until it has run this
+     *  session. */
+    var legacyReport by mutableStateOf<String?>(null)
+        private set
+
+    /** The session-start wiring couldn't even run the check: it says
+     *  so, with the error, in the same place. */
+    fun legacyCheckFailed(error: String) {
+        legacyReport = "Ownership check couldn't run: $error"
+    }
+
     /** Settles whose an unassigned set of the account slots is — the
      *  old shared set, or (from the first per-account version, which
      *  assigned by sign-in order) a set sitting under the wrong
@@ -447,7 +461,10 @@ object LocalData {
      *  own entries win, nothing is overwritten) and the source keys
      *  are removed. Returns true when a set moved. */
     fun resolveLegacyData(did: String, evidenceIds: Set<String>, soleAccount: Boolean): Boolean {
-        val p = prefs ?: return false
+        val p = prefs ?: run {
+            legacyReport = "Ownership check couldn't run: this device's storage isn't ready"
+            return false
+        }
         if (did.isBlank()) return false
         val ownSuffix = "@$did"
         // (Everywhere a set can be sitting: the shared keys themselves,
@@ -462,13 +479,21 @@ object LocalData {
             val sfx = k.substring(at)
             if (sfx != ownSuffix && sfx != "@signed_out") sources += sfx
         }
+        fun samples(ids: Set<String>) = ids.take(3).joinToString(", ") { it.take(8) }
+        val findings = ArrayList<String>()
         var moved = false
         for (source in sources) {
             val candidateIds = HashSet<String>()
             for (slot in accountSlots) candidateIds += entryIds(p.getString(slot.key + source, null))
             if (candidateIds.isEmpty()) continue
-            val proven = evidenceIds.any { it in candidateIds }
-            if (!proven && !(soleAccount && source.isEmpty())) continue
+            val matched = candidateIds.intersect(evidenceIds)
+            val where = if (source.isEmpty()) "the old shared set" else "a set under another account's keys"
+            val proven = matched.isNotEmpty()
+            if (!proven && !(soleAccount && source.isEmpty())) {
+                findings += "$where holds ${candidateIds.size} entries (${samples(candidateIds)}); " +
+                    "this account's own records hold ${evidenceIds.size} ids (${samples(evidenceIds)}); none matched, so it stayed put"
+                continue
+            }
             val edit = p.edit()
             for (slot in accountSlots) {
                 val from = slot.key + source
@@ -478,7 +503,11 @@ object LocalData {
             }
             edit.commit()
             moved = true
+            findings += if (proven) "$where: ${matched.size} of its entries match this account's own records — moved to this account"
+                else "$where moved to this account (it's the only account on this device)"
         }
+        legacyReport = if (findings.isEmpty()) "Ownership check ran: no unassigned folders, drafts or notes found on this device"
+            else "Ownership check ran. " + findings.joinToString(". ")
         if (moved && did == accountDid) for (slot in accountSlots) slot.load(p)
         return moved
     }

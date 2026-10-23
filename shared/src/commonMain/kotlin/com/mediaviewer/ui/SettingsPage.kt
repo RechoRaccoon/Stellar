@@ -2930,6 +2930,16 @@ private fun PrivateSyncBubble(liquidGlass: Boolean, tint: Color, backdrop: Glass
                 }, enabled = !regenerating && !sync.syncing)
             }
         }
+        // The local-data ownership check's latest word (see
+        // LocalData.resolveLegacyData): what it found on this device
+        // and what it did, in plain sight, so a set of folders, drafts
+        // or notes that didn't move to its account says why instead of
+        // failing silently.
+        Text(
+            com.mediaviewer.util.LocalData.legacyReport ?: "Folder and draft ownership: not checked yet this session",
+            color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+        )
         if (key != null) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) { SecretKeyLine(key) }
     }
     if (newKeyShown) androidx.compose.ui.window.Dialog(

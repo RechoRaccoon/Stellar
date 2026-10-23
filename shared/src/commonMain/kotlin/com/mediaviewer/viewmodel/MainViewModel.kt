@@ -6569,13 +6569,16 @@ class MainViewModel(
                         // its PDS, and its own last synced vault copy —
                         // or, when it's the only account this device has
                         // ever had, there's nobody else it could be.
-                        runCatching {
+                        try {
                             val sole = (_otherBskyAccounts.value.map { it.did } + did).distinct().size <= 1
                             val evidence = com.mediaviewer.util.PrivateSync.baseLocalEntryIds() +
                                 com.mediaviewer.util.PublicFolders.publishedIds(did)
                             if (_bskyDid.value == did) {
                                 com.mediaviewer.util.LocalData.resolveLegacyData(did, evidence, sole)
                             }
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            com.mediaviewer.util.LocalData.legacyCheckFailed(e.message ?: e.toString())
                         }
                     }
                 }
