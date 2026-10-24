@@ -284,11 +284,6 @@ fun BookmarkFolderPopup(items: List<MediaItem>, liquidGlass: Boolean, tint: Colo
                     }
                 }
             }
-            if (folders.isEmpty() && !creating) Text(
-                "No folders yet. Make one to organize your saved posts; a post filed in a folder moves out of Bookmarks.",
-                color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
-            )
             folders.forEach { folder ->
                 val inFolder = items.all { it.postUri in folder.posts }
                 val shape = RoundedCornerShape(16.dp)
