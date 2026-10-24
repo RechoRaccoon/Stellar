@@ -113,6 +113,11 @@ fun QuoteRepostDialog(
                     onSend = { if (!overLimit && !submitting) onSubmit(text.trim()) },
                     maxLines = 8,
                     focusRequester = focus,
+                    // Tagging autocomplete, as in the composer: @handles
+                    // complete with a ghost suggestion (swipe/Tab to accept).
+                    // The completed handle becomes a real mention on submit —
+                    // quote reposts already facet through richText.
+                    mentionAutocomplete = true,
                     modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 4.dp)
                 )
             }

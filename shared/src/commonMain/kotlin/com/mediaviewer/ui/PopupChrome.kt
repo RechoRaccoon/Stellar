@@ -51,6 +51,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.ui.theme.OffBlack
 import com.mediaviewer.util.rememberHapticTap
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+// (awaitPointerEvent is the awaitEachGesture scope's own member, as in
+// the comment box — not an import.)
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 
 /**
  * Hosts one of the post popups (Share To, Quote Repost, Add To): fades and
@@ -258,7 +265,11 @@ fun PopupMessageBox(
     /** A picture to show instead of [thumbUrl] (e.g. a local file). */
     thumbModel: Any? = null,
     sendIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Send,
-    sendDescription: String = "Send"
+    sendDescription: String = "Send",
+    /** The composer's @mention autocomplete (ghost suggestion, swipe or Tab
+     *  to accept), for popups where people tag others — the quote repost
+     *  popup. Off elsewhere (alt text, reports, DM shares). */
+    mentionAutocomplete: Boolean = false
 ) {
     val tap = rememberHapticTap()
     // The counter sits above the send button, its right edge level with the
@@ -289,17 +300,108 @@ fun PopupMessageBox(
             Spacer(Modifier.width(10.dp))
         } else Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f).heightIn(min = 38.dp), contentAlignment = Alignment.CenterStart) {
-            BasicTextField(
-                value = value, onValueChange = onValueChange,
-                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
-                maxLines = maxLines,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
-                ),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            )
+            // Same font note as the composer's GrowingTextField: an explicit
+            // style drops the theme's family, so carry it over — otherwise
+            // typed text here renders in the system font.
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
+                .copy(fontFamily = themeFamily)
+            if (!mentionAutocomplete) {
+                BasicTextField(
+                    value = value, onValueChange = onValueChange,
+                    textStyle = fieldStyle,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                    maxLines = maxLines,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                )
+            } else {
+                // @mention autocomplete, as in the composer and the comment
+                // box: the rest of the likely handle shows dimmed after the
+                // caret; a swipe right across the box, or Tab, fills it in.
+                // A TextFieldValue field (not the plain String one) so the
+                // caret is visible to the ghost logic.
+                var field by androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value))
+                }
+                if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(
+                    value, androidx.compose.ui.text.TextRange(value.length)
+                )
+                var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                val mention = androidx.compose.runtime.remember(field.text, field.selection) { mentionTokenAt(field) }
+                var guess by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+                androidx.compose.runtime.LaunchedEffect(mention?.second, focused) {
+                    val typed = mention?.second
+                    if (typed == null || !focused) { guess = null; return@LaunchedEffect }
+                    if (guess?.startsWith(typed.lowercase()) != true) guess = null
+                    kotlinx.coroutines.delay(120)
+                    guess = com.mediaviewer.util.MentionSuggest.complete(typed)
+                }
+                val ghost = mention?.let { m ->
+                    guess?.takeIf { it.startsWith(m.second.lowercase()) && it.length > m.second.length }?.drop(m.second.length)
+                }
+                fun acceptGhost(): Boolean {
+                    val m = mentionTokenAt(field) ?: return false
+                    val g = guess?.takeIf { it.startsWith(m.second.lowercase()) } ?: return false
+                    val start = m.first + 1
+                    val tail = field.text.substring(field.selection.end)
+                    val insert = if (tail.firstOrNull()?.isWhitespace() == true) g else "$g "
+                    val text = field.text.substring(0, start) + insert + tail
+                    guess = null
+                    field = androidx.compose.ui.text.input.TextFieldValue(
+                        text, androidx.compose.ui.text.TextRange(start + insert.length + if (insert == g) 1 else 0)
+                    )
+                    onValueChange(text)
+                    return true
+                }
+                val transformation = if (ghost == null) androidx.compose.ui.text.input.VisualTransformation.None
+                    else androidx.compose.runtime.remember(ghost, field.selection.end) {
+                        ghostTransformation(androidx.compose.ui.text.input.VisualTransformation.None, field.selection.end, ghost)
+                    }
+                BasicTextField(
+                    value = field, onValueChange = { field = it; onValueChange(it.text) },
+                    visualTransformation = transformation,
+                    textStyle = fieldStyle,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                    maxLines = maxLines,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                        .onFocusChanged { focused = it.isFocused }
+                        .onPreviewKeyEvent { e ->
+                            e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                                e.key == androidx.compose.ui.input.key.Key.Tab && ghost != null && acceptGhost()
+                        }
+                        .pointerInput(ghost != null) {
+                            if (ghost == null) return@pointerInput
+                            // A swipe right fills the handle in. Watched before
+                            // the field's own gestures (they'd take the drag
+                            // for moving the caret), and only taken once it's
+                            // clearly a sideways swipe.
+                            awaitEachGesture {
+                                val down = awaitFirstDown(
+                                    requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial
+                                )
+                                while (true) {
+                                    val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!c.pressed) break
+                                    val dx = c.position.x - down.position.x
+                                    val dy = c.position.y - down.position.y
+                                    if (dx > 24.dp.toPx() && kotlin.math.abs(dy) < dx) {
+                                        if (acceptGhost()) ev.changes.forEach { it.consume() }
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                )
+            }
             if (value.isEmpty()) Text(
                 placeholder, color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis

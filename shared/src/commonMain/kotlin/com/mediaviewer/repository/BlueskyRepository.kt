@@ -2171,7 +2171,8 @@ class BlueskyRepository {
                 isLiked           = post.viewer?.like != null,
                 likeUri           = post.viewer?.like,
                 replyCount        = childReplies.size.takeIf { it > 0 } ?: (post.replyCount ?: 0),
-                replies           = childReplies
+                replies           = childReplies,
+                facets            = post.record.facets
             )
         }
 
@@ -2702,9 +2703,10 @@ class BlueskyRepository {
 
     suspend fun quoteRepost(
         token: String, did: String, text: String,
-        quotedUri: String, quotedCid: String
+        quotedUri: String, quotedCid: String,
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<String> {
-        val (richWords, richFacets) = richText(text)
+        val (richWords, richFacets) = richTextWithEmoji(text, emojiStore, did)
         val record = mutableMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
             "text" to richWords,
@@ -2780,6 +2782,27 @@ class BlueskyRepository {
             facets += facet(bytes(m.range.first), bytes(m.range.last + 1), mapOf("\$type" to "app.bsky.richtext.facet#tag", "tag" to m.groupValues[1]))
         }
         return text to facets.sortedBy { ((it["index"] as Map<*, *>)["byteStart"] as Int) }
+    }
+
+    /**
+     * A post/comment's text as it's saved, with custom emoji as well as
+     * Bluesky's own facets — the same mechanism DMs use, applied to posts:
+     * [richText] runs first (links, mentions, tags — emoji token chars
+     * pass through its patterns untouched), then
+     * [EmojiCloud.prepareMessage] swaps each token for the invisible
+     * marker with a facet over it. The swap is byte-size-preserving (a
+     * BMP private-use char and U+2060 are both 3 UTF-8 bytes), so the
+     * link/mention/tag facets' offsets stay valid, and the emoji facets
+     * land on the final text. With no store the text goes through
+     * [richText] alone, with any stray marker stripped first so one can
+     * never be posted bare.
+     */
+    suspend fun richTextWithEmoji(raw: String, store: com.mediaviewer.util.EmojiStore?, did: String): Pair<String, List<Map<String, Any>>> {
+        if (store == null) return richText(raw.replace("\u2060", ""))
+        val (words, facets) = richText(raw)
+        val prepared = com.mediaviewer.util.EmojiCloud.prepareMessage(store, did, words)
+        val all = (facets + prepared.facets).sortedBy { ((it["index"] as Map<*, *>)["byteStart"] as Int) }
+        return prepared.text to all
     }
 
     /** Byte-offset link facets for every http(s) URL in [text], so links
@@ -3277,10 +3300,12 @@ class BlueskyRepository {
         token: String, did: String,
         rootUri: String, rootCid: String,
         parentUri: String, parentCid: String,
-        text: String
+        text: String,
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<String> {
-        // @mentions, links and #tags become real ones, as in a post.
-        val (words, facets) = richText(text)
+        // @mentions, links and #tags become real ones, as in a post —
+        // plus custom emoji, when the comment was typed with the menu.
+        val (words, facets) = richTextWithEmoji(text, emojiStore, did)
         val record = linkedMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
             "text" to words,
@@ -3308,7 +3333,8 @@ class BlueskyRepository {
         parentUri: String, parentCid: String,
         text: String, media: List<PlatformUri>,
         /** Content warnings on the media — the same self-labels a post gets. */
-        selfLabels: List<String> = emptyList()
+        selfLabels: List<String> = emptyList(),
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<String> = withContext(ioDispatcher) {
         runCatching {
             // A video, or an animated GIF (which goes up as a looping video,
@@ -3326,7 +3352,7 @@ class BlueskyRepository {
                 media.isNotEmpty() -> buildImagesEmbed(uploadImageBlobs(token, context, media.take(4)))
                 else -> null
             }
-            val (richWords, richFacets) = richText(text)
+            val (richWords, richFacets) = richTextWithEmoji(text, emojiStore, did)
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
                 "text" to richWords,
@@ -3879,7 +3905,7 @@ class BlueskyRepository {
         // author.getDid(); skip just the malformed entry instead.
         val items = posts.flatMap { post ->
             runCatching {
-                parseFeedItem(BskyFeedItem(post = post)).filterNot { com.mediaviewer.util.AdultContentPolicy.filters(it) }.map { media -> media.copy(isBookmarked = true) }
+                parseFeedItem(BskyFeedItem(post = post)).filterNot { com.mediaviewer.util.AdultContentPolicy.filters(it) }.map { media -> media.copy(isBookmarked = true, facets = post.record.facets) }
             }.getOrElse { emptyList() }
         }
         Pair(items, body.cursor)
@@ -4049,10 +4075,14 @@ class BlueskyRepository {
         // parseAuthorFeed's isTextshotAltText check).
         imageAlts: List<String> = emptyList(),
         // Bluesky self-labels (content warnings) — see selfLabelsField.
-        selfLabels: List<String> = emptyList()
+        selfLabels: List<String> = emptyList(),
+        // Custom emoji (see richTextWithEmoji): the composer's / comment
+        // box's emoji library, when the text being posted was typed with
+        // it. Null posts exactly as before.
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
-        val (richWords, richFacets) = richText(text)
+        val (richWords, richFacets) = richTextWithEmoji(text, emojiStore, did)
         val record = mutableMapOf<String, Any>(
             "\$type" to "app.bsky.feed.post",
             "text" to richWords,
@@ -4076,9 +4106,10 @@ class BlueskyRepository {
      *  then "Q. …" and one "A. …" line per answer. Stellar recognises that
      *  shape and draws tappable answers. */
     suspend fun createPollPost(
-        token: String, did: String, question: String, options: List<String>, selfLabels: List<String> = emptyList()
+        token: String, did: String, question: String, options: List<String>, selfLabels: List<String> = emptyList(),
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<BskyRef> =
-        createPost(token, did, com.mediaviewer.ui.PollFormat.postText(question, options), selfLabels = selfLabels)
+        createPost(token, did, com.mediaviewer.ui.PollFormat.postText(question, options), selfLabels = selfLabels, emojiStore = emojiStore)
 
     /**
      * Edits one of your own posts in place: the same record (same rkey) is
@@ -4103,7 +4134,8 @@ class BlueskyRepository {
         images: List<com.mediaviewer.platform.PlatformUri>, existingImageUrls: List<String>,
         imagesEditable: Boolean, selfLabels: List<String>,
         /** Alt text per picture (by index); null keeps what it had. */
-        imageAlts: List<String?> = emptyList()
+        imageAlts: List<String?> = emptyList(),
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
             val rkey = postUri.substringAfterLast('/')
@@ -4158,7 +4190,7 @@ class BlueskyRepository {
             record["\$type"] = "app.bsky.feed.post"
             // Unchanged text keeps its tags/links/mentions exactly as they were.
             if (newText != oldText) {
-                val (richWords, facets) = richText(newText)
+                val (richWords, facets) = richTextWithEmoji(newText, emojiStore, did)
                 record["text"] = richWords
                 if (facets.isNotEmpty()) record["facets"] = facets else record.remove("facets")
             } else record["text"] = newText
@@ -4865,7 +4897,8 @@ class BlueskyRepository {
     suspend fun createThread(
         token: String, did: String, context: com.mediaviewer.platform.PlatformContext,
         posts: List<ThreadPostToSend>,
-        selfLabels: List<String> = emptyList()
+        selfLabels: List<String> = emptyList(),
+        emojiStore: com.mediaviewer.util.EmojiStore? = null
     ): Result<List<BskyRef>> = withContext(ioDispatcher) {
         runCatching {
         val created = mutableListOf<BskyRef>()
@@ -4873,7 +4906,7 @@ class BlueskyRepository {
         for (post in posts) {
             val images = uploadImageBlobs(token, context, post.images)
             val reply = root?.let { r -> BskyReplyRef(root = r, parent = created.last()) }
-            val ref = createPost(token, did, post.text, images, reply, imageAlts = post.imageAlts, selfLabels = selfLabels).getOrElse { throw it }
+            val ref = createPost(token, did, post.text, images, reply, imageAlts = post.imageAlts, selfLabels = selfLabels, emojiStore = emojiStore).getOrElse { throw it }
             if (root == null) root = ref
             created += ref
         }
@@ -4898,7 +4931,7 @@ class BlueskyRepository {
      *  Textshot image apart from a regular attached image when loading a
      *  profile, and show it in the Text Post tab instead of Images — see
      *  isTextshotAltText/textshotTextFromAlt below. */
-    suspend fun createTextshotPost(token: String, did: String, textshotBitmap: com.mediaviewer.platform.PlatformBitmap, textshotText: String, selfLabels: List<String> = emptyList(), hasEmoji: Boolean = false, postText: String = ""): Result<BskyRef> =
+    suspend fun createTextshotPost(token: String, did: String, textshotBitmap: com.mediaviewer.platform.PlatformBitmap, textshotText: String, selfLabels: List<String> = emptyList(), hasEmoji: Boolean = false, postText: String = "", emojiStore: com.mediaviewer.util.EmojiStore? = null): Result<BskyRef> =
         withContext(ioDispatcher) {
             runCatching {
                 val bytes = MediaBridge.encodePng(textshotBitmap)
@@ -4907,7 +4940,7 @@ class BlueskyRepository {
                 val blob = resp.body()?.blob ?: error("uploadBlob ${resp.code()}: ${resp.errorBody()?.string()}")
                 val alt = (if (hasEmoji) TEXTSHOT_EMOJI_ALT_PREFIX else TEXTSHOT_ALT_PREFIX) + textshotText
                 // postText: the separate text typed above the Textshot (hashtags, a caption…).
-                createPost(token, did, postText, listOf(UploadedImage(blob, MediaBridge.bitmapWidth(textshotBitmap), MediaBridge.bitmapHeight(textshotBitmap))), imageAlts = listOf(alt), selfLabels = selfLabels).getOrElse { throw it }
+                createPost(token, did, postText, listOf(UploadedImage(blob, MediaBridge.bitmapWidth(textshotBitmap), MediaBridge.bitmapHeight(textshotBitmap))), imageAlts = listOf(alt), selfLabels = selfLabels, emojiStore = emojiStore).getOrElse { throw it }
             }
         }
 
@@ -5318,7 +5351,12 @@ class BlueskyRepository {
             // Edited in Stellar: carry the edit time and earlier versions.
             val rec = item.post.record
             val edited = rec.stellarEditedAt?.takeIf { it.isNotBlank() }
-            list.map { it.copy(editedAt = edited ?: it.editedAt, editHistory = if (edited != null) rec.stellarEditHistory else it.editHistory, createdAt = rec.createdAt, bookmarkCount = item.post.bookmarkCount ?: 0) }
+            list.map { it.copy(editedAt = edited ?: it.editedAt, editHistory = if (edited != null) rec.stellarEditHistory else it.editHistory, createdAt = rec.createdAt, bookmarkCount = item.post.bookmarkCount ?: 0,
+                // Custom emoji: the post's facets ride along so the feed
+                // can draw the pictures inline. The text stays as posted
+                // (with its invisible markers) — surfaces that don't draw
+                // emoji show it the way every other Bluesky app does.
+                facets = rec.facets) }
         }
 
     private fun parseFeedItem(item: BskyFeedItem): List<MediaItem> {

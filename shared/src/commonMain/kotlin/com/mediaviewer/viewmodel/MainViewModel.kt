@@ -1710,6 +1710,11 @@ class MainViewModel(
         _mediaItems.value = _mediaItems.value.map { m ->
             if (m.postUri != edit.postUri) m else m.copy(
                 text = newText,
+                // The old facets belong to the old text (their byte
+                // offsets point at the old emoji) — cleared until the
+                // fresh copy arrives with the new ones, so no picture
+                // ever draws at a wrong spot in between.
+                facets = null,
                 postCid = newCid ?: m.postCid,
                 editedAt = now,
                 editHistory = (m.editHistory ?: emptyList()) + com.mediaviewer.util.PostEditVersion(
@@ -1908,6 +1913,15 @@ class MainViewModel(
     private suspend fun runCatchingComposePost(draft: com.mediaviewer.ui.ComposePostDraft): Result<Any> {
         val context = platform.context
         val did = _bskyDid.value
+        // Custom emoji (see richTextWithEmoji): the composer's library for
+        // this account — a no-op when the composer already opened it, a
+        // load when it hasn't. Text with no emoji never touches it beyond
+        // this (prepareMessage short-circuits on containsEmoji).
+        val emojiStore = runCatching {
+            val store = com.mediaviewer.util.EmojiStore.get(context)
+            store.useAccount(did)
+            store
+        }.getOrNull()
         return when (draft.mode) {
             com.mediaviewer.ui.ComposeMode.SINGLE -> {
                 val post = draft.posts.firstOrNull()
@@ -1918,26 +1932,27 @@ class MainViewModel(
                     bskyRepo.editPost(
                         bskyToken, did, context, edit.postUri, post.text, post.images,
                         edit.imageUrls, edit.imagesEditable, draft.selfLabels,
-                        imageAlts = post.imageAlts.map { it.ifBlank { null } }
+                        imageAlts = post.imageAlts.map { it.ifBlank { null } },
+                        emojiStore = emojiStore
                     )
                 }
                 else if (draft.pollOptions.isNotEmpty()) {
-                    bskyRepo.createPollPost(bskyToken, did, post.text, draft.pollOptions, draft.selfLabels)
+                    bskyRepo.createPollPost(bskyToken, did, post.text, draft.pollOptions, draft.selfLabels, emojiStore = emojiStore)
                 }
                 else runCatching {
                     val images = bskyRepo.uploadImageBlobs(bskyToken, context, post.images)
-                    bskyRepo.createPost(bskyToken, did, post.text, images, imageAlts = post.imageAlts, selfLabels = draft.selfLabels).getOrElse { throw it }
+                    bskyRepo.createPost(bskyToken, did, post.text, images, imageAlts = post.imageAlts, selfLabels = draft.selfLabels, emojiStore = emojiStore).getOrElse { throw it }
                 }
             }
             com.mediaviewer.ui.ComposeMode.THREAD -> runCatching {
                 val posts = draft.posts.map { com.mediaviewer.repository.BlueskyRepository.ThreadPostToSend(it.text, it.images, it.imageAlts) }
-                bskyRepo.createThread(bskyToken, did, context, posts, draft.selfLabels).getOrElse { throw it }
+                bskyRepo.createThread(bskyToken, did, context, posts, draft.selfLabels, emojiStore = emojiStore).getOrElse { throw it }
             }
             com.mediaviewer.ui.ComposeMode.TEXTSHOT -> runCatching {
                 // Custom emoji are drawn into the image; the alt text never
                 // carries an emoji's name (see AppPlatform.renderTextshot).
                 val shot = platform.renderTextshot(draft.textshotText)
-                bskyRepo.createTextshotPost(bskyToken, did, shot.bitmap, shot.altText, draft.selfLabels, shot.hasEmoji, postText = draft.textshotPostText).getOrElse { throw it }
+                bskyRepo.createTextshotPost(bskyToken, did, shot.bitmap, shot.altText, draft.selfLabels, shot.hasEmoji, postText = draft.textshotPostText, emojiStore = emojiStore).getOrElse { throw it }
             }
             com.mediaviewer.ui.ComposeMode.VIDEO -> {
                 val uri = draft.videoUri
@@ -8229,6 +8244,13 @@ class MainViewModel(
         viewModelScope.launch(ioDispatcher) {
           // (The comment box is free again however this ends.)
           try {
+            // Custom emoji (see richTextWithEmoji): the comment box's
+            // library for this account, as in runCatchingComposePost.
+            val emojiStore = runCatching {
+                val store = com.mediaviewer.util.EmojiStore.get(platform.context)
+                store.useAccount(_bskyDid.value)
+                store
+            }.getOrNull()
             if (_appMode.value == AppMode.BLUESKY) {
                 val parentUri = replyTo?.uri?.takeIf { it.isNotBlank() } ?: item.postUri
                 // Fix: the first comment of a session could silently fail —
@@ -8245,9 +8267,9 @@ class MainViewModel(
                 // its thread's root, not the post.
                 val root = bskyRepo.threadRootOf(item.postUri)
                 suspend fun send() = if (media.isEmpty()) bskyRepo.replyToPost(bskyToken, _bskyDid.value,
-                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text)
+                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, emojiStore = emojiStore)
                 else bskyRepo.replyToPostWithMedia(bskyToken, _bskyDid.value, platform.context,
-                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, media, selfLabels)
+                    root?.uri ?: item.postUri, root?.cid?.takeIf { it.isNotBlank() } ?: postCid, parentUri, parentCid, text, media, selfLabels, emojiStore = emojiStore)
                 var result = send()
                 if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) result = send()
                 com.mediaviewer.util.CommentSend.sending = false

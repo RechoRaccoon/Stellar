@@ -131,7 +131,10 @@ data class MediaItem(
     /** A Textshot post ([text] is the picture's message). */
     val isTextshot: Boolean = false,
     /** When the post was written (ISO), where the source says. */
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    /** The post's facets, as posted — custom emoji facets included, so
+     *  the feed can draw the pictures inline (see PostTextBubble). */
+    val facets: List<kotlinx.serialization.json.JsonElement>? = null
 ) {
     // Crash fix: mediaUrl/thumbUrl/textshotImageUrl/labels are all declared
     // as non-null Kotlin types with defaults ("", "", "", emptyList()) — but
@@ -235,7 +238,9 @@ data class CommentItem(
      *  picture or name opens their profile. */
     val authorDid: String = "",
     /** Pictures, a video or a GIF attached to the comment. */
-    val media: List<CommentMedia> = emptyList()
+    val media: List<CommentMedia> = emptyList(),
+    /** The comment's facets, as posted — custom emoji facets included. */
+    val facets: List<kotlinx.serialization.json.JsonElement>? = null
 )
 
 /** One picture / video / GIF attached to a comment. */
@@ -451,7 +456,10 @@ data class BskyRecord(
     val stellarEditHistory: List<com.mediaviewer.util.PostEditVersion>? = null,
     /** The record's own embed — read only for its image blobs' types (see
      *  [alphaImageCids]). */
-    val embed: BskyRecordEmbedLite? = null
+    val embed: BskyRecordEmbedLite? = null,
+    /** The post's facets, as posted — including Stellar's custom emoji
+     *  facets (see richTextWithEmoji). Null for records that carry none. */
+    val facets: List<kotlinx.serialization.json.JsonElement>? = null
 ) {
     /** CIDs of this post's PNG/WebP pictures: the ones that can be
      *  transparent. Bluesky's view hands out "@jpeg" CDN links for every

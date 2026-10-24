@@ -66,12 +66,20 @@ internal fun DmMessageText(
     facets: List<kotlinx.serialization.json.JsonElement>?,
     color: Color,
     fontSize: TextUnit,
-    lineHeight: TextUnit
+    lineHeight: TextUnit,
+    // Posts and comments reuse this for their own text (see PostTextBubble):
+    // the same knobs a plain Text call there would have.
+    modifier: Modifier = Modifier,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: androidx.compose.ui.text.style.TextOverflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+    textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Unspecified,
+    fontWeight: androidx.compose.ui.text.font.FontWeight? = null
 ) {
     val spans = remember(text, facets) { EmojiCloud.emojiSpans(text, facets) }
     if (spans.isEmpty()) {
         // (Someone's own words: never translated.)
-        androidx.compose.material3.Text(text, color = color, fontSize = fontSize, lineHeight = lineHeight)
+        androidx.compose.material3.Text(text, color = color, fontSize = fontSize, lineHeight = lineHeight,
+            modifier = modifier, maxLines = maxLines, overflow = overflow, textAlign = textAlign, fontWeight = fontWeight)
         return
     }
     val onlyEmoji = remember(text, spans) { EmojiCloud.isOnlyEmoji(text, spans) }
@@ -111,7 +119,8 @@ internal fun DmMessageText(
                 androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
             )
         ) else androidx.compose.material3.LocalTextStyle.current,
-        inlineContent = inline
+        inlineContent = inline,
+        modifier = modifier, maxLines = maxLines, overflow = overflow, textAlign = textAlign, fontWeight = fontWeight
     )
 }
 

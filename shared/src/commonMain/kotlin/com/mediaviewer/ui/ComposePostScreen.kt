@@ -426,8 +426,14 @@ fun ComposePostScreen(
             rememberedKeyboardPx = imeBottomPx
         }
     }
+    // The menu lives in the text-post modes now (single, thread, Textshot),
+    // not just Textshot — and it stays up across switches between them, so
+    // emoji picked in one mode are still there in the next. Leaving those
+    // modes (video, blog, review) closes it.
     LaunchedEffect(mode) {
-        if (mode != ComposeMode.TEXTSHOT) { emojiPanelOpen = false; emojiTabEditing = false }
+        if (mode != ComposeMode.SINGLE && mode != ComposeMode.THREAD && mode != ComposeMode.TEXTSHOT) {
+            emojiPanelOpen = false; emojiTabEditing = false
+        }
     }
     // Registered after the composer's own BackHandler, so Back closes the menu first.
     BackHandler(enabled = emojiPanelOpen) { emojiPanelOpen = false; emojiTabEditing = false }
@@ -603,8 +609,12 @@ fun ComposePostScreen(
     // into a single post that's silently over the limit — if the text won't
     // fit in one post any more, it goes straight into a thread with Auto
     // Format on, same as typing past the limit does anywhere else.
+    // Leaving Textshot no longer turns emoji into :name: shortcodes: the
+    // text-post fields draw emoji pictures too now, so the tokens survive
+    // the switch both ways (Textshot's own image text is the same text).
+    // (Blog still converts — its rows are plain text with no emoji
+    // plumbing, see enableBlogMode.)
     fun disableTextshot() {
-        emojiTokensToShortcodes()
         // The separate post text (hashtags etc.) isn't lost on the way out:
         // it joins the end of the text.
         val extra = textshotPostText.text.trim()
@@ -706,17 +716,37 @@ fun ComposePostScreen(
         updateBlogRow(blogSelected) { if (it.kind == com.mediaviewer.model.BlogRowKind.IMAGE) it else it.copy(kind = kind) }
     }
 
-    // Tapping an emoji in the menu drops it into the Textshot text at the caret
-    // (replacing any selection), like typing one.
+    // Tapping an emoji in the menu drops it into the text being typed at the
+    // caret (replacing any selection), like typing one: the single post's
+    // text, or the active thread post's. (Textshot's image text is the same
+    // singleText, and its post text has its own field — see
+    // focusActiveField: the menu's pick goes to whichever field is focused.)
     fun insertEmoji(entry: EmojiEntry) {
+        val token = emojiStore.charFor(entry).toString()
+        if (mode == ComposeMode.THREAD) {
+            val idx = activeThreadIndex.coerceIn(0, threadPosts.lastIndex.coerceAtLeast(0))
+            val post = threadPosts.getOrNull(idx) ?: return
+            val t = post.text
+            val start = t.selection.min.coerceIn(0, t.text.length)
+            val end = t.selection.max.coerceIn(start, t.text.length)
+            val next = TextFieldValue(t.text.substring(0, start) + token + t.text.substring(end), TextRange(start + token.length))
+            threadPosts = threadPosts.toMutableList().also { it[idx] = post.copy(text = capBudget(next, POST_CHAR_LIMIT)) }
+            return
+        }
+        if (mode == ComposeMode.TEXTSHOT && textshotPostFocused) {
+            val t = textshotPostText
+            val start = t.selection.min.coerceIn(0, t.text.length)
+            val end = t.selection.max.coerceIn(start, t.text.length)
+            textshotPostText = TextFieldValue(t.text.substring(0, start) + token + t.text.substring(end), TextRange(start + token.length))
+            return
+        }
         val t = singleText
         val start = t.selection.min.coerceIn(0, t.text.length)
         val end = t.selection.max.coerceIn(start, t.text.length)
-        val token = emojiStore.charFor(entry).toString()
         singleText = TextFieldValue(t.text.substring(0, start) + token + t.text.substring(end), TextRange(start + token.length))
     }
 
-    // The raccoon button: keyboard -> emoji menu -> back to the keyboard.
+    // The emoji button: keyboard -> emoji menu -> back to the keyboard.
     fun toggleEmojiPanel() {
         if (emojiPanelOpen) {
             emojiPanelOpen = false
@@ -1182,7 +1212,8 @@ fun ComposePostScreen(
                                 },
                                 placeholder = if (index == 0) "Start a thread…" else "Continue the thread…",
                                 onFocus = { activeThreadIndex = index },
-                                focusRequester = threadFocusRequesters.getOrNull(index)
+                                focusRequester = threadFocusRequesters.getOrNull(index),
+                                emojiStore = emojiStore
                             )
                             // Item 2: each post displays its own attached
                             // media right underneath its own text field —
@@ -1233,7 +1264,8 @@ fun ComposePostScreen(
                             placeholder = "Post text (optional) — #hashtags, a caption…",
                             onFocus = { textshotPostFocused = true },
                             focusRequester = textshotPostFocus,
-                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
+                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+                            emojiStore = emojiStore
                         )
                         HubDivider("Textshot")
                         GrowingTextField(
@@ -1288,7 +1320,8 @@ fun ComposePostScreen(
                             },
                             placeholder = if (pollOn) "Q. Ask a question…" else "What's on your mind?",
                             onFocus = { activeThreadIndex = 0 },
-                            focusRequester = singleFocusRequester
+                            focusRequester = singleFocusRequester,
+                            emojiStore = emojiStore
                         )
                         if (pollOn) {
                             // One row per answer: "A.", "B.", … The divider's
@@ -1566,6 +1599,21 @@ fun ComposePostScreen(
                                     }
                                 }
                             )
+                            // Custom emoji, as in DMs and Statuses: the same
+                            // star button, right after the image button. It
+                            // opens the emoji menu in the text-post modes
+                            // (single, thread, Textshot) — video, blog and
+                            // review posts have nowhere to put an emoji
+                            // facet. (A poll's question keeps any emoji
+                            // picked before the poll was started; the button
+                            // itself is just off while polling, so answers
+                            // stay plain lettered lines.)
+                            GlassCircleButton(
+                                icon = Icons.Default.Star, contentDescription = "Emoji",
+                                liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, size = 40.dp,
+                                enabled = (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT) && !pollOn,
+                                onClick = { toggleEmojiPanel() }
+                            )
                             // Item 2: Blog and Textshot are text buttons, not
                             // icons — dim unless the status they set is the
                             // one currently active.
@@ -1653,13 +1701,15 @@ fun ComposePostScreen(
                             }
                         }
                         if (mode == ComposeMode.TEXTSHOT) {
-                            // Textshot mode: no new-thread button — a raccoon
-                            // emoji button opens the custom emoji menu instead.
-                            GlassEmojiButton(
-                                emoji = "\uD83E\uDD9D",
-                                contentDescription = if (emojiPanelOpen) "Show keyboard" else "Open emoji menu",
+                            // Textshot mode: the new-thread button stays
+                            // put, just greyed out — the emoji menu now has
+                            // its own button, right after the image button.
+                            GlassCircleButton(
+                                icon = Icons.Default.Add, contentDescription = "Add post to thread",
+                                modifier = Modifier.tipAnchor("compose.thread"),
                                 liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, size = 36.dp,
-                                onClick = { toggleEmojiPanel() }
+                                enabled = false,
+                                onClick = { }
                             )
                         } else if (mode == ComposeMode.BLOG) {
                             // Item 12: in Blog mode the new-thread button is
@@ -1697,7 +1747,7 @@ fun ComposePostScreen(
             // ── Emoji menu — takes the keyboard's place (see the state block
             // near the top of this function). When a tab is being renamed it
             // is only the tab row, sitting right on top of the keyboard.
-            if (mode == ComposeMode.TEXTSHOT && emojiPanelOpen) {
+            if (emojiPanelOpen && (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT)) {
                 EmojiPanel(
                     store = emojiStore,
                     height = emojiPanelHeight,
@@ -2073,36 +2123,6 @@ private fun ReviewStarPicker(rating: Int, onRatingChange: (Int) -> Unit) {
  *  menu can match the keyboard's size even the first time it is opened. */
 internal var rememberedKeyboardPx = 0
 
-/** [GlassCircleButton]'s twin for an emoji glyph instead of an icon (the
- *  raccoon button in Textshot mode). Same size, glass and haptic tap. */
-@Composable
-private fun GlassEmojiButton(
-    emoji: String,
-    contentDescription: String,
-    liquidGlass: Boolean, tint: Color,
-    modifier: Modifier = Modifier, size: Dp = 36.dp,
-    backdrop: GlassBackdrop? = null,
-    onClick: () -> Unit
-) {
-    val tap = rememberHapticTap()
-    val shape = CircleShape
-    val clickMod = modifier.size(size).clip(shape)
-        .semantics { this.contentDescription = contentDescription }
-        .clickable(onClick = { tap(); onClick() })
-    val fontSize = (size.value * 0.5f).sp
-    if (liquidGlass) {
-        LiquidGlassSurface(clickMod, shape = shape, tint = tint, backdrop = backdrop) {
-            Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                Text(emoji, fontSize = fontSize, lineHeight = fontSize)
-            }
-        }
-    } else {
-        Box(clickMod.background(Color.White.copy(0.10f)), contentAlignment = Alignment.Center) {
-            Text(emoji, fontSize = fontSize, lineHeight = fontSize)
-        }
-    }
-}
-
 @Composable
 private fun GlassCircleButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -2304,7 +2324,16 @@ private fun GrowingTextField(
     // Item 12: blog rows (title/description/headers) use their own style.
     textStyle: TextStyle? = null
 ) {
-    val fieldStyle = textStyle ?: TextStyle(color = Color.White, fontSize = 16.sp, lineHeight = 22.sp)
+    // The app font (Audiowide by default) reaches every Text() through
+    // MaterialTheme's typography, but a BasicTextField given an explicit
+    // style does not pick that font up on its own — so typed text in the
+    // composer rendered in the system font while everything around it used
+    // the app font. Carry the theme's family over explicitly (a caller-set
+    // family still wins; the theme family being null just means the system
+    // font, which is what "Original" picks).
+    val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+    val fieldStyle = (textStyle ?: TextStyle(color = Color.White, fontSize = 16.sp, lineHeight = 22.sp))
+        .let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
     // The scroll area now extends behind the floating bottom bar, so the
     // default "scroll the caret into view" would park it right under the
     // buttons. Ask for the caret's rect plus the bar's height instead.

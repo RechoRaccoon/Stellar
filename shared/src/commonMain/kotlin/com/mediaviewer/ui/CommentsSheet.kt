@@ -7,6 +7,7 @@ import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
 import com.mediaviewer.ui.compat.ActivityResultContracts
 import com.mediaviewer.ui.compat.LocalContext
+import androidx.compose.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -35,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -137,6 +139,9 @@ fun CommentsSheet(
     val tap = rememberHapticTap()
     var threadStack by remember(currentItem?.id) { mutableStateOf(listOf<CommentItem>()) }
     var commentText by remember { mutableStateOf("") }
+    // The comment field's own value (caret included): the emoji menu
+    // inserts at the caret, so it lives here, not inside FieldContent.
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     var showTags by remember(currentItem?.id) { mutableStateOf(false) }
     // Item 20: which comment (if any) is actually being replied to.
     var replyTarget by remember(currentItem?.id) { mutableStateOf<CommentItem?>(null) }
@@ -183,6 +188,47 @@ fun CommentsSheet(
             motion != null -> listOf(motion)
             attached.any { isMotion(it) } -> uris.take(4)
             else -> (attached + uris.filterNot { it in attached }).take(4)
+        }
+    }
+
+    // Custom emoji, as in DMs: the same star button and menu, right
+    // after the media button, with the panel under the input row.
+    val emojiStore = remember { com.mediaviewer.util.EmojiStore.get(platformContext) }
+    LaunchedEffect(Unit) { emojiStore.load() }
+    var emojiPanelOpen by remember { mutableStateOf(false) }
+    var emojiTabEditing by remember { mutableStateOf(false) }
+    val selfDidForEmoji = LocalOverlays.selfDid
+    LaunchedEffect(emojiPanelOpen, selfDidForEmoji) {
+        if (selfDidForEmoji.isNotBlank()) {
+            if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji)
+            else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji, force = true)
+        }
+    }
+    // Tapping an emoji in the menu drops it into the comment at the
+    // caret (replacing any selection), like typing one.
+    fun insertEmoji(entry: com.mediaviewer.util.EmojiEntry) {
+        val token = emojiStore.charFor(entry).toString()
+        val t = field
+        val start = t.selection.min.coerceIn(0, t.text.length)
+        val end = t.selection.max.coerceIn(start, t.text.length)
+        val next = t.text.substring(0, start) + token + t.text.substring(end)
+        field = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(start + token.length))
+        commentText = next
+    }
+    // The emoji button: keyboard -> menu -> back to the keyboard.
+    val commentFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    fun toggleEmojiPanel() {
+        if (emojiPanelOpen) {
+            emojiPanelOpen = false
+            emojiTabEditing = false
+            commentFocus.requestFocus()
+            keyboardController?.show()
+        } else {
+            emojiPanelOpen = true
+            focusManager.clearFocus()
+            keyboardController?.hide()
         }
     }
 
@@ -537,6 +583,22 @@ fun CommentsSheet(
                                 Box(mediaModifier.clip(CircleShape).background(Color.White.copy(0.14f))) { MediaContent() }
                             }
                         }
+                        if (appMode == AppMode.BLUESKY) {
+                            // Custom emoji, as in DMs: the same star
+                            // button, right after the media button.
+                            val emojiModifier = Modifier.size(46.dp).clickable { tap(); toggleEmojiPanel() }
+                            @Composable
+                            fun EmojiContent() {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Star, contentDescription = "Emoji", tint = Color.White, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            if (liquidGlass) {
+                                LiquidGlassSurface(emojiModifier, shape = CircleShape, tint = dominantColor, backdrop = backdrop) { EmojiContent() }
+                            } else {
+                                Box(emojiModifier.clip(CircleShape).background(Color.White.copy(0.14f))) { EmojiContent() }
+                            }
+                        }
                         @Composable
                         fun FieldContent() {
                             if (sending) {
@@ -551,9 +613,9 @@ fun CommentsSheet(
                                 // of the likely handle shows dimmed after the caret;
                                 // Tab, a swipe right across the box, or the Send
                                 // key's first press fills it in.
-                                var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(commentText)) }
                                 if (field.text != commentText) field = androidx.compose.ui.text.input.TextFieldValue(commentText, androidx.compose.ui.text.TextRange(commentText.length))
                                 var focused by remember { mutableStateOf(false) }
+                                var fieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                                 val mention = remember(field.text, field.selection) { mentionTokenAt(field) }
                                 var guess by remember { mutableStateOf<String?>(null) }
                                 LaunchedEffect(mention?.second, focused) {
@@ -576,22 +638,40 @@ fun CommentsSheet(
                                     commentText = text
                                     return true
                                 }
-                                val transformation = if (ghost == null) androidx.compose.ui.text.input.VisualTransformation.None
-                                    else remember(ghost, field.selection.end) { ghostTransformation(androidx.compose.ui.text.input.VisualTransformation.None, field.selection.end, ghost) }
+                                // Custom emoji, as in the composer: each
+                                // token shows as a blank slot with its
+                                // picture overlaid (below); the mention
+                                // ghost wraps that transformation, so the
+                                // two compose instead of fighting. (While
+                                // a ghost shows, the overlay bails — its
+                                // length check fails — and the pictures
+                                // come back when the ghost clears.)
+                                val emojiTransformation = remember(emojiStore, emojiStore.state) { emojiVisualTransformation(emojiStore) }
+                                val transformation = if (ghost == null) emojiTransformation
+                                    else remember(ghost, field.selection.end, emojiTransformation) { ghostTransformation(emojiTransformation, field.selection.end, ghost) }
+                                Box(Modifier.fillMaxWidth()) {
                                 BasicTextField(
                                     value = field, onValueChange = { field = it; commentText = it.text },
                                     visualTransformation = transformation,
                                     singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, fontFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily),
                                     cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                                    onTextLayout = { fieldLayout = it },
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                         imeAction = androidx.compose.ui.text.input.ImeAction.Send
                                     ),
                                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { if (ghost == null || !acceptGhost()) send() }),
                                     // (The whole bubble is the field: a touch anywhere on it
                                     // keeps the keyboard up, and the swipe can start anywhere.)
-                                    modifier = Modifier.fillMaxSize()
-                                        .onFocusChanged { focused = it.isFocused }
+                                    modifier = Modifier.fillMaxWidth()
+                                        .focusRequester(commentFocus)
+                                        .onFocusChanged {
+                                            focused = it.isFocused
+                                            // Tapping back into the field
+                                            // closes the menu (the keyboard
+                                            // takes its place again).
+                                            if (it.isFocused && emojiPanelOpen) { emojiPanelOpen = false; emojiTabEditing = false }
+                                        }
                                         .onPreviewKeyEvent { e ->
                                             e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Tab && ghost != null && acceptGhost()
                                         }
@@ -620,6 +700,8 @@ fun CommentsSheet(
                                         },
                                     decorationBox = { inner -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) { inner() } }
                                 )
+                                EmojiFieldOverlay(field.text, fieldLayout, emojiStore)
+                                }
                                 if (commentText.isEmpty()) {
                                     // One line, always: the placeholder shrinks until it
                                     // fits the bubble instead of wrapping to two lines —
@@ -663,6 +745,24 @@ fun CommentsSheet(
                             Box(sendModifier.clip(CircleShape).background(Color.White.copy(0.14f))) { SendContent() }
                         }
                     }
+                    // Back closes the menu first, not the sheet.
+                    if (emojiPanelOpen) BackHandler { emojiPanelOpen = false; emojiTabEditing = false }
+                    // Custom emoji menu, under the input row, where the
+                    // keyboard was — same height as the DM menu.
+                    if (emojiPanelOpen) {
+                        EmojiPanel(
+                            store = emojiStore,
+                            height = 380.dp,
+                            compact = emojiTabEditing,
+                            liquidGlass = liquidGlass,
+                            tint = dominantColor,
+                            onPickEmoji = { insertEmoji(it) },
+                            onEditingChange = { emojiTabEditing = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    // (The first time the emoji menu opens: custom emoji are public.)
+                    if (emojiPanelOpen) PublicDataNotice(PublicDataKind.EMOJI, liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop)
                 }
             }
         }
@@ -904,7 +1004,7 @@ private fun CommentRow(
                 )
             }
             Spacer(Modifier.height(2.dp))
-            if (comment.body.isNotBlank()) Text(comment.body, color = Color.White.copy(0.88f), fontSize = 13.sp, lineHeight = 17.sp)
+            if (comment.body.isNotBlank()) DmMessageText(comment.body, comment.facets, color = Color.White.copy(0.88f), fontSize = 13.sp, lineHeight = 17.sp)
             if (comment.media.isNotEmpty()) CommentMediaBlock(comment.media, dominantColor, onOpen = onOpenMedia, onLongPress = onLongPress)
             Spacer(Modifier.height(4.dp))
 
@@ -1015,7 +1115,7 @@ private fun ThreadParentHeader(
                         Text("@${parent.authorHandle}", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(3.dp))
-                    if (parent.body.isNotBlank()) Text(parent.body, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp)
+                    if (parent.body.isNotBlank()) DmMessageText(parent.body, parent.facets, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp)
                     if (parent.media.isNotEmpty()) CommentMediaBlock(parent.media, dominantColor, onOpen = onOpenMedia, onLongPress = onLongPress)
                 }
             }

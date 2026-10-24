@@ -1826,7 +1826,8 @@ private fun PostContent(
                     PollCard(item, dominantColor, liquidGlass)
                 } else TextOnlyPostCard(
                     item.text, dominantColor, translationState, onToggleTranslationView,
-                    emojiImageUrl = item.textshotImageUrl, emojiAspectRatio = item.aspectRatio
+                    emojiImageUrl = item.textshotImageUrl, emojiAspectRatio = item.aspectRatio,
+                    facets = item.facets
                 )
             } else if (item.isVideo && item.videoPlaylistUrl != null) {
                 VideoPlayer(
@@ -2267,7 +2268,11 @@ private fun PostContent(
                             onHorizontalSwipe = handleHorizontalSwipe,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 4.dp),
                             centeredText = "Tap to Add Saved Post to Folder",
-                            stats = postStats
+                            stats = postStats,
+                            // The facets belong to the post's own text:
+                            // only when the bubble is actually showing it
+                            // (not the folder prompt, not a translation).
+                            facets = if (bubbleText == item.text) item.facets else null
                         )
                     } else if (postStats != null) {
                         // Text posts show their text in the middle, and media
@@ -2850,7 +2855,9 @@ private fun TextOnlyPostCard(
     // vanish), so it's shown as its posted picture on the same glass card,
     // shaped to the picture's aspect ratio.
     emojiImageUrl: String = "",
-    emojiAspectRatio: Float? = null
+    emojiAspectRatio: Float? = null,
+    /** The post's facets, as posted — custom emoji facets included. */
+    facets: List<kotlinx.serialization.json.JsonElement>? = null
 ) {
     // (Landscape: a card of a comfortable reading width, not the window's.)
     val sideways = rememberLandscape()
@@ -2868,6 +2875,15 @@ private fun TextOnlyPostCard(
     val showTranslated = translationState?.status == TranslationStatus.DONE && translationState.showingTranslated
     val displayText = (if (showTranslated) translationState!!.translatedText else text).ifBlank { " " }
     val toggleable = translationState?.status == TranslationStatus.DONE
+    // Custom emoji, as in DMs: the pictures draw inline. (Never over a
+    // translation — the facets belong to the original text.) The card's
+    // shrink-to-fit measures the ":name:" form instead: it runs longer
+    // than the pictures, so the size it picks can only ever be safe.
+    val emojiSpans = remember(displayText, facets, showTranslated) {
+        if (showTranslated) emptyList() else com.mediaviewer.util.EmojiCloud.emojiSpans(displayText, facets)
+    }
+    val measureText = if (emojiSpans.isEmpty()) displayText
+        else com.mediaviewer.util.EmojiCloud.readableText(displayText, facets)
     // The whole text always shows (a long Textshot used to be cut off at 14
     // lines here, while the profile's Text Posts tab showed all of it): the
     // card grows into the space between the author row and the bottom
@@ -2888,14 +2904,14 @@ private fun TextOnlyPostCard(
         val bottomClearPx = with(density) { bottomClear.roundToPx() }
         val hPad = 18.dp
         val vPad = 26.dp
-        val (fontSizeSp, fits) = remember(displayText, cardWidth, maxCardHeight, baseStyle) {
+        val (fontSizeSp, fits) = remember(measureText, cardWidth, maxCardHeight, baseStyle) {
             val widthPx = with(density) { (cardWidth - hPad * 2).roundToPx() }.coerceAtLeast(1)
             val heightPx = with(density) { (maxCardHeight - vPad * 2).toPx() }
             var size = 19f
             var fitsAtSize = false
             while (size >= 11f) {
                 val result = measurer.measure(
-                    androidx.compose.ui.text.AnnotatedString(displayText),
+                    androidx.compose.ui.text.AnnotatedString(measureText),
                     style = baseStyle.merge(androidx.compose.ui.text.TextStyle(
                         fontSize = size.sp, lineHeight = (size * 1.37f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
                     )),
@@ -2932,17 +2948,33 @@ private fun TextOnlyPostCard(
                     .padding(horizontal = hPad, vertical = vPad).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    displayText,
-                    color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
-                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-                    modifier = if (toggleable) {
-                        Modifier.clickable(
-                            indication = null, interactionSource = remember { MutableInteractionSource() },
-                            onClick = onToggleTranslationView
-                        )
-                    } else Modifier
-                )
+                if (emojiSpans.isEmpty()) {
+                    Text(
+                        displayText,
+                        color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
+                        fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                        modifier = if (toggleable) {
+                            Modifier.clickable(
+                                indication = null, interactionSource = remember { MutableInteractionSource() },
+                                onClick = onToggleTranslationView
+                            )
+                        } else Modifier
+                    )
+                } else {
+                    // (DmMessageText falls back to plain text on its own
+                    // when the spans are empty; here they aren't.)
+                    DmMessageText(
+                        displayText, facets,
+                        color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
+                        textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
+                        modifier = if (toggleable) {
+                            Modifier.clickable(
+                                indication = null, interactionSource = remember { MutableInteractionSource() },
+                                onClick = onToggleTranslationView
+                            )
+                        } else Modifier
+                    )
+                }
             }
         }
     }
@@ -3099,7 +3131,13 @@ private fun PostTextBubble(
     /** Text that should sit centered (the "add to folder" prompt). */
     centeredText: String? = null,
     /** The counts and date shown under the full text (null: none). */
-    stats: PostBubbleStats? = null
+    stats: PostBubbleStats? = null,
+    /** The post's facets, as posted — custom emoji facets included, so
+     *  the bubble draws the pictures inline (as DMs do). Only ever the
+     *  post's own text's facets: the caller passes null whenever the
+     *  bubble is showing anything else (the folder prompt, a
+     *  translation), and Body drops them for the prompt too. */
+    facets: List<kotlinx.serialization.json.JsonElement>? = null
 ) {
     val shape = RoundedCornerShape(18.dp)
     val progress = remember { Animatable(if (expanded) 1f else 0f) }
@@ -3130,18 +3168,22 @@ private fun PostTextBubble(
                 // Saved Post to Folder" prompt and back) — the bubble keeps
                 // its shape.
                 Crossfade(text, animationSpec = tween(260), label = "bubbleTextOne") { t ->
-                    Text(
-                        t, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
+                    // Custom emoji draw as pictures, as in DMs — never
+                    // over the folder prompt (its text isn't the post's).
+                    DmMessageText(
+                        t, if (t == centeredText) null else facets,
+                        color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp,
+                        modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start
                     )
                 }
                 Crossfade(text, animationSpec = tween(260), label = "bubbleTextFull") { t ->
                     Column(Modifier.fillMaxWidth()) {
-                        Text(
-                            t, style = style,
-                            textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start,
-                            modifier = Modifier.fillMaxWidth()
+                        DmMessageText(
+                            t, if (t == centeredText) null else facets,
+                            color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start
                         )
                         if (stats != null && t != centeredText) PostStatsRow(stats, style)
                     }
