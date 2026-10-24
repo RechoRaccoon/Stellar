@@ -236,6 +236,8 @@ fun MainFeedScreen(
     onTogglePinFeed: (String) -> Unit = {},
     /** Explore mode pinched in (back to the profile a feed was opened from). */
     onGridPinchIn: () -> Unit = {},
+    exploreFeedStyle: String? = null,
+    onClearExploreFeedStyle: () -> Unit = {},
     /** Nothing's open over the timeline / Explore, so the keyboard
      *  shortcuts are theirs (see the key handler below). */
     shortcutsEnabled: Boolean = true,
@@ -776,6 +778,8 @@ fun MainFeedScreen(
                     authorFeedState = authorFeedState,
                     e621SearchTags  = e621SearchTags,
                     liquidGlass     = liquidGlass,
+                    exploreFeedStyle = exploreFeedStyle,
+                    onClearExploreFeedStyle = onClearExploreFeedStyle,
                     onItemClick     = { idx, subIdx ->
                         // Bug fix: seed the target sub-image index before
                         // navigating, so a tap on (say) the 2nd of 4 grid
@@ -839,6 +843,7 @@ fun MainFeedScreen(
                 onDragFractionChanged = { commentsDragFraction = it },
                 onOpenProfile = onOpenProfile,
                 sideList = isLandscape,
+                selfAvatarUrl = selfProfile?.author?.avatarUrl,
                 // (Landscape: a comment's picture opens over the whole screen.)
                 onOpenMedia = if (isLandscape) { list, i -> commentViewer = list to i } else null
             )

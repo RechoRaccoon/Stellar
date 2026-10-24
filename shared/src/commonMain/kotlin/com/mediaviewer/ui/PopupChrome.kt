@@ -31,6 +31,8 @@ import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Star
+import com.mediaviewer.ui.compat.BackHandler
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
@@ -271,9 +273,57 @@ fun PopupMessageBox(
     /** The composer's @mention autocomplete (ghost suggestion, swipe or Tab
      *  to accept), for popups where people tag others — the quote repost
      *  popup. Off elsewhere (alt text, reports, DM shares). */
-    mentionAutocomplete: Boolean = false
+    mentionAutocomplete: Boolean = false,
+    /** Custom emoji for the quote repost popup (opt-in, like
+     *  [mentionAutocomplete]): the star button before the thumbnail, and
+     *  the menu under the input row. Off elsewhere. */
+    emojiStore: com.mediaviewer.util.EmojiStore? = null,
+    selfDid: String = "",
+    selfAvatarUrl: String? = null,
+    emojiPanelOpen: Boolean = false,
+    onEmojiPanelChange: (Boolean) -> Unit = {},
+    emojiTabEditing: Boolean = false,
+    onEmojiTabEditingChange: (Boolean) -> Unit = {},
+    liquidGlass: Boolean = false
 ) {
     val tap = rememberHapticTap()
+    // The autocomplete branch's field, hoisted so the emoji menu (below the
+    // row) can insert at its caret.
+    var popupField by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value))
+    }
+    if (popupField.text != value) popupField = androidx.compose.ui.text.input.TextFieldValue(
+        value, androidx.compose.ui.text.TextRange(value.length)
+    )
+    var popupFieldLayout by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null)
+    }
+    // The emoji button: keyboard -> menu -> back to the keyboard.
+    val popupKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val popupFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    fun toggleEmojiPanel() {
+        if (emojiPanelOpen) {
+            onEmojiPanelChange(false); onEmojiTabEditingChange(false)
+            focusRequester?.requestFocus()
+            popupKeyboard?.show()
+        } else {
+            onEmojiPanelChange(true)
+            popupFocusManager.clearFocus()
+            popupKeyboard?.hide()
+        }
+    }
+    fun insertEmoji(entry: com.mediaviewer.util.EmojiEntry) {
+        val token = emojiStore?.charFor(entry)?.toString() ?: return
+        val t = popupField
+        val start = t.selection.min.coerceIn(0, t.text.length)
+        val end = t.selection.max.coerceIn(start, t.text.length)
+        val next = t.text.substring(0, start) + token + t.text.substring(end)
+        popupField = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(start + token.length))
+        onValueChange(next)
+    }
+    // Back closes the menu first, not the popup (registered after the
+    // popup's own BackHandler, so it wins while the menu is up).
+    BackHandler(enabled = emojiPanelOpen) { onEmojiPanelChange(false); onEmojiTabEditingChange(false) }
     // The counter sits above the send button, its right edge level with the
     // field's, so the text gets the whole width and never re-wraps as the
     // count grows a digit.
@@ -293,6 +343,21 @@ fun PopupMessageBox(
             .padding(start = 7.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Bottom
     ) {
+        if (emojiStore != null) {
+            // The emoji button, mirroring the send button: the same 38dp
+            // circle, to the left of the post preview (which it pushes right).
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(lerp(tint, Color.White, 0.12f).copy(alpha = 0.95f))
+                    .clickable { tap(); toggleEmojiPanel() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Star, contentDescription = "Emoji", tint = Color.White, modifier = Modifier.size(19.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+        }
         if (thumbModel != null || thumbUrl.isNotBlank()) {
             coil3.compose.AsyncImage(
                 model = thumbModel ?: thumbUrl, contentDescription = null,
@@ -326,14 +391,10 @@ fun PopupMessageBox(
                 // caret; a swipe right across the box, or Tab, fills it in.
                 // A TextFieldValue field (not the plain String one) so the
                 // caret is visible to the ghost logic.
-                var field by androidx.compose.runtime.remember {
-                    androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value))
-                }
-                if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(
-                    value, androidx.compose.ui.text.TextRange(value.length)
-                )
+                // (The field itself is hoisted above the row, so the emoji
+                // menu below it can insert at its caret.)
                 var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-                val mention = androidx.compose.runtime.remember(field.text, field.selection) { mentionTokenAt(field) }
+                val mention = androidx.compose.runtime.remember(popupField.text, popupField.selection) { mentionTokenAt(popupField) }
                 var guess by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
                 androidx.compose.runtime.LaunchedEffect(mention?.second, focused) {
                     val typed = mention?.second
@@ -346,25 +407,36 @@ fun PopupMessageBox(
                     guess?.takeIf { it.startsWith(m.second.lowercase()) && it.length > m.second.length }?.drop(m.second.length)
                 }
                 fun acceptGhost(): Boolean {
-                    val m = mentionTokenAt(field) ?: return false
+                    val m = mentionTokenAt(popupField) ?: return false
                     val g = guess?.takeIf { it.startsWith(m.second.lowercase()) } ?: return false
                     val start = m.first + 1
-                    val tail = field.text.substring(field.selection.end)
+                    val tail = popupField.text.substring(popupField.selection.end)
                     val insert = if (tail.firstOrNull()?.isWhitespace() == true) g else "$g "
-                    val text = field.text.substring(0, start) + insert + tail
+                    val text = popupField.text.substring(0, start) + insert + tail
                     guess = null
-                    field = androidx.compose.ui.text.input.TextFieldValue(
+                    popupField = androidx.compose.ui.text.input.TextFieldValue(
                         text, androidx.compose.ui.text.TextRange(start + insert.length + if (insert == g) 1 else 0)
                     )
                     onValueChange(text)
                     return true
                 }
-                val transformation = if (ghost == null) androidx.compose.ui.text.input.VisualTransformation.None
-                    else androidx.compose.runtime.remember(ghost, field.selection.end) {
-                        ghostTransformation(androidx.compose.ui.text.input.VisualTransformation.None, field.selection.end, ghost)
+                // Custom emoji, as in the comment box: each token shows as a
+                // blank slot with its picture overlaid (below); the mention
+                // ghost wraps that transformation, so the two compose instead
+                // of fighting. (While a ghost shows, the overlay bails — its
+                // length check fails — and the pictures come back when the
+                // ghost clears.)
+                val baseTransformation = androidx.compose.runtime.remember(emojiStore, emojiStore?.state) {
+                    if (emojiStore != null) emojiVisualTransformation(emojiStore)
+                    else androidx.compose.ui.text.input.VisualTransformation.None
+                }
+                val transformation = if (ghost == null) baseTransformation
+                    else androidx.compose.runtime.remember(ghost, popupField.selection.end, baseTransformation) {
+                        ghostTransformation(baseTransformation, popupField.selection.end, ghost)
                     }
+                Box(Modifier.fillMaxWidth()) {
                 BasicTextField(
-                    value = field, onValueChange = { field = it; onValueChange(it.text) },
+                    value = popupField, onValueChange = { popupField = it; onValueChange(it.text) },
                     visualTransformation = transformation,
                     textStyle = fieldStyle,
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
@@ -372,6 +444,7 @@ fun PopupMessageBox(
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
                     ),
+                    onTextLayout = { popupFieldLayout = it },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
                         .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                         .onFocusChanged { focused = it.isFocused }
@@ -382,9 +455,9 @@ fun PopupMessageBox(
                         .pointerInput(ghost != null) {
                             if (ghost == null) return@pointerInput
                             // A swipe right fills the handle in. Watched before
-                            // the field's own gestures (they'd take the drag
-                            // for moving the caret), and only taken once it's
-                            // clearly a sideways swipe.
+                            // the field's own gestures (they'd take the drag for
+                            // moving the caret), and only taken once it's clearly
+                            // a sideways swipe.
                             awaitEachGesture {
                                 val down = awaitFirstDown(
                                     requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial
@@ -403,6 +476,8 @@ fun PopupMessageBox(
                             }
                         }
                 )
+                if (emojiStore != null) EmojiFieldOverlay(popupField.text, popupFieldLayout, emojiStore)
+                }
             }
             if (value.isEmpty()) Text(
                 placeholder, color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, maxLines = 1,
@@ -421,6 +496,21 @@ fun PopupMessageBox(
             if (sending) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
             else Icon(sendIcon, contentDescription = sendDescription, tint = Color.White.copy(alpha = if (canSend) 1f else 0.5f), modifier = Modifier.size(19.dp))
         }
+    }
+    // Custom emoji menu, under the input row, where the keyboard was —
+    // same height as the DM menu. (Only the quote popup asks for it.)
+    if (emojiStore != null && emojiPanelOpen) {
+        EmojiPanel(
+            store = emojiStore,
+            height = 380.dp,
+            compact = emojiTabEditing,
+            liquidGlass = liquidGlass,
+            tint = tint,
+            onPickEmoji = { insertEmoji(it) },
+            onEditingChange = { onEmojiTabEditingChange(it) },
+            showAccounts = true, selfDid = selfDid, selfAvatarUrl = selfAvatarUrl,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
     }
 }

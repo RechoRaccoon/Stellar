@@ -53,6 +53,7 @@ internal fun LazyListScope.profileHomeRows(
     rows: Map<String, MainViewModel.HubListState>,
     liquidGlass: Boolean, tint: Color,
     onOpenPost: (String, Int) -> Unit,
+    onSeeAll: (String) -> Unit = {},
     // Landscape only, like the Hub: the rows are drawn at the Home Size.
     rowScaled: Boolean = false
 ) {
@@ -124,6 +125,7 @@ internal fun LazyListScope.profileHomeRows(
                     onLoad = { LocalOverlays.loadFeedRow?.invoke(key, feed, false) },
                     onLoadMore = { LocalOverlays.loadFeedRow?.invoke(key, feed, true) },
                     onOpenPost = { i -> onOpenPost(key, i) },
+                    onSeeAll = { onSeeAll(key) },
                     onOpenProfile = { a -> LocalOverlays.openProfile?.invoke(a) },
                     // (Lined up with the profile's tabs and bio.)
                     headerEdge = PROFILE_EDGE

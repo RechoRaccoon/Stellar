@@ -1103,6 +1103,7 @@ fun ProfileOverlay(
                     did = author.did, feeds = homeFeeds, own = isOwn, rows = feedRows,
                     liquidGlass = liquidGlass, tint = blended,
                     onOpenPost = { key, i -> feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } },
+                    onSeeAll = { key -> LocalOverlays.openHomeRowExplore?.invoke(key) },
                     rowScaled = sideways
                 )
             } else profileResultsContent(

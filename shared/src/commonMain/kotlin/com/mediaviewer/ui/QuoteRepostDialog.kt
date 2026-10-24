@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.compat.LocalContext
 
 import com.mediaviewer.ui.compat.BackHandler
 import androidx.compose.foundation.background
@@ -48,6 +49,8 @@ fun QuoteRepostDialog(
     liquidGlass: Boolean,
     dominantColor: Color = NeutralGlassTint,
     backdrop: GlassBackdrop? = null,
+    /** The signed-in user's avatar, for the emoji menu's accounts row. */
+    selfAvatarUrl: String? = null,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -70,9 +73,26 @@ fun QuoteRepostDialog(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     var keyboardWasShown by remember(target.id) { mutableStateOf(false) }
+    // Custom emoji, as in the composer and comments: the same star button
+    // (left of the thumbnail, mirroring Send) and menu under the input row.
+    val platformContext = LocalContext.current
+    val emojiStore = remember { com.mediaviewer.util.EmojiStore.get(platformContext) }
+    LaunchedEffect(Unit) { emojiStore.load() }
+    val selfDidForEmoji = LocalOverlays.selfDid
+    LaunchedEffect(selfDidForEmoji) { if (selfDidForEmoji.isNotBlank()) emojiStore.useAccount(selfDidForEmoji) }
+    var emojiPanelOpen by remember(target.id) { mutableStateOf(false) }
+    var emojiTabEditing by remember(target.id) { mutableStateOf(false) }
+    LaunchedEffect(emojiPanelOpen, selfDidForEmoji) {
+        if (selfDidForEmoji.isNotBlank()) {
+            if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji)
+            else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji, force = true)
+        }
+    }
     LaunchedEffect(imeBottom > 0) {
         if (imeBottom > 0) keyboardWasShown = true
-        else if (keyboardWasShown && !submitting) onDismiss()
+        // (The panel hides the keyboard while it is up; that must not
+        // dismiss the popup — the panel's own Back closes the panel.)
+        else if (keyboardWasShown && !submitting && !emojiPanelOpen) onDismiss()
     }
     // Safety net: if the keyboard never comes up at all (hardware keyboard,
     // unusual IME), Back still closes the popup.
@@ -118,6 +138,14 @@ fun QuoteRepostDialog(
                     // The completed handle becomes a real mention on submit —
                     // quote reposts already facet through richText.
                     mentionAutocomplete = true,
+                    emojiStore = emojiStore,
+                    selfDid = selfDidForEmoji,
+                    selfAvatarUrl = selfAvatarUrl,
+                    emojiPanelOpen = emojiPanelOpen,
+                    onEmojiPanelChange = { emojiPanelOpen = it },
+                    emojiTabEditing = emojiTabEditing,
+                    onEmojiTabEditingChange = { emojiTabEditing = it },
+                    liquidGlass = liquidGlass,
                     modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 4.dp)
                 )
             }

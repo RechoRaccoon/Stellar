@@ -136,6 +136,11 @@ fun GridScreen(
     authorFeedState: MainViewModel.AuthorFeedSavedState?,
     e621SearchTags: String,
     liquidGlass: Boolean = false,
+    /** A Home row opened in Explore lays out by the feed creator's picked
+     *  style (see openHomeRowExplore); null keeps the grid's own layout. */
+    exploreFeedStyle: String? = null,
+    /** The grid's Layout button drops the forced style (see onGrid below). */
+    onClearExploreFeedStyle: () -> Unit = {},
     // onItemClick also reports which sub-image within that post's
     // mediaGroup was tapped, so the pager opens on it. -1 means "leave the
     // sub-image index as-is" (the pinch-out-to-return gesture).
@@ -176,12 +181,22 @@ fun GridScreen(
             else -> null
         }
     }
+    // A Home row opened in Explore lays out by the feed creator's picked
+    // style, the way a folder lays out by its own layout above; anything
+    // else keeps the grid's own layout.
+    val exploreLayout = when (exploreFeedStyle) {
+        "tiktok" -> PostKindFilter.VERTICAL_VIDEOS to null
+        "youtube" -> PostKindFilter.HORIZONTAL_VIDEOS to null
+        "square" -> PostKindFilter.ALL to 2
+        "natural" -> PostKindFilter.ALL to 0
+        else -> null
+    }
     val layoutKind = when (folderLayout) {
         "vertical" -> PostKindFilter.VERTICAL_VIDEOS
         "horizontal" -> PostKindFilter.HORIZONTAL_VIDEOS
-        else -> kind
+        else -> exploreLayout?.first ?: kind
     }
-    val gridMode = effectiveGridMode(layoutKind, resultsGridMode(gridScreen, layoutKind), wideDp > 0)
+    val gridMode = effectiveGridMode(layoutKind, exploreLayout?.second ?: resultsGridMode(gridScreen, layoutKind), wideDp > 0)
     val spec = resultsLayoutSpec(layoutKind, gridMode, roundedGridTiles, wideDp)
     // Saved Posts / From Friends / History all use your own DID, so the
     // name is part of the key too — switching between them starts fresh.
@@ -628,6 +643,9 @@ fun GridScreen(
             filter = layoutKind, gridMode = gridMode,
             onGrid = {
                 pendingAnchor = middleAnchor(gridState)
+                // (A forced style would hide the cycle otherwise: drop it
+                // first, so the button visibly changes the layout.)
+                onClearExploreFeedStyle()
                 cycleResultsGridMode(gridScreen, layoutKind, landscape = wideDp > 0)
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (wideDp > 0) rememberSideListWidth() else 0.dp),

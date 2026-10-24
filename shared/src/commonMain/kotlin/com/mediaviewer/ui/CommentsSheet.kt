@@ -119,7 +119,9 @@ fun CommentsSheet(
     sideList: Boolean = false,
     /** Given: a comment's media opens there (the whole screen) instead of
      *  over the comments. */
-    onOpenMedia: ((List<com.mediaviewer.model.CommentMedia>, Int) -> Unit)? = null
+    onOpenMedia: ((List<com.mediaviewer.model.CommentMedia>, Int) -> Unit)? = null,
+    /** The signed-in user's picture, for the emoji menu's accounts row. */
+    selfAvatarUrl: String? = null
 ) {
     // Comment media waits a moment after switching to another post (see
     // LocalCommentMediaReady), so a swipe stays smooth.
@@ -654,7 +656,7 @@ fun CommentsSheet(
                                     value = field, onValueChange = { field = it; commentText = it.text },
                                     visualTransformation = transformation,
                                     singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, fontFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily),
+                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp, fontFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily),
                                     cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
                                     onTextLayout = { fieldLayout = it },
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -697,8 +699,7 @@ fun CommentsSheet(
                                                     }
                                                 }
                                             }
-                                        },
-                                    decorationBox = { inner -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) { inner() } }
+                                        }
                                 )
                                 EmojiFieldOverlay(field.text, fieldLayout, emojiStore)
                                 }
@@ -747,6 +748,13 @@ fun CommentsSheet(
                     }
                     // Back closes the menu first, not the sheet.
                     if (emojiPanelOpen) BackHandler { emojiPanelOpen = false; emojiTabEditing = false }
+                }
+                // The emoji menu, under the input row but outside its padded
+                // column, so it runs edge to edge like the posting page's
+                // (the column's 10dp sides left gaps at the menu's edges).
+                Column(
+                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace)
+                ) {
                     // Custom emoji menu, under the input row, where the
                     // keyboard was — same height as the DM menu.
                     if (emojiPanelOpen) {
@@ -758,6 +766,11 @@ fun CommentsSheet(
                             tint = dominantColor,
                             onPickEmoji = { insertEmoji(it) },
                             onEditingChange = { emojiTabEditing = it },
+                            // The accounts row, as in DMs: your own picture first,
+                            // then saved accounts, with Import at its far right
+                            // (not wedged into the folders row, where it
+                            // overlapped the last tab).
+                            showAccounts = true, selfDid = selfDidForEmoji, selfAvatarUrl = selfAvatarUrl,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

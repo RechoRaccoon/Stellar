@@ -98,6 +98,7 @@ fun LocalOverlayHost(
         LocalOverlays.moveSavedPost = viewModel::moveSavedPost
         LocalOverlays.openPublicFolder = viewModel::openPublicFolder
         LocalOverlays.loadFeedRow = { key, feed, more -> viewModel.loadFeedRow(key, feed, more) }
+        LocalOverlays.openHomeRowExplore = { viewModel.openHomeRowExplore(it) }
         LocalOverlays.feedRows = viewModel.hubLists
         LocalOverlays.openProfile = { viewModel.openProfile(it) }
         LocalOverlays.backFromFeed = viewModel::backFromFeed

@@ -1756,6 +1756,10 @@ fun ComposePostScreen(
                     tint = dominantColor,
                     onPickEmoji = { insertEmoji(it) },
                     onEditingChange = { emojiTabEditing = it },
+                    // The accounts row, as in DMs: your own picture first, then
+                    // saved accounts, with Import at its far right (not wedged
+                    // into the folders row, where it overlapped the last tab).
+                    showAccounts = true, selfDid = selfDidForEmoji, selfAvatarUrl = selfProfile?.avatarUrl,
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .padding(bottom = if (emojiTabEditing) imeDp else 0.dp)
                 )
@@ -2429,15 +2433,19 @@ private fun GrowingTextField(
                 }
         )
         // Custom emoji: each one is a blank, roughly one-em-wide slot in the
-        // text (see emojiVisualTransformation) — put its picture right there.
+        // text (see emojiVisualTransformation) — put its picture right there,
+        // sized like the timeline's inline emoji (1.75em of the field's font,
+        // centred on the slot) rather than the slot's own small box.
         val l = layout
         val shift = ghost?.length ?: 0
         if (emojiStore != null && l != null && l.layoutInput.text.length == value.text.length + shift) {
             val density = LocalDensity.current
+            val fontPx = with(density) { fieldStyle.fontSize.toPx() }
             value.text.forEachIndexed { i, c ->
                 val bmp = emojiStore.imageBitmapForChar(c) ?: return@forEachIndexed
                 val box = l.getBoundingBox(if (i >= caret) i + shift else i)
-                val side = min(box.width, box.height) * 0.92f
+                val side = if (fontPx > 0f && fontPx < Float.POSITIVE_INFINITY) fontPx * 1.75f
+                    else min(box.width, box.height) * 0.92f
                 if (side <= 0f) return@forEachIndexed
                 Image(
                     bitmap = bmp, contentDescription = null, contentScale = ContentScale.Fit,

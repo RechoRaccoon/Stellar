@@ -96,6 +96,8 @@ object LocalOverlays {
     var feedRows: kotlinx.coroutines.flow.StateFlow<Map<String, com.mediaviewer.viewmodel.MainViewModel.HubListState>>? = null
     /** Fills a built feed's row (see MainViewModel.loadFeedRow): key, feed, more. */
     var loadFeedRow: ((String, com.mediaviewer.util.LocalFeed, Boolean) -> Unit)? = null
+    /** Opens a Home tab row in Explore (see MainViewModel.openHomeRowExplore): the row's key. */
+    var openHomeRowExplore: ((String) -> Unit)? = null
     /** Launchpad page two: the open app. */
     var launchApp by mutableStateOf<LaunchApp?>(null)
     /** A note to open straight away when Notes opens (a widget tap). */

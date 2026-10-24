@@ -824,6 +824,7 @@ class MainViewModel(
 
     /** Opens the local History feed (Settings "History" button). */
     fun showHistory() {
+        clearHomeRowExplore()
         if (!_bskyLoggedIn.value) return
         val items = filterHidden(_history.value.map { it.toMediaItem() })
         if (items.isEmpty()) { showToast("No history yet"); return }
@@ -874,6 +875,7 @@ class MainViewModel(
 
     // ── Saves / Bookmarks (Settings Update) ─────────────────────────────────────
     fun showSaves() {
+        clearHomeRowExplore()
         if (!_bskyLoggedIn.value) return
         // Like switching feeds: the grid opens straight away showing
         // placeholder tiles (not the previous feed's posts) until the saves
@@ -2018,8 +2020,8 @@ class MainViewModel(
     data class SearchState(
         val query: String = "",
         val filter: SearchFilter = SearchFilter.ALL,
-        /** All tab: the tag the query most likely means (what the Tagged
-         *  tab's autocomplete would offer first), and its top posts. */
+        /** All tab: the tags the query most likely means, as a Tagged-tab
+         *  query string (see bestTaggedFor), and its top posts. */
         val allTag: String? = null,
         val allTagged: List<MediaItem> = emptyList(),
         val posts: List<MediaItem> = emptyList(),
@@ -2179,26 +2181,72 @@ class MainViewModel(
         }
     }
 
-    /**
-     * The All tab's Tagged row: what's typed may be only part of a tag, so
-     * the tag the Tagged tab's autocomplete would offer first for it (an
-     * exact match wins) is searched, and its newest few posts come back.
-     * Null when there's no tagged dataset or nothing close.
-     */
+    /** The All tab's Tagged row: the query's words guessed as tags, the
+     *  way the Tagged tab reads them — several words can be several tags
+     *  ("Red Panda Raccoon" -> red_panda + raccoon), "-" excludes a tag
+     *  and "~" joins tags into one either-group, and the results are the
+     *  posts carrying every guessed tag (see TagAliases.parse, which the
+     *  rebuilt query below runs through). Returns the rebuilt query (what
+     *  the row's header shows and what See all opens in the Tagged tab, so
+     *  it reproduces these same results) with its top posts, or null when
+     *  no word guesses a tag. Words are segmented greedily, longest run
+     *  first: a run is consecutive words joined with "_", matching a
+     *  vocabulary tag exactly or via TagSuggestionProvider's prefix /
+     *  did-you-mean guess (the old single-tag behaviour was the whole query
+     *  as one such run). A run's "-" / "~" comes from its first word; a
+     *  prefixed word always starts its own run, never joins the previous
+     *  one. "@handle" words are not tags and are skipped, as is a word
+     *  nothing matches, so one unguessable word never kills the row. */
     private suspend fun bestTaggedFor(query: String): Pair<String, List<MediaItem>>? {
         if (!_hasTaggedDataset.value && !taggingSupported) return null
-        val word = query.trim().lowercase().replace(' ', '_')
-        if (word.isBlank()) return null
         val vocabulary = tagVocabularyCache ?: (taggingRepo.tagVocabulary() + taggingRepo.datasetTagNames()).distinct()
             .also { tagVocabularyCache = it }
-        val tag = vocabulary.firstOrNull { it.equals(word, ignoreCase = true) }
-            ?: TagSuggestionProvider.suggest(word, vocabulary, maxResults = 1).firstOrNull()
-            ?: return null
-        val uris = taggingRepo.search(tag).take(12)
-        if (uris.isEmpty()) return tag to emptyList()
+        val words = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.isEmpty()) return null
+        // Each word's operator prefix ("-", "~", or none) and its bare word.
+        val prefixes = words.map { it.takeWhile { c -> c == '-' || c == '~' } }
+        val bare = words.mapIndexed { i, w -> w.drop(prefixes[i].length).lowercase() }
+        val include = ArrayList<String>()
+        val either = ArrayList<String>()
+        val exclude = ArrayList<String>()
+        var i = 0
+        while (i < words.size) {
+            if (bare[i].startsWith("@") || bare[i].isBlank()) { i++; continue }
+            // Longest run first: unprefixed words after the first may join
+            // it; a prefixed word always starts its own run.
+            var matched: String? = null
+            var runLen = 0
+            var len = 1
+            while (i + len <= words.size) {
+                if (len > 1 && prefixes[i + len - 1].isNotEmpty()) break
+                val candidate = bare.subList(i, i + len).joinToString("_")
+                val tag = vocabulary.firstOrNull { it.equals(candidate, ignoreCase = true) }
+                    ?: TagSuggestionProvider.suggest(candidate, vocabulary, maxResults = 1).firstOrNull()
+                if (tag != null) { matched = tag; runLen = len }
+                len++
+            }
+            if (matched == null) { i++; continue }
+            when {
+                prefixes[i].contains('-') -> exclude += matched
+                prefixes[i].contains('~') -> either += matched
+                else -> include += matched
+            }
+            i += runLen
+        }
+        if (include.isEmpty() && either.isEmpty() && exclude.isEmpty()) return null
+        // Rebuilt so taggingRepo.search (TagAliases.parse) reads exactly
+        // these groups — and so See all, which opens this string in the
+        // Tagged tab, reproduces the row.
+        val rebuilt = buildList {
+            addAll(include)
+            either.forEach { add("~$it") }
+            exclude.forEach { add("-$it") }
+        }.joinToString(" ")
+        val uris = taggingRepo.search(rebuilt).take(12)
+        if (uris.isEmpty()) return rebuilt to emptyList()
         val posts = bskyRepo.getPostsByUris(bskyToken, uris).getOrNull().orEmpty()
-        val order = uris.withIndex().associate { (i, u) -> u to i }
-        return tag to filterHidden(posts).sortedBy { order[it.postUri] ?: Int.MAX_VALUE }
+        val order = uris.withIndex().associate { (idx, u) -> u to idx }
+        return rebuilt to filterHidden(posts).sortedBy { order[it.postUri] ?: Int.MAX_VALUE }
     }
 
     /** Search page's Posts tab scrolled near its end: the next page, like
@@ -2326,6 +2374,31 @@ class MainViewModel(
         _searchHiddenBehindPost.value = true
         _screenState.value = ScreenState.FEED
         followPagerSource(PagerSource.SEARCH_POSTS, _searchState.map { it.posts }.distinctUntilChanged())
+    }
+
+    /** The All tab's Tagged row: a tapped post opens the post itself (its
+     *  See all still opens the Tagged tab — see SearchOverlay). The row's
+     *  posts are not the Posts tab's list, so they cannot go through
+     *  openPostFromSearch's index into state.posts; this opens over the
+     *  row's own list instead, following it the same way. (Its pager
+     *  source is SEARCH_POSTS, so reaching the end may fetch one more
+     *  Posts-tab page into state.posts; the pager itself follows only
+     *  allTagged and simply stops.) */
+    fun openAllTaggedPost(item: MediaItem) {
+        val results = _searchState.value.allTagged.distinctBy { it.postUri.ifBlank { it.id } }
+        val index = results.indexOfFirst { it.id == item.id || (it.postUri.isNotBlank() && it.postUri == item.postUri) }
+        if (index < 0) return
+        _mediaItems.value = results
+        _currentIndex.value = index
+        _navDirection.value = 0
+        _authorFeedState.value = null
+        activeFeedMode = ActiveFeedMode.NORMAL
+        activeFeedActorDid = null
+        _selectedFeedUri.value = null
+        _searchOpen.value = false
+        _searchHiddenBehindPost.value = true
+        _screenState.value = ScreenState.FEED
+        followPagerSource(PagerSource.SEARCH_POSTS, _searchState.map { it.allTagged.distinctBy { it.postUri.ifBlank { it.id } } }.distinctUntilChanged())
     }
 
     fun openDmThread(convo: DmConversation) {
@@ -4190,6 +4263,11 @@ class MainViewModel(
         // A feed opened from a profile's Lists/Feeds tab: Refresh reloads
         // THAT feed (it isn't the selected Hub feed).
         if (reset && isProfileFeedActive()) { loadExternalFeed(reset = true); return }
+        // A Home row opened in Explore: Refresh reloads the row itself.
+        if (reset && isHomeRowExploreActive()) {
+            homeRowExploreKey?.let { key -> feedRowSpecs[key]?.let { loadFeedRow(key, it, more = false, force = true) } }
+            return
+        }
         // Saved Posts (and the folder open in it) / History: Refresh reloads
         // that page — it used to drop back to the Hub's feed.
         if (reset && activeFeedMode == ActiveFeedMode.SAVES) {
@@ -4315,6 +4393,11 @@ class MainViewModel(
     }
 
     fun loadMore() {
+        // A Home row opened in Explore pages the row itself, not the main feed.
+        homeRowExploreKey?.let { key ->
+            feedRowSpecs[key]?.let { loadFeedRow(key, it, more = true) }
+            return
+        }
         when (currentPagerSource()) {
             PagerSource.TAGGED -> { loadMoreTagged(); return }
             PagerSource.SEARCH_POSTS -> { loadMoreSearchPosts(); return }
@@ -5848,6 +5931,7 @@ class MainViewModel(
      *  If we're in an author/likes overlay and the user picks the same feed they
      *  were already on, we restore the exact saved scroll position instead of reloading. */
     fun selectFeedFromAnyContext(uri: String?) {
+        clearHomeRowExplore()
         val saved = _authorFeedState.value
         if (saved != null) {
             _authorFeedState.value = null
@@ -5871,6 +5955,7 @@ class MainViewModel(
     }
 
     fun selectFeed(uri: String?) {
+        clearHomeRowExplore()
         // Switching feeds: drop the old feed's posts immediately, so the
         // feed/grid (which opens instantly) shows placeholders rather than
         // the previous feed's content until the new one arrives.
@@ -6096,6 +6181,7 @@ class MainViewModel(
     }
 
     fun showFriendsFeed() {
+        clearHomeRowExplore()
         if (!_bskyLoggedIn.value) return
         val cached = _friendsFeedCache.value
         if (cached != null) {
@@ -6925,7 +7011,8 @@ class MainViewModel(
         if (_quoteRepostSubmitting.value) return
         viewModelScope.launch(ioDispatcher) {
             _quoteRepostSubmitting.value = true
-            bskyRepo.quoteRepost(bskyToken, _bskyDid.value, text, item.postUri, item.postCid)
+            val emojiStore = runCatching { val store = com.mediaviewer.util.EmojiStore.get(platform.context); store.useAccount(_bskyDid.value); store }.getOrNull()
+            bskyRepo.quoteRepost(bskyToken, _bskyDid.value, text, item.postUri, item.postCid, emojiStore = emojiStore)
                 .onSuccess {
                     _quoteRepostSubmitting.value = false
                     _quoteRepostTarget.value = null
@@ -7423,6 +7510,9 @@ class MainViewModel(
         // Leaving a feed that was opened from a profile's Lists/Feeds tab
         // (swipe down, Back) goes back to that profile, not the Hub.
         if (screen == ScreenState.SETTINGS && isProfileFeedActive()) { closeProfileFeed(); return }
+        // Leaving a Home row opened in Explore (swipe down, Back) goes
+        // back to that profile, not the Hub.
+        if (screen == ScreenState.SETTINGS && isHomeRowExploreActive()) { closeHomeRowExplore(); return }
         // A post opened from a profile's tab (the profile waits, hidden,
         // behind it): swiping down goes back to that profile.
         if (screen == ScreenState.SETTINGS && _screenState.value == ScreenState.FEED) {
@@ -9648,6 +9738,16 @@ class MainViewModel(
         val feedUri: String?, val screen: ScreenState
     )
     private var profileFeedReturn: ProfileFeedReturn? = null
+    /** A Home tab row opened in Explore (see openHomeRowExplore): the
+     *  row's key, its saved return state, the mirror keeping the grid on
+     *  the row's posts, and the feed style the grid lays out by. Leaving
+     *  the grid (swipe down, Back, pinch in) or picking another feed
+     *  clears it; the row's own paging and refresh keep it. */
+    private var homeRowExploreKey: String? = null
+    private var homeRowExploreReturn: ProfileFeedReturn? = null
+    private var homeRowExploreMirrorJob: kotlinx.coroutines.Job? = null
+    private val _exploreFeedStyle = MutableStateFlow<String?>(null)
+    val exploreFeedStyle: StateFlow<String?> = _exploreFeedStyle
     /** The Saved Posts folder showing before a public folder was opened over it. */
     private var bookmarkFolderReturn: String? = null
     private var restoreBookmarkFolder = false
@@ -9659,6 +9759,7 @@ class MainViewModel(
             _authorFeedState.value?.author?.isProfileFeed() == true
 
     fun openProfileFeed(entry: ProfileListEntry) {
+        clearHomeRowExplore()
         val overlay = _profileOverlay.value ?: return
         if (!_bskyLoggedIn.value || entry.uri.isBlank()) return
         tapHaptic()
@@ -9760,8 +9861,93 @@ class MainViewModel(
     }
 
     /** Explore mode's pinch-in: only does something on a feed opened from
-     *  a profile (back to that profile). */
-    fun pinchInFromGrid() { if (isProfileFeedActive()) closeProfileFeed() }
+     *  a profile, or a Home row opened in Explore (back to that profile). */
+    /** A Home tab row's See All: the row opens in Explore (the grid),
+     *  over the posts the row already loaded — nothing is refetched —
+     *  laid out by the layout the feed creator picked for it (its style:
+     *  tiktok -> tall videos, youtube -> wide videos, square -> square
+     *  grid, natural -> masonry; avatars and anything else keep the grid's
+     *  own layout). The profile waits hidden behind it, and leaving the
+     *  grid (swipe down, Back, pinch in) puts everything back exactly as
+     *  it was, like a feed opened from a profile (see openProfileFeed).
+     *  The grid pages the row further as it scrolls (see loadMore). */
+    fun openHomeRowExplore(key: String) {
+        val row = _hubLists.value[key] ?: return
+        val feed = feedRowSpecs[key] ?: return
+        if (row.posts.isEmpty()) return
+        tapHaptic()
+        if (homeRowExploreReturn == null) {
+            homeRowExploreReturn = ProfileFeedReturn(
+                _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
+                activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
+            )
+        }
+        homeRowExploreKey = key
+        _exploreFeedStyle.value = feed.style.takeIf { it == "tiktok" || it == "youtube" || it == "square" || it == "natural" }
+        _mediaItems.value = row.posts
+        _currentIndex.value = 0
+        _navDirection.value = 0
+        _authorFeedState.value = AuthorFeedSavedState(
+            author = AuthorInfo("", "", feed.name.ifBlank { "Feed" }, null),
+            items = row.posts, currentIndex = 0, cursor = feedCursor, feedUri = _selectedFeedUri.value
+        )
+        _selectedFeedUri.value = feed.uri
+        _profileOverlay.value?.let { if (!it.hidden) _profileOverlay.value = it.copy(hidden = true) }
+        _screenState.value = ScreenState.GRID
+        // The row keeps paging under the grid (see loadMore): mirror its
+        // posts into the grid as they arrive.
+        homeRowExploreMirrorJob?.cancel()
+        homeRowExploreMirrorJob = viewModelScope.launch(ioDispatcher) {
+            _hubLists.map { it[key]?.posts.orEmpty() }.distinctUntilChanged()
+                .takeWhile { homeRowExploreKey == key }
+                .collect { posts ->
+                    if (homeRowExploreKey == key && _mediaItems.value != posts) _mediaItems.value = posts
+                }
+        }
+    }
+
+    /** Leaves a Home row opened in Explore: everything is put back
+     *  exactly as it was and the profile is shown again (see
+     *  closeProfileFeed). */
+    fun closeHomeRowExplore() {
+        val back = homeRowExploreReturn ?: return
+        clearHomeRowExplore()
+        feedLoadGeneration++
+        isLoadingMore = false
+        _isLoading.value = false
+        _authorFeedState.value = back.authorFeedState
+        activeFeedMode = back.mode
+        activeFeedActorDid = back.actorDid
+        _mediaItems.value = back.items
+        _currentIndex.value = back.index
+        feedCursor = back.cursor
+        _selectedFeedUri.value = back.feedUri
+        _navDirection.value = 0
+        _profileOverlay.value?.let { if (it.hidden) _profileOverlay.value = it.copy(hidden = false) }
+        _screenState.value = back.screen
+        tapHaptic()
+    }
+
+    /** Drops a Home-row Explore open without restoring (the user picked
+     *  another feed, or Saved Posts / a profile feed superseded it). */
+    private fun clearHomeRowExplore() {
+        homeRowExploreMirrorJob?.cancel()
+        homeRowExploreMirrorJob = null
+        homeRowExploreKey = null
+        homeRowExploreReturn = null
+        _exploreFeedStyle.value = null
+    }
+
+    private fun isHomeRowExploreActive(): Boolean = homeRowExploreReturn != null && homeRowExploreKey != null
+
+    /** The grid's Layout button: drops the opened row's forced style so
+     *  the button's cycle shows (the row itself stays open). */
+    fun clearExploreFeedStyle() { _exploreFeedStyle.value = null }
+
+    fun pinchInFromGrid() {
+        if (isProfileFeedActive()) { closeProfileFeed(); return }
+        if (isHomeRowExploreActive()) { closeHomeRowExplore(); return }
+    }
 
     // ── Add To: delete a list / change its cover ─────────────────────────
 

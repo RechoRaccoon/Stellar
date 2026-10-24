@@ -75,7 +75,7 @@ data class RowHeaderStyle(val align: Int = 1, val divider: Boolean = true, val l
  * [onEdit] puts a small edit button after it.
  */
 @Composable
-fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() -> Unit)? = null, edge: Dp = 16.dp) {
+fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() -> Unit)? = null, edge: Dp = 16.dp, onSeeAll: (() -> Unit)? = null) {
     val tap = rememberHapticTap()
     val lineColor = tint.copy(alpha = 0.6f)
     @Composable
@@ -94,6 +94,7 @@ fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() 
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = lerp(tint, Color.White, 0.35f), modifier = Modifier.size(13.dp)) }
             if (style.align != 2) Line(Modifier.weight(1f))
+            if (onSeeAll != null) SeeAllButton(tint, onSeeAll)
         }
         Spacer(Modifier.height(8.dp))
     } else {
@@ -117,8 +118,20 @@ fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() 
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = lerp(tint, Color.White, 0.35f), modifier = Modifier.size(16.dp)) }
             if (style.align != 2) Line(Modifier.weight(1f).padding(start = 12.dp))
+            if (onSeeAll != null) SeeAllButton(tint, onSeeAll)
         }
     }
+}
+
+/** A row header's "See all", as on the search page's rows: small, at the
+ *  far right, taking no room from the title. */
+@Composable
+private fun SeeAllButton(tint: Color, onSeeAll: () -> Unit) {
+    val tap = rememberHapticTap()
+    Text(
+        "See all", color = lerp(tint, Color.White, 0.35f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onSeeAll() }.padding(horizontal = 10.dp, vertical = 6.dp)
+    )
 }
 
 /** How tall one row of a built feed's tiles is, by its style — the size
@@ -151,6 +164,8 @@ fun BuiltFeedRow(
     onLoad: () -> Unit, onLoadMore: () -> Unit,
     onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit,
     onEdit: (() -> Unit)? = null,
+    /** Home Tab rows only: opens the row in Explore (see openHomeRowExplore). */
+    onSeeAll: (() -> Unit)? = null,
     headerEdge: Dp = 16.dp
 ) {
     LaunchedEffect(feed) { onLoad() }
@@ -159,7 +174,7 @@ fun BuiltFeedRow(
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
-    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge)
+    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, onSeeAll = if (state?.posts?.isNotEmpty() == true) onSeeAll else null)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
         if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)

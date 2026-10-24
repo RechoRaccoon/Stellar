@@ -130,6 +130,8 @@ fun SearchOverlay(
     onTagSuggestionSelected: (String) -> Unit = {},
     onSelectFilter: (MainViewModel.SearchFilter) -> Unit,
     onOpenPost: (Int) -> Unit,
+    /** The All tab's Tagged row: a tapped post opens the post itself. */
+    onOpenTaggedPost: (MediaItem) -> Unit = {},
     onOpenAccount: (AuthorInfo) -> Unit,
     onAddFeed: (com.mediaviewer.model.SearchFeedResult) -> Unit = {},
     // Feeds / Starter Packs share the profile pages' Lists/Feeds rows.
@@ -548,7 +550,8 @@ fun SearchOverlay(
                                 state.posts.indexOf(item).takeIf { it >= 0 }?.let(onOpenPost)
                             },
                             onSeeAll = onSelectFilter,
-                            // A tagged post (or its See all): the Tagged tab, on that tag.
+                            onOpenTaggedPost = onOpenTaggedPost,
+                            // A tagged post's See all: the Tagged tab, on those tags.
                             onOpenTag = { tag ->
                                 TaggedSearchPlace.top()
                                 onLikedQueryTextChange("$tag ")
@@ -1363,7 +1366,7 @@ private fun BasicTextFieldWithPlaceholder(
 /**
  * Search › All: a little of everything the query finds, one section each —
  * People (a row of pictures to swipe through), Posts and Tagged (rows of
- * thumbnails; Tagged searches the tag the query most likely means), then
+ * thumbnails; Tagged searches the tags the query most likely means), then
  * Feeds and Starter Packs (their first few rows). Each section's "See all"
  * opens its own tab, already filled in. Sections with nothing are left out.
  */
@@ -1373,6 +1376,7 @@ private fun SearchAllResults(
     savedFeedUris: Set<String>,
     onOpenAccount: (AuthorInfo) -> Unit,
     onOpenPost: (MediaItem) -> Unit,
+    onOpenTaggedPost: (MediaItem) -> Unit = {},
     onSeeAll: (MainViewModel.SearchFilter) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenFeed: (com.mediaviewer.model.ProfileListEntry) -> Unit,
@@ -1495,7 +1499,7 @@ private fun SearchAllResults(
         val tag = state.allTag
         if (tag != null && state.allTagged.isNotEmpty()) {
             item(key = "all_tagged_h") { Header("Tagged", sub = tag.replace('_', ' '), onAll = { onOpenTag(tag) }) }
-            item(key = "all_tagged") { Thumbs(state.allTagged.distinctBy { it.postUri.ifBlank { it.id } }) { onOpenTag(tag) } }
+            item(key = "all_tagged") { Thumbs(state.allTagged.distinctBy { it.postUri.ifBlank { it.id } }) { onOpenTaggedPost(it) } }
         }
         @Composable
         fun FeedsBlock() {

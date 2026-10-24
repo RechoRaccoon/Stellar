@@ -146,6 +146,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     val friendsFeedLoadingOverlay by viewModel.friendsFeedLoadingOverlay.collectAsState()
     val profileOverlay         by viewModel.profileOverlay.collectAsState()
     val selfProfile            by viewModel.selfProfile.collectAsState()
+    val exploreFeedStyle       by viewModel.exploreFeedStyle.collectAsState()
     val appInitialized         by viewModel.appInitialized.collectAsState()
     val hideTextOnlyPosts      by viewModel.hideTextOnlyPosts.collectAsState()
     val bskyDid                by viewModel.bskyDid.collectAsState()
@@ -740,6 +741,8 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
             onRemoveFeed              = viewModel::removeFeed,
             onTogglePinFeed           = viewModel::toggleFeedPinned,
             onGridPinchIn             = viewModel::pinchInFromGrid,
+            exploreFeedStyle          = exploreFeedStyle,
+            onClearExploreFeedStyle   = viewModel::clearExploreFeedStyle,
             // (Keyboard shortcuts only while nothing's open over the timeline.)
             shortcutsEnabled          = (profileOverlay == null || profileOverlay?.hidden == true) && !searchOpen &&
                 !dmInboxOpen && !inboxOpen && !composePostOpen && sendPopupTarget == null && quoteRepostTarget == null &&
@@ -1042,6 +1045,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 onTagSuggestionSelected = viewModel::applyTagSuggestion,
                 onSelectFilter     = viewModel::setSearchFilter,
                 onOpenPost         = viewModel::openPostFromSearch,
+                onOpenTaggedPost   = viewModel::openAllTaggedPost,
                 onOpenAccount      = { author -> viewModel.closeSearch(); viewModel.openProfile(author) },
                 onLoadMorePosts    = viewModel::loadMoreSearchPosts,
                 trendingTopics     = trendingTopics,
@@ -1314,6 +1318,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 liquidGlass   = liquidGlass,
                 dominantColor = currentDominantColor,
                 backdrop      = currentBackdrop,
+                selfAvatarUrl = selfProfile?.author?.avatarUrl,
                 onSubmit    = viewModel::submitQuoteRepost,
                 onDismiss   = viewModel::dismissQuoteRepost
             )
