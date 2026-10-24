@@ -56,7 +56,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 // (awaitPointerEvent is the awaitEachGesture scope's own member, as in
 // the comment box — not an import.)
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 
 /**

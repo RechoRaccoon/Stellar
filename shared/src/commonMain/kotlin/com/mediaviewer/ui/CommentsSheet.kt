@@ -7,7 +7,7 @@ import com.mediaviewer.platform.PlatformUri
 import com.mediaviewer.ui.compat.rememberLauncherForActivityResult
 import com.mediaviewer.ui.compat.ActivityResultContracts
 import com.mediaviewer.ui.compat.LocalContext
-import androidx.compose.activity.compose.BackHandler
+import com.mediaviewer.ui.compat.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
