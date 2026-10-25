@@ -1363,9 +1363,14 @@ fun ProfileOverlay(
         // ── Scroll-to-top bubble — appears once scrolled past the tabs ──
         // (Level with the fixed Back / Follow row: its touch area is bigger
         // than the bubble, so it starts that much higher. The tagging status
-        // sits there too while it shows, so it moves down under it.)
+        // sits there too while it shows, so it moves down under it — by the
+        // pill's measured height, not a hardcoded guess: a taller pill
+        // (bigger system font) used to let the arrow creep onto it.)
+        var tagStatusHeightPx by remember { mutableStateOf(0) }
         val statusPush by androidx.compose.animation.core.animateDpAsState(
-            if (LocalOverlays.taggingStatusLabel != null) 38.dp else 0.dp, label = "topArrowUnderStatus"
+            if (LocalOverlays.taggingStatusLabel != null) {
+                if (tagStatusHeightPx > 0) with(density) { tagStatusHeightPx.toDp() } + 10.dp else 38.dp
+            } else 0.dp, label = "topArrowUnderStatus"
         )
         AnimatedVisibility(
             visible = pastTabs,
@@ -1425,6 +1430,7 @@ fun ProfileOverlay(
             liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = rememberTopCutoutClearance())
                 .padding(top = profileFixedRowGap(fixedLayout) + 6.dp, start = 64.dp, end = 64.dp)
+                .onGloballyPositioned { tagStatusHeightPx = it.size.height }
         )
 
         state.openBlog?.let { blog ->
