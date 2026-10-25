@@ -15,8 +15,8 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 - **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter, and special animations for holiday related messages!!
 - (and so much more!!)
 
-# For Developers
-Want to build on Stellar's profile features? The [Stellar Custom Lexicons](LEXICON.md) doc covers profile styles, Home tab rows, public folders, and custom emoji.
+# Stellar Lexicon
+I documented my profile customization lexicons in [Stellar Custom Lexicons](LEXICON.md): profile styles, Home tab rows, public folders, and custom emoji.
 
 # Support Recho!!
 Every feature in Stellar is free for everyone!! If you'd like to help Recho afford food, you can donate with any of the links below :3
