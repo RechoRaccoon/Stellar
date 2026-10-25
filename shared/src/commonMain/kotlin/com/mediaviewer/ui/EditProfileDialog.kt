@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -60,6 +62,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import com.mediaviewer.model.AuthorInfo
 import com.mediaviewer.model.ProfileData
@@ -88,6 +91,8 @@ fun EditProfileDialog(
     profile: ProfileData?,
     tint: Color,
     liquidGlass: Boolean,
+    /** The page's live glass backdrop, for glass popups opened from here. */
+    backdrop: GlassBackdrop? = null,
     /** The profile's links for the Links section, or null when unknown
      *  (the section is hidden then, so a save can't wipe them). */
     initialLinks: List<ProfileLinkDraft>? = null,
@@ -106,6 +111,9 @@ fun EditProfileDialog(
     /** The link form: which list entry is being edited (null = adding). */
     var linkFormIndex by remember { mutableStateOf<Int?>(null) }
     var linkFormOpen by remember { mutableStateOf(false) }
+    /** Drag state for the Links row (the Hub feed row's system): the row
+     *  reads it, and the lifted ghost below renders from it. */
+    val linkDrag = remember { LinkDragState() }
     BackHandler(enabled = !saving, onBack = onDismiss)
 
     // ── Supporter customizations (one record: icon shape, effect, colors) ──
@@ -138,6 +146,7 @@ fun EditProfileDialog(
 
     Box(
         Modifier.fillMaxSize()
+            .onGloballyPositioned { linkDrag.rootOrigin = it.positionInRoot() }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null
@@ -333,7 +342,8 @@ fun EditProfileDialog(
                         links = currentLinks, tint = tint, liquidGlass = liquidGlass, enabled = !saving,
                         onChange = { links = it },
                         onEdit = { index -> linkFormIndex = index; linkFormOpen = true },
-                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
+                        drag = linkDrag
                     )
                 }
             }
@@ -517,6 +527,7 @@ fun EditProfileDialog(
                 editing = formIndex?.let { formLinks.getOrNull(it) },
                 existingUrls = formLinks.filterIndexed { i, _ -> i != formIndex }.map { it.url },
                 tint = tint,
+                liquidGlass = liquidGlass, backdrop = backdrop,
                 onDismiss = { linkFormOpen = false },
                 onSave = { saved ->
                     links = if (formIndex != null) {
@@ -530,6 +541,15 @@ fun EditProfileDialog(
                     { links = formLinks.filterIndexed { i, _ -> i != formIndex }; linkFormOpen = false }
                 } else null
             )
+        }
+        // The held link pill, floating above the panel while it is dragged
+        // (the Hub feed row's ghost, same system as the row above).
+        if (linkDrag.active) {
+            linkDrag.link?.let { held ->
+                Box(Modifier.fillMaxSize().zIndex(30f), contentAlignment = Alignment.TopStart) {
+                    LinkDragGhost(linkDrag, held, tint, liquidGlass)
+                }
+            }
         }
     }
 }

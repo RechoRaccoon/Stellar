@@ -1230,10 +1230,17 @@ fun ProfileOverlay(
                 )
                 // Own profile only: the Hub's posting plus button, far
                 // right in this same row but its own standalone bubble,
-                // not part of the interaction bar.
+                // not part of the interaction bar. Same button as the Hub's:
+                // the bar's own height for size, and this page's live
+                // backdrop (the Hub passes its own) so the glass renders
+                // the same instead of a solid tint fill.
                 if (selfDid.isNotBlank() && author.did == selfDid) {
                     Box(Modifier.align(Alignment.CenterEnd).padding(end = 16.dp)) {
-                        HubUploadBubble(liquidGlass = liquidGlass, tint = blended, onOpenComposePost = onOpenComposePost)
+                        HubUploadBubble(
+                            liquidGlass = liquidGlass, tint = blended,
+                            size = if (liquidGlass) 44.dp else 36.dp, backdrop = backdrop,
+                            onOpenComposePost = onOpenComposePost
+                        )
                     }
                 }
             }
@@ -1520,6 +1527,7 @@ fun ProfileOverlay(
         if (editingProfile) {
             EditProfileDialog(
                 author = author, profile = profile, tint = blended, liquidGlass = liquidGlass,
+                backdrop = backdrop,
                 initialLinks = profile?.links?.map { com.mediaviewer.model.ProfileLinkDraft(url = it.url, title = it.title, uri = it.uri, iconUrl = it.icon) },
                 onDismiss = { editingProfile = false },
                 onSave = onSaveOwnProfile
@@ -1531,6 +1539,7 @@ fun ProfileOverlay(
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
             LinkPreviewPopup(
                 link = previewLink, tint = blended,
+                liquidGlass = liquidGlass, backdrop = backdrop,
                 onDismiss = { linkPreview = null },
                 onOpen = { linkPreview = null; runCatching { uriHandler.openUri(previewLink.url) } },
                 onCopy = {
