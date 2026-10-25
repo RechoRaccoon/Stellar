@@ -9888,7 +9888,11 @@ class MainViewModel(
         _currentIndex.value = 0
         _navDirection.value = 0
         _authorFeedState.value = AuthorFeedSavedState(
-            author = AuthorInfo("", "", feed.name.ifBlank { "Feed" }, null),
+            // A Hub-list author, like a Hub list opened in Explore: that
+            // makes this page a special feed, so the grid shows the row's
+            // name big at the top instead of the feed selector — the
+            // Saved Posts / From Friends layout.
+            author = AuthorInfo(_bskyDid.value, HUB_LIST_FEED_HANDLE_PREFIX + feed.uri, feed.name.ifBlank { "Feed" }, null),
             items = row.posts, currentIndex = 0, cursor = feedCursor, feedUri = _selectedFeedUri.value
         )
         _selectedFeedUri.value = feed.uri

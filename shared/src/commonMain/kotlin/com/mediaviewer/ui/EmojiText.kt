@@ -34,21 +34,32 @@ import kotlin.math.roundToInt
  * character the field shows as a blank slot (see [emojiVisualTransformation]);
  * this puts its picture right there. Place it in the same Box as the field,
  * after it. [layout] is the field's last text layout.
+ *
+ * Timeline-sized (1.75em of the field's font), centred on the slot
+ * sideways and on the LINE vertically — the slot glyph's own box sits
+ * wherever the fallback font puts it, which left pictures small and high
+ * (quote) or at uneven heights (composer). The line's box is
+ * font-independent, so every emoji on a line shares one centre, lifted
+ * a little like the timeline's inline emoji.
  */
 @Composable
 internal fun EmojiFieldOverlay(text: String, layout: TextLayoutResult?, store: EmojiStore) {
     val l = layout ?: return
     if (l.layoutInput.text.length != text.length) return
     val density = LocalDensity.current
+    val fontPx = with(density) { l.layoutInput.style.fontSize.toPx() }
     text.forEachIndexed { i, c ->
         val bmp = store.imageBitmapForChar(c) ?: return@forEachIndexed
         val box = l.getBoundingBox(i)
-        val side = min(box.width, box.height) * 0.92f
+        val side = if (fontPx > 0f && fontPx < Float.POSITIVE_INFINITY) fontPx * 1.75f
+            else min(box.width, box.height) * 0.92f
         if (side <= 0f) return@forEachIndexed
+        val line = l.getLineForOffset(i)
+        val lineCenter = (l.getLineTop(line) + l.getLineBottom(line)) / 2f
         Image(
             bitmap = bmp, contentDescription = null, contentScale = ContentScale.Fit,
             modifier = Modifier
-                .offset { IntOffset((box.left + (box.width - side) / 2f).roundToInt(), (box.top + (box.height - side) / 2f).roundToInt()) }
+                .offset { IntOffset((box.left + (box.width - side) / 2f).roundToInt(), (lineCenter - side / 2f - side * 0.1f).roundToInt()) }
                 .size(with(density) { side.toDp() })
         )
     }

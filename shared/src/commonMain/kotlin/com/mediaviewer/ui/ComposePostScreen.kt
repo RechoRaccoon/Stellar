@@ -2432,10 +2432,14 @@ private fun GrowingTextField(
                     e.type == KeyEventType.KeyDown && e.key == Key.Tab && ghostShown.value && acceptGhost.value()
                 }
         )
-        // Custom emoji: each one is a blank, roughly one-em-wide slot in the
-        // text (see emojiVisualTransformation) — put its picture right there,
-        // sized like the timeline's inline emoji (1.75em of the field's font,
-        // centred on the slot) rather than the slot's own small box.
+        // Custom emoji: each one is a blank slot in the text (see
+        // emojiVisualTransformation) — put its picture right there, sized
+        // like the timeline's inline emoji (1.75em of the field's font),
+        // centred on the slot sideways and on the LINE vertically, lifted
+        // a little like the timeline's. The slot glyph's own box sits
+        // wherever the fallback font puts it, which left pictures at
+        // uneven heights; the line's box is font-independent, so every
+        // emoji on a line shares one centre.
         val l = layout
         val shift = ghost?.length ?: 0
         if (emojiStore != null && l != null && l.layoutInput.text.length == value.text.length + shift) {
@@ -2443,14 +2447,17 @@ private fun GrowingTextField(
             val fontPx = with(density) { fieldStyle.fontSize.toPx() }
             value.text.forEachIndexed { i, c ->
                 val bmp = emojiStore.imageBitmapForChar(c) ?: return@forEachIndexed
-                val box = l.getBoundingBox(if (i >= caret) i + shift else i)
+                val li = if (i >= caret) i + shift else i
+                val box = l.getBoundingBox(li)
                 val side = if (fontPx > 0f && fontPx < Float.POSITIVE_INFINITY) fontPx * 1.75f
                     else min(box.width, box.height) * 0.92f
                 if (side <= 0f) return@forEachIndexed
+                val line = l.getLineForOffset(li)
+                val lineCenter = (l.getLineTop(line) + l.getLineBottom(line)) / 2f
                 Image(
                     bitmap = bmp, contentDescription = null, contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .offset { IntOffset((box.left + (box.width - side) / 2f).roundToInt(), (box.top + (box.height - side) / 2f).roundToInt()) }
+                        .offset { IntOffset((box.left + (box.width - side) / 2f).roundToInt(), (lineCenter - side / 2f - side * 0.1f).roundToInt()) }
                         .size(with(density) { side.toDp() })
                 )
             }
@@ -2505,10 +2512,11 @@ internal fun ghostTransformation(base: VisualTransformation, caret: Int, ghost: 
 /** Stand-in for an emoji's spot in the *displayed* text: a CJK ideograph is
  *  one em wide in every font and is a real (non-space) character, so the layout
  *  gives it a solid, wrappable slot; it's painted transparent and the emoji
- *  picture is drawn over it. A little letter-spacing widens the slot to the
- *  ~1.25em that a normal emoji glyph takes. */
+ *  picture is drawn over it. Letter-spacing widens the slot to the 1.75em
+ *  the timeline draws emoji at — a narrower slot made consecutive emoji
+ *  overlap, since their pictures are 1.75em wide on narrower centres. */
 internal const val EMOJI_SLOT_CHAR = '\u4E00'
-internal val EmojiSlotStyle = SpanStyle(color = Color.Transparent, letterSpacing = 0.25.em)
+internal val EmojiSlotStyle = SpanStyle(color = Color.Transparent, letterSpacing = 0.75.em)
 
 /** Swaps every emoji token for a slot — one character for one character, so
  *  caret/selection offsets map straight across (OffsetMapping.Identity). */

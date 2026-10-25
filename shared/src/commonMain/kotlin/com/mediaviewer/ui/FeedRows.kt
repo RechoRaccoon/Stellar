@@ -164,7 +164,9 @@ fun BuiltFeedRow(
     onLoad: () -> Unit, onLoadMore: () -> Unit,
     onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit,
     onEdit: (() -> Unit)? = null,
-    /** Home Tab rows only: opens the row in Explore (see openHomeRowExplore). */
+    /** Home Tab rows only: opens the row in Explore (see openHomeRowExplore).
+     *  Never for "avatars" rows: those show only account pictures, so there
+     *  is nothing to open. */
     onSeeAll: (() -> Unit)? = null,
     headerEdge: Dp = 16.dp
 ) {
@@ -174,7 +176,7 @@ fun BuiltFeedRow(
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
-    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, onSeeAll = if (state?.posts?.isNotEmpty() == true) onSeeAll else null)
+    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, onSeeAll = if (state?.posts?.isNotEmpty() == true && feed.style != "avatars") onSeeAll else null)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
         if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)

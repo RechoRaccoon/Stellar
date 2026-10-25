@@ -455,7 +455,10 @@ fun PopupMessageBox(
                         capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
                     ),
                     onTextLayout = { popupFieldLayout = it },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    // No padding on the field itself: the overlay below
+                    // shares this Box, so any padding here would shift
+                    // the pictures up from the text by that much.
+                    modifier = Modifier.fillMaxWidth()
                         .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                         .onFocusChanged { focused = it.isFocused }
                         .onPreviewKeyEvent { e ->
