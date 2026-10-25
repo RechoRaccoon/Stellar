@@ -275,8 +275,9 @@ fun PopupMessageBox(
      *  popup. Off elsewhere (alt text, reports, DM shares). */
     mentionAutocomplete: Boolean = false,
     /** Custom emoji for the quote repost popup (opt-in, like
-     *  [mentionAutocomplete]): the star button before the thumbnail, and
-     *  the menu under the input row. Off elsewhere. */
+     *  [mentionAutocomplete]): the star button before the thumbnail.
+     *  The menu itself is rendered by the caller below the popup,
+     *  where the keyboard was — never inside the popup. Off elsewhere. */
     emojiStore: com.mediaviewer.util.EmojiStore? = null,
     selfDid: String = "",
     selfAvatarUrl: String? = null,
@@ -284,6 +285,10 @@ fun PopupMessageBox(
     onEmojiPanelChange: (Boolean) -> Unit = {},
     emojiTabEditing: Boolean = false,
     onEmojiTabEditingChange: (Boolean) -> Unit = {},
+    /** Called once with the caret-aware emoji inserter, so a caller that
+     *  renders the menu outside this popup can still insert at the caret
+     *  (the field state lives here). */
+    onInsertEmojiAvailable: ((com.mediaviewer.util.EmojiEntry) -> Unit) -> Unit = {},
     liquidGlass: Boolean = false
 ) {
     val tap = rememberHapticTap()
@@ -321,6 +326,11 @@ fun PopupMessageBox(
         popupField = androidx.compose.ui.text.input.TextFieldValue(next, androidx.compose.ui.text.TextRange(start + token.length))
         onValueChange(next)
     }
+    // Hand the inserter to the caller once (it reads the field's current
+    // state on every call, so one registration stays correct). The
+    // caller's menu inserts through it, at the caret, exactly as the
+    // menu did when it lived inside this popup.
+    androidx.compose.runtime.LaunchedEffect(Unit) { onInsertEmojiAvailable(::insertEmoji) }
     // Back closes the menu first, not the popup (registered after the
     // popup's own BackHandler, so it wins while the menu is up).
     BackHandler(enabled = emojiPanelOpen) { onEmojiPanelChange(false); onEmojiTabEditingChange(false) }
@@ -496,21 +506,6 @@ fun PopupMessageBox(
             if (sending) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
             else Icon(sendIcon, contentDescription = sendDescription, tint = Color.White.copy(alpha = if (canSend) 1f else 0.5f), modifier = Modifier.size(19.dp))
         }
-    }
-    // Custom emoji menu, under the input row, where the keyboard was —
-    // same height as the DM menu. (Only the quote popup asks for it.)
-    if (emojiStore != null && emojiPanelOpen) {
-        EmojiPanel(
-            store = emojiStore,
-            height = 380.dp,
-            compact = emojiTabEditing,
-            liquidGlass = liquidGlass,
-            tint = tint,
-            onPickEmoji = { insertEmoji(it) },
-            onEditingChange = { onEmojiTabEditingChange(it) },
-            showAccounts = true, selfDid = selfDid, selfAvatarUrl = selfAvatarUrl,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
     }
 }

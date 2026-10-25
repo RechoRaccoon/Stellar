@@ -200,6 +200,17 @@ fun CommentsSheet(
     var emojiPanelOpen by remember { mutableStateOf(false) }
     var emojiTabEditing by remember { mutableStateOf(false) }
     val selfDidForEmoji = LocalOverlays.selfDid
+    // The menu takes the keyboard's place, so it is the keyboard's height
+    // (remembered from the tallest the keyboard has been), exactly as in
+    // DMs and the composer — not a fixed height.
+    val commentDensity = androidx.compose.ui.platform.LocalDensity.current
+    val commentImeBottomPx = WindowInsets.ime.getBottom(commentDensity)
+    var commentKeyboardPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(commentImeBottomPx) {
+        if (commentImeBottomPx > commentKeyboardPx) commentKeyboardPx = commentImeBottomPx
+    }
+    val emojiPanelHeight = with(commentDensity) { if (commentKeyboardPx > 0) commentKeyboardPx.toDp() else 300.dp }.coerceIn(240.dp, 480.dp)
+    val commentImeDp = with(commentDensity) { commentImeBottomPx.toDp() }
     LaunchedEffect(emojiPanelOpen, selfDidForEmoji) {
         if (selfDidForEmoji.isNotBlank()) {
             if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji)
@@ -508,7 +519,11 @@ fun CommentsSheet(
             if (!showTags) {
                 Column(
                     Modifier.fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace))
+                        // With the menu up, the row takes no bottom insets:
+                        // it sits directly on the menu, as in DMs. (The
+                        // insets plus the column's own padding were the gap
+                        // under the row.)
+                        .then(if (emojiPanelOpen) Modifier else Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navBarSpace)))
                         .padding(horizontal = 10.dp, vertical = 10.dp)
                 ) {
                     replyTarget?.let { target ->
@@ -752,15 +767,18 @@ fun CommentsSheet(
                 // The emoji menu, under the input row but outside its padded
                 // column, so it runs edge to edge like the posting page's
                 // (the column's 10dp sides left gaps at the menu's edges).
+                // No nav-bar padding of its own: like the DM menu, it runs
+                // to the screen's bottom edge.
                 Column(
-                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navBarSpace)
+                    Modifier.fillMaxWidth()
                 ) {
                     // Custom emoji menu, under the input row, where the
-                    // keyboard was — same height as the DM menu.
+                    // keyboard was — the DM menu's height, and riding on
+                    // the keyboard while a tab is being renamed.
                     if (emojiPanelOpen) {
                         EmojiPanel(
                             store = emojiStore,
-                            height = 380.dp,
+                            height = emojiPanelHeight,
                             compact = emojiTabEditing,
                             liquidGlass = liquidGlass,
                             tint = dominantColor,
@@ -772,6 +790,7 @@ fun CommentsSheet(
                             // overlapped the last tab).
                             showAccounts = true, selfDid = selfDidForEmoji, selfAvatarUrl = selfAvatarUrl,
                             modifier = Modifier.fillMaxWidth()
+                                .padding(bottom = if (emojiTabEditing) commentImeDp else 0.dp)
                         )
                     }
                     // (The first time the emoji menu opens: custom emoji are public.)
