@@ -48,4 +48,4 @@ Open **https://rechoraccoon.github.io/Stellar/** — nothing to install. Works i
 - Note: The developer mode toggle won't appear until AltStore is downloaded to your phone.
 
 # Stellar Lexicon
-Integrate Stellar's unique features like custom emoji, profile statues, animated icons and banners, post folders, and more, into your app with [Stellar Custom Lexicons](LEXICON.md):
+Integrate Stellar's unique features like custom emoji, profile statues, animated icons and banners, post folders, and more, into your app with [Stellar's Custom Lexicons](LEXICON.md):
