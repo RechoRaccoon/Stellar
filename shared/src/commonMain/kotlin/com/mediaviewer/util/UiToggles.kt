@@ -149,12 +149,12 @@ object UiToggles {
 
     /** Search › Tagged's Sort: 0 most liked (default), 1 most reposted,
      *  2 most saved, 3 most comments, 4 most recently uploaded, 5 most
-     *  recently tagged. Remembered. */
+     *  recently tagged, 6 oldest first. Remembered. */
     var taggedSort by mutableStateOf(0)
         private set
 
     fun updateTaggedSort(sort: Int) {
-        taggedSort = sort.coerceIn(0, 5)
+        taggedSort = sort.coerceIn(0, 6)
         prefs?.edit()?.putInt(KEY_TAGGED_SORT, taggedSort)?.apply()
     }
 
@@ -480,7 +480,7 @@ object UiToggles {
         hidePostStats = p.getBoolean(KEY_HIDE_POST_STATS, false)
         hidePostDate = p.getBoolean(KEY_HIDE_POST_DATE, false)
         likeAnimation = p.getString(KEY_LIKE_ANIMATION, null)?.let { runCatching { LikeAnimation.valueOf(it) }.getOrNull() } ?: LikeAnimation.HEART_3D
-        taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 5)
+        taggedSort = p.getInt(KEY_TAGGED_SORT, 0).coerceIn(0, 6)
         showTaggingStatus = p.getBoolean(KEY_SHOW_TAGGING_STATUS, true)
         tagWhenViewed = p.getBoolean(KEY_TAG_WHEN_VIEWED, false)
         squareCorners = p.getBoolean(KEY_SQUARE_CORNERS, false)
