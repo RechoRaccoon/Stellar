@@ -2493,7 +2493,7 @@ private fun HubSettingsButton(
  *  affordance either — both removed outright rather than kept around
  *  unused. */
 @Composable
-private fun HubUploadBubble(
+fun HubUploadBubble(
     liquidGlass: Boolean, tint: Color, size: androidx.compose.ui.unit.Dp = 26.dp,
     modifier: Modifier = Modifier, backdrop: GlassBackdrop? = null,
     // Item 5 (rework): see ReturnToFeedBar's own doc comment on

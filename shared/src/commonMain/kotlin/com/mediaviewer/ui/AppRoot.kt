@@ -1175,6 +1175,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                     pinterestThreeColumns = pinterestThreeColumns,
                     hateFunBlurNsfw   = hateFunBlurNsfw,
                     onSaveOwnProfile  = viewModel::updateOwnProfile,
+                    onOpenComposePost = viewModel::openComposePost,
                     onBackdropChanged = { b, c -> profileBackdrop = b; profileTint = c },
                     isBlocking = blockVersion.let { com.mediaviewer.util.BlockedAccounts.isBlocking(currentProfileOverlay.author.did) },
                     onToggleBlock = viewModel::toggleBlockProfile,

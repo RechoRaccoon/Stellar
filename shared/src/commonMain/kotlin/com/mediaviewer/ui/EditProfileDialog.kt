@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
+import com.mediaviewer.model.ProfileLinkDraft
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,8 +88,11 @@ fun EditProfileDialog(
     profile: ProfileData?,
     tint: Color,
     liquidGlass: Boolean,
+    /** The profile's links for the Links section, or null when unknown
+     *  (the section is hidden then, so a save can't wipe them). */
+    initialLinks: List<ProfileLinkDraft>? = null,
     onDismiss: () -> Unit,
-    onSave: (displayName: String, bio: String, handle: String, avatar: Uri?, banner: Uri?, onDone: (String?) -> Unit) -> Unit
+    onSave: (displayName: String, bio: String, handle: String, avatar: Uri?, banner: Uri?, links: List<ProfileLinkDraft>?, onDone: (String?) -> Unit) -> Unit
 ) {
     val tap = rememberHapticTap()
     var displayName by remember { mutableStateOf(author.displayName) }
@@ -98,6 +102,10 @@ fun EditProfileDialog(
     var newBanner by remember { mutableStateOf<Uri?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var links by remember { mutableStateOf(initialLinks) }
+    /** The link form: which list entry is being edited (null = adding). */
+    var linkFormIndex by remember { mutableStateOf<Int?>(null) }
+    var linkFormOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = !saving, onBack = onDismiss)
 
     // ── Supporter customizations (one record: icon shape, effect, colors) ──
@@ -280,14 +288,7 @@ fun EditProfileDialog(
             }
             Spacer(Modifier.height(12.dp))
 
-            // Row 2: bio.
-            EditField(
-                value = bio, onValue = { bio = it.take(256) }, label = "Bio", tint = tint,
-                singleLine = false, minHeight = 96.dp, counter = "${bio.length}/256", enabled = !saving
-            )
-            Spacer(Modifier.height(10.dp))
-
-            // Row 3: display name + handle.
+            // Row 2: display name + handle.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) {
                     EditField(value = displayName, onValue = { displayName = it.take(64) }, label = "Display name", tint = tint, enabled = !saving)
@@ -304,6 +305,26 @@ fun EditProfileDialog(
                 Text(
                     "Changing your handle needs a handle your account can use (e.g. another name.bsky.social, or a domain you've verified).",
                     color = Color.White.copy(0.5f), fontSize = 11.sp
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+
+            // Row 3: bio.
+            EditField(
+                value = bio, onValue = { bio = it.take(256) }, label = "Bio", tint = tint,
+                singleLine = false, minHeight = 96.dp, counter = "${bio.length}/256", enabled = !saving
+            )
+            // Links, under the bio. Hidden when the profile's links are
+            // unknown (null), so saving can't wipe links it never saw.
+            val currentLinks = links
+            if (currentLinks != null) {
+                Spacer(Modifier.height(10.dp))
+                Text("LINKS", color = lerp(tint, Color.White, 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(6.dp))
+                LinksEditorRow(
+                    links = currentLinks, tint = tint, liquidGlass = liquidGlass, enabled = !saving,
+                    onChange = { links = it },
+                    onEdit = { index -> linkFormIndex = index; linkFormOpen = true }
                 )
             }
             // Supporter options. Everyone sees them (in the supporter pink
@@ -430,7 +451,7 @@ fun EditProfileDialog(
                         .background(lerp(tint, Color.Black, 0.12f))
                         .clickable(enabled = !saving) {
                             tap(); saving = true; error = null
-                            onSave(displayName.trim(), bio, handle, newAvatar, newBanner) { err ->
+                            onSave(displayName.trim(), bio, handle, newAvatar, newBanner, links) { err ->
                                 val saveStyle = com.mediaviewer.util.ProfileStyles.saver
                                 val upload = com.mediaviewer.util.ProfileStyles.bannerUploader
                                 fun saveRecord(toSave: com.mediaviewer.util.ProfileStyle) {
@@ -479,6 +500,27 @@ fun EditProfileDialog(
                 onDismiss = { cropping = null }
             )
         }
+        if (linkFormOpen) {
+            val formLinks = links.orEmpty()
+            val formIndex = linkFormIndex
+            LinkFormPopup(
+                editing = formIndex?.let { formLinks.getOrNull(it) },
+                existingUrls = formLinks.filterIndexed { i, _ -> i != formIndex }.map { it.url },
+                tint = tint,
+                onDismiss = { linkFormOpen = false },
+                onSave = { saved ->
+                    links = if (formIndex != null) {
+                        formLinks.mapIndexed { i, draft -> if (i == formIndex) saved else draft }
+                    } else {
+                        formLinks + saved
+                    }
+                    linkFormOpen = false
+                },
+                onRemove = if (formIndex != null) {
+                    { links = formLinks.filterIndexed { i, _ -> i != formIndex }; linkFormOpen = false }
+                } else null
+            )
+        }
     }
 }
 
@@ -491,7 +533,7 @@ private fun EditPictureBadge() {
 }
 
 @Composable
-private fun EditField(
+fun EditField(
     value: String,
     onValue: (String) -> Unit,
     label: String,

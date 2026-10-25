@@ -731,16 +731,17 @@ class MainViewModel(
     fun updateOwnProfile(
         displayName: String, description: String, handle: String,
         avatarUri: com.mediaviewer.platform.PlatformUri?, bannerUri: com.mediaviewer.platform.PlatformUri?,
+        links: List<com.mediaviewer.model.ProfileLinkDraft>? = null,
         onDone: (String?) -> Unit
     ) {
         if (!_bskyLoggedIn.value) { onDone("Not signed in"); return }
         val newHandle = handle.trim().removePrefix("@").takeIf { it.isNotBlank() && !it.equals(bskyHandle, ignoreCase = true) }
         viewModelScope.launch(ioDispatcher) {
             val context = platform.context
-            var result = bskyRepo.updateOwnProfile(bskyToken, context, _bskyDid.value, displayName, description, avatarUri, bannerUri, newHandle)
+            var result = bskyRepo.updateOwnProfile(bskyToken, context, _bskyDid.value, displayName, description, avatarUri, bannerUri, newHandle, links)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) {
-                    result = bskyRepo.updateOwnProfile(bskyToken, context, _bskyDid.value, displayName, description, avatarUri, bannerUri, newHandle)
+                    result = bskyRepo.updateOwnProfile(bskyToken, context, _bskyDid.value, displayName, description, avatarUri, bannerUri, newHandle, links)
                 }
             }
             val error = result.exceptionOrNull()?.message

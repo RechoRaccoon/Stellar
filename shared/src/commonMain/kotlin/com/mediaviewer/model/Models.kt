@@ -926,6 +926,22 @@ data class BskyGetBlocksResponse(val blocks: List<BskyProfileBasic> = emptyList(
 
 // ── Profile Overhaul ──────────────────────────────────────────────────────────
 
+/** app.bsky.actor.defs#profileLinkView — one entry of a profile's links
+ *  row, in the order the profile record lists them. The AppView resolves
+ *  the link record's icon blob to an image URL ([icon]); the record's own
+ *  blob is not carried here (the editor re-reads it from the repo). */
+@Serializable
+data class BskyProfileLinkView(
+    val uri: String = "",
+    val cid: String = "",
+    val url: String = "",
+    val title: String? = null,
+    val icon: String? = null
+)
+
+/** How many profile links Bluesky shows (the official client's cap). */
+const val MAX_PROFILE_LINKS = 10
+
 /** Full profileViewDetailed shape from app.bsky.actor.getProfile — adds the
  *  banner image, bio, and the three headline counts that the basic
  *  [BskyProfile] embedded-in-post view doesn't carry. */
@@ -949,7 +965,9 @@ data class BskyProfileDetailed(
     // `status` field (app.bsky.actor.defs#statusView) with an `embed`
     // pointing at the off-platform stream (Twitch, YouTube, etc). See
     // BskyStatusView below.
-    val status: BskyStatusView? = null
+    val status: BskyStatusView? = null,
+    /** The profile's links, in display order (absent when there are none). */
+    val links: List<BskyProfileLinkView>? = null
 )
 
 /** app.bsky.actor.defs#statusView — the "Live Now" badge on a profile.
@@ -991,7 +1009,22 @@ data class ProfileData(
     /** Either of you has blocked the other. */
     val blockedEitherWay: Boolean = false,
     /** They've blocked you. */
-    val blocksYou: Boolean = false
+    val blocksYou: Boolean = false,
+    /** The profile's links, in display order. */
+    val links: List<BskyProfileLinkView> = emptyList()
+)
+
+/** An edit-profile link draft: what the Links editor hands to the save path.
+ *  [uri] identifies the existing link record (null for a new link); [iconUrl]
+ *  is display-only (the view's icon URL) — the save path re-reads the
+ *  record's icon blob from the repo, never from here, so an edit can't
+ *  silently drop a stored favicon. A null drafts list means "unknown, don't
+ *  touch the profile's links" (as opposed to an empty list: no links). */
+data class ProfileLinkDraft(
+    val url: String,
+    val title: String? = null,
+    val uri: String? = null,
+    val iconUrl: String? = null
 )
 
 // Generic com.atproto.repo.listRecords envelope — used for any collection

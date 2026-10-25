@@ -505,8 +505,10 @@ fun ProfileOverlay(
     // content behind a tap-to-reveal cover.
     hateFunBlurNsfw: Boolean = false,
     // Item 19: own profile's edit popup → Save.
-    onSaveOwnProfile: (displayName: String, bio: String, handle: String, avatar: com.mediaviewer.platform.PlatformUri?, banner: com.mediaviewer.platform.PlatformUri?, onDone: (String?) -> Unit) -> Unit =
-        { _, _, _, _, _, done -> done("Editing isn't available here") },
+    onSaveOwnProfile: (displayName: String, bio: String, handle: String, avatar: com.mediaviewer.platform.PlatformUri?, banner: com.mediaviewer.platform.PlatformUri?, links: List<com.mediaviewer.model.ProfileLinkDraft>?, onDone: (String?) -> Unit) -> Unit =
+        { _, _, _, _, _, _, done -> done("Editing isn't available here") },
+    /** Own profile page: the Hub's plus bubble opens the post composer. */
+    onOpenComposePost: () -> Unit = {},
     /** Reports this page's live glass backdrop + color, so popups opened
      *  over it (Add To) blur the profile instead of the post behind it. */
     onBackdropChanged: (GlassBackdrop?, Color) -> Unit = { _, _ -> },
@@ -762,6 +764,8 @@ fun ProfileOverlay(
     LaunchedEffect(backdrop, blended) { onBackdropChanged(backdrop, blended) }
 
     var editingProfile by remember { mutableStateOf(false) }
+    /** A profile link's preview popup (long-press), or null when closed. */
+    var linkPreview by remember { mutableStateOf<com.mediaviewer.model.BskyProfileLinkView?>(null) }
     // The profile picture opened full screen (tapped in the header).
     var viewingAvatar by remember(author.did) { mutableStateOf(false) }
     var viewingBanner by remember(author.did) { mutableStateOf(false) }
@@ -1088,6 +1092,7 @@ fun ProfileOverlay(
                     onOpenBanner = {
                         if (profile?.bannerUrl != null || com.mediaviewer.util.ProfileStyles.of(author.did)?.bannerVideo != null) viewingBanner = true
                     },
+                    onShowLinkPreview = { linkPreview = it },
                     layout = com.mediaviewer.util.UiToggles.profileLayout
                 )
             }
@@ -1223,6 +1228,14 @@ fun ProfileOverlay(
                     onPillBounds = { origin, size -> profilePillBounds = origin to size },
                     onMoreBounds = { origin, size -> profileMoreBounds = origin to size }
                 )
+                // Own profile only: the Hub's posting plus button, far
+                // right in this same row but its own standalone bubble,
+                // not part of the interaction bar.
+                if (selfDid.isNotBlank() && author.did == selfDid) {
+                    Box(Modifier.align(Alignment.CenterEnd).padding(end = 16.dp)) {
+                        HubUploadBubble(liquidGlass = liquidGlass, tint = blended, onOpenComposePost = onOpenComposePost)
+                    }
+                }
             }
             // More: Bluesky link on top, then Report and Block (not on your
             // own profile) — round glass bubbles popping up off the button,
@@ -1507,8 +1520,24 @@ fun ProfileOverlay(
         if (editingProfile) {
             EditProfileDialog(
                 author = author, profile = profile, tint = blended, liquidGlass = liquidGlass,
+                initialLinks = profile?.links?.map { com.mediaviewer.model.ProfileLinkDraft(url = it.url, title = it.title, uri = it.uri, iconUrl = it.icon) },
                 onDismiss = { editingProfile = false },
                 onSave = onSaveOwnProfile
+            )
+        }
+        if (linkPreview != null) {
+            val previewLink = linkPreview!!
+            val uriHandler = LocalUriHandler.current
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            LinkPreviewPopup(
+                link = previewLink, tint = blended,
+                onDismiss = { linkPreview = null },
+                onOpen = { linkPreview = null; runCatching { uriHandler.openUri(previewLink.url) } },
+                onCopy = {
+                    linkPreview = null
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(previewLink.url))
+                    com.mediaviewer.ui.compat.Toast.makeText(null, "Link copied", com.mediaviewer.ui.compat.Toast.LENGTH_SHORT).show()
+                }
             )
         }
         if (editingStatus) {
@@ -1842,6 +1871,8 @@ private fun ProfileHeaderSection(
     onOpenAvatar: () -> Unit = {},
     /** The banner was tapped (not a button over it): show it full screen. */
     onOpenBanner: () -> Unit = {},
+    /** A profile link was long-pressed: show its preview popup. */
+    onShowLinkPreview: (com.mediaviewer.model.BskyProfileLinkView) -> Unit = {},
     /** Settings → Dev Tools → Profile Layout (1 in landscape). */
     layout: Int = 1
 ) {
@@ -2052,6 +2083,22 @@ private fun ProfileHeaderSection(
             }
         } else {
             Spacer(Modifier.height(8.dp))
+        }
+
+        // ── Profile links ──
+        // Under the bio in their own row, starting at the profile's left
+        // edge (the same PROFILE_EDGE the bio and tabs use) and scrolling
+        // horizontally when there are too many to fit. A tap opens the
+        // link; a long press shows the preview popup.
+        val profileLinks = profile?.links.orEmpty()
+        if (profileLinks.isNotEmpty()) {
+            val uriHandler = LocalUriHandler.current
+            ProfileLinksRow(
+                links = profileLinks, tint = linkColor,
+                onOpenLink = { runCatching { uriHandler.openUri(it.url) } },
+                onLongPressLink = onShowLinkPreview,
+                modifier = Modifier.fillMaxWidth().padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = 4.dp, bottom = 4.dp)
+            )
         }
 
         // ── Counts ──

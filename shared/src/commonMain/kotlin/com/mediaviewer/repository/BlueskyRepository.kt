@@ -738,7 +738,8 @@ class BlueskyRepository {
                 body.associated?.asJsonObject?.getAsJsonObject("chat")?.get("allowIncoming")?.asString
             }.getOrNull() ?: "following",
             blockedEitherWay = body.viewer?.blockedBy == true || body.viewer?.blocking != null,
-            blocksYou = body.viewer?.blockedBy == true
+            blocksYou = body.viewer?.blockedBy == true,
+            links = body.links?.filter { it.url.isNotBlank() }?.take(MAX_PROFILE_LINKS) ?: emptyList()
         ).also { com.mediaviewer.util.BlockedAccounts.noteViewer(body.did, body.viewer) }
     }
 
@@ -3990,7 +3991,10 @@ class BlueskyRepository {
         token: String, context: com.mediaviewer.platform.PlatformContext, did: String,
         displayName: String, description: String,
         avatarUri: com.mediaviewer.platform.PlatformUri?, bannerUri: com.mediaviewer.platform.PlatformUri?,
-        newHandle: String?
+        newHandle: String?,
+        /** Null = leave the profile's links alone; a list (possibly empty)
+         *  rewrites them (see writeProfileLinks). */
+        links: List<ProfileLinkDraft>? = null
     ): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val existing = api.getRecord("Bearer $token", did, "app.bsky.actor.profile", "self")
@@ -4001,8 +4005,22 @@ class BlueskyRepository {
             record["description"] = description.take(256)
             if (avatarUri != null) record["avatar"] = uploadProfileImage(token, context, avatarUri, 1000, 1000)
             if (bannerUri != null) record["banner"] = uploadProfileImage(token, context, bannerUri, 3000, 1000)
+            // Profile links: the ordered strong refs replace the record's
+            // links field (absent when the editor handed over nothing).
+            var removedLinkRkeys: List<String> = emptyList()
+            if (links != null) {
+                val (refs, removed) = writeProfileLinks(token, did, links)
+                record["links"] = refs.map { (uri, cid) -> mapOf("uri" to uri, "cid" to cid) }
+                removedLinkRkeys = removed
+            }
             val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, "app.bsky.actor.profile", "self", record))
             if (!resp.isSuccessful) error("Saving the profile failed (${resp.code()}): ${resp.errorBody()?.string()?.take(160)}")
+            // Link records the profile no longer points at are deleted only
+            // now, after the put — and a failed delete never fails the save
+            // (an orphaned record is simply not shown anywhere).
+            removedLinkRkeys.forEach { rkey ->
+                runCatching { deleteRecord(token, did, "app.bsky.actor.link", rkey) }
+            }
             if (!newHandle.isNullOrBlank()) {
                 val h = newHandle.trim().removePrefix("@")
                 val r = api.updateHandle("Bearer $token", mapOf("handle" to h))
@@ -4010,6 +4028,105 @@ class BlueskyRepository {
             }
         }
     }
+
+    /**
+     * Profile links, the way Bluesky's own app writes them (its
+     * useWriteProfileLinks): unchanged links keep their record, edited ones
+     * are rewritten in place, new ones are created, and the profile's
+     * `links` field becomes the ordered strong refs. Returns the refs plus
+     * the rkeys of records the profile no longer points at, for the caller
+     * to delete after the profile put succeeds.
+     */
+    private suspend fun writeProfileLinks(
+        token: String, did: String, drafts: List<ProfileLinkDraft>
+    ): Pair<List<Pair<String, String>>, List<String>> {
+        // The profile record's current links, in order.
+        val profileObj = api.getRecord("Bearer $token", did, "app.bsky.actor.profile", "self")
+            .body()?.value?.takeIf { it.isJsonObject }?.asJsonObject
+        val currentRefs = profileObj?.get("links")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?.mapNotNull { el ->
+                val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val uri = runCatching { o["uri"]?.asString }.getOrNull()
+                val cid = runCatching { o["cid"]?.asString }.getOrNull()
+                if (uri != null && cid != null) uri to cid else null
+            } ?: emptyList()
+        // Each current link record, read back: an edit needs its icon blob
+        // and its rkey, and a profile view alone carries neither.
+        class ExistingLink(val uri: String, val cid: String, val rkey: String, val url: String, val title: String?, val icon: BskyBlob?)
+        val existing = currentRefs.mapNotNull { (uri, cid) ->
+            val rkey = uri.substringAfterLast("/")
+            if (rkey.isBlank()) return@mapNotNull null
+            val value = api.getRecord("Bearer $token", did, "app.bsky.actor.link", rkey)
+                .body()?.value?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val url = runCatching { value["url"]?.asString }.getOrNull() ?: return@mapNotNull null
+            val title = runCatching { value["title"]?.asString }.getOrNull()
+            val icon = value["icon"]?.takeIf { it.isJsonObject }
+                ?.let { runCatching { StellarJson.default.decodeFromJsonElement(BskyBlob.serializer(), it.toKx()) }.getOrNull() }
+            ExistingLink(uri, cid, rkey, url, title, icon)
+        }
+        val byUri = existing.associateBy { it.uri }
+        val refs = drafts.map { draft ->
+            val before = draft.uri?.let { byUri[it] }
+            val nextTitle = draft.title?.takeIf { it.isNotBlank() }
+            if (before != null && before.url == draft.url && before.title == nextTitle) {
+                // Unchanged: the record stays exactly as it is.
+                before.uri to before.cid
+            } else {
+                // The icon stays with its URL: a retitled link keeps the
+                // favicon it had; a new or repointed link gets a fresh one
+                // (or none, when the site has no usable favicon).
+                val icon = if (before != null && before.url == draft.url) before.icon else fetchFaviconIcon(token, draft.url)
+                val rec = mutableMapOf<String, Any>(
+                    "\$type" to "app.bsky.actor.link",
+                    "url" to draft.url,
+                    "createdAt" to nowIsoString()
+                )
+                if (nextTitle != null) rec["title"] = nextTitle
+                if (icon != null) rec["icon"] = icon
+                if (before != null) {
+                    val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, "app.bsky.actor.link", before.rkey, rec))
+                    if (!resp.isSuccessful) error("Saving a link failed (${resp.code()})")
+                    val body = resp.body()
+                    (body?.uri?.takeIf { it.isNotBlank() } ?: before.uri) to (body?.cid?.takeIf { it.isNotBlank() } ?: before.cid)
+                } else {
+                    val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.actor.link", rec))
+                    val body = resp.body() ?: error("Saving a link failed (${resp.code()})")
+                    body.uri to body.cid
+                }
+            }
+        }
+        val kept = refs.map { it.first }.toSet()
+        val removed = existing.filter { it.uri !in kept }.map { it.rkey }
+        return refs to removed
+    }
+
+    /**
+     * A site's favicon, for a link record's icon blob: the site's own
+     * /favicon.ico, uploaded when it is a PNG, JPEG, or WebP of 100 KB or
+     * less (the sizes and types Bluesky's link lexicon accepts). Anything
+     * else — no favicon there, an .ico-only site, a blocked host, a slow
+     * site — resolves to null, and the pill falls back to a globe. No
+     * third-party favicon service is involved.
+     */
+    private suspend fun fetchFaviconIcon(token: String, url: String): BskyBlob? = runCatching {
+        if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return null
+        val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
+        if (host.isBlank() || host.contains(" ")) return null
+        val resp = PlainHttp.get("https://$host/favicon.ico")
+        if (!resp.isSuccessful) return null
+        val bytes = resp.body
+        if (bytes.isEmpty() || bytes.size > 100_000) return null
+        val mime = when {
+            bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
+            bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
+            bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+                bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte() -> "image/webp"
+            else -> return null
+        }
+        val up = api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
+        if (!up.isSuccessful) return null
+        up.body()?.blob
+    }.getOrNull()
 
     /** Avatar/banner upload: Bluesky caps these at 1,000,000 bytes, so the
      *  picture is scaled to fit [maxW]×[maxH] and JPEG-compressed under that. */
