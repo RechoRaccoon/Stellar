@@ -226,9 +226,17 @@ fun LocalOverlayHost(
                 titleForText = { text ->
                     val (adds, removes) = parseTagTokens(text)
                     val plural = if (adds.size + removes.size > 1) "s" else ""
+                    // A trailing bare "-" is a second removal being
+                    // typed: it counts toward the plural, so "-foo -"
+                    // already reads Remove Tags instead of waiting for
+                    // a letter after the second "-". (parseTagTokens
+                    // itself still ignores bare dashes — this is
+                    // title-only, never a real removal on confirm.)
+                    val pendingRemove = text.trim().split(Regex("\\s+")).lastOrNull() == "-"
+                    val removePlural = if (removes.size + (if (pendingRemove) 1 else 0) > 1) "s" else ""
                     when {
                         adds.isNotEmpty() && removes.isNotEmpty() -> "Edit Tags"
-                        removes.isNotEmpty() -> "Remove Tag$plural"
+                        removes.isNotEmpty() -> "Remove Tag$removePlural"
                         adds.isNotEmpty() -> "Add Tag$plural"
                         // Nothing parsed yet, but the remove marker is
                         // already typed: flip the moment "-" appears,
