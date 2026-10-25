@@ -4545,8 +4545,9 @@ class BlueskyRepository {
 
     /** Uploads one emoji's PNG and saves its record; returns (record key, blob cid). */
     suspend fun createEmojiRecord(token: String, did: String, name: String, png: ByteArray, hash: String, folder: String?): Pair<String, String> = withContext(ioDispatcher) {
-        // (An animated emoji is a GIF.)
-        val mime = if (com.mediaviewer.util.GifInfo.isGif(png)) "image/gif" else "image/png"
+        // (An animated emoji is a GIF or an animated WebP.)
+        val mime = if (com.mediaviewer.util.GifInfo.isGif(png)) "image/gif"
+            else if (com.mediaviewer.util.EmojiMedia.isAnimatedWebP(png)) "image/webp" else "image/png"
         val up = api.uploadBlob("Bearer $token", mime, png.toRequestBody(mime.toMediaType()))
         val blob = up.body()?.blob ?: error("Emoji upload ${up.code()}: ${errorBodyText(up).take(120)}")
         val record = linkedMapOf<String, Any>(

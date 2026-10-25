@@ -23,8 +23,34 @@ object EmojiMedia {
     fun isVideoName(name: String): Boolean =
         name.substringAfterLast('.', "").lowercase() in setOf("mp4", "m4v", "mov", "webm", "mkv", "3gp", "avi")
 
-    /** True for a stored animated emoji (kept as a GIF). */
-    fun isAnimatedFile(file: String): Boolean = file.endsWith(".gif", ignoreCase = true)
+    /** True for a stored animated emoji (kept as a GIF, or as a WebP —
+     *  stored .webp files are only ever created for animated WebP, see
+     *  storeImport/addPng, so the extension alone says it). */
+    fun isAnimatedFile(file: String): Boolean =
+        file.endsWith(".gif", ignoreCase = true) || file.endsWith(".webp", ignoreCase = true)
+
+    /** True for animated WebP bytes: a RIFF....WEBP header with animation
+     *  frames. Animated WebPs always carry ANMF chunks (static ones never
+     *  do), so the chunk scan alone decides it; the VP8X animation flag
+     *  is just an early-out. */
+    fun isAnimatedWebP(b: ByteArray): Boolean {
+        if (b.size < 21) return false
+        if (!(b[0] == 'R'.code.toByte() && b[1] == 'I'.code.toByte() && b[2] == 'F'.code.toByte() && b[3] == 'F'.code.toByte())) return false
+        if (!(b[8] == 'W'.code.toByte() && b[9] == 'E'.code.toByte() && b[10] == 'B'.code.toByte() && b[11] == 'P'.code.toByte())) return false
+        if (b[12] == 'V'.code.toByte() && b[13] == 'P'.code.toByte() && b[14] == '8'.code.toByte() && b[15] == 'X'.code.toByte() &&
+            (b[20].toInt() and 0x02) != 0
+        ) return true
+        var i = 12
+        while (i + 8 <= b.size) {
+            if (b[i] == 'A'.code.toByte() && b[i + 1] == 'N'.code.toByte() && b[i + 2] == 'M'.code.toByte() && b[i + 3] == 'F'.code.toByte()) return true
+            val size = (b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8) or
+                ((b[i + 6].toInt() and 0xFF) shl 16) or ((b[i + 7].toInt() and 0xFF) shl 24)
+            val next = i.toLong() + 8 + size + (size and 1)
+            if (next > b.size || next <= i) return false
+            i = next.toInt()
+        }
+        return false
+    }
 
     /** An animated GIF ([bytes]) as an emoji GIF; null when it isn't
      *  animated (a one-frame GIF is just a picture) or can't be read. */

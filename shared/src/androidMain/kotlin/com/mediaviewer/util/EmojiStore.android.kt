@@ -169,8 +169,9 @@ actual class EmojiStore private constructor(context: Context) {
     actual suspend fun addPng(name: String, png: ByteArray, folderName: String?): EmojiEntry? = withContext(Dispatchers.IO) {
         load()
         val id = reserveId() ?: return@withContext null
-        // (An animated emoji arrives as a GIF and is kept as one.)
-        val fileName = if (GifInfo.isGif(png)) "e_$id.gif" else "e_$id.png"
+        // (An animated emoji arrives as a GIF and is kept as one; an
+        // animated WebP is kept as WebP.)
+        val fileName = if (GifInfo.isGif(png)) "e_$id.gif" else if (EmojiMedia.isAnimatedWebP(png)) "e_$id.webp" else "e_$id.png"
         val file = File(dir, fileName)
         val ok = runCatching {
             BitmapFactory.decodeByteArray(png, 0, png.size) != null && run { file.writeBytes(png); true }
@@ -375,7 +376,8 @@ actual class EmojiStore private constructor(context: Context) {
 
     /** Stores one picked file as emoji [id]; the stored file's name. A
      *  video, or an animated GIF, becomes an animated emoji (a small GIF,
-     *  see EmojiMedia); anything else a PNG. */
+     *  see EmojiMedia); an animated WebP is kept as WebP (its bytes, so
+     *  the animation survives); anything else a PNG. */
     private suspend fun storeImport(uri: Uri, rawName: String, id: Int): String? {
         val mime = runCatching { app.contentResolver.getType(uri) }.getOrNull().orEmpty()
         if (mime.startsWith("video/") || EmojiMedia.isVideoName(rawName)) {
@@ -391,6 +393,11 @@ actual class EmojiStore private constructor(context: Context) {
                 File(dir, "e_$id.gif").writeBytes(gif)
                 return "e_$id.gif"
             }
+        }
+        val webpBytes = runCatching { app.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+        if (webpBytes != null && EmojiMedia.isAnimatedWebP(webpBytes)) {
+            File(dir, "e_$id.webp").writeBytes(webpBytes)
+            return "e_$id.webp"
         }
         return if (decodeAndStore(uri, id)) "e_$id.png" else null
     }
