@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import com.mediaviewer.ui.theme.RoundedCornerShape
@@ -32,7 +33,9 @@ import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -48,11 +51,14 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.ui.compat.BackHandler
@@ -136,10 +142,29 @@ fun LocalPopup(
     // With the keyboard up it sits just above it, instead of keeping its
     // usual margin there (that left a big gap between it and the keys).
     val keyboardUp = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    // followKeyboard=false promises the popup stays where it is when the
+    // keyboard opens, but under adjustResize the window itself shrinks
+    // and Center re-centers the sheet up by half the keyboard height.
+    // The fix measures this container: its tallest seen height is the
+    // keyboard-down height, and the sheet is shifted back down by half
+    // of any shrink, exactly cancelling the re-centering. A width
+    // change resets the baseline, so rotation can't reuse a stale one.
+    var fullSize by remember { mutableStateOf<IntSize?>(null) }
+    var boxHeightPx by remember { mutableStateOf(0) }
+    val stayPutOffsetPx = if (!followKeyboard) {
+        val full = fullSize
+        if (full != null) ((full.height - boxHeightPx) / 2).coerceAtLeast(0) else 0
+    } else 0
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 480f)) }
     Box(
         modifier.fillMaxSize()
+            .onGloballyPositioned { coords ->
+                val s = coords.size
+                boxHeightPx = s.height
+                val prev = fullSize
+                fullSize = if (prev == null || prev.width != s.width || s.height > prev.height) s else prev
+            }
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (dismissOnOutsideTap) onClose() }
             .then(if (followKeyboard) Modifier.imePadding() else Modifier)
@@ -151,6 +176,7 @@ fun LocalPopup(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
             modifier = Modifier.widthIn(max = maxWidth).fillMaxWidth().heightIn(max = maxHeight)
                 .then(if (fixedHeight) Modifier.fillMaxHeight() else Modifier)
+                .offset { IntOffset(0, stayPutOffsetPx) }
                 .graphicsLayer {
                     val sc = 0.92f + 0.08f * appear.value
                     scaleX = sc; scaleY = sc
