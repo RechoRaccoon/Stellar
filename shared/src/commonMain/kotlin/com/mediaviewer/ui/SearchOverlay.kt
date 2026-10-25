@@ -637,6 +637,10 @@ fun SearchOverlay(
                     state.filter == MainViewModel.SearchFilter.POSTS -> {
                         if (state.posts.isEmpty()) EmptyResultsText() else {
                             val wideDp = rememberLandscapeWidthDp()
+                            // Hold-to-select, like the Tagged tab (see
+                            // LocalPostSelectable): the shared tiles already
+                            // pick, they only need this on.
+                            CompositionLocalProvider(LocalPostSelectable provides true) {
                             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
                                     wideDp = wideDp,
@@ -647,6 +651,7 @@ fun SearchOverlay(
                                     onLoadMore = onLoadMorePosts,
                                     exhausted = state.postsCursor == null
                                 )
+                            }
                             }
                         }
                     }
