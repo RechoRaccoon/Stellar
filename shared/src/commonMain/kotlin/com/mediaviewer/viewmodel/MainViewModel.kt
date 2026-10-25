@@ -7416,10 +7416,13 @@ class MainViewModel(
             // pointing at the picture on your PDS (see EmojiCloud) —
             // the same preparation as a DM thread reply, so emoji
             // picked in the Share with box arrive as pictures.
+            // Trimmed first: the profile branch trims the prepared text
+            // before appending the link, which would shift every facet
+            // after leading whitespace.
             val prepared = runCatching {
-                com.mediaviewer.util.EmojiCloud.prepareMessage(com.mediaviewer.util.EmojiStore.get(platform.context), _bskyDid.value, message)
+                com.mediaviewer.util.EmojiCloud.prepareMessage(com.mediaviewer.util.EmojiStore.get(platform.context), _bskyDid.value, message.trim())
             }.getOrElse {
-                val plain = com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(message)
+                val plain = com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(message.trim())
                 com.mediaviewer.util.EmojiCloud.Prepared(plain, emptyList(), plain)
             }
             var failures = 0

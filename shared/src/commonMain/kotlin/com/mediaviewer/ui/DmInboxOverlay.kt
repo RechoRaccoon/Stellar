@@ -1335,9 +1335,21 @@ private fun DmBubble(
             val sharedProfile = remember(msg.text) { if (sharedFeed != null) null else sharedProfileActor(msg.text) }
             val shownText = sharedFeed?.rest ?: if (sharedProfile != null) sharedProfile.second else msg.text
             if (shownText.isNotBlank()) {
-                // (Custom emoji drawn as pictures; their facets only line up
-                // with the message's own, unshortened text.)
-                DmMessageText(shownText, if (shownText == msg.text) kxFacets else null, Color.White, (14 * scale).sp, (18 * scale).sp)
+                // Custom emoji drawn as pictures. With the link stripped
+                // out, only facets at or before the link still line up
+                // with the shortened text — later facets belong to text
+                // that moved, so they are dropped instead of picturing
+                // the wrong characters. (Passing null here used to hide
+                // every emoji in a shared profile or feed message, even
+                // ones before the link.)
+                val prefixBytes = sharedFeed?.prefixBytes ?: sharedProfile?.third
+                val shownFacets = if (shownText == msg.text) kxFacets else kxFacets?.filter { f ->
+                    val o = f as? kotlinx.serialization.json.JsonObject ?: return@filter false
+                    val idx = o["index"] as? kotlinx.serialization.json.JsonObject ?: return@filter false
+                    val byteEnd = (idx["byteEnd"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: return@filter false
+                    prefixBytes != null && byteEnd <= prefixBytes
+                }
+                DmMessageText(shownText, shownFacets, Color.White, (14 * scale).sp, (18 * scale).sp)
             }
             if (sharedFeed != null) {
                 if (shownText.isNotBlank()) Spacer(Modifier.height(8.dp))
@@ -1730,12 +1742,15 @@ private val LocalDmProfileCards = androidx.compose.runtime.staticCompositionLoca
 private val profileLinkRegex = Regex("""https?://(?:www\.)?bsky\.app/profile/([^/\s?#]+)/?(?=\s|$)""")
 
 /** If [text] shares a profile — a bsky.app/profile/<handle or did> link
- *  (not a post link) — returns (actor, the text without the link). */
-internal fun sharedProfileActor(text: String): Pair<String, String>? {
+ *  (not a post link) — returns the actor, the text without the link,
+ *  and the UTF-8 byte length of the text before the link (emoji facets
+ *  at or before that point still line up with the rest; facets past it
+ *  belong to text that moved when the link came out). */
+internal fun sharedProfileActor(text: String): Triple<String, String, Int>? {
     val m = profileLinkRegex.findAll(text).lastOrNull() ?: return null
     val actor = m.groupValues[1].takeIf { it.isNotBlank() } ?: return null
     val rest = (text.substring(0, m.range.first) + text.substring(m.range.last + 1)).trim()
-    return actor to rest
+    return Triple(actor, rest, text.substring(0, m.range.first).encodeToByteArray().size)
 }
 
 /** A shared profile inside a DM bubble: smaller than a shared-post card —
@@ -1844,8 +1859,9 @@ private fun Modifier.grayedOutEmoji(): Modifier = this.drawWithContent {
     }
 }
 
-/** A feed or list link found in a message. */
-internal class SharedFeedLink(val actor: String, val kind: String, val rkey: String, val rest: String)
+/** A feed or list link found in a message. [prefixBytes] is the UTF-8
+ *  byte length of the text before the link (see sharedProfileActor). */
+internal class SharedFeedLink(val actor: String, val kind: String, val rkey: String, val rest: String, val prefixBytes: Int)
 
 private val feedLinkRegex = Regex("""https?://(?:www\.)?bsky\.app/profile/([^/\s?#]+)/(feed|lists)/([^/\s?#]+)/?""")
 
@@ -1854,7 +1870,7 @@ private val feedLinkRegex = Regex("""https?://(?:www\.)?bsky\.app/profile/([^/\s
 internal fun sharedFeedLink(text: String): SharedFeedLink? {
     val m = feedLinkRegex.findAll(text).lastOrNull() ?: return null
     val rest = (text.substring(0, m.range.first) + text.substring(m.range.last + 1)).trim()
-    return SharedFeedLink(m.groupValues[1], m.groupValues[2], m.groupValues[3], rest)
+    return SharedFeedLink(m.groupValues[1], m.groupValues[2], m.groupValues[3], rest, text.substring(0, m.range.first).encodeToByteArray().size)
 }
 
 /** A shared feed inside a DM bubble: the same row as a profile's Lists /
