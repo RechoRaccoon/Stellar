@@ -60,6 +60,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.SwapVert
@@ -1233,8 +1234,22 @@ fun ProfileOverlay(
                 // not part of the interaction bar. Same button as the Hub's:
                 // the bar's own height for size, and this page's live
                 // backdrop (the Hub passes its own) so the glass renders
-                // the same instead of a solid tint fill.
+                // the same instead of a solid tint fill. Mirrored far
+                // left: the launchpad's Archived button, same bubble,
+                // same Inventory2 icon, same page, same supporter gating
+                // as the launchpad tile.
                 if (selfDid.isNotBlank() && author.did == selfDid) {
+                    Box(Modifier.align(Alignment.CenterStart).padding(start = 16.dp)) {
+                        HubUploadBubble(
+                            liquidGlass = liquidGlass, tint = blended,
+                            size = if (liquidGlass) 44.dp else 36.dp, backdrop = backdrop,
+                            icon = Icons.Default.Inventory2, iconDescription = "Archived",
+                            onClick = {
+                                if (com.mediaviewer.util.Supporter.active) LocalOverlays.openArchive?.invoke()
+                                else com.mediaviewer.util.Supporter.openPage()
+                            }
+                        )
+                    }
                     Box(Modifier.align(Alignment.CenterEnd).padding(end = 16.dp)) {
                         HubUploadBubble(
                             liquidGlass = liquidGlass, tint = blended,

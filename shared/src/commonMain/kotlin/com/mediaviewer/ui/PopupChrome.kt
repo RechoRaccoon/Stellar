@@ -274,8 +274,8 @@ fun PopupMessageBox(
      *  to accept), for popups where people tag others — the quote repost
      *  popup. Off elsewhere (alt text, reports, DM shares). */
     mentionAutocomplete: Boolean = false,
-    /** Custom emoji for the quote repost popup (opt-in, like
-     *  [mentionAutocomplete]): the star button before the thumbnail.
+    /** Custom emoji for the quote repost and Share with popups (opt-in,
+     *  like [mentionAutocomplete]): the star button before the thumbnail.
      *  The menu itself is rendered by the caller below the popup,
      *  where the keyboard was — never inside the popup. Off elsewhere. */
     emojiStore: com.mediaviewer.util.EmojiStore? = null,

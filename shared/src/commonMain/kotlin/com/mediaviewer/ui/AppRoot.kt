@@ -1306,6 +1306,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 // A shared profile wears that profile page's colors.
                 dominantColor   = if (target.id.startsWith(com.mediaviewer.viewmodel.MainViewModel.PROFILE_SHARE_PREFIX)) profileTint else currentDominantColor,
                 backdrop        = if (target.id.startsWith(com.mediaviewer.viewmodel.MainViewModel.PROFILE_SHARE_PREFIX)) profileBackdrop else currentBackdrop,
+                selfAvatarUrl   = selfProfile?.author?.avatarUrl,
                 onToggleSelect  = viewModel::toggleSendRecipient,
                 onSend          = viewModel::sendToSelectedRecipients,
                 onDismiss       = viewModel::dismissSendPopup
@@ -1601,6 +1602,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 liquidGlass     = liquidGlass,
                 dominantColor   = selfProfileTint,
                 backdrop        = if (liquidGlass) appBackdrop else null,
+                selfAvatarUrl   = selfProfile?.author?.avatarUrl,
                 onToggleSelect  = viewModel::toggleSendRecipient,
                 onSend          = viewModel::sendToSelectedRecipients,
                 onDismiss       = viewModel::dismissSendPopup

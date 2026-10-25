@@ -7393,6 +7393,16 @@ class MainViewModel(
         if (recipients.isEmpty()) return
         viewModelScope.launch(ioDispatcher) {
             _sendPopupSending.value = true
+            // Custom emoji go as an invisible character with a facet
+            // pointing at the picture on your PDS (see EmojiCloud) —
+            // the same preparation as a DM thread reply, so emoji
+            // picked in the Share with box arrive as pictures.
+            val prepared = runCatching {
+                com.mediaviewer.util.EmojiCloud.prepareMessage(com.mediaviewer.util.EmojiStore.get(platform.context), _bskyDid.value, message)
+            }.getOrElse {
+                val plain = com.mediaviewer.util.EmojiStore.get(platform.context).toShortcodes(message)
+                com.mediaviewer.util.EmojiCloud.Prepared(plain, emptyList(), plain)
+            }
             var failures = 0
             var lastError: String? = null
             recipients.forEach { convo ->
@@ -7405,10 +7415,13 @@ class MainViewModel(
                     failures++
                 } else {
                     if (item.id.startsWith(PROFILE_SHARE_PREFIX)) {
-                        val text = listOf(message.trim(), item.text).filter { it.isNotBlank() }.joinToString("\n")
-                        bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, text)
+                        val text = listOf(prepared.text.trim(), item.text).filter { it.isNotBlank() }.joinToString("\n")
+                        bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, text,
+                            extraFacets = prepared.facets,
+                            fallbackText = listOf(prepared.fallback.trim(), item.text).filter { it.isNotBlank() }.joinToString("\n"))
                     } else {
-                        bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, message, item.postUri, item.postCid)
+                        bskyRepo.sendMessage(bskyToken, _bskyDid.value, convoId, prepared.text, item.postUri, item.postCid,
+                            extraFacets = prepared.facets, fallbackText = prepared.fallback)
                     }
                         .onFailure { failures++; lastError = it.message }
                     // The rest of a selection, one message each, no words.

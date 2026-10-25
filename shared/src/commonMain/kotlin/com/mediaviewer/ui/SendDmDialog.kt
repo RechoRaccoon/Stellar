@@ -1,6 +1,7 @@
 package com.mediaviewer.ui
 
 import com.mediaviewer.ui.compat.navBarSpace
+import com.mediaviewer.ui.compat.LocalContext
 import com.mediaviewer.ui.theme.AvatarShape
 
 import com.mediaviewer.ui.compat.BackHandler
@@ -26,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,8 +56,10 @@ import com.mediaviewer.util.rememberHapticTap
  *
  * Up to three people across, each with room for a two-line name and their
  * handle; the message box is one compact pill at the bottom of the sheet
- * (the post's thumbnail, the text, the send button), and the sheet rides up
- * on top of the keyboard when you type.
+ * (the emoji button, the post's thumbnail, the text, the send button),
+ * and the sheet rides up on top of the keyboard when you type. The emoji
+ * button and menu are Quote Repost's: the menu sits below the sheet,
+ * where the keyboard was, at the keyboard's height.
  */
 @Composable
 fun SendDmDialog(
@@ -67,6 +71,8 @@ fun SendDmDialog(
     liquidGlass: Boolean,
     dominantColor: Color = NeutralGlassTint,
     backdrop: GlassBackdrop? = null,
+    /** The signed-in user's avatar, for the emoji menu's accounts row. */
+    selfAvatarUrl: String? = null,
     onToggleSelect: (String) -> Unit,
     onSend: (String) -> Unit,
     onDismiss: () -> Unit
@@ -76,6 +82,36 @@ fun SendDmDialog(
     val tap = rememberHapticTap()
     val thumbUrl = target.thumbUrl.ifBlank { target.mediaUrl }
     val tint = dominantColor
+    // Custom emoji, as in Quote Repost: the same star button (left of the
+    // thumbnail, mirroring Send) and the menu below the sheet, where the
+    // keyboard was.
+    val platformContext = LocalContext.current
+    val emojiStore = remember { com.mediaviewer.util.EmojiStore.get(platformContext) }
+    LaunchedEffect(Unit) { emojiStore.load() }
+    val selfDidForEmoji = LocalOverlays.selfDid
+    LaunchedEffect(selfDidForEmoji) { if (selfDidForEmoji.isNotBlank()) emojiStore.useAccount(selfDidForEmoji) }
+    var emojiPanelOpen by remember(target.id) { mutableStateOf(false) }
+    var emojiTabEditing by remember(target.id) { mutableStateOf(false) }
+    // The field's caret-aware emoji inserter, handed up by the message box
+    // (the field state lives there). The menu below the sheet inserts
+    // through it, at the caret, exactly as the DM menu does.
+    var insertEmojiFn by remember { mutableStateOf<((com.mediaviewer.util.EmojiEntry) -> Unit)?>(null) }
+    // The menu takes the keyboard's place, so it is the keyboard's height
+    // (remembered from the tallest the keyboard has been), exactly as in
+    // DMs and the composer — not a fixed height.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    var shareKeyboardPx by remember(target.id) { mutableStateOf(0) }
+    LaunchedEffect(imeBottom) { if (imeBottom > shareKeyboardPx) shareKeyboardPx = imeBottom }
+    val emojiPanelHeight = with(density) { if (shareKeyboardPx > 0) shareKeyboardPx.toDp() else 300.dp }.coerceIn(240.dp, 480.dp)
+    val shareImeDp = with(density) { imeBottom.toDp() }
+    LaunchedEffect(emojiPanelOpen, selfDidForEmoji) {
+        if (selfDidForEmoji.isNotBlank()) {
+            if (emojiPanelOpen) com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji)
+            else com.mediaviewer.util.EmojiCloud.requestSync(emojiStore, selfDidForEmoji, force = true)
+        }
+    }
+    val focus = remember { FocusRequester() }
 
     BackHandler(onBack = onDismiss)
 
@@ -85,18 +121,23 @@ fun SendDmDialog(
             // own panel stands out on its own.) Tapping outside closes it.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
             // Top: just under the camera notch (where the Hub's search bar
-            // sits). Bottom: above the navigation bar — or the keyboard,
-            // which pushes it up while typing.
+            // sits).
             .padding(top = rememberTopCutoutClearance())
-            .imePadding()
-            .windowInsetsPadding(WindowInsets.navBarSpace)
-            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-        contentAlignment = Alignment.Center
+            // With the menu up, no bottom insets: the menu takes the
+            // keyboard's place at the screen's bottom edge, as in Quote
+            // Repost. Otherwise the sheet sits right on top of the keyboard.
+            .then(if (emojiPanelOpen) Modifier else Modifier.imePadding().windowInsetsPadding(WindowInsets.navBarSpace)),
+        contentAlignment = Alignment.BottomCenter
     ) {
         val wideDp = rememberLandscapeWidthDp()
+        // The sheet, then the menu under it: the menu is a sibling of
+        // the sheet, not content inside it, so it replaces the keyboard
+        // like the Quote Repost menu instead of stretching the popup.
+        Column(Modifier.fillMaxSize()) {
         PopupSheetSurface(
             liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-            modifier = Modifier.fillMaxWidth().fillMaxHeight()
+            modifier = Modifier.fillMaxWidth().weight(1f)
+                .padding(start = 12.dp, end = 12.dp, bottom = if (emojiPanelOpen) 0.dp else 12.dp)
         ) {
             Column(Modifier.fillMaxSize()) {
                 PopupSheetHeader(
@@ -144,9 +185,47 @@ fun SendDmDialog(
                     canSend = selected.isNotEmpty() && !sending,
                     sending = sending,
                     onSend = { if (selected.isNotEmpty() && !sending) onSend(message.trim()) },
+                    focusRequester = focus,
+                    // Tagging autocomplete + custom emoji, as in Quote
+                    // Repost: the field uses the same box configuration,
+                    // so @handles complete with a ghost suggestion and
+                    // picked emoji render inline.
+                    mentionAutocomplete = true,
+                    emojiStore = emojiStore,
+                    selfDid = selfDidForEmoji,
+                    selfAvatarUrl = selfAvatarUrl,
+                    emojiPanelOpen = emojiPanelOpen,
+                    onEmojiPanelChange = { emojiPanelOpen = it },
+                    emojiTabEditing = emojiTabEditing,
+                    onEmojiTabEditingChange = { emojiTabEditing = it },
+                    onInsertEmojiAvailable = { insertEmojiFn = it },
                     modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 2.dp)
                 )
             }
+        }
+        // Custom emoji menu, below the sheet where the keyboard was —
+        // the DM menu's height, and riding on the keyboard while a tab
+        // is being renamed. Taps on it must not dismiss the popup (the
+        // sheet absorbs its own taps the same way).
+        if (emojiPanelOpen) {
+            Box(
+                Modifier.fillMaxWidth()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            ) {
+                EmojiPanel(
+                    store = emojiStore,
+                    height = emojiPanelHeight,
+                    compact = emojiTabEditing,
+                    liquidGlass = liquidGlass,
+                    tint = tint,
+                    onPickEmoji = { entry -> insertEmojiFn?.invoke(entry) },
+                    onEditingChange = { emojiTabEditing = it },
+                    showAccounts = true, selfDid = selfDidForEmoji, selfAvatarUrl = selfAvatarUrl,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(bottom = if (emojiTabEditing) shareImeDp else 0.dp)
+                )
+            }
+        }
         }
     }
 }

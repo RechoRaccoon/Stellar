@@ -2496,6 +2496,12 @@ private fun HubSettingsButton(
 fun HubUploadBubble(
     liquidGlass: Boolean, tint: Color, size: androidx.compose.ui.unit.Dp = 26.dp,
     modifier: Modifier = Modifier, backdrop: GlassBackdrop? = null,
+    // Mirroring the button: the profile page's Archived button reuses
+    // this bubble with the launchpad Archived icon and action instead
+    // of Add/compose. Callers that pass neither keep the upload button.
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Add,
+    iconDescription: String = "Upload",
+    onClick: (() -> Unit)? = null,
     // Item 5 (rework): see ReturnToFeedBar's own doc comment on
     // `uploadBackdrop` — kept as a parameter for source compatibility with
     // existing callers even though this bubble no longer pops open a menu
@@ -2507,12 +2513,12 @@ fun HubUploadBubble(
 ) {
     val circleShape = CircleShape
     val tap = rememberHapticTap()
-    val clickModifier = Modifier.size(size).clickable { tap(); onOpenComposePost() }
+    val clickModifier = Modifier.size(size).clickable { tap(); (onClick ?: onOpenComposePost)() }
 
     @Composable
     fun IconContent() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Add, contentDescription = "Upload", tint = Color.White,
+            Icon(icon, contentDescription = iconDescription, tint = Color.White,
                 modifier = Modifier.size(16.dp))
         }
     }
