@@ -1442,8 +1442,8 @@ private fun SearchAllResults(
                             modifier = Modifier.align(Alignment.Center).size(26.dp)
                         )
                     } else {
-                        Text(
-                            item.text, color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, lineHeight = 16.sp,
+                        DmMessageText(
+                            item.text, item.facets, color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp, lineHeight = 16.sp,
                             maxLines = 7, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.padding(10.dp)
                         )

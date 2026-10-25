@@ -3415,7 +3415,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    FittedPostText(item.text, maxSp = 15f, minSp = 2f, modifier = Modifier.fillMaxSize())
+                    FittedPostText(item.text, maxSp = 15f, minSp = 2f, modifier = Modifier.fillMaxSize(), facets = item.facets)
                 }
             }
         } else {
@@ -3951,7 +3951,8 @@ private fun TimelineShapedTextTile(
                 item.text.ifBlank { " " }, maxSp = 19f, minSp = 11f, maxHeight = maxCardHeight - 52.dp,
                 modifier = Modifier.fillMaxWidth()
                     .then(if (zoom != 1f) Modifier.graphicsLayer { scaleX = zoom; scaleY = zoom } else Modifier)
-                    .then(if (blurNsfw) Modifier.blur(40.dp) else Modifier)
+                    .then(if (blurNsfw) Modifier.blur(40.dp) else Modifier),
+                facets = item.facets
             )
             if (blurNsfw) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)))
         }
@@ -3969,27 +3970,48 @@ private val COMPACT_TEXT_REFERENCE = 170.dp
  * (the text sizes the bubble). Still too long at [minSp]: cut off with "…".
  */
 @Composable
-internal fun FittedPostText(text: String, maxSp: Float, minSp: Float, modifier: Modifier = Modifier, maxHeight: Dp? = null) {
+internal fun FittedPostText(text: String, maxSp: Float, minSp: Float, modifier: Modifier = Modifier, maxHeight: Dp? = null,
+    /** The post's facets, as posted — custom emoji facets included. */
+    facets: List<kotlinx.serialization.json.JsonElement>? = null) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val measurer = androidx.compose.ui.text.rememberTextMeasurer()
         val density = LocalDensity.current
         val base = LocalTextStyle.current
         val widthPx = constraints.maxWidth.coerceAtLeast(1)
         val heightPx = with(density) { (maxHeight ?: this@BoxWithConstraints.maxHeight).toPx() }
+        // Custom emoji, as in the timeline: the pictures draw inline. The
+        // size is picked by measuring the ":name:" form instead — it runs
+        // longer than the pictures, so the size it picks can only ever be
+        // safe — and lines are taller when emoji are present, since the
+        // pictures are 1.75em tall (DmMessageText's INLINE_EM).
+        val spans = remember(text, facets) {
+            if (facets == null) emptyList() else com.mediaviewer.util.EmojiCloud.emojiSpans(text, facets)
+        }
+        val measureText = if (spans.isEmpty()) text else com.mediaviewer.util.EmojiCloud.readableText(text, facets)
+        val lineFactor = if (spans.isEmpty()) 1.3f else 1.75f
         fun style(sp: Float) = base.merge(androidx.compose.ui.text.TextStyle(
-            fontSize = sp.sp, lineHeight = (sp * 1.3f).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
+            fontSize = sp.sp, lineHeight = (sp * lineFactor).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
         ))
-        val size = remember(text, widthPx, heightPx, base) {
+        val size = remember(measureText, widthPx, heightPx, base, lineFactor) {
             var sp = maxSp
-            while (sp > minSp && measurer.measure(androidx.compose.ui.text.AnnotatedString(text), style(sp),
+            while (sp > minSp && measurer.measure(androidx.compose.ui.text.AnnotatedString(measureText), style(sp),
                     constraints = androidx.compose.ui.unit.Constraints(maxWidth = widthPx)).size.height > heightPx) sp -= 0.5f
             sp.coerceAtLeast(minSp)
         }
-        val lines = with(density) { (heightPx / (size * 1.3f).sp.toPx()).toInt().coerceAtLeast(1) }
-        Text(
-            text, style = style(size), color = Color.White.copy(alpha = 0.94f),
-            maxLines = lines, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
-        )
+        val lines = with(density) { (heightPx / (size * lineFactor).sp.toPx()).toInt().coerceAtLeast(1) }
+        if (spans.isEmpty()) {
+            Text(
+                text, style = style(size), color = Color.White.copy(alpha = 0.94f),
+                maxLines = lines, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            DmMessageText(
+                text, facets, color = Color.White.copy(alpha = 0.94f), fontSize = size.sp,
+                lineHeight = (size * lineFactor).sp, modifier = Modifier.fillMaxWidth(),
+                maxLines = lines, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -4822,8 +4844,8 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
                 item.textshotImageUrl, cornerRadius = 16.dp,
                 modifier = (if (blurNsfw) Modifier.blur(40.dp) else Modifier).fillMaxSize()
             )
-        } else Text(
-            item.text, color = Color.White.copy(0.92f), fontSize = 14.sp, lineHeight = 19.sp,
+        } else DmMessageText(
+            item.text, item.facets, color = Color.White.copy(0.92f), fontSize = 14.sp, lineHeight = 19.sp,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
             modifier = if (blurNsfw) Modifier.blur(40.dp) else Modifier
         )
@@ -4868,8 +4890,8 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
                 item.textshotImageUrl, cornerRadius = 12.dp,
                 modifier = (if (blurNsfw) Modifier.blur(36.dp) else Modifier).fillMaxSize()
             )
-        } else Text(
-            item.text, color = Color.White.copy(0.92f), fontSize = 9.sp, lineHeight = 12.sp,
+        } else DmMessageText(
+            item.text, item.facets, color = Color.White.copy(0.92f), fontSize = 9.sp, lineHeight = 12.sp,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis,
             modifier = if (blurNsfw) Modifier.blur(36.dp) else Modifier
         )
