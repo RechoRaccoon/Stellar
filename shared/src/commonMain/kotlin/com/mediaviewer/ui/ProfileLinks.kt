@@ -262,7 +262,7 @@ fun ProfileLinksRow(
 
 /**
  * The long-press popup for a profile link, on the app's confirmation popup
- * system (the same card as "Save Emoji?"): a header naming the link, the
+ * system (the same card as "Save Emoji?"): a "Profile Link" header, the
  * full URL as the body text, and two side-by-side buttons — Copy link on
  * the left, Open link on the right. Tapping outside or Back dismisses it.
  * Layout values are ConfirmPopup's, verbatim.
@@ -305,7 +305,7 @@ fun LinkPreviewPopup(
         val content: @Composable () -> Unit = {
             Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    link.title?.takeIf { it.isNotBlank() } ?: linkHost(link.url),
+                    "Profile Link",
                     color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(6.dp))
