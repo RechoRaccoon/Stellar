@@ -26,6 +26,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.serialization.json.intOrNull
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
