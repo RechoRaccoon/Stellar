@@ -2647,6 +2647,10 @@ class MainViewModel(
         _currentIndex.value = start
         _navDirection.value = 0
         _isLoading.value = false
+        // A profile open underneath (DMs opened from a profile page)
+        // would otherwise sit on top of this feed — hide it, the way
+        // profile feeds do; closeProfileFeed shows it again on exit.
+        _profileOverlay.value?.let { if (!it.hidden) _profileOverlay.value = it.copy(hidden = true) }
         _dmHiddenBehindFeed.value = true
         _screenState.value = ScreenState.FEED
         viewModelScope.launch(ioDispatcher) {
