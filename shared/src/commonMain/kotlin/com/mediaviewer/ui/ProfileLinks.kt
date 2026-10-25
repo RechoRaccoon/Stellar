@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -684,9 +686,11 @@ private fun LinkFormField(
  * taps: trash, then "Really?"), and a tap outside never closes it.
  * The dialog window is the point: the activity window shrinks for the
  * keyboard and re-centers anything inside it, which is what pushed
- * this form up when it lived in [LocalPopup]; a dialog window pans
- * instead, so this small centered form stays where it is when the
- * keyboard opens. Each field is one row: label on the left, input
+ * this form up when it lived in [LocalPopup]. Inside the dialog the
+ * form stays centered, and only when its centered bottom would fall
+ * under the keyboard does it rise by exactly the overlap, so it sits
+ * on the keyboard's top with no gap. Each field is one row: label on
+ * the left, input
  * right after. Titles stay manual — Stellar has no page-title service
  * to suggest one from, the way Bluesky's card service does — so a
  * blank title shows the domain on the pill.
@@ -706,12 +710,30 @@ fun LinkFormPopup(
     var title by remember { mutableStateOf(editing?.title ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     val isEditing = editing != null
+    // Keyboard-aware placement, not a counter-move: the sheet stays
+    // centered, and only when its centered bottom would fall under the
+    // keyboard does it rise by exactly the overlap, so its bottom sits
+    // on the keyboard's top with no gap. Every input here (window
+    // height, sheet height, the animated IME inset) is independent of
+    // the shift itself, so it tracks the keyboard smoothly instead of
+    // jumping, and with the keyboard down the shift is zero.
+    var windowHpx by remember { mutableIntStateOf(0) }
+    var sheetHpx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val padPx = with(density) { 40.dp.toPx().roundToInt() }
+    val imePx = WindowInsets.ime.getBottom(density)
+    val shiftPx = if (windowHpx > 0 && sheetHpx > 0) {
+        val contentH = windowHpx - padPx * 2
+        val sheetTop = padPx + (contentH - sheetHpx) / 2
+        (sheetTop + sheetHpx - (windowHpx - imePx)).coerceAtLeast(0)
+    } else 0
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true, usePlatformDefaultWidth = false)
     ) {
         Box(
             Modifier.fillMaxSize()
+                .onGloballyPositioned { windowHpx = it.size.height }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .padding(horizontal = 14.dp)
                 .padding(top = 40.dp, bottom = 40.dp),
@@ -720,6 +742,8 @@ fun LinkFormPopup(
             PopupSheetSurface(
                 liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
                 modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().heightIn(max = 560.dp)
+                    .onGloballyPositioned { sheetHpx = it.size.height }
+                    .offset { IntOffset(0, -shiftPx) }
             ) {
                 if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
                 Column(Modifier.fillMaxWidth()) {
