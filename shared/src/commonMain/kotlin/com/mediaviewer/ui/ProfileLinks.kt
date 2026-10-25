@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
@@ -717,23 +718,14 @@ fun LinkFormPopup(
     // height, sheet height, the animated IME inset) is independent of
     // the shift itself, so it tracks the keyboard smoothly instead of
     // jumping, and with the keyboard down the shift is zero.
-    var windowHpx by remember { mutableIntStateOf(0) }
-    var sheetHpx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val padPx = with(density) { 40.dp.toPx().roundToInt() }
-    val imePx = WindowInsets.ime.getBottom(density)
-    val shiftPx = if (windowHpx > 0 && sheetHpx > 0) {
-        val contentH = windowHpx - padPx * 2
-        val sheetTop = padPx + (contentH - sheetHpx) / 2
-        (sheetTop + sheetHpx - (windowHpx - imePx)).coerceAtLeast(0)
-    } else 0
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true, usePlatformDefaultWidth = false)
     ) {
         Box(
             Modifier.fillMaxSize()
-                .onGloballyPositioned { windowHpx = it.size.height }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .padding(horizontal = 14.dp)
                 .padding(top = 40.dp, bottom = 40.dp),
@@ -741,9 +733,22 @@ fun LinkFormPopup(
         ) {
             PopupSheetSurface(
                 liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().heightIn(max = 560.dp)
-                    .onGloballyPositioned { sheetHpx = it.size.height }
-                    .offset { IntOffset(0, -shiftPx) }
+                // The shift is worked out in the same layout pass that places the
+                // sheet (reading the animated keyboard inset right there), not
+                // from sizes reported back a frame late, which is what made it
+                // jitter. Outermost, so it sees the full space the sheet is given.
+                modifier = Modifier
+                    .layout { measurable, constraints ->
+                        val p = measurable.measure(constraints)
+                        layout(p.width, p.height) {
+                            val areaH = constraints.maxHeight
+                            val windowH = areaH + padPx * 2
+                            val sheetBottom = padPx + (areaH - p.height) / 2 + p.height
+                            val shift = (sheetBottom - (windowH - WindowInsets.ime.getBottom(density))).coerceAtLeast(0)
+                            p.place(0, -shift)
+                        }
+                    }
+                    .widthIn(max = 360.dp).fillMaxWidth().heightIn(max = 560.dp)
             ) {
                 if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
                 Column(Modifier.fillMaxWidth()) {

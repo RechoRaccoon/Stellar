@@ -263,11 +263,15 @@ internal fun EmojiPanel(
     val folderBounds = remember { mutableStateMapOf<Int, Rect>() } // -1 = All
     val accountBounds = remember { mutableStateMapOf<String, Rect>() }
     var deleteBounds by remember { mutableStateOf<Rect?>(null) }
+    // The library as it was when an emoji was picked up, so it can go back
+    // to its original slot if it's filed into another folder (or cancelled).
+    var dragStartIndex by remember { mutableStateOf<com.mediaviewer.util.EmojiIndex?>(null) }
     fun near(r: Rect?, slop: Float = 12f) = r != null && Rect(r.left - slop, r.top - slop, r.right + slop, r.bottom + slop).contains(pointer)
     val overDelete = held != null && near(deleteBounds, 20f)
 
     fun startHold(item: EmojiHeld, bounds: Rect, at: Offset) {
         held = item
+        dragStartIndex = if (item is EmojiHeld.Emoji) store.state.index else null
         grab = at - bounds.topLeft
         heldSize = IntSize(bounds.width.roundToInt(), bounds.height.roundToInt())
         pointer = at
@@ -279,6 +283,8 @@ internal fun EmojiPanel(
         held = null
         val index = store.state.index
         if (near(deleteBounds, 20f)) {
+            dragStartIndex?.let { store.setIndex(it) }
+            dragStartIndex = null
             view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
             when (item) {
                 is EmojiHeld.Emoji -> ask = EmojiAsk.DeleteEmoji(item.entry)
@@ -293,22 +299,28 @@ internal fun EmojiPanel(
         when (item) {
             is EmojiHeld.Emoji -> {
                 val id = item.entry.id
-                // Onto a folder tab: filed there (out of the folder it was in).
+                // Onto a folder tab: the emoji goes back to the slot it was
+                // picked up from, and a copy is filed in that folder (its
+                // other folders keep it). Dropped on "All" from a folder,
+                // it comes out of that folder instead (All holds everything).
                 val tab = folderBounds.entries.firstOrNull { near(it.value) }?.key
                 if (tab != null) {
                     val from = selectedFolderId
                     val to = if (tab == -1) null else tab
-                    if (to == from) return
-                    store.setIndex(index.copy(folders = index.folders.map { f ->
+                    if (to == from) { dragStartIndex = null; return }
+                    val base = dragStartIndex ?: index
+                    dragStartIndex = null
+                    store.setIndex(base.copy(folders = base.folders.map { f ->
                         when (f.id) {
                             to -> if (id in f.emojiIds) f else f.copy(emojiIds = f.emojiIds + id)
-                            from -> f.copy(emojiIds = f.emojiIds - id)
+                            from -> if (to == null) f.copy(emojiIds = f.emojiIds - id) else f
                             else -> f
                         }
                     }))
                     view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CONFIRM)
                     return
                 }
+                dragStartIndex = null
                 // (Among the other emoji it already moved while held.)
             }
             // (Folders and accounts were put in their new places while held.)
@@ -385,7 +397,7 @@ internal fun EmojiPanel(
                 },
                 onDrag = { change, amount -> if (held != null) { change.consume(); pointer += amount; liveReorder() } },
                 onDragEnd = { swapLock = null; drop() },
-                onDragCancel = { swapLock = null; held = null }
+                onDragCancel = { swapLock = null; held = null; dragStartIndex?.let { store.setIndex(it) }; dragStartIndex = null }
             )
         }
 
@@ -634,6 +646,9 @@ internal fun EmojiPanel(
                             val latest by rememberUpdatedState(e)
                             val isHeld = (held as? EmojiHeld.Emoji)?.entry?.id == e.id
                             val target = held is EmojiHeld.Emoji && !isHeld && emojiBounds[e.id]?.contains(pointer) == true
+                            // Scrolled-off cells leave the grid; their old bounds must go
+                            // too, or a held emoji "swaps" with an invisible one.
+                            androidx.compose.runtime.DisposableEffect(e.id) { onDispose { emojiBounds.remove(e.id) } }
                             Box(
                                 Modifier.aspectRatio(1f).padding(2.dp)
                                     .onGloballyPositioned { emojiBounds[e.id] = it.boundsInRoot() }
