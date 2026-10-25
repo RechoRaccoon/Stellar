@@ -128,7 +128,8 @@ internal fun LazyListScope.profileHomeRows(
                     onSeeAll = { onSeeAll(key) },
                     onOpenProfile = { a -> LocalOverlays.openProfile?.invoke(a) },
                     // (Lined up with the profile's tabs and bio.)
-                    headerEdge = PROFILE_EDGE
+                    headerEdge = PROFILE_EDGE,
+                    listEdge = PROFILE_EDGE
                 )
             }
         }

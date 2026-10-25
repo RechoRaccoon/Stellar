@@ -168,7 +168,10 @@ fun BuiltFeedRow(
      *  Never for "avatars" rows: those show only account pictures, so there
      *  is nothing to open. */
     onSeeAll: (() -> Unit)? = null,
-    headerEdge: Dp = 16.dp
+    headerEdge: Dp = 16.dp,
+    /** The row lists' side inset, so a caller can line the tiles up with
+     *  the header (a profile Home tab passes PROFILE_EDGE for both). */
+    listEdge: Dp = 16.dp
 ) {
     LaunchedEffect(feed) { onLoad() }
     // A row built from tags: the shared tags are offered (or updated).
@@ -179,28 +182,28 @@ fun BuiltFeedRow(
     FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, onSeeAll = if (state?.posts?.isNotEmpty() == true && feed.style != "avatars") onSeeAll else null)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
-        if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile)
+        if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile, listEdge)
     }
-    if (feed.blogs || feed.reviews) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile)
+    if (feed.blogs || feed.reviews) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile, listEdge)
 }
 
 /** A built feed's blogs and reviews (see LocalFeed.blogs/reviews): a row
  *  of each under its posts, in the Hub's own blog and review cards. */
 @Composable
-private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean, onOpenProfile: (AuthorInfo) -> Unit) {
+private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean, onOpenProfile: (AuthorInfo) -> Unit, listEdge: Dp = 16.dp) {
     val blogs = state?.blogs.orEmpty()
     val reviews = state?.reviews.orEmpty()
     if (!feed.showsPosts && blogs.isEmpty() && reviews.isEmpty() && state != null && !state.loading) {
         Text(
             "Nothing here yet", color = DimGray, fontSize = 12.sp, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = listEdge)
         )
         return
     }
     if (blogs.isNotEmpty()) {
         Spacer(Modifier.height(10.dp))
         com.mediaviewer.ui.compat.LazyRow(
-            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp),
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = listEdge),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top
         ) {
             items(blogs.size, key = { "blog_" + blogs[it].blog.uri }) { i ->
@@ -224,7 +227,7 @@ private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState
     if (reviews.isNotEmpty()) {
         Spacer(Modifier.height(10.dp))
         com.mediaviewer.ui.compat.LazyRow(
-            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp),
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = listEdge),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(reviews.size, key = { "review_" + reviews[it].review.uri }) { i ->
@@ -239,13 +242,13 @@ private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState
 private fun BuiltFeedPosts(
     feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean,
     onLoad: () -> Unit, onLoadMore: () -> Unit,
-    onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit
+    onOpenPost: (Int) -> Unit, onOpenProfile: (AuthorInfo) -> Unit, listEdge: Dp = 16.dp
 ) {
     val tap = rememberHapticTap()
     val loading = state == null || (state.loading && state.posts.isEmpty())
     val posts = state?.posts.orEmpty()
     if (loading) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = listEdge), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(4) { ShimmerBox(RoundedCornerShape(14.dp), Modifier.size(width = 110.dp, height = if (feed.style == "avatars") 60.dp else styleHeight(feed.style))) }
         }
         return
@@ -254,7 +257,7 @@ private fun BuiltFeedPosts(
         Text(
             if (state?.failed == true) "Couldn't load this feed · Tap to retry" else "Nothing here yet",
             color = DimGray, fontSize = 12.sp, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = listEdge)
                 .then(if (state?.failed == true) Modifier.clickable { tap(); onLoad() } else Modifier)
         )
         return
@@ -262,7 +265,7 @@ private fun BuiltFeedPosts(
     if (feed.style == "avatars") {
         val members = state?.members.orEmpty()
         com.mediaviewer.ui.compat.LazyRow(
-            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp),
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = listEdge),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(members.size, key = { members[it].did }) { i ->
@@ -298,7 +301,7 @@ private fun BuiltFeedPosts(
     LazyHorizontalGrid(
         rows = GridCells.Fixed(rows), state = gridState,
         modifier = Modifier.fillMaxWidth().height(tileH * rows + spacing * (rows - 1)).mouseSideways(gridState),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        contentPadding = PaddingValues(horizontal = listEdge),
         horizontalArrangement = Arrangement.spacedBy(spacing), verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
         items(posts.size, key = { i -> posts[i].postUri.ifBlank { posts[i].id } + "#" + i }) { i ->
