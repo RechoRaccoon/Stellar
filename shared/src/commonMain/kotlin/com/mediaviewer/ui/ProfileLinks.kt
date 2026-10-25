@@ -40,11 +40,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.hapticfeedback.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +55,7 @@ import coil3.compose.AsyncImage
 import com.mediaviewer.model.BskyProfileLinkView
 import com.mediaviewer.model.MAX_PROFILE_LINKS
 import com.mediaviewer.model.ProfileLinkDraft
+import com.mediaviewer.util.rememberHapticTap
 
 // ── Profile links ──────────────────────────────────────────────────────────
 // Bluesky's profile links (app.bsky.actor.link records, listed in order by
