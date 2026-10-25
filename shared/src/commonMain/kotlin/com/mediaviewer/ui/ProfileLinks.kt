@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -71,6 +72,7 @@ import com.mediaviewer.model.MAX_PROFILE_LINKS
 import com.mediaviewer.model.ProfileLinkDraft
 import com.mediaviewer.ui.compat.BackHandler
 import com.mediaviewer.util.rememberHapticTap
+import kotlin.math.roundToInt
 
 // ── Profile links ──────────────────────────────────────────────────────────
 // Bluesky's profile links (app.bsky.actor.link records, listed in order by
