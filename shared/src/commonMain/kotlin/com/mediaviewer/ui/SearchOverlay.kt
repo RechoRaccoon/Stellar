@@ -206,6 +206,16 @@ fun SearchOverlay(
     val searchBackdrop = remember(liquidGlass, backdropLayer) {
         if (liquidGlass) GlassBackdrop(backdropLayer) { backdropOrigin } else null
     }
+    // The interaction bar's own backdrop: the gradient layer above only
+    // ever holds the background gradient, so a bar blurring it looks flat
+    // next to a profile bar blurring real content. This layer records
+    // just the results area instead (see Results below) — and nothing
+    // inside that area reads this layer, so it can't record itself.
+    val barBackdropLayer = rememberGraphicsLayer()
+    var barBackdropOrigin by remember { mutableStateOf(Offset.Zero) }
+    val barBackdrop = remember(liquidGlass, barBackdropLayer) {
+        if (liquidGlass) GlassBackdrop(barBackdropLayer) { barBackdropOrigin } else null
+    }
 
     // Item 4: declared at this (outer Box) scope, not inside the Column
     // below, so both the search bar Row (which measures barBottomLeft/
@@ -470,7 +480,15 @@ fun SearchOverlay(
             }
             @Composable
             fun Results(m: Modifier) {
-            Box(m) {
+            Box(m
+                .onGloballyPositioned { barBackdropOrigin = it.positionInRoot() }
+                .then(
+                    if (liquidGlass) Modifier.drawWithContent {
+                        if (LiteGlass.LIVE) barBackdropLayer.record { this@drawWithContent.drawContent() }
+                        drawContent()
+                    } else Modifier
+                )
+            ) {
                 when {
                     // Web Browser: a live page filling the space between the
                     // tabs and the interaction bar.
@@ -762,7 +780,7 @@ fun SearchOverlay(
             val sortTap = rememberHapticTap()
             val sideways = rememberLandscape()
             ResultsInteractionBar(
-                liquidGlass = liquidGlass, tint = profileTint, backdrop = searchBackdrop,
+                liquidGlass = liquidGlass, tint = profileTint, backdrop = barBackdrop,
                 refreshing = state.loading, animateRefresh = true,
                 onRefresh = { if (state.query.isNotBlank() || isLiked) submitSearch() },
                 filter = if (isPosts || isLiked) kindForTab else null,

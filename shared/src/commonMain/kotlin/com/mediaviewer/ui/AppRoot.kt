@@ -653,10 +653,13 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
     // a chat, sharing a feed) are glass like "Add To": the popup itself
     // blurs what's behind it. They are drawn outside this box, and while one
     // is up the whole app page is recorded here as their live backdrop
-    // (only then — nothing extra is drawn the rest of the time).
+    // (only then — nothing extra is drawn the rest of the time). The
+    // selection mode's More menu needs the same live recording: without
+    // it, its bubbles show whatever this layer last held — a fixed
+    // image — instead of blurring the page behind them.
     val feedShareOpen = sendPopupTarget?.id?.startsWith(com.mediaviewer.viewmodel.MainViewModel.PROFILE_SHARE_PREFIX + "feed:") == true
     // (The camera notch's open bubble blurs the app behind it too.)
-    val localPopupShown = (com.mediaviewer.ui.LocalOverlays.popupOpen || feedShareOpen || com.mediaviewer.ui.NotchGeometry.expanded) && liquidGlass
+    val localPopupShown = (com.mediaviewer.ui.LocalOverlays.popupOpen || feedShareOpen || com.mediaviewer.ui.NotchGeometry.expanded || PostSelection.moreMenuOpen) && liquidGlass
     val appLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val appBackdrop = remember(appLayer) { GlassBackdrop(appLayer) { androidx.compose.ui.geometry.Offset.Zero } }
     com.mediaviewer.ui.NotchGeometry.backdrop = appBackdrop
