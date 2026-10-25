@@ -2,6 +2,8 @@ package com.mediaviewer.ui
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -10,8 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -40,11 +44,13 @@ import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.model.MediaItem
 import com.mediaviewer.ui.theme.CircleShape
@@ -73,7 +79,13 @@ object PostSelection {
         if (i >= 0) selected.removeAt(i) else selected.add(item)
     }
 
-    fun clear() { selected.clear() }
+    fun clear() { selected.clear(); moreMenuOpen = false }
+
+    /** Selection mode's More menu (see SelectionBarButtons): open, and
+     *  the More button's bounds in root coordinates, for
+     *  BubbleActionStack's anchor. */
+    var moreMenuOpen by mutableStateOf(false)
+    var moreAnchor by mutableStateOf<Pair<Offset, IntSize>?>(null)
 
     /** The touch the outermost selectable tile under it took (see
      *  postSelectable): held only while that touch lasts. */
@@ -85,8 +97,9 @@ object PostSelection {
     var reorder: ((MediaItem, Offset) -> Unit)? = null
 }
 
-/** Whether post tiles here can be picked: profile pages and Saved Posts
- *  only (not the Hub, Explore or Search). */
+/** Whether post tiles here can be picked: profile pages, Saved Posts,
+ *  and Search's Tagged page (not the Hub, Explore, or Search's other
+ *  tabs). */
 val LocalPostSelectable = androidx.compose.runtime.staticCompositionLocalOf { false }
 
 /**
@@ -215,16 +228,18 @@ class SelectionActions(
     val onSave: (List<MediaItem>) -> Unit,
     val onDownload: (List<MediaItem>, Boolean) -> Unit,
     val onShare: (List<MediaItem>) -> Unit,
+    val onTag: (List<MediaItem>) -> Unit,
     val onArchive: (List<MediaItem>) -> Unit,
     val onDelete: (List<MediaItem>) -> Unit
 )
 
 /**
  * Selection mode's buttons, in place of an interaction bar's own (the bar
- * itself stays — same pill, same place): Save, Download, Download as GIF and
- * Share, with the very icons the post's own bar uses, and — when every picked
- * post is yours — Archive and Delete, with the icons the post's More menu
- * uses. The count and Cancel are at the top of the page instead (see
+ * itself stays — same pill, same place): Save, Download, Download as GIF,
+ * Tag and Share, with the very icons the post's own bar uses, and — when
+ * every picked post is yours — a More button opening the post's More menu
+ * (Archive, Delete) over the bar, exactly as the Timeline's More button
+ * does. The count and Cancel are at the top of the page instead (see
  * [SelectionCountBubble]).
  */
 @Composable
@@ -235,9 +250,9 @@ fun SelectionBarButtons(iconSize: androidx.compose.ui.unit.Dp = 20.dp) {
     val picked = PostSelection.selected.toList()
     val allMine = actions.selfDid.isNotBlank() && picked.all { it.author.did == actions.selfDid && it.postUri.isNotBlank() }
     @Composable
-    fun Btn(label: String, onClick: () -> Unit, content: @Composable () -> Unit) {
+    fun Btn(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
         Box(
-            Modifier.size(width = 40.dp, height = 44.dp).clip(CircleShape).clickable { tap(); onClick() },
+            modifier.then(Modifier.size(width = 40.dp, height = 44.dp).clip(CircleShape).clickable { tap(); onClick() }),
             contentAlignment = Alignment.Center
         ) { content() }
     }
@@ -250,15 +265,22 @@ fun SelectionBarButtons(iconSize: androidx.compose.ui.unit.Dp = 20.dp) {
     Btn("Download as GIF", { actions.onDownload(picked, true); PostSelection.clear() }) {
         com.mediaviewer.i18n.Text("GIF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
+    Btn("Tag", { actions.onTag(picked) }) {
+        Icon(Icons.Default.Tag, contentDescription = "Tag", tint = Color.White, modifier = Modifier.size(iconSize))
+    }
     Btn("Share", { actions.onShare(picked) }) {
         Icon(Icons.Default.Send, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(iconSize))
     }
     if (allMine) {
-        Btn("Archive", { actions.onArchive(picked) }) {
-            Icon(Icons.Default.Inventory2, contentDescription = "Archive", tint = Color.White, modifier = Modifier.size(iconSize))
-        }
-        Btn("Delete", { actions.onDelete(picked) }) {
-            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(iconSize))
+        Btn(
+            "More",
+            { PostSelection.moreMenuOpen = !PostSelection.moreMenuOpen },
+            Modifier.onGloballyPositioned { PostSelection.moreAnchor = it.positionInRoot() to it.size }
+        ) {
+            Icon(
+                if (PostSelection.moreMenuOpen) Icons.Default.Close else Icons.Default.Menu,
+                contentDescription = "More", tint = Color.White, modifier = Modifier.size(iconSize)
+            )
         }
     }
 }

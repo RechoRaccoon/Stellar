@@ -515,6 +515,9 @@ fun SearchOverlay(
                             val lastSort = remember { intArrayOf(sortNow) }
                             LaunchedEffect(sortNow) { if (lastSort[0] != sortNow) { lastSort[0] = sortNow; taggedList.scrollToItem(0) } }
                             val wideDp = rememberLandscapeWidthDp()
+                            // Hold-to-select, like profile pages (see LocalPostSelectable):
+                            // the shared tiles already pick, they only need this on.
+                            CompositionLocalProvider(LocalPostSelectable provides true) {
                             LazyColumn(Modifier.fillMaxSize(), state = taggedList, contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
                                 sharedPostResults(
                                     wideDp = wideDp,
@@ -523,6 +526,7 @@ fun SearchOverlay(
                                     onTapItem = { item -> likedTagResults.indexOf(item).takeIf { it >= 0 }?.let(onOpenLikedPost) },
                                     onLoadMore = onLoadMoreTagged, exhausted = taggedExhausted
                                 )
+                            }
                             }
                         }
                     }

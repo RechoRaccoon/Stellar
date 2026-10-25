@@ -3,6 +3,7 @@ package com.mediaviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,13 +14,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import com.mediaviewer.i18n.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -184,6 +195,15 @@ fun LocalOverlayHost(
         onSave = { LocalOverlays.bookmarkFolderForMany = it },
         onDownload = { items, gif -> viewModel.downloadItems(items, gif) },
         onShare = { viewModel.openSendPopupFor(it); PostSelection.clear() },
+        onTag = { items ->
+            LocalOverlays.confirm = ConfirmRequest(
+                "Add Tag", "", "Add", tint, destructive = false,
+                input = "", inputPlaceholder = "Tag name"
+            ) {
+                val typed = com.mediaviewer.tagging.normalizeTypedTag(LocalOverlays.confirm?.text.orEmpty())
+                if (typed.isNotBlank()) { viewModel.tagItems(items, typed); PostSelection.clear() }
+            }
+        },
         onArchive = { items ->
             LocalOverlays.confirm = ConfirmRequest(
                 "Archive ${items.size} Post${if (items.size == 1) "" else "s"}?",
@@ -199,6 +219,48 @@ fun LocalOverlayHost(
             ) { viewModel.deleteItems(items); PostSelection.clear() }
         }
     )
+
+    // ── Selection mode's More menu (Archive / Delete over the bar) ──
+    // The bar's More button anchors it (see SelectionBarButtons); the
+    // stack stays composed while selection lasts so it can animate out —
+    // pass [visible], never add/remove it. A tap anywhere else, or Back,
+    // closes just the menu; the picks stay picked.
+    if (PostSelection.active) {
+        var menuRootOrigin by remember { mutableStateOf(Offset.Zero) }
+        val menuOpen = PostSelection.moreMenuOpen
+        if (menuOpen) {
+            com.mediaviewer.ui.compat.BackHandler { PostSelection.moreMenuOpen = false }
+        }
+        Box(
+            Modifier.fillMaxSize().zIndex(10.6f)
+                .onGloballyPositioned { menuRootOrigin = it.positionInRoot() }
+                .then(
+                    if (menuOpen) Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null
+                    ) { PostSelection.moreMenuOpen = false } else Modifier
+                )
+        ) {
+            PostSelection.moreAnchor?.let { anchor ->
+                BubbleActionStack(
+                    visible = menuOpen,
+                    anchorOriginRoot = anchor.first,
+                    anchorSize = anchor.second,
+                    containerRootOrigin = menuRootOrigin,
+                    actions = listOf(
+                        BubbleAction("Archive", Icons.Default.Inventory2) {
+                            LocalOverlays.selection?.onArchive?.invoke(PostSelection.selected.toList())
+                        },
+                        BubbleAction("Delete", Icons.Default.Delete) {
+                            LocalOverlays.selection?.onDelete?.invoke(PostSelection.selected.toList())
+                        }
+                    ),
+                    liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                    onDismissRequest = { PostSelection.moreMenuOpen = false },
+                    gapAboveAnchor = 6.dp
+                )
+            }
+        }
+    }
 
     // ── Popups ──
     LocalOverlays.confirm?.let { req ->

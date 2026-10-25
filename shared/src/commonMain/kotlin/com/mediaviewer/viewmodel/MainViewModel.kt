@@ -7651,6 +7651,37 @@ class MainViewModel(
         }
     }
 
+    /** The selection bar's Tag button: adds one hand tag to every picked
+     *  post — the same per-post save [editCurrentPostTag] does, looped.
+     *  Bluesky posts only (e621's tags are e621's own, and a post with no
+     *  URI can't be saved). Shown first where the post is on screen,
+     *  saved behind it. */
+    fun tagItems(items: List<MediaItem>, tag: String) {
+        if (_appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
+        val clean = com.mediaviewer.tagging.normalizeTypedTag(tag).takeIf { it.isNotBlank() } ?: return
+        val picked = items.filter { it.postUri.isNotBlank() && it.e621PostId == null }
+        if (picked.isEmpty()) return
+        // Shown first, saved behind it.
+        val list = _mediaItems.value.toMutableList()
+        var changed = false
+        picked.forEach { item ->
+            val i = list.indexOfFirst { it.postUri == item.postUri }.takeIf { it >= 0 } ?: return@forEach
+            val now = list[i].tags.split(" ").filter { it.isNotBlank() }
+            if (clean !in now) { list[i] = list[i].copy(tags = (now + clean).joinToString(" ")); changed = true }
+        }
+        if (changed) _mediaItems.value = list
+        viewModelScope.launch(ioDispatcher) {
+            var firstError: Throwable? = null
+            picked.forEach { item ->
+                runCatching {
+                    taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, null, clean)
+                }.onFailure { if (firstError == null) firstError = it }
+            }
+            tagVocabularyCache = null
+            firstError?.let { _errorMessage.value = "Couldn't save the tag: ${it.message}" }
+        }
+    }
+
     fun navigateNext() {
         val next = _currentIndex.value + 1
         if (next < _mediaItems.value.size) {
