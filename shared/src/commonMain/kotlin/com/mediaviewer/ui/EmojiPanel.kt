@@ -831,11 +831,13 @@ private fun EditableTabName(value: TextFieldValue, onValueChange: (TextFieldValu
     val focus = remember { FocusRequester() }
     var hadFocus by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+    val fieldStyle = TextStyle(color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
     BasicTextField(
         value = value,
         onValueChange = { if (it.text.length <= 24) onValueChange(it) },
         singleLine = true,
-        textStyle = TextStyle(color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+        textStyle = fieldStyle,
         cursorBrush = SolidColor(Color.White),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Words),
         keyboardActions = KeyboardActions(onDone = { onDone() }),

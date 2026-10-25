@@ -133,9 +133,11 @@ fun ConfirmPopup(
                     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
                     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
                     val fieldShape = RoundedCornerShape(14.dp)
+                    val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                    val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                     BasicTextField(
                         value = input, onValueChange = onInputChange, singleLine = true,
-                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        textStyle = fieldStyle,
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (!busy) onConfirm() }),

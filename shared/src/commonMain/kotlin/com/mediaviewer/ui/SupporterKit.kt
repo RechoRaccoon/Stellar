@@ -189,10 +189,12 @@ fun LocalTextField(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart
     ) {
+        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+        val fieldStyle = TextStyle(color = Color.White, fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         BasicTextField(
             value = value, onValueChange = onValueChange,
             singleLine = singleLine,
-            textStyle = TextStyle(color = Color.White, fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp),
+            textStyle = fieldStyle,
             cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(capitalization = capitalization),
             modifier = Modifier.fillMaxWidth().then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)

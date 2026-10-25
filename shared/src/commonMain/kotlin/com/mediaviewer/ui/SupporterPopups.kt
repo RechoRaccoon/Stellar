@@ -903,10 +903,12 @@ private fun AccountGuessField(
             },
         contentAlignment = Alignment.CenterStart
     ) {
+        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+        val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         androidx.compose.foundation.text.BasicTextField(
             value = field, onValueChange = { field = it; onValueChange(it.text) },
             singleLine = true, visualTransformation = transformation,
-            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+            textStyle = fieldStyle,
             cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (!accept()) onDone() }),

@@ -596,9 +596,11 @@ fun EditField(
             // Same text style as the field itself, so the prefix ("@") sits
             // on the handle's own baseline instead of dropping below it.
             if (prefix != null) Text(prefix, style = TextStyle(color = Color.White.copy(0.5f), fontSize = 14.sp, lineHeight = 19.sp))
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
             BasicTextField(
                 value = value, onValueChange = onValue, singleLine = singleLine, enabled = enabled,
-                textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = keyboardType,

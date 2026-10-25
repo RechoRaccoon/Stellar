@@ -969,9 +969,11 @@ private fun DmThreadView(
                     // (The pictures are placed from the field's own top-left,
                     // so they line up on every row.)
                     Box(Modifier.fillMaxWidth()) {
+                        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                        val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                         BasicTextField(
                             value = field, onValueChange = { field = it },
-                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+                            textStyle = fieldStyle,
                             cursorBrush = SolidColor(Color.White),
                             visualTransformation = transformation,
                             onTextLayout = { fieldLayout = it },

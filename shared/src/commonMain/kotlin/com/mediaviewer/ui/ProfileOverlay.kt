@@ -6725,9 +6725,11 @@ private fun CommentComposerRow(liquidGlass: Boolean, tint: Color, backdrop: Glas
     @Composable
     fun Content() {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
             BasicTextField(
                 value = text, onValueChange = { text = it },
-                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(Color.White),
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->

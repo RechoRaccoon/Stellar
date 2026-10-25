@@ -396,9 +396,11 @@ private fun EntryRow(
         ) {
             if (editing) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                    val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                     BasicTextField(
                         value = draft, onValueChange = { draft = it }, singleLine = true, enabled = !saving,
-                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                        textStyle = fieldStyle,
                         cursorBrush = SolidColor(Color.White),
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { save() }),
@@ -541,9 +543,11 @@ private fun FormField(value: String, onChange: (String) -> Unit, placeholder: St
             .padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.CenterStart
     ) {
+        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+        val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         BasicTextField(
             value = value, onValueChange = onChange, singleLine = singleLine, maxLines = if (singleLine) 1 else 3,
-            textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+            textStyle = fieldStyle,
             cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             modifier = Modifier.fillMaxWidth()

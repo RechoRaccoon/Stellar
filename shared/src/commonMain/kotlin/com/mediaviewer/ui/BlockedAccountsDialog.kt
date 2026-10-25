@@ -175,9 +175,11 @@ internal fun BlockedSearchField(value: String, tint: Color, placeholder: String 
         Icon(Icons.Default.Search, contentDescription = null, tint = lerp(tint, Color.White, 0.5f), modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
             BasicTextField(
                 value = value, onValueChange = onChange, singleLine = true,
-                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { }),

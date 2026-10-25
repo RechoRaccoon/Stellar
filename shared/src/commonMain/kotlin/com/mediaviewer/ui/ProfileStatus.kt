@@ -392,6 +392,8 @@ fun ProfileStatusEditor(
                                 Modifier.width(64.dp).height(36.dp).clip(fieldShape).background(Color.White.copy(alpha = if (never) 0.05f else 0.1f)).padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
+                                val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                                val fieldStyle = TextStyle(color = Color.White.copy(alpha = if (never) 0.35f else 1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                                 BasicTextField(
                                     value = amount, enabled = !never,
                                     onValueChange = { v ->
@@ -399,7 +401,7 @@ fun ProfileStatusEditor(
                                         com.mediaviewer.util.UiToggles.saveStatusDuration(unit.name, amount.toIntOrNull() ?: 0)
                                     },
                                     singleLine = true,
-                                    textStyle = TextStyle(color = Color.White.copy(alpha = if (never) 0.35f else 1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                    textStyle = fieldStyle,
                                     cursorBrush = SolidColor(Color.White),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth()
@@ -494,13 +496,15 @@ fun ProfileStatusEditor(
                     val emojiState = emojiStore.state
                     val transformation = remember(emojiStore, emojiState) { emojiVisualTransformation(emojiStore) }
                     Box(Modifier.fillMaxWidth()) {
+                        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                        val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                         BasicTextField(
                             value = field,
                             onValueChange = { v ->
                                 touched = true
                                 field = v.copy(text = v.text.replace('\n', ' ').take(STATUS_MAX_LENGTH))
                             },
-                            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp),
+                            textStyle = fieldStyle,
                             cursorBrush = SolidColor(Color.White),
                             visualTransformation = transformation,
                             onTextLayout = { layout = it },

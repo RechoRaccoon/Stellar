@@ -283,9 +283,11 @@ private fun SearchField(value: String, tint: Color, onChange: (String) -> Unit) 
         Icon(Icons.Default.Search, contentDescription = null, tint = lerp(tint, Color.White, 0.5f), modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = TextStyle(color = Color.White, fontSize = 15.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
             BasicTextField(
                 value = value, onValueChange = onChange, singleLine = true,
-                textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { }),
@@ -396,9 +398,11 @@ private fun GroupNamingStep(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+                val fieldStyle = TextStyle(color = Color.White, fontSize = 16.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
                 BasicTextField(
                     value = name, onValueChange = onName, singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                    textStyle = fieldStyle,
                     cursorBrush = SolidColor(Color.White),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (!creating) onCreate() }),

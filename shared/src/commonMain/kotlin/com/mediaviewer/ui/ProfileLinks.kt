@@ -655,9 +655,11 @@ private fun LinkFormField(
     ) {
         Text(label.uppercase(), color = tint.let { lerp(it, Color.White, 0.45f) }, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         Spacer(Modifier.width(10.dp))
+        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+        val fieldStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         BasicTextField(
             value = value, onValueChange = onValue, singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp),
+            textStyle = fieldStyle,
             cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(
                 keyboardType = keyboardType,

@@ -548,10 +548,12 @@ private fun NoteEditor(initial: NoteEntry, tint: Color, liquidGlass: Boolean, on
         resizeForKeyboard = false,
         // The page's title is the note's own title: tap it to rename.
         titleContent = {
+            val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+            val fieldStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
             BasicTextField(
                 value = title, onValueChange = { title = it.replace("\n", " ").take(120) },
                 singleLine = true,
-                textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 decorationBox = { inner ->

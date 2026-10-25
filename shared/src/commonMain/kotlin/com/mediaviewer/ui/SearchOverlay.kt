@@ -1376,10 +1376,12 @@ private fun BasicTextFieldWithPlaceholder(
     onSearch: () -> Unit
 ) {
     Box(Modifier.fillMaxWidth()) {
+        val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
+        val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         BasicTextField(
             value = value, onValueChange = onValueChange,
             singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp),
+            textStyle = fieldStyle,
             cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onSearch() }),
