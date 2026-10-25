@@ -75,13 +75,13 @@ data class RowHeaderStyle(val align: Int = 1, val divider: Boolean = true, val l
  * [onEdit] puts a small edit button after it.
  */
 @Composable
-fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() -> Unit)? = null, edge: Dp = 16.dp, onSeeAll: (() -> Unit)? = null) {
+fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() -> Unit)? = null, edge: Dp = 16.dp, headerTop: Dp? = null, onSeeAll: (() -> Unit)? = null) {
     val tap = rememberHapticTap()
     val lineColor = tint.copy(alpha = 0.6f)
     @Composable
     fun Line(m: Modifier) = HorizontalDivider(modifier = m, color = lineColor)
     if (style.divider) {
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(headerTop ?: 14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = edge), verticalAlignment = Alignment.CenterVertically) {
             if (style.align != 0) Line(Modifier.weight(1f))
             Text(
@@ -99,7 +99,7 @@ fun FeedRowTitle(label: String, tint: Color, style: RowHeaderStyle, onEdit: (() 
         Spacer(Modifier.height(8.dp))
     } else {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = edge).padding(top = 16.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = edge).padding(top = headerTop ?: 16.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = when (style.align) {
                 0 -> Arrangement.Start; 2 -> Arrangement.End; else -> Arrangement.Center
@@ -168,6 +168,11 @@ fun BuiltFeedRow(
      *  Never for "avatars" rows: those show only account pictures, so there
      *  is nothing to open. */
     onSeeAll: (() -> Unit)? = null,
+    /** A profile Home tab passes 0.dp for its first row only, so the
+     *  sub-tabs-to-first-row gap matches the sub-tabs-to-results gap on
+     *  the All sub-tab (which has no row header above it). Null keeps
+     *  the row's own top spacing everywhere else. */
+    headerTop: Dp? = null,
     headerEdge: Dp = 16.dp,
     /** The row lists' side inset, so a caller can line the tiles up with
      *  the header (a profile Home tab passes PROFILE_EDGE for both). */
@@ -179,7 +184,7 @@ fun BuiltFeedRow(
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
-    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, onSeeAll = if (state?.posts?.isNotEmpty() == true && feed.style != "avatars") onSeeAll else null)
+    FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, headerTop = headerTop, onSeeAll = if (state?.posts?.isNotEmpty() == true && feed.style != "avatars") onSeeAll else null)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
         if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile, listEdge)

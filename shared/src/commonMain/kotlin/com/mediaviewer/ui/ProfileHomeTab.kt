@@ -110,7 +110,7 @@ internal fun LazyListScope.profileHomeRows(
         )
     }
     val style = homeHeaderStyle(did)
-    feeds.forEach { feed ->
+    feeds.forEachIndexed { index, feed ->
         val key = "home:$did:${feed.id}"
         item(key = key) {
             Column(
@@ -128,6 +128,9 @@ internal fun LazyListScope.profileHomeRows(
                     onSeeAll = { onSeeAll(key) },
                     onOpenProfile = { a -> LocalOverlays.openProfile?.invoke(a) },
                     // (Lined up with the profile's tabs and bio.)
+                    // (First row only: no header top spacing, so the
+                    // gap below the sub-tabs matches All's.)
+                    headerTop = if (index == 0) 0.dp else null,
                     headerEdge = PROFILE_EDGE,
                     listEdge = PROFILE_EDGE
                 )
