@@ -4168,18 +4168,15 @@ class BlueskyRepository {
         }
         // The code alone never said why cardyb refused (the app got a
         // 400 on a URL every outside replication answers 200 for), so
-        // carry the refusal's own reason. The toast ellipsizes past
-        // ~2 lines, and with a "cardyb HTTP 400" prefix in front the
-        // reason itself fell past the cutoff — the toast looked
-        // unchanged. So a parsed "error" replaces the whole detail
-        // (the code is the less useful half); unparsed bodies keep
-        // the code + raw body.
+        // carry the refusal's own reason: prefer the body's "error"
+        // field when it parses, else the raw body. The failure text
+        // now goes in a popup (no toast limit), so the code stays in.
         if (!resp.isSuccessful) {
             val raw = resp.body.decodeToString().trim()
             val parsed = runCatching {
                 StellarJson.default.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
             }.getOrNull()?.takeIf { it.isNotBlank() }
-            if (parsed != null) return FaviconFetch(null, parsed)
+            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed")
             val detail = raw.take(200).ifBlank { null }
             return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: ""))
         }

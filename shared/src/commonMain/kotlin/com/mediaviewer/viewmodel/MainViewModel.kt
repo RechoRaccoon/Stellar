@@ -749,10 +749,19 @@ class MainViewModel(
             withContext(Dispatchers.Main) {
                 onDone(error)
                 if (error == null) {
-                    // The save itself worked; a link that kept its globe
-                    // for a real fetch/upload reason says why, instead
-                    // of failing silently.
-                    if (links != null) bskyRepo.lastLinkIconFailures.forEach { showToast("Couldn't fetch an icon for $it") }
+                    // TEMPORARY diagnostic — remove once the icon-fetch
+                    // issue is resolved: the toast truncates past ~2
+                    // lines, so the full failure text goes in a popup
+                    // instead, where it can actually be read.
+                    if (links != null) bskyRepo.lastLinkIconFailures.takeIf { it.isNotEmpty() }?.let { failures ->
+                        com.mediaviewer.ui.LocalOverlays.confirm = com.mediaviewer.ui.ConfirmRequest(
+                            title = "Couldn't fetch an icon",
+                            message = failures.joinToString("\n"),
+                            confirmLabel = "OK",
+                            tint = androidx.compose.ui.graphics.Color.White,
+                            destructive = false
+                        ) {}
+                    }
                     loadSelfProfile()
                     // Give the AppView a moment to index the new record.
                     viewModelScope.launch { kotlinx.coroutines.delay(1200); refreshProfile() }
