@@ -161,7 +161,7 @@ fun ProfileLinkPill(
                 onClick = { tap(); onOpen() },
                 onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
             )
-            .padding(vertical = 6.dp, start = 10.dp, end = 10.dp),
+            .padding(start = 10.dp, top = 6.dp, end = 10.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LinkPillContent(url = link.url, title = link.title, iconUrl = link.icon, tint = tint) {
@@ -395,7 +395,7 @@ fun LinksEditorRow(
                             )
                         }
                         .clickable(enabled = enabled) { tap(); onEdit(index) }
-                        .padding(vertical = 6.dp, start = 10.dp, end = 8.dp)
+                        .padding(start = 10.dp, top = 6.dp, end = 8.dp, bottom = 6.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LinkPillContent(
