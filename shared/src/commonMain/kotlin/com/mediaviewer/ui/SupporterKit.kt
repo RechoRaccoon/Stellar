@@ -126,6 +126,10 @@ fun LocalPopup(
     fixedHeight: Boolean = false,
     /** A two-tap delete at the top right (see PopupSheetHeader). */
     onDelete: (() -> Unit)? = null,
+    /** False: the popup stays centered where it is when the keyboard
+     *  opens, instead of riding up above it — for small popups the
+     *  keyboard never overlaps. */
+    followKeyboard: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(onBack = onClose)
@@ -138,9 +142,9 @@ fun LocalPopup(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (dismissOnOutsideTap) onClose() }
-            .imePadding()
+            .then(if (followKeyboard) Modifier.imePadding() else Modifier)
             .padding(horizontal = 14.dp)
-            .padding(top = 40.dp, bottom = if (keyboardUp) 8.dp else 40.dp),
+            .padding(top = 40.dp, bottom = if (keyboardUp && followKeyboard) 8.dp else 40.dp),
         contentAlignment = Alignment.Center
     ) {
         PopupSheetSurface(

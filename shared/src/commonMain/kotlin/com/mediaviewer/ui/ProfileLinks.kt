@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -58,7 +62,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -627,13 +634,54 @@ private fun keyOfGhost(draft: ProfileLinkDraft): String = draft.uri ?: "new:${dr
 // ── Add / edit form ────────────────────────────────────────────────────────
 
 /**
+ * One row of the link form: the label on the left, the input right
+ * after it, in EditField's well styling (same fill, border, label and
+ * field text) — the form's fields used to stack label over input.
+ */
+@Composable
+private fun LinkFormField(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    tint: Color,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    counter: String? = null
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = 0.07f))
+            .border(1.dp, tint.copy(alpha = 0.3f), shape).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label.uppercase(), color = tint.let { lerp(it, Color.White, 0.45f) }, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(Modifier.width(10.dp))
+        BasicTextField(
+            value = value, onValueChange = onValue, singleLine = true,
+            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 19.sp),
+            cursorBrush = SolidColor(Color.White),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                capitalization = if (keyboardType == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
+                imeAction = ImeAction.Done
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        if (counter != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(counter, color = Color.White.copy(0.4f), fontSize = 10.sp)
+        }
+    }
+}
+
+/**
  * The add/edit link form, on the Feed Creator's system ([LocalPopup]):
  * the X at the top left closes it, the trash at the top right removes
  * the link (two taps: trash, then "Really?"), and a tap outside never
- * closes it. The fields stay Edit Profile's EditFields — the form lives
- * in that dialog. Titles stay manual — Stellar has no page-title service
- * to suggest one from, the way Bluesky's card service does — so a blank
- * title shows the domain on the pill.
+ * closes it. The popup stays centered where it is when the keyboard
+ * opens (it never overlaps this small form), and each field is one row:
+ * label on the left, input right after. Titles stay manual — Stellar
+ * has no page-title service to suggest one from, the way Bluesky's card
+ * service does — so a blank title shows the domain on the pill.
  */
 @Composable
 fun LinkFormPopup(
@@ -655,15 +703,17 @@ fun LinkFormPopup(
         liquidGlass = liquidGlass, tint = tint, onClose = onDismiss,
         maxWidth = 360.dp, backdrop = backdrop,
         dismissOnOutsideTap = false,
+        followKeyboard = false,
         onDelete = if (isEditing) onRemove else null
     ) {
-        EditField(
+        LinkFormField(
+            label = "Link",
             value = input,
             onValue = {
                 input = it
                 error = null
             },
-            label = "Link", tint = tint,
+            tint = tint,
             keyboardType = KeyboardType.Uri
         )
         // An http scheme can't be fixed by typing more, so it errors
@@ -676,8 +726,9 @@ fun LinkFormPopup(
             Text(shownError, color = Color(0xFFFF8A80), fontSize = 12.sp)
         }
         Spacer(Modifier.height(10.dp))
-        EditField(
-            value = title, onValue = { title = it.take(30) }, label = "Title", tint = tint,
+        LinkFormField(
+            label = "Title",
+            value = title, onValue = { title = it.take(30) }, tint = tint,
             counter = if (title.length >= 20) "${title.length}/30" else null
         )
         Spacer(Modifier.height(16.dp))
