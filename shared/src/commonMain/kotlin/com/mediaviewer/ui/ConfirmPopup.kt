@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -97,11 +96,13 @@ fun ConfirmPopup(
     val glass = PopupStyle.glass(liquidGlass)
     val confirmColor = if (destructive) Color(0xFFE0245E) else tint
     val confirmText = if (destructive && glass) Color(0xFFFF6B8A) else Color.White
+    // No keyboard padding here: the card is small and centred, and the
+    // keyboard never reaches it, so padding for the keyboard would only
+    // shove the popup up for no reason. It stays centred.
     Box(
         modifier.fillMaxSize()
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy && dismissOnOutsideTap) onDismiss() }
-            .then(if (input != null) Modifier.imePadding() else Modifier),
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (!busy && dismissOnOutsideTap) onDismiss() },
         contentAlignment = Alignment.Center
     ) {
         val cardModifier = Modifier
