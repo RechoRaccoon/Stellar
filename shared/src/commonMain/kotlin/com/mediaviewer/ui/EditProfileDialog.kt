@@ -146,10 +146,15 @@ fun EditProfileDialog(
     val shape = RoundedCornerShape(24.dp)
 
     // Only Close (or Back) closes it: a stray tap outside would lose
-    // unsaved edits, so the outer scrim deliberately has no tap handler.
+    // unsaved edits — but the scrim still swallows the tap, so it never
+    // reaches the profile page behind the dialog.
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { linkDrag.rootOrigin = it.positionInRoot() }
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) { }
             .imePadding(),
         contentAlignment = Alignment.Center
     ) {

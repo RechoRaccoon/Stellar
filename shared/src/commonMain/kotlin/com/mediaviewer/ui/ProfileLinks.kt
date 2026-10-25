@@ -303,10 +303,15 @@ fun LinkPreviewPopup(
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
         val content: @Composable () -> Unit = {
             Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "Profile Link",
-                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center
-                )
+                // The Feed Creator's X, top left, closing the popup.
+                Box(Modifier.fillMaxWidth()) {
+                    PopupCloseBubble(liquidGlass, tint, null, onDismiss, Modifier.align(Alignment.CenterStart))
+                    Text(
+                        "Profile Link",
+                        color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     link.url, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp,

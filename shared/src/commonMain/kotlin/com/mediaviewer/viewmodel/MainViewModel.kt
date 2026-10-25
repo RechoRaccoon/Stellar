@@ -6782,6 +6782,8 @@ class MainViewModel(
         _currentIndex.value = 0
         _navDirection.value = 0
         _isLoading.value = false
+        // Over the profile it was opened from (Back brings the profile back).
+        _profileOverlay.value?.let { if (!it.hidden) _profileOverlay.value = it.copy(hidden = true) }
         _screenState.value = ScreenState.GRID
     }
 
