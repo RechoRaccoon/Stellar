@@ -77,6 +77,9 @@ object PostSelection {
     fun toggle(item: MediaItem) {
         val i = selected.indexOfFirst { it.id == item.id }
         if (i >= 0) selected.removeAt(i) else selected.add(item)
+        // Untoggling the last pick ends selection — the menu must not
+        // outlive it and float over the reverted bar.
+        if (selected.isEmpty()) moreMenuOpen = false
     }
 
     fun clear() { selected.clear(); moreMenuOpen = false }

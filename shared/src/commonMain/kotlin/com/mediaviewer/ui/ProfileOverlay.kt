@@ -1184,6 +1184,10 @@ fun ProfileOverlay(
         // The bar's "More" (Report / Block) — open state, and where the
         // bar's pill sits so the stack can line up with its right edge.
         var profileMoreOpen by remember(author.did) { mutableStateOf(false) }
+        // Entering selection closes the profile's own More menu, so the
+        // two More stacks never overlap; leaving selection already
+        // closes the selection menu (see PostSelection.clear/toggle).
+        LaunchedEffect(PostSelection.active) { if (PostSelection.active) profileMoreOpen = false }
         var profilePillBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         var profileMoreBounds by remember { mutableStateOf<Pair<Offset, IntSize>?>(null) }
         var profileRootOrigin by remember { mutableStateOf<Offset?>(null) }
@@ -1238,7 +1242,7 @@ fun ProfileOverlay(
                 // left: the launchpad's Archived button, same bubble,
                 // same Inventory2 icon, same page, same supporter gating
                 // as the launchpad tile.
-                if (selfDid.isNotBlank() && author.did == selfDid) {
+                if (selfDid.isNotBlank() && author.did == selfDid && !PostSelection.active) {
                     Box(Modifier.align(Alignment.CenterStart).padding(start = 16.dp)) {
                         HubUploadBubble(
                             liquidGlass = liquidGlass, tint = blended,
