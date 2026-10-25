@@ -720,6 +720,9 @@ fun LinkFormPopup(
     // jumping, and with the keyboard down the shift is zero.
     val density = LocalDensity.current
     val padPx = with(density) { 40.dp.toPx().roundToInt() }
+    // (`WindowInsets.ime` is a composable getter, so it's fetched here; reading
+    // its animated value happens later, in the layout pass.)
+    val imeInsets = WindowInsets.ime
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true, usePlatformDefaultWidth = false)
@@ -744,7 +747,7 @@ fun LinkFormPopup(
                             val areaH = constraints.maxHeight
                             val windowH = areaH + padPx * 2
                             val sheetBottom = padPx + (areaH - p.height) / 2 + p.height
-                            val shift = (sheetBottom - (windowH - WindowInsets.ime.getBottom(density))).coerceAtLeast(0)
+                            val shift = (sheetBottom - (windowH - imeInsets.getBottom(density))).coerceAtLeast(0)
                             p.place(0, -shift)
                         }
                     }
