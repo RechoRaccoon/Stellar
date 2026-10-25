@@ -230,6 +230,10 @@ fun LocalOverlayHost(
                         adds.isNotEmpty() && removes.isNotEmpty() -> "Edit Tags"
                         removes.isNotEmpty() -> "Remove Tag$plural"
                         adds.isNotEmpty() -> "Add Tag$plural"
+                        // Nothing parsed yet, but the remove marker is
+                        // already typed: flip the moment "-" appears,
+                        // not once a tag follows it.
+                        text.trimStart().startsWith("-") -> "Remove Tag"
                         else -> "Add Tag"
                     }
                 },
@@ -238,6 +242,7 @@ fun LocalOverlayHost(
                     when {
                         adds.isNotEmpty() && removes.isNotEmpty() -> "Edit"
                         removes.isNotEmpty() -> "Remove"
+                        text.trimStart().startsWith("-") -> "Remove"
                         else -> "Add"
                     }
                 }

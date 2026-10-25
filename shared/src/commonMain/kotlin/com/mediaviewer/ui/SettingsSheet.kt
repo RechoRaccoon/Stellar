@@ -1410,7 +1410,7 @@ private fun AtProtocolPageContent(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                combinedLive.forEach { source -> LiveCard(source, liquidGlass, onOpenLivePlayer) }
+                combinedLive.forEach { source -> LiveCard(source, liquidGlass, onOpenLivePlayer, onOpenProfile) }
             }
         }
 
@@ -2207,7 +2207,7 @@ private sealed class LiveCardSource {
  *  Streamplace just loads its own stream.place page directly since there's
  *  no known embed format for it to build. */
 @Composable
-private fun LiveCard(source: LiveCardSource, liquidGlass: Boolean, onOpenLivePlayer: (String, String, String) -> Unit) {
+private fun LiveCard(source: LiveCardSource, liquidGlass: Boolean, onOpenLivePlayer: (String, String, String) -> Unit, onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit) {
     val cardShape = RoundedCornerShape(12.dp)
     // Bug fix (per feedback — tapping a live card opened a broken in-app
     // player UI instead of the actual stream): `onOpenLivePlayer` (still
@@ -2254,8 +2254,16 @@ private fun LiveCard(source: LiveCardSource, liquidGlass: Boolean, onOpenLivePla
     // now sits in its own small (non-reflective, same as Blogs/Reviews'
     // HubAuthorBubble) bubble above the card instead, so that recording
     // setup — nothing else in this card ever read from it — is gone too.
+    // The bubble above the card opens the author's profile, the same as
+    // Blogs' and Reviews' bubbles: Streamplace authors are AT-Protocol
+    // accounts too, so one is built from their DID and handle.
+    val author = when (source) {
+        is LiveCardSource.Streamplace -> com.mediaviewer.model.AuthorInfo(did = source.stream.authorDid, handle = source.stream.authorHandle, displayName = accountName, avatarUrl = accountAvatarUrl)
+        is LiveCardSource.BlueskyLive -> source.stream.author
+    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-    HubAuthorBubble(displayName = accountName, avatarUrl = accountAvatarUrl, liquidGlass = liquidGlass, tint = tint, cardWidth = 140.dp)
+    HubAuthorBubble(displayName = accountName, avatarUrl = accountAvatarUrl, liquidGlass = liquidGlass, tint = tint, cardWidth = 140.dp,
+        onClick = { onOpenProfile(author) })
     Spacer(Modifier.height(6.dp))
     Box(
         Modifier.width(140.dp).height(140.dp)

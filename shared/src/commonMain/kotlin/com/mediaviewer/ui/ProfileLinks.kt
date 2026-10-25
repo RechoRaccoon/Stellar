@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -72,6 +73,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.mediaviewer.model.BskyProfileLinkView
 import com.mediaviewer.model.MAX_PROFILE_LINKS
@@ -676,14 +679,17 @@ private fun LinkFormField(
 }
 
 /**
- * The add/edit link form, on the Feed Creator's system ([LocalPopup]):
- * the X at the top left closes it, the trash at the top right removes
- * the link (two taps: trash, then "Really?"), and a tap outside never
- * closes it. The popup stays centered where it is when the keyboard
- * opens (it never overlaps this small form), and each field is one row:
- * label on the left, input right after. Titles stay manual — Stellar
- * has no page-title service to suggest one from, the way Bluesky's card
- * service does — so a blank title shows the domain on the pill.
+ * The add/edit link form, in its own dialog window: the X at the top
+ * left closes it, the trash at the top right removes the link (two
+ * taps: trash, then "Really?"), and a tap outside never closes it.
+ * The dialog window is the point: the activity window shrinks for the
+ * keyboard and re-centers anything inside it, which is what pushed
+ * this form up when it lived in [LocalPopup]; a dialog window pans
+ * instead, so this small centered form stays where it is when the
+ * keyboard opens. Each field is one row: label on the left, input
+ * right after. Titles stay manual — Stellar has no page-title service
+ * to suggest one from, the way Bluesky's card service does — so a
+ * blank title shows the domain on the pill.
  */
 @Composable
 fun LinkFormPopup(
@@ -700,14 +706,29 @@ fun LinkFormPopup(
     var title by remember { mutableStateOf(editing?.title ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     val isEditing = editing != null
-    LocalPopup(
-        title = if (isEditing) "Edit Link" else "Add Link",
-        liquidGlass = liquidGlass, tint = tint, onClose = onDismiss,
-        maxWidth = 360.dp, backdrop = backdrop,
-        dismissOnOutsideTap = false,
-        followKeyboard = false,
-        onDelete = if (isEditing) onRemove else null
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true, usePlatformDefaultWidth = false)
     ) {
+        Box(
+            Modifier.fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                .padding(horizontal = 14.dp)
+                .padding(top = 40.dp, bottom = 40.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            PopupSheetSurface(
+                liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
+                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().heightIn(max = 560.dp)
+            ) {
+                if (PopupStyle.glass(liquidGlass)) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.28f)))
+                Column(Modifier.fillMaxWidth()) {
+                    PopupSheetHeader(
+                        title = if (isEditing) "Edit Link" else "Add Link",
+                        liquidGlass = liquidGlass, tint = tint, backdrop = null, onClose = onDismiss,
+                        onDelete = if (isEditing) onRemove else null
+                    )
+                    Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp, top = 6.dp)) {
         LinkFormField(
             label = "Link",
             value = input,
@@ -748,6 +769,10 @@ fun LinkFormPopup(
                 },
                 Modifier.weight(1f)
             )
+        }
+                    }
+                }
+            }
         }
     }
 }
