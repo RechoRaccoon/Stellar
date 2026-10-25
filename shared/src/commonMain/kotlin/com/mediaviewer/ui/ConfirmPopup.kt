@@ -146,7 +146,12 @@ fun ConfirmPopup(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         decorationBox = { inner ->
                             Box {
-                                if (input.isEmpty()) Text(inputPlaceholder, color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp)
+                                // Same style as the typed text (only dimmer):
+                                // a bare Text() inherits LocalTextStyle's line
+                                // height, which is taller than the field's, so
+                                // the field shrank the moment typing replaced
+                                // the placeholder.
+                                if (input.isEmpty()) Text(inputPlaceholder, style = fieldStyle.copy(color = Color.White.copy(alpha = 0.35f)))
                                 inner()
                             }
                         }
