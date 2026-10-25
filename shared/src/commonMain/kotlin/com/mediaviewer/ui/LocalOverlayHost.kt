@@ -197,10 +197,19 @@ fun LocalOverlayHost(
         onTag = { items ->
             LocalOverlays.confirm = ConfirmRequest(
                 "Add Tag", "", "Add", tint, destructive = false,
-                input = "", inputPlaceholder = "Tag name"
+                input = "", inputPlaceholder = "Tag name",
+                // A leading "-" turns this into the Remove popup: the
+                // header and button follow the typed text live.
+                titleForText = { if (it.startsWith("-")) "Remove Tag" else "Add Tag" },
+                labelForText = { if (it.startsWith("-")) "Remove" else "Add" }
             ) {
-                val typed = com.mediaviewer.tagging.normalizeTypedTag(LocalOverlays.confirm?.text.orEmpty())
-                if (typed.isNotBlank()) { viewModel.tagItems(items, typed); PostSelection.clear() }
+                val raw = LocalOverlays.confirm?.text.orEmpty()
+                val removing = raw.startsWith("-")
+                val typed = com.mediaviewer.tagging.normalizeTypedTag(if (removing) raw.drop(1) else raw)
+                if (typed.isNotBlank()) {
+                    if (removing) viewModel.untagItems(items, typed) else viewModel.tagItems(items, typed)
+                    PostSelection.clear()
+                }
             }
         },
         onArchive = { items ->
@@ -264,7 +273,7 @@ fun LocalOverlayHost(
         val confirmScope = androidx.compose.runtime.rememberCoroutineScope()
         Box(Modifier.fillMaxSize().zIndex(10.65f)) {
             ConfirmPopup(
-                title = req.title, message = req.message, confirmLabel = req.confirmLabel,
+                title = req.titleForText?.invoke(req.text) ?: req.title, message = req.message, confirmLabel = req.labelForText?.invoke(req.text) ?: req.confirmLabel,
                 liquidGlass = liquidGlass, tint = req.tint, backdrop = backdrop,
                 destructive = req.destructive, busy = req.busy,
                 input = req.input?.let { req.text }, onInputChange = { req.text = it }, inputPlaceholder = req.inputPlaceholder,

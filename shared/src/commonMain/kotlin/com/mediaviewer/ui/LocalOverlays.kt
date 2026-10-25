@@ -35,6 +35,11 @@ class ConfirmRequest(
      *  is [text] when it's confirmed. */
     val input: String? = null,
     val inputPlaceholder: String = "",
+    /** Optional: derive the shown title / confirm label from the typed
+     *  text (the selection Tag popup's leading "-" switches it to a
+     *  Remove popup). Null keeps the fixed [title] / [confirmLabel]. */
+    val titleForText: ((String) -> String)? = null,
+    val labelForText: ((String) -> String)? = null,
     val onConfirm: suspend () -> Unit
 ) {
     var busy by mutableStateOf(false)
