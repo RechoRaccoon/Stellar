@@ -4183,9 +4183,11 @@ class BlueskyRepository {
             val dnsNote = com.mediaviewer.util.appResolvedIps("cardyb.bsky.app")
                 ?.takeIf { it.isNotEmpty() }?.joinToString(",")
                 ?.let { " (app dns: $it)" }.orEmpty()
-            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed$dnsNote")
+            val reqNote = com.mediaviewer.util.lastCardybRequestLine()
+                ?.takeIf { it.isNotBlank() }?.let { " (req: $it)" }.orEmpty()
+            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed$dnsNote$reqNote")
             val detail = raw.take(200).ifBlank { null }
-            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: "") + dnsNote)
+            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: "") + dnsNote + reqNote)
         }
         val bytes = resp.body
         if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")

@@ -6,3 +6,9 @@ package com.mediaviewer.util
  *  replications answer 200 — this splits stale-DNS from a request
  *  difference. Remove with the diagnostic call site. */
 expect suspend fun appResolvedIps(host: String): List<String>?
+
+/** TEMPORARY diagnostic: the last cardyb request the app's HTTP client
+ *  actually sent (method + URL + headers), or null. The app resolves
+ *  the good cardyb IPs and still gets 400s, so the wire request itself
+ *  is the last unknown. Remove with the diagnostic call site. */
+expect fun lastCardybRequestLine(): String?
