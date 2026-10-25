@@ -15,7 +15,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -266,7 +266,7 @@ fun SelectionBarButtons(iconSize: androidx.compose.ui.unit.Dp = 20.dp) {
         com.mediaviewer.i18n.Text("GIF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
     Btn("Tag", { actions.onTag(picked) }) {
-        Icon(Icons.Default.Tag, contentDescription = "Tag", tint = Color.White, modifier = Modifier.size(iconSize))
+        Icon(Icons.Filled.LocalOffer, contentDescription = "Tag", tint = Color.White, modifier = Modifier.size(iconSize))
     }
     Btn("Share", { actions.onShare(picked) }) {
         Icon(Icons.Default.Send, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(iconSize))
