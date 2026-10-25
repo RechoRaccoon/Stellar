@@ -3894,7 +3894,7 @@ private fun LazyListScope.postsTextRows(
             LaunchedEffect(localIndex, matched.size) { onLoadMore() }
         }
         TextPostBubble(item = item, liquidGlass = liquidGlass, tint = profileTint, onOpen = { onTapItem(matched, localIndex) },
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+            modifier = Modifier.padding(horizontal = PROFILE_EDGE, vertical = 5.dp))
     }
     if (loading && items.isNotEmpty()) {
         item(key = "textposts_loading_more") {
