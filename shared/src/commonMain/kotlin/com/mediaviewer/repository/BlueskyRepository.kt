@@ -1818,6 +1818,22 @@ class BlueskyRepository {
      *    than erroring loudly on, which fits "shows up in this app's own
      *    unvalidated direct read, never shows up in Popfeed itself"
      *    exactly as well as the missing "$type" did. */
+    /** Popfeed's mainCreditRole vocabulary: title sources sometimes carry
+     *  the display label ("Directed by") instead of the lexicon value
+     *  ("director"), and a display label in the posted record makes
+     *  Popfeed's backend drop the review entirely (its page answers
+     *  "Review not found"). Only the unambiguous labels are mapped back;
+     *  anything else passes through untouched rather than guessed. */
+    private fun popfeedCreditRole(raw: String?): String? {
+        return when (raw?.lowercase()?.trim().orEmpty()) {
+            "directed by" -> "director"
+            "written by" -> "author"
+            "developed by" -> "developer"
+            "published by" -> "publisher"
+            else -> raw
+        }
+    }
+
     suspend fun postPopfeedReview(token: String, did: String, target: TitleSearchResult, ratingOutOf10: Int, text: String, containsSpoilers: Boolean = false): Result<String> {
         // Identifiers come ONLY from the review target itself, i.e. from the
         // Popfeed record on the user's own PDS via the Popfeed lexicon.
@@ -1853,7 +1869,7 @@ class BlueskyRepository {
         if (target.releaseDate.isNotBlank()) record["releaseDate"] = target.releaseDate
         if (target.genres.isNotEmpty()) record["genres"] = target.genres
         target.creator?.let { record["mainCredit"] = it }
-        target.creatorRole?.let { record["mainCreditRole"] = it }
+        popfeedCreditRole(target.creatorRole)?.let { record["mainCreditRole"] = it }
         return createRecord(token, did, "social.popfeed.feed.review", record)
     }
 
@@ -2003,7 +2019,7 @@ class BlueskyRepository {
         if (target.releaseDate.isNotBlank()) record["releaseDate"] = target.releaseDate
         if (target.genres.isNotEmpty()) record["genres"] = target.genres
         target.creator?.let { record["mainCredit"] = it }
-        target.creatorRole?.let { record["mainCreditRole"] = it }
+        popfeedCreditRole(target.creatorRole)?.let { record["mainCreditRole"] = it }
         createRecord(token, did, "social.popfeed.feed.listItem", record).getOrThrow()
     }
 
