@@ -4101,18 +4101,20 @@ class BlueskyRepository {
     }
 
     /**
-     * A site's favicon, for a link record's icon blob: the site's own
-     * /favicon.ico, uploaded when it is a PNG, JPEG, or WebP of 100 KB or
-     * less (the sizes and types Bluesky's link lexicon accepts). Anything
-     * else — no favicon there, an .ico-only site, a blocked host, a slow
-     * site — resolves to null, and the pill falls back to a globe. No
-     * third-party favicon service is involved.
+     * A site's favicon, for a link record's icon blob: fetched from
+     * Bluesky's own link-preview service (cardyb) at
+     * cardyb.bsky.app/v1/favicon, the same source the official client
+     * uses for link favicons, and uploaded when it is a PNG, JPEG, or
+     * WebP of 100 KB or less (the sizes and types Bluesky's link lexicon
+     * accepts). Anything else — no favicon there, an SVG-only site, a
+     * blocked host, a slow site — resolves to null, and the pill falls
+     * back to a globe.
      */
     private suspend fun fetchFaviconIcon(token: String, url: String): BskyBlob? = runCatching {
         if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return null
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
         if (host.isBlank() || host.contains(" ")) return null
-        val resp = PlainHttp.get("https://$host/favicon.ico")
+        val resp = PlainHttp.get("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
         if (!resp.isSuccessful) return null
         val bytes = resp.body
         if (bytes.isEmpty() || bytes.size > 100_000) return null

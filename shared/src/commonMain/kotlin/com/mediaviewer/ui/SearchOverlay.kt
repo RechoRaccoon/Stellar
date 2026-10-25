@@ -182,6 +182,11 @@ fun SearchOverlay(
     LaunchedEffect(state.filter) {
         if (state.filter == MainViewModel.SearchFilter.LIKED_TAGS) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
     }
+    // Picked posts don't outlive the search page or the tab they were
+    // picked on (see GridScreen): leaving the page, or swapping tabs,
+    // drops the picks and ends selection.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { PostSelection.clear() } }
+    LaunchedEffect(state.filter) { PostSelection.clear() }
 
     // Item 8: same profile-color pattern as the Hub/DM inbox — falls back
     // to the shared neutral tint when there's no avatar yet.

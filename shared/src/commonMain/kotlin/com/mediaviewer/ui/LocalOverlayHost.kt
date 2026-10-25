@@ -3,7 +3,6 @@ package com.mediaviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -223,8 +222,11 @@ fun LocalOverlayHost(
     // ── Selection mode's More menu (Archive / Delete over the bar) ──
     // The bar's More button anchors it (see SelectionBarButtons); the
     // stack stays composed while selection lasts so it can animate out —
-    // pass [visible], never add/remove it. A tap anywhere else, or Back,
-    // closes just the menu; the picks stay picked.
+    // pass [visible], never add/remove it. No input layer on purpose,
+    // like the profile's own More menu: the page stays scrollable and
+    // tappable with it open. The More button toggles it, Back closes
+    // just the menu, and tapping an action closes it; the picks stay
+    // picked throughout.
     if (PostSelection.active) {
         var menuRootOrigin by remember { mutableStateOf(Offset.Zero) }
         val menuOpen = PostSelection.moreMenuOpen
@@ -234,11 +236,6 @@ fun LocalOverlayHost(
         Box(
             Modifier.fillMaxSize().zIndex(10.6f)
                 .onGloballyPositioned { menuRootOrigin = it.positionInRoot() }
-                .then(
-                    if (menuOpen) Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() }, indication = null
-                    ) { PostSelection.moreMenuOpen = false } else Modifier
-                )
         ) {
             PostSelection.moreAnchor?.let { anchor ->
                 BubbleActionStack(

@@ -264,8 +264,8 @@ fun GridScreen(
     }
     // Picked posts don't outlive the page they were picked on.
     DisposableEffect(Unit) { onDispose { PostSelection.clear() } }
-    // A profile's own posts (opened from it) and Saved Posts can be picked;
-    // the Explore feeds, From Friends and History can't.
+    // A profile's own posts (opened from it), Saved Posts, and the Explore
+    // feeds can be picked; From Friends and History can't.
     val savedPostsPage = appMode == AppMode.BLUESKY && authorFeedState?.author?.let { it.isSpecialFeed() && it.displayName == "Saved Posts" } == true
     // One of your own folders, opened from your profile: it works like
     // that folder in Saved Posts (sort, edit, pick and drag its posts).
@@ -274,7 +274,10 @@ fun GridScreen(
     val folderTools = savedPostsPage || ownFolderPage
     // (Anyone's folder opened from their profile's Collections too.)
     val folderPage = authorFeedState?.author?.let { it.isProfileFeed() && it.handle.contains("stellar-folder://") } == true
-    val selectablePage = folderTools || (appMode == AppMode.BLUESKY && (folderPage || authorFeedState?.author?.let { !it.isSpecialFeed() } == true))
+    // Explore is the feed view with no author page (authorFeedState null);
+    // Saved Posts, From Friends, History, and the archive all ride on
+    // pseudo-authors, so they keep their own rules above.
+    val selectablePage = folderTools || (appMode == AppMode.BLUESKY && (folderPage || authorFeedState == null || authorFeedState?.author?.let { !it.isSpecialFeed() } == true))
     DisposableEffect(savedPostsPage) {
         LocalOverlays.savedPostsShowing = savedPostsPage
         onDispose { LocalOverlays.savedPostsShowing = false }
@@ -598,7 +601,7 @@ fun GridScreen(
             ) { i ->
                 val item = matched[i]
                 val tile: @Composable () -> Unit = {
-                    // (Only a profile's posts, or Saved Posts, can be picked.)
+                    // (Only profile pages, Saved Posts, and Explore can be picked.)
                     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides selectablePage) {
                     PostResultTile(
                         item = item, filter = layoutKind, gridMode = gridMode, tint = tint,
