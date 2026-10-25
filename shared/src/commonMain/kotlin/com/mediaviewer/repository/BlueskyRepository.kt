@@ -4176,9 +4176,16 @@ class BlueskyRepository {
             val parsed = runCatching {
                 StellarJson.default.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
             }.getOrNull()?.takeIf { it.isNotBlank() }
-            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed")
+            // TEMPORARY diagnostic: every link's fetch 400s in the app
+            // while outside replications answer 200 — show which IP the
+            // app itself resolves, to split stale-DNS from a request
+            // difference. Remove with HostDns.
+            val dnsNote = com.mediaviewer.util.appResolvedIps("cardyb.bsky.app")
+                ?.takeIf { it.isNotEmpty() }?.joinToString(",")
+                ?.let { " (app dns: $it)" }.orEmpty()
+            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed$dnsNote")
             val detail = raw.take(200).ifBlank { null }
-            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: ""))
+            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: "") + dnsNote)
         }
         val bytes = resp.body
         if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")
