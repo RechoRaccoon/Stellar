@@ -145,30 +145,35 @@ fun ProfileLinkPill(
     tint: Color,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    liquidGlass: Boolean = false
 ) {
     val tap = rememberHapticTap()
     val haptic = LocalHapticFeedback.current
     val pillShape = RoundedCornerShape(50)
     Row(
         modifier
+            .height(FILTER_CHIP_HEIGHT)
+            .then(
+                if (liquidGlass) Modifier.glassPanel(true, tint = tint.copy(alpha = 0.7f), shape = pillShape)
+                else Modifier.clip(pillShape).background(Color.White.copy(alpha = 0.08f))
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.22f), pillShape)
             .clip(pillShape)
-            .background(tint.copy(alpha = 0.15f))
-            .border(1.dp, tint.copy(alpha = 0.4f), pillShape)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = { tap(); onOpen() },
                 onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
             )
-            .padding(start = 10.dp, top = 6.dp, end = 10.dp, bottom = 6.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LinkPillContent(url = link.url, title = link.title, iconUrl = link.icon, tint = tint) {
             androidx.compose.foundation.layout.Spacer(Modifier.size(2.dp))
             androidx.compose.material3.Icon(
                 Icons.Default.ArrowOutward, contentDescription = null,
-                tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(12.dp)
+                tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(10.dp)
             )
         }
     }
@@ -188,18 +193,18 @@ private fun LinkPillContent(
         AsyncImage(
             model = iconUrl, contentDescription = null, contentScale = ContentScale.Crop,
             onError = { iconFailed = true },
-            modifier = Modifier.size(16.dp).clip(RoundedCornerShape(3.dp))
+            modifier = Modifier.size(14.dp).clip(RoundedCornerShape(3.dp))
         )
     } else {
         androidx.compose.material3.Icon(
             Icons.Default.Public, contentDescription = null,
-            tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp)
+            tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp)
         )
     }
     androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
     Text(
         (title?.takeIf { it.isNotBlank() } ?: linkHost(url)).take(30),
-        color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+        color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium,
         maxLines = 1, overflow = TextOverflow.Ellipsis
     )
     trailing()
@@ -217,18 +222,20 @@ fun ProfileLinksRow(
     tint: Color,
     onOpenLink: (BskyProfileLinkView) -> Unit,
     onLongPressLink: (BskyProfileLinkView) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    liquidGlass: Boolean = false
 ) {
     Row(
         modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         links.forEach { link ->
             ProfileLinkPill(
                 link = link, tint = tint,
                 onOpen = { onOpenLink(link) },
-                onLongPress = { onLongPressLink(link) }
+                onLongPress = { onLongPressLink(link) },
+                liquidGlass = liquidGlass
             )
         }
     }
@@ -334,7 +341,7 @@ fun LinksEditorRow(
 
     Row(
         modifier.horizontalScroll(scroll, enabled = draggedKey == null),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // The plus bubble leads when there is nothing yet, else trails.
@@ -359,9 +366,13 @@ fun LinksEditorRow(
                             scaleX = if (isDragged) 1.05f else 1f
                             scaleY = if (isDragged) 1.05f else 1f
                         }
+                        .height(FILTER_CHIP_HEIGHT)
+                        .then(
+                            if (liquidGlass) Modifier.glassPanel(true, tint = tint.copy(alpha = 0.7f), shape = pillShape)
+                            else Modifier.clip(pillShape).background(Color.White.copy(alpha = if (isDragged) 0.16f else 0.08f))
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.22f), pillShape)
                         .clip(pillShape)
-                        .background(tint.copy(alpha = if (isDragged) 0.3f else 0.15f))
-                        .border(1.dp, tint.copy(alpha = 0.4f), pillShape)
                         .pointerInput(draftKey, enabled) {
                             if (!enabled) return@pointerInput
                             detectDragGesturesAfterLongPress(
@@ -395,7 +406,8 @@ fun LinksEditorRow(
                             )
                         }
                         .clickable(enabled = enabled) { tap(); onEdit(index) }
-                        .padding(start = 10.dp, top = 6.dp, end = 8.dp, bottom = 6.dp)
+                        .padding(start = 10.dp, end = 8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LinkPillContent(
@@ -404,7 +416,7 @@ fun LinksEditorRow(
                             androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
                             androidx.compose.material3.Icon(
                                 Icons.Default.DragHandle, contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp)
+                                tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(12.dp)
                             )
                         }
                     }

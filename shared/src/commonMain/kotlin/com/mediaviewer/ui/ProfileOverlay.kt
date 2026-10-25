@@ -2097,6 +2097,7 @@ private fun ProfileHeaderSection(
                 links = profileLinks, tint = linkColor,
                 onOpenLink = { runCatching { uriHandler.openUri(it.url) } },
                 onLongPressLink = onShowLinkPreview,
+                liquidGlass = liquidGlass,
                 modifier = Modifier.fillMaxWidth().padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = 4.dp, bottom = 4.dp)
             )
         }
@@ -2575,7 +2576,7 @@ private fun ProfileCompactIdentity(
 internal val PROFILE_EDGE = 6.dp
 
 /** The height of a filter chip (All, Media…) and of the Images / Videos pill beside them. */
-private val FILTER_CHIP_HEIGHT = 24.dp
+val FILTER_CHIP_HEIGHT = 24.dp
 
 /** The height a profile banner's buttons and name pills are laid out at
  *  before they're scaled to the banner (see scaleToHeight). */

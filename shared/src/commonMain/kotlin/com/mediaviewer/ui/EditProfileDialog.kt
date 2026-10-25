@@ -314,18 +314,28 @@ fun EditProfileDialog(
                 value = bio, onValue = { bio = it.take(256) }, label = "Bio", tint = tint,
                 singleLine = false, minHeight = 96.dp, counter = "${bio.length}/256", enabled = !saving
             )
-            // Links, under the bio. Hidden when the profile's links are
-            // unknown (null), so saving can't wipe links it never saw.
+            // Links, under the bio, in the same container language as the
+            // supporter options below: background + border, header inside.
+            // Hidden when the profile's links are unknown (null), so saving
+            // can't wipe links it never saw.
             val currentLinks = links
             if (currentLinks != null) {
                 Spacer(Modifier.height(10.dp))
-                Text("LINKS", color = lerp(tint, Color.White, 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Spacer(Modifier.height(6.dp))
-                LinksEditorRow(
-                    links = currentLinks, tint = tint, liquidGlass = liquidGlass, enabled = !saving,
-                    onChange = { links = it },
-                    onEdit = { index -> linkFormIndex = index; linkFormOpen = true }
-                )
+                val linksShape = RoundedCornerShape(14.dp)
+                Column(
+                    Modifier.fillMaxWidth().clip(linksShape).background(Color.White.copy(alpha = 0.07f))
+                        .border(1.dp, tint.copy(alpha = 0.4f), linksShape)
+                ) {
+                    Text("LINKS", color = lerp(tint, Color.White, 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 6.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    LinksEditorRow(
+                        links = currentLinks, tint = tint, liquidGlass = liquidGlass, enabled = !saving,
+                        onChange = { links = it },
+                        onEdit = { index -> linkFormIndex = index; linkFormOpen = true },
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)
+                    )
+                }
             }
             // Supporter options. Everyone sees them (in the supporter pink
             // until you are one); tapping one then opens the Support page.
