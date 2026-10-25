@@ -15,9 +15,6 @@ Stellar is an open-source social platform built on the AT Protocol, created by t
 - **DMs** - Create one on one or group DM chats!! You can send messages, share posts, profiles, and feeds!! There's even a streak counter, and special animations for holiday related messages!!
 - (and so much more!!)
 
-# Stellar Lexicon
-I documented my profile customization lexicons in [Stellar Custom Lexicons](LEXICON.md): profile styles, Home tab rows, public folders, and custom emoji.
-
 # Support Recho!!
 Every feature in Stellar is free for everyone!! If you'd like to help Recho afford food, you can donate with any of the links below :3
 - https://cash.app/$RechoRaccoon
@@ -49,3 +46,6 @@ Open **https://rechoraccoon.github.io/Stellar/** — nothing to install. Works i
 6. Open **AltStore** → **My Apps** → **+** → pick the Stellar file.
 
 - Note: The developer mode toggle won't appear until AltStore is downloaded to your phone.
+
+# Stellar Lexicon
+Integrate Stellar's unique features like custom emoji, profile statues, animated icons and banners, post folders, and more, into your app with [Stellar Custom Lexicons](LEXICON.md):
