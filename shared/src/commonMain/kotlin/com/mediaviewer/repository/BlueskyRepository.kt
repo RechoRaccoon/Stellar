@@ -4159,56 +4159,48 @@ class BlueskyRepository {
         if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return FaviconFetch(null, null)
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
         if (host.isBlank() || host.contains(" ")) return FaviconFetch(null, null)
-        var cardybFailure: String? = null
         val resp = try {
             PlainHttp.get("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            cardybFailure = "cardyb request failed: ${e.message}"
-            null
+            return FaviconFetch(null, "cardyb request failed: ${e.message}")
         }
-        var bytes: ByteArray? = null
-        if (resp != null && resp.isSuccessful) {
-            bytes = resp.body
-        } else {
-            if (resp != null) {
-                // The code alone never said why cardyb refused (the app
-                // got a 400 on a URL every outside replication answers
-                // 200 for), so carry the refusal's own reason: prefer
-                // the body's "error" field when it parses, else the raw
-                // body. The failure text now goes in a popup (no toast
-                // limit), so the code stays in.
-                val raw = resp.body.decodeToString().trim()
-                val parsed = runCatching {
-                    StellarJson.default.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
-                }.getOrNull()?.takeIf { it.isNotBlank() }
-                // TEMPORARY diagnostic: every link's fetch 400s in the
-                // app while outside replications answer 200 — show which
-                // IP the app itself resolves, to split stale-DNS from a
-                // request difference. Remove with HostDns.
-                val dnsNote = com.mediaviewer.util.appResolvedIps("cardyb.bsky.app")
-                    ?.takeIf { it.isNotEmpty() }?.joinToString(",")
-                    ?.let { " (app dns: $it)" }.orEmpty()
-                val reqNote = com.mediaviewer.util.lastCardybRequestLine()
-                    ?.takeIf { it.isNotBlank() }?.let { " (req: $it)" }.orEmpty()
-                cardybFailure = if (parsed != null) "cardyb HTTP ${resp.code}: $parsed$dnsNote$reqNote"
-                else "cardyb HTTP ${resp.code}" + (raw.take(200).ifBlank { null }?.let { ": $it" } ?: "") + dnsNote + reqNote
-            }
-            // Cardyb fails every app request for reasons no request
-            // reproduction has found, so the icon shouldn't die with
-            // it: fall back to Google's favicon service (a small PNG
-            // for the host). If that fails too, the cardyb failure
-            // above is what gets reported.
-            bytes = googleFaviconBytes(host)
-            if (bytes == null) return FaviconFetch(null, cardybFailure)
+        // The code alone never said why cardyb refused (the app got a
+        // 400 on a URL every outside replication answers 200 for), so
+        // carry the refusal's own reason: prefer the body's "error"
+        // field when it parses, else the raw body. The failure text
+        // now goes in a popup (no toast limit), so the code stays in.
+        if (!resp.isSuccessful) {
+            val raw = resp.body.decodeToString().trim()
+            val parsed = runCatching {
+                StellarJson.default.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            // TEMPORARY diagnostic: every link's fetch 400s in the app
+            // while outside replications answer 200 — show which IP the
+            // app itself resolves, to split stale-DNS from a request
+            // difference. Remove with HostDns.
+            val dnsNote = com.mediaviewer.util.appResolvedIps("cardyb.bsky.app")
+                ?.takeIf { it.isNotEmpty() }?.joinToString(",")
+                ?.let { " (app dns: $it)" }.orEmpty()
+            val reqNote = com.mediaviewer.util.lastCardybRequestLine()
+                ?.takeIf { it.isNotBlank() }?.let { " (req: $it)" }.orEmpty()
+            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed$dnsNote$reqNote")
+            val detail = raw.take(200).ifBlank { null }
+            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: "") + dnsNote + reqNote)
         }
-        val image = bytes ?: return FaviconFetch(null, cardybFailure)
-        if (image.isEmpty()) return FaviconFetch(null, cardybFailure ?: "cardyb returned nothing")
-        if (image.size > 100_000) return FaviconFetch(null, null)
-        val mime = sniffImageMime(image) ?: return FaviconFetch(null, null)
+        val bytes = resp.body
+        if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")
+        if (bytes.size > 100_000) return FaviconFetch(null, null)
+        val mime = when {
+            bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
+            bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
+            bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+                bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte() -> "image/webp"
+            else -> return FaviconFetch(null, null)
+        }
         val up = try {
-            api.uploadBlob("Bearer $token", mime, image.toRequestBody(mime.toMediaType()))
+            api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -4217,32 +4209,6 @@ class BlueskyRepository {
         if (!up.isSuccessful) return FaviconFetch(null, "icon upload HTTP ${up.code()}")
         val blob = up.body()?.blob ?: return FaviconFetch(null, "icon upload returned no blob")
         return FaviconFetch(blob, null)
-    }
-
-    /** The link-icon mime for image [bytes] by magic, or null when it
-     *  isn't a PNG, JPEG, or WebP (the lexicon's icon types). */
-    private fun sniffImageMime(bytes: ByteArray): String? = when {
-        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
-        bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
-        bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
-            bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte() -> "image/webp"
-        else -> null
-    }
-
-    /** Fallback favicon source when cardyb fails: Google's favicon
-     *  service returns a small PNG for the host (it redirects to a
-     *  gstatic URL, which the HTTP client follows). Null on any
-     *  failure, or when the bytes aren't a usable icon image. */
-    private suspend fun googleFaviconBytes(host: String): ByteArray? {
-        return try {
-            val resp = PlainHttp.get("https://www.google.com/s2/favicons", listOf("domain" to host, "sz" to "64"))
-            if (!resp.isSuccessful) null
-            else resp.body.takeIf { it.isNotEmpty() && it.size <= 100_000 && sniffImageMime(it) != null }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
     }
 
     /** Avatar/banner upload: Bluesky caps these at 1,000,000 bytes, so the
