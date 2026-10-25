@@ -61,19 +61,6 @@ object AndroidHttpClients {
             }
             // After the generic one: Wikimedia requests identify as Stellar.
             .addInterceptor(com.mediaviewer.util.BlockedHostsInterceptors.wikimediaUserAgent)
-            // TEMPORARY diagnostic: record the exact cardyb request sent
-            // (method + URL + headers) for the icon popup. Cardyb 400s
-            // every app request while outside replications answer 200,
-            // and the app resolves the good IPs — so the wire request is
-            // the last unknown. Remove with HostDns.
-            .addInterceptor { chain ->
-                val req = chain.request()
-                if (req.url.host == "cardyb.bsky.app") {
-                    com.mediaviewer.util.lastCardybRequestLineValue =
-                        "${req.method} ${req.url} | " + req.headers.joinToString("; ") { "${it.first}: ${it.second}" }
-                }
-                chain.proceed(req)
-            }
             .connectTimeout(20, TimeUnit.SECONDS)
             // A connection that's gone dead (the app was in the background,
             // or the network changed) used to sit for up to a minute before

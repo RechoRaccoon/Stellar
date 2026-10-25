@@ -4171,9 +4171,7 @@ class BlueskyRepository {
         } catch (e: Exception) {
             return FaviconFetch(null, "cardyb request failed: ${e.message}")
         }
-        // The code alone never said why cardyb refused (the app got a
-        // 400 on a URL every outside replication answers 200 for), so
-        // carry the refusal's own reason: prefer the body's "error"
+        // Carry the refusal's own reason: prefer the body's "error"
         // field when it parses, else the raw body. The failure text
         // now goes in a popup (no toast limit), so the code stays in.
         if (!resp.isSuccessful) {
@@ -4181,18 +4179,9 @@ class BlueskyRepository {
             val parsed = runCatching {
                 StellarJson.default.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
             }.getOrNull()?.takeIf { it.isNotBlank() }
-            // TEMPORARY diagnostic: every link's fetch 400s in the app
-            // while outside replications answer 200 — show which IP the
-            // app itself resolves, to split stale-DNS from a request
-            // difference. Remove with HostDns.
-            val dnsNote = com.mediaviewer.util.appResolvedIps("cardyb.bsky.app")
-                ?.takeIf { it.isNotEmpty() }?.joinToString(",")
-                ?.let { " (app dns: $it)" }.orEmpty()
-            val reqNote = com.mediaviewer.util.lastCardybRequestLine()
-                ?.takeIf { it.isNotBlank() }?.let { " (req: $it)" }.orEmpty()
-            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed$dnsNote$reqNote")
+            if (parsed != null) return FaviconFetch(null, "cardyb HTTP ${resp.code}: $parsed")
             val detail = raw.take(200).ifBlank { null }
-            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: "") + dnsNote + reqNote)
+            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: ""))
         }
         val bytes = resp.body
         if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")
