@@ -4164,7 +4164,14 @@ class BlueskyRepository {
         } catch (e: Exception) {
             return FaviconFetch(null, "cardyb request failed: ${e.message}")
         }
-        if (!resp.isSuccessful) return FaviconFetch(null, "cardyb HTTP ${resp.code}")
+        // The code alone never said why cardyb refused (the app got a
+        // 400 on a URL every outside replication answers 200 for), so
+        // carry the refusal's own body: the engine reads it on failure
+        // responses too, and it names the exact rejection.
+        if (!resp.isSuccessful) {
+            val detail = resp.body.decodeToString().trim().take(200).ifBlank { null }
+            return FaviconFetch(null, "cardyb HTTP ${resp.code}" + (detail?.let { ": $it" } ?: ""))
+        }
         val bytes = resp.body
         if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")
         if (bytes.size > 100_000) return FaviconFetch(null, null)
