@@ -1819,8 +1819,20 @@ class BlueskyRepository {
      *    unvalidated direct read, never shows up in Popfeed itself"
      *    exactly as well as the missing "$type" did. */
     suspend fun postPopfeedReview(token: String, did: String, target: TitleSearchResult, ratingOutOf10: Int, text: String, containsSpoilers: Boolean = false): Result<String> {
-        val identifiers = mutableMapOf<String, Any>()
-        if (target.id.startsWith("imdb:")) identifiers["imdbId"] = target.id.removePrefix("imdb:")
+        // Identifiers come ONLY from the review target itself, i.e. from the
+        // Popfeed record on the user's own PDS via the Popfeed lexicon.
+        // Stellar holds no TMDB API key and makes no TMDB calls, so nothing
+        // here is fetched from TMDB and this adds no TMDB terms obligation.
+        // (titleIdentifiers also fills imdbId from an "imdb:"-prefixed id.)
+        val identifiers = LinkedHashMap<String, Any>()
+        for ((k, v) in titleIdentifiers(target).entrySet()) {
+            if (!v.isJsonPrimitive) continue
+            val p = v.asJsonPrimitive
+            when {
+                p.isString -> if (p.asString.isNotBlank()) identifiers[k] = p.asString
+                p.isNumber -> identifiers[k] = p.asLong
+            }
+        }
         val record = mutableMapOf<String, Any>(
             "\$type" to "social.popfeed.feed.review",
             "identifiers" to identifiers,
