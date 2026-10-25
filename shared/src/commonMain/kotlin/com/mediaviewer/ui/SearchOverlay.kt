@@ -787,7 +787,9 @@ fun SearchOverlay(
                 gridMode = effectiveGridMode(kindForTab, resultsGridMode(gridScreen, kindForTab), sideways),
                 onGrid = { cycleResultsGridMode(gridScreen, kindForTab, landscape = sideways) },
                 // (Landscape: centred under the results, beside the side list.)
-                modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (sideways) rememberSideListWidth() else 0.dp),
+                // The profile's parent adds a nav-bar inset the search page
+                // lacked, so its bar sat one inset lower; match it.
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = if (sideways) rememberSideListWidth() else 0.dp).windowInsetsPadding(WindowInsets.navBarSpace),
                 // Tagged: Sort, at the right end — its choices pop up off it
                 // like the More button's.
                 trailing = if (!isLiked) null else ({
