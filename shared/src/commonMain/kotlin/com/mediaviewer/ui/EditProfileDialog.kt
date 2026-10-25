@@ -40,6 +40,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import com.mediaviewer.i18n.Text
 import com.mediaviewer.model.ProfileLinkDraft
+import com.mediaviewer.model.MAX_PROFILE_LINKS
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -144,13 +145,11 @@ fun EditProfileDialog(
     val fieldColor = Color.White.copy(alpha = 0.07f)
     val shape = RoundedCornerShape(24.dp)
 
+    // Only Close (or Back) closes it: a stray tap outside would lose
+    // unsaved edits, so the outer scrim deliberately has no tap handler.
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { linkDrag.rootOrigin = it.positionInRoot() }
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null
-            ) { if (!saving) onDismiss() }
             .imePadding(),
         contentAlignment = Alignment.Center
     ) {
@@ -335,8 +334,11 @@ fun EditProfileDialog(
                     Modifier.fillMaxWidth().clip(linksShape).background(Color.White.copy(alpha = 0.07f))
                         .border(1.dp, tint.copy(alpha = 0.4f), linksShape)
                 ) {
-                    Text("LINKS", color = lerp(tint, Color.White, 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
-                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 6.dp))
+                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("LINKS", color = lerp(tint, Color.White, 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
+                            modifier = Modifier.weight(1f))
+                        Text("${currentLinks.size}/$MAX_PROFILE_LINKS", color = Color.White.copy(0.4f), fontSize = 10.sp)
+                    }
                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                     LinksEditorRow(
                         links = currentLinks, tint = tint, liquidGlass = liquidGlass, enabled = !saving,

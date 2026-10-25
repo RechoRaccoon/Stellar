@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.DragHandle
@@ -623,13 +622,13 @@ private fun keyOfGhost(draft: ProfileLinkDraft): String = draft.uri ?: "new:${dr
 // ── Add / edit form ────────────────────────────────────────────────────────
 
 /**
- * The add/edit link form, in the app's confirmation popup language (the
- * same card as "Save Emoji?" and the long-press link popup): centered
- * 22.dp card, 16.sp header, 38.dp side-by-side pills, glass when the page
- * is glass. The fields stay Edit Profile's EditFields — the form lives in
- * that dialog. Titles stay manual — Stellar has no page-title service to
- * suggest one from, the way Bluesky's card service does — so a blank title
- * shows the domain on the pill.
+ * The add/edit link form, on the Feed Creator's system ([LocalPopup]):
+ * the X at the top left closes it, the trash at the top right removes
+ * the link (two taps: trash, then "Really?"), and a tap outside never
+ * closes it. The fields stay Edit Profile's EditFields — the form lives
+ * in that dialog. Titles stay manual — Stellar has no page-title service
+ * to suggest one from, the way Bluesky's card service does — so a blank
+ * title shows the domain on the pill.
  */
 @Composable
 fun LinkFormPopup(
@@ -642,118 +641,56 @@ fun LinkFormPopup(
     liquidGlass: Boolean = false,
     backdrop: GlassBackdrop? = null
 ) {
-    val tap = rememberHapticTap()
     var input by remember { mutableStateOf(editing?.url?.removePrefix("https://")?.removePrefix("http://")?.removePrefix("www.") ?: "") }
     var title by remember { mutableStateOf(editing?.title ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     val isEditing = editing != null
-    val view = com.mediaviewer.ui.compat.rememberPlatformView()
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.CONTEXT_CLICK)
-        appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f))
-    }
-    BackHandler(onBack = onDismiss)
-    val shape = RoundedCornerShape(22.dp)
-    val glass = PopupStyle.glass(liquidGlass)
-
-    Box(
-        Modifier.fillMaxSize()
-            .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { onDismiss() },
-        contentAlignment = Alignment.Center
+    LocalPopup(
+        title = if (isEditing) "Edit Link" else "Add Link",
+        liquidGlass = liquidGlass, tint = tint, onClose = onDismiss,
+        maxWidth = 360.dp, backdrop = backdrop,
+        dismissOnOutsideTap = false,
+        onDelete = if (isEditing) onRemove else null
     ) {
-        val cardModifier = Modifier
-            .padding(horizontal = 36.dp).widthIn(max = 360.dp).fillMaxWidth()
-            .graphicsLayer {
-                val sc = 0.88f + 0.12f * appear.value
-                scaleX = sc; scaleY = sc
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {}
-            .verticalScroll(rememberScrollState())
-        val content: @Composable () -> Unit = {
-            Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    if (isEditing) "Edit link" else "Add a link",
-                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(14.dp))
-                EditField(
-                    value = input,
-                    onValue = {
-                        input = it
-                        error = null
-                    },
-                    label = "Link", tint = tint,
-                    keyboardType = KeyboardType.Uri
-                )
-                // An http scheme can't be fixed by typing more, so it errors
-                // right away; everything else errors on Save.
-                val shownError = if (input.trim().startsWith("http://", ignoreCase = true)) {
-                    "Only secure links can be added. Use a link that starts with https://."
-                } else error
-                if (shownError != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(shownError, color = Color(0xFFFF8A80), fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                EditField(
-                    value = title, onValue = { title = it.take(30) }, label = "Title", tint = tint,
-                    counter = if (title.length >= 20) "${title.length}/30" else null
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val pill = RoundedCornerShape(19.dp)
-                    val closeMod = Modifier.weight(1f).height(38.dp).clip(pill).clickable { tap(); onDismiss() }
-                    val saveMod = Modifier.weight(1f).height(38.dp).clip(pill).clickable {
-                        tap()
-                        val url = normalizeProfileLinkUrl(input)
-                        val err = profileLinkInputError(input, existingUrls)
-                        if (url == null || err != null) { error = err ?: "That doesn't look like a link. Try something like yoursite.com."; return@clickable }
+        EditField(
+            value = input,
+            onValue = {
+                input = it
+                error = null
+            },
+            label = "Link", tint = tint,
+            keyboardType = KeyboardType.Uri
+        )
+        // An http scheme can't be fixed by typing more, so it errors
+        // right away; everything else errors on Save.
+        val shownError = if (input.trim().startsWith("http://", ignoreCase = true)) {
+            "Only secure links can be added. Use a link that starts with https://."
+        } else error
+        if (shownError != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(shownError, color = Color(0xFFFF8A80), fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        EditField(
+            value = title, onValue = { title = it.take(30) }, label = "Title", tint = tint,
+            counter = if (title.length >= 20) "${title.length}/30" else null
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LocalPillButton(
+                if (isEditing) "Save changes" else "Add link", liquidGlass, tint,
+                {
+                    val url = normalizeProfileLinkUrl(input)
+                    val err = profileLinkInputError(input, existingUrls)
+                    if (url == null || err != null) {
+                        error = err ?: "That doesn't look like a link. Try something like yoursite.com."
+                    } else {
                         onSave(ProfileLinkDraft(url = url, title = title.trim().ifBlank { null }, uri = editing?.uri, iconUrl = editing?.iconUrl))
                     }
-                    if (glass) {
-                        LiquidGlassSurface(closeMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
-                            Text("Close", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        LiquidGlassSurface(saveMod, shape = pill, tint = tint, contentAlignment = Alignment.Center) {
-                            Text(if (isEditing) "Save changes" else "Add link", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        Box(closeMod.popupButtonFill(tint, pill), contentAlignment = Alignment.Center) {
-                            Text("Close", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Box(saveMod.popupButtonFill(tint, pill, strong = true), contentAlignment = Alignment.Center) {
-                            Text(if (isEditing) "Save changes" else "Add link", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-                if (isEditing && onRemove != null) {
-                    Spacer(Modifier.height(10.dp))
-                    Box(
-                        Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(19.dp))
-                            .border(1.dp, Color(0xFFFF8A80).copy(0.6f), RoundedCornerShape(19.dp))
-                            .clickable { tap(); onRemove() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Remove link", color = Color(0xFFFF8A80), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-        if (glass) {
-            LiquidGlassSurface(cardModifier, shape = shape, tint = tint, backdrop = backdrop) {
-                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.3f)))
-                content()
-            }
-        } else {
-            Box(cardModifier.popupPanel(tint, shape)) { content() }
+                },
+                Modifier.weight(1f)
+            )
         }
     }
 }
+
