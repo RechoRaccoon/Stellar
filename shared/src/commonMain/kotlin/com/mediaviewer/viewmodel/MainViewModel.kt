@@ -7546,6 +7546,14 @@ class MainViewModel(
                 return
             }
         }
+        // A post opened from search (the search page waits, hidden,
+        // behind it): swiping down goes back to search, not the Hub.
+        // The same restore pinchInFromPost() does for a search post.
+        if (screen == ScreenState.SETTINGS && _screenState.value == ScreenState.FEED && _searchHiddenBehindPost.value) {
+            _searchHiddenBehindPost.value = false
+            _searchOpen.value = true
+            return
+        }
         // Back to the Hub from Saved Posts or History: they're left, and the
         // feed picked in the Hub is the Timeline's again (they're only ever
         // reached through their own buttons, never by swiping into the
