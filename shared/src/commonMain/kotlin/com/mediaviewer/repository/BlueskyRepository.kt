@@ -4120,7 +4120,15 @@ class BlueskyRepository {
      * blocked host, a slow site — resolves to null, and the pill falls
      * back to a globe.
      */
-    private suspend fun fetchFaviconIcon(token: String, url: String): BskyBlob? = runCatching {
+    /** One retry: a favicon fetch is a live network call (and, with
+     *  fresh=true, a live scrape behind cardyb), so a single hiccup
+     *  used to leave the link with a globe and no reason why. A second
+     *  attempt costs nothing when the first failure was local (blocked
+     *  host, blank host, wrong magic), and rescues a transient one. */
+    private suspend fun fetchFaviconIcon(token: String, url: String): BskyBlob? =
+        fetchFaviconIconOnce(token, url) ?: fetchFaviconIconOnce(token, url)
+
+    private suspend fun fetchFaviconIconOnce(token: String, url: String): BskyBlob? = runCatching {
         if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return null
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
         if (host.isBlank() || host.contains(" ")) return null
