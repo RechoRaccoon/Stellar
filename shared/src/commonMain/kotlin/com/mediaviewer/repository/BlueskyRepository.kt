@@ -4065,6 +4065,7 @@ class BlueskyRepository {
             ExistingLink(uri, cid, rkey, url, title, icon)
         }
         val byUri = existing.associateBy { it.uri }
+        val iconFailures = mutableListOf<String>()
         val refs = drafts.map { draft ->
             val before = draft.uri?.let { byUri[it] }
             val nextTitle = draft.title?.takeIf { it.isNotBlank() }
@@ -4078,9 +4079,15 @@ class BlueskyRepository {
                 // falling back to the icon it had when the fetch fails.
                 // A link with no icon gets its chance on save too —
                 // before this, only brand-new URLs ever fetched, so a
-                // re-saved link kept its missing icon forever.
-                val icon = fetchFaviconIcon(token, draft.url)
+                // re-saved link kept its missing icon forever. A real
+                // fetch failure (not a by-design null) is recorded for
+                // the caller to surface instead of silently globing.
+                val fetched = fetchFaviconIcon(token, draft.url)
+                val icon = fetched.blob
                     ?: if (before != null && before.url == draft.url) before.icon else null
+                if (icon == null && fetched.failure != null) {
+                    iconFailures += "${draft.title?.takeIf { it.isNotBlank() } ?: draft.url}: ${fetched.failure}"
+                }
                 if (before != null && before.url == draft.url && before.title == nextTitle && icon == null) {
                     // Still nothing to add: leave the record alone.
                     before.uri to before.cid
@@ -4107,6 +4114,7 @@ class BlueskyRepository {
         }
         val kept = refs.map { it.first }.toSet()
         val removed = existing.filter { it.uri !in kept }.map { it.rkey }
+        lastLinkIconFailures = iconFailures
         return refs to removed
     }
 
@@ -4120,33 +4128,64 @@ class BlueskyRepository {
      * blocked host, a slow site — resolves to null, and the pill falls
      * back to a globe.
      */
+    /** Failures from the last profile-links save that left a link without
+     *  an icon for a real reason (network, service, upload) — not the
+     *  by-design cases (blocked host, over the size cap, SVG-only or
+     *  missing favicon), which resolve to null with no failure. The
+     *  fetch used to swallow every reason, so a link that kept its
+     *  globe was unexplainable; read this after a successful save. */
+    var lastLinkIconFailures: List<String> = emptyList()
+        private set
+
+    /** A favicon fetch result: the blob, or why there is none.
+     *  [failure] is null for the by-design nulls (blocked host, blank
+     *  host, over the size cap, SVG-only or missing favicon). */
+    private data class FaviconFetch(val blob: BskyBlob?, val failure: String?)
+
     /** One retry: a favicon fetch is a live network call (and, with
      *  fresh=true, a live scrape behind cardyb), so a single hiccup
      *  used to leave the link with a globe and no reason why. A second
      *  attempt costs nothing when the first failure was local (blocked
      *  host, blank host, wrong magic), and rescues a transient one. */
-    private suspend fun fetchFaviconIcon(token: String, url: String): BskyBlob? =
-        fetchFaviconIconOnce(token, url) ?: fetchFaviconIconOnce(token, url)
+    private suspend fun fetchFaviconIcon(token: String, url: String): FaviconFetch {
+        val first = fetchFaviconIconOnce(token, url)
+        if (first.blob != null) return first
+        return fetchFaviconIconOnce(token, url)
+    }
 
-    private suspend fun fetchFaviconIconOnce(token: String, url: String): BskyBlob? = runCatching {
-        if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return null
+    private suspend fun fetchFaviconIconOnce(token: String, url: String): FaviconFetch {
+        if (com.mediaviewer.util.BlockedHosts.isBlockedUrl(url)) return FaviconFetch(null, null)
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
-        if (host.isBlank() || host.contains(" ")) return null
-        val resp = PlainHttp.get("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
-        if (!resp.isSuccessful) return null
+        if (host.isBlank() || host.contains(" ")) return FaviconFetch(null, null)
+        val resp = try {
+            PlainHttp.get("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return FaviconFetch(null, "cardyb request failed: ${e.message}")
+        }
+        if (!resp.isSuccessful) return FaviconFetch(null, "cardyb HTTP ${resp.code}")
         val bytes = resp.body
-        if (bytes.isEmpty() || bytes.size > 100_000) return null
+        if (bytes.isEmpty()) return FaviconFetch(null, "cardyb returned nothing")
+        if (bytes.size > 100_000) return FaviconFetch(null, null)
         val mime = when {
             bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
             bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
             bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
                 bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte() -> "image/webp"
-            else -> return null
+            else -> return FaviconFetch(null, null)
         }
-        val up = api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
-        if (!up.isSuccessful) return null
-        up.body()?.blob
-    }.getOrNull()
+        val up = try {
+            api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return FaviconFetch(null, "icon upload failed: ${e.message}")
+        }
+        if (!up.isSuccessful) return FaviconFetch(null, "icon upload HTTP ${up.code()}")
+        val blob = up.body()?.blob ?: return FaviconFetch(null, "icon upload returned no blob")
+        return FaviconFetch(blob, null)
+    }
 
     /** Avatar/banner upload: Bluesky caps these at 1,000,000 bytes, so the
      *  picture is scaled to fit [maxW]×[maxH] and JPEG-compressed under that. */

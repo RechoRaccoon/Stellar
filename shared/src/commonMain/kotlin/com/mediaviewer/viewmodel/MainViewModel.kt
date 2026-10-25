@@ -749,6 +749,10 @@ class MainViewModel(
             withContext(Dispatchers.Main) {
                 onDone(error)
                 if (error == null) {
+                    // The save itself worked; a link that kept its globe
+                    // for a real fetch/upload reason says why, instead
+                    // of failing silently.
+                    if (links != null) bskyRepo.lastLinkIconFailures.forEach { showToast("Couldn't fetch an icon for $it") }
                     loadSelfProfile()
                     // Give the AppView a moment to index the new record.
                     viewModelScope.launch { kotlinx.coroutines.delay(1200); refreshProfile() }
