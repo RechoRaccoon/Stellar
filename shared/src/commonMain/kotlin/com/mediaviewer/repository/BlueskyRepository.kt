@@ -4068,30 +4068,40 @@ class BlueskyRepository {
         val refs = drafts.map { draft ->
             val before = draft.uri?.let { byUri[it] }
             val nextTitle = draft.title?.takeIf { it.isNotBlank() }
-            if (before != null && before.url == draft.url && before.title == nextTitle) {
-                // Unchanged: the record stays exactly as it is.
+            if (before != null && before.url == draft.url && before.title == nextTitle && before.icon != null) {
+                // Unchanged, and it already has an icon: the record stays
+                // exactly as it is.
                 before.uri to before.cid
             } else {
-                // The icon stays with its URL: a retitled link keeps the
-                // favicon it had; a new or repointed link gets a fresh one
-                // (or none, when the site has no usable favicon).
-                val icon = if (before != null && before.url == draft.url) before.icon else fetchFaviconIcon(token, draft.url)
-                val rec = mutableMapOf<String, Any>(
-                    "\$type" to "app.bsky.actor.link",
-                    "url" to draft.url,
-                    "createdAt" to nowIsoString()
-                )
-                if (nextTitle != null) rec["title"] = nextTitle
-                if (icon != null) rec["icon"] = icon
-                if (before != null) {
-                    val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, "app.bsky.actor.link", before.rkey, rec))
-                    if (!resp.isSuccessful) error("Saving a link failed (${resp.code()})")
-                    val body = resp.body()
-                    (body?.uri?.takeIf { it.isNotBlank() } ?: before.uri) to (body?.cid?.takeIf { it.isNotBlank() } ?: before.cid)
+                // The icon refreshes on every rewrite (the official client
+                // refetches on every non-support save): a fresh fetch,
+                // falling back to the icon it had when the fetch fails.
+                // A link with no icon gets its chance on save too —
+                // before this, only brand-new URLs ever fetched, so a
+                // re-saved link kept its missing icon forever.
+                val icon = fetchFaviconIcon(token, draft.url)
+                    ?: if (before != null && before.url == draft.url) before.icon else null
+                if (before != null && before.url == draft.url && before.title == nextTitle && icon == null) {
+                    // Still nothing to add: leave the record alone.
+                    before.uri to before.cid
                 } else {
-                    val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.actor.link", rec))
-                    val body = resp.body() ?: error("Saving a link failed (${resp.code()})")
-                    body.uri to body.cid
+                    val rec = mutableMapOf<String, Any>(
+                        "\$type" to "app.bsky.actor.link",
+                        "url" to draft.url,
+                        "createdAt" to nowIsoString()
+                    )
+                    if (nextTitle != null) rec["title"] = nextTitle
+                    if (icon != null) rec["icon"] = icon
+                    if (before != null) {
+                        val resp = api.putRecord("Bearer $token", BskyPutRecordRequest(did, "app.bsky.actor.link", before.rkey, rec))
+                        if (!resp.isSuccessful) error("Saving a link failed (${resp.code()})")
+                        val body = resp.body()
+                        (body?.uri?.takeIf { it.isNotBlank() } ?: before.uri) to (body?.cid?.takeIf { it.isNotBlank() } ?: before.cid)
+                    } else {
+                        val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, "app.bsky.actor.link", rec))
+                        val body = resp.body() ?: error("Saving a link failed (${resp.code()})")
+                        body.uri to body.cid
+                    }
                 }
             }
         }
