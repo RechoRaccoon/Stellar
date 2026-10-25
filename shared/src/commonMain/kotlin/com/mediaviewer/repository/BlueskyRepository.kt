@@ -4160,7 +4160,7 @@ class BlueskyRepository {
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
         if (host.isBlank() || host.contains(" ")) return FaviconFetch(null, null)
         val resp = try {
-            PlainHttp.get("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
+            PlainHttp.getFavicon("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -104,6 +104,14 @@ abstract class ApiClient(baseUrl: String, profile: HttpProfile) {
 object PlainHttp {
     private val engine by lazy { createHttpEngine(HttpProfile.DOWNLOAD) }
 
+    /** Cardyb favicon fetches: their own client (fresh connection,
+     *  HTTP/1.1 only on Android — see AndroidHttpClients). */
+    private val faviconEngine by lazy { createHttpEngine(HttpProfile.FAVICON) }
+
+    /** GET [url] with [query] parameters, on the favicon client. */
+    suspend fun getFavicon(url: String, query: List<Pair<String, String>>): HttpResponseData =
+        faviconEngine.execute(HttpRequest("GET", url, query, emptyList(), null))
+
     /** GET [url] with [query] parameters added (encoded like OkHttp's
      *  HttpUrl.Builder.addQueryParameter). */
     suspend fun get(url: String, query: List<Pair<String, String>>, headers: List<Pair<String, String>> = emptyList()): HttpResponseData =
