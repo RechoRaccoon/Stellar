@@ -8828,6 +8828,9 @@ class MainViewModel(
     private val likeTagQueue = kotlinx.coroutines.channels.Channel<MediaItem>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     private val likeTagQueued = com.mediaviewer.platform.concurrentSetOf<String>()
     private val likeTagWorker = viewModelScope.launch(ioDispatcher) {
+        // Anything left over from the last run tags first, in order,
+        // before anything new (see drainPersistedTagQueue).
+        drainPersistedTagQueue()
         for (item in likeTagQueue) {
             // Never overlap the full "Tag all liked posts" pass either.
             while (_taggingUiState.value.isRunning) delay(500)
@@ -8849,6 +8852,13 @@ class MainViewModel(
             // (alongside any added by hand).
             refreshPostTagsFromDataset(item.postUri)
             likeTagQueued.remove(item.postUri)
+            // Done: forget it in the persisted queue too, so a restart
+            // never re-queues a finished post.
+            tagQueueMutex.withLock {
+                if (persistedTagQueue.removeAll { it.postUri == item.postUri }) {
+                    prefs.setTagQueueJson(com.mediaviewer.json.StellarJson.default.encodeToString<List<QueuedTagItem>>(persistedTagQueue))
+                }
+            }
             _likeTagPending.value = (_likeTagPending.value - 1).coerceAtLeast(0)
             _likeTagPhase.value = if (_likeTagPending.value > 0) LikeTagPhase.TAGGING else LikeTagPhase.IDLE
             if (_likeTagPending.value == 0) {
@@ -8863,11 +8873,58 @@ class MainViewModel(
         enqueueTagging(item)
     }
 
+    /** The tag queue, persisted: posts still waiting when the app closes
+     *  tag first on the next run, in their original order, instead of
+     *  being lost with the in-memory channel. Written through on every
+     *  enqueue and every completion, so the file always mirrors the live
+     *  queue. Read back once per run (and once per first enqueue if the
+     *  model wasn't ready at startup); items already tagged by the
+     *  current model are pruned on read, never re-queued. */
+    private val tagQueueMutex = Mutex()
+    private val persistedTagQueue = mutableListOf<QueuedTagItem>()
+    private var tagQueueResumed = false
+
+    private fun QueuedTagItem.toMediaItem(): MediaItem = MediaItem(
+        postUri = postUri, postCid = postCid, mediaUrl = mediaUrl, thumbUrl = thumbUrl, taggingUrl = taggingUrl, isVideo = isVideo
+    )
+
+    private suspend fun drainPersistedTagQueue() {
+        if (tagQueueResumed || !taggingRepo.isModelReady()) return
+        val json = prefs.tagQueueJson.first()
+        val records = runCatching {
+            com.mediaviewer.json.StellarJson.default.decodeFromString<List<QueuedTagItem>>(json)
+        }.getOrDefault(emptyList())
+        if (records.isEmpty()) { tagQueueResumed = true; return }
+        tagQueueMutex.withLock {
+            val kept = mutableListOf<QueuedTagItem>()
+            for (record in records) {
+                if (record.postUri.isBlank()) continue
+                val item = record.toMediaItem()
+                if (item.isTextOnly) continue
+                if (!likeTagQueued.add(record.postUri)) { kept.add(record); continue }
+                if (taggingRepo.isTaggedByCurrentModel(record.postUri)) { likeTagQueued.remove(record.postUri); continue }
+                kept.add(record)
+                _likeTagPending.value = _likeTagPending.value + 1
+                if (_likeTagPhase.value == LikeTagPhase.IDLE) {
+                    _likeTagPhase.value = if (taggingRepo.isTaggerLoaded()) LikeTagPhase.TAGGING else LikeTagPhase.ACTIVATING
+                }
+                likeTagQueue.trySend(item)
+            }
+            persistedTagQueue.clear()
+            persistedTagQueue.addAll(kept)
+            prefs.setTagQueueJson(com.mediaviewer.json.StellarJson.default.encodeToString<List<QueuedTagItem>>(persistedTagQueue))
+            tagQueueResumed = true
+        }
+    }
+
     /** One post into the tagging queue (liked or viewed). */
     private fun enqueueTagging(item: MediaItem) {
         if (!taggingRepo.isModelReady() || item.isTextOnly) return
         if (item.postUri.isBlank() || !likeTagQueued.add(item.postUri)) return
         viewModelScope.launch(ioDispatcher) {
+            // Anything left over from the last run goes first, in order,
+            // before this one (see drainPersistedTagQueue).
+            drainPersistedTagQueue()
             // Already tagged by this tagger: nothing to do (a post with only
             // hand-added tags still gets tagged).
             if (taggingRepo.isTaggedByCurrentModel(item.postUri)) { likeTagQueued.remove(item.postUri); return@launch }
@@ -8875,6 +8932,19 @@ class MainViewModel(
             _likeTagPending.value = _likeTagPending.value + 1
             if (_likeTagPhase.value == LikeTagPhase.IDLE) {
                 _likeTagPhase.value = if (taggingRepo.isTaggerLoaded()) LikeTagPhase.TAGGING else LikeTagPhase.ACTIVATING
+            }
+            // Remember it before it goes in, so a close mid-queue resumes
+            // it; the worker forgets it on completion (above).
+            tagQueueMutex.withLock {
+                if (persistedTagQueue.none { it.postUri == item.postUri }) {
+                    persistedTagQueue.add(
+                        QueuedTagItem(
+                            postUri = item.postUri, postCid = item.postCid, mediaUrl = item.mediaUrl,
+                            thumbUrl = item.thumbUrl, taggingUrl = item.taggingUrl, isVideo = item.isVideo
+                        )
+                    )
+                    prefs.setTagQueueJson(com.mediaviewer.json.StellarJson.default.encodeToString<List<QueuedTagItem>>(persistedTagQueue))
+                }
             }
             likeTagQueue.trySend(item)
         }

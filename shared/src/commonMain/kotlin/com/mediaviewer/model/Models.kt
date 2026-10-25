@@ -1273,6 +1273,22 @@ data class HistoryEntry(
     val viewedAt: Long = 0L
 )
 
+// ── Tag queue persistence ──────────────────────────────────────────────────
+// One post waiting in the tag-when-liked/viewed queue, persisted so a
+// restart resumes tagging where it left off instead of losing the queue
+// with the in-memory channel. Only what tagAndStore reads: the picture
+// source (taggingUrl, else mediaUrl/thumbUrl), the video flag, and the
+// post's identity for the store. See drainPersistedTagQueue.
+@Serializable
+data class QueuedTagItem(
+    val postUri: String = "",
+    val postCid: String = "",
+    val mediaUrl: String = "",
+    val thumbUrl: String = "",
+    val taggingUrl: String = "",
+    val isVideo: Boolean = false,
+)
+
 // ── Chat / DMs (chat.bsky.convo.*, proxied via did:web:api.bsky.chat) ───────
 
 @Serializable

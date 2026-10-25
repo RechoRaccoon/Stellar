@@ -39,6 +39,9 @@ object PrefKeys {
     val GLASS_RIM_VIBRANT_SECONDARY = booleanPreferencesKey("glass_rim_vibrant_secondary")
     val HIDE_TEXT_ONLY_POSTS  = booleanPreferencesKey("hide_text_only_posts")
     val HISTORY_JSON          = stringPreferencesKey("history_json")
+    // Tag-when-liked/viewed queue, persisted so a restart resumes tagging
+    // where it left off (see drainPersistedTagQueue).
+    val TAG_QUEUE_JSON        = stringPreferencesKey("tag_queue_json")
     // Hub Reviews/Blogs cache — persisted so a cold restart can show the
     // subscribed-accounts Reviews/Blogs sections instantly from disk while
     // a fresh fetch runs in the background, instead of a blank section
@@ -243,6 +246,8 @@ class PreferencesManager(private val context: PlatformContext) {
     val hideTextOnlyPosts: Flow<Boolean>       = context.appSettings.data.map { it[PrefKeys.HIDE_TEXT_ONLY_POSTS] ?: false }
     // Settings Update: raw JSON array of HistoryEntry, newest first, capped at write time.
     val historyJson: Flow<String>              = context.appSettings.data.map { it[PrefKeys.HISTORY_JSON] ?: "[]" }
+    // Raw JSON array of QueuedTagItem, in queue order.
+    val tagQueueJson: Flow<String>             = context.appSettings.data.map { it[PrefKeys.TAG_QUEUE_JSON] ?: "[]" }
     val hubReviewsCacheJson: Flow<String>       = context.appSettings.data.map { it[PrefKeys.HUB_REVIEWS_CACHE_JSON] ?: "[]" }
     val hubBlogsCacheJson: Flow<String>         = context.appSettings.data.map { it[PrefKeys.HUB_BLOGS_CACHE_JSON] ?: "[]" }
     val hubMutualsCacheJson: Flow<String>       = context.appSettings.data.map { it[PrefKeys.HUB_MUTUALS_CACHE_JSON] ?: "[]" }
@@ -443,6 +448,10 @@ class PreferencesManager(private val context: PlatformContext) {
 
     suspend fun setHistoryJson(json: String) {
         context.appSettings.edit { prefs -> prefs[PrefKeys.HISTORY_JSON] = json }
+    }
+
+    suspend fun setTagQueueJson(json: String) {
+        context.appSettings.edit { prefs -> prefs[PrefKeys.TAG_QUEUE_JSON] = json }
     }
 
     /** See HUB_REVIEWS_CACHE_JSON's comment — one write covers both lists
