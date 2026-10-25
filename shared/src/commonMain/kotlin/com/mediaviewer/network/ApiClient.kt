@@ -101,16 +101,12 @@ abstract class ApiClient(baseUrl: String, profile: HttpProfile) {
 
 /** One-off requests outside an API class (DID documents, Wikipedia, blob
  *  resolution…) — the old `NetworkClient.downloadClient.newCall(...)`. */
+/** TRAP: PlainHttp.get has a (url, query, headers) and a (url, headers)
+ *  overload, and a positional list binds to the headers one (it uses no
+ *  default args) — so a 2-arg call always sends the list as headers
+ *  with no query string. Always name query= / headers= at 2-arg sites. */
 object PlainHttp {
     private val engine by lazy { createHttpEngine(HttpProfile.DOWNLOAD) }
-
-    /** Cardyb favicon fetches: their own client (fresh connection,
-     *  HTTP/1.1 only on Android — see AndroidHttpClients). */
-    private val faviconEngine by lazy { createHttpEngine(HttpProfile.FAVICON) }
-
-    /** GET [url] with [query] parameters, on the favicon client. */
-    suspend fun getFavicon(url: String, query: List<Pair<String, String>>): HttpResponseData =
-        faviconEngine.execute(HttpRequest("GET", url, query, emptyList(), null))
 
     /** GET [url] with [query] parameters added (encoded like OkHttp's
      *  HttpUrl.Builder.addQueryParameter). */

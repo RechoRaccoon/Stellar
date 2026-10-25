@@ -137,7 +137,7 @@ class RockskyRepository {
         val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
         val response = com.mediaviewer.network.PlainHttp.get(
             "$pds/xrpc/com.atproto.repo.getRecord",
-            listOf("repo" to did, "collection" to "app.rocksky.actor.status", "rkey" to "self")
+            query = listOf("repo" to did, "collection" to "app.rocksky.actor.status", "rkey" to "self")
         )
         if (response.code !in 200..299) return@runCatching null
         val value = com.mediaviewer.json.JSONObject(response.body.decodeToString()).optJSONObject("value") ?: return@runCatching null

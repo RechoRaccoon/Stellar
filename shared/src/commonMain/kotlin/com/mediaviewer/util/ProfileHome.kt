@@ -203,7 +203,7 @@ object ProfileHome {
         val pds = com.mediaviewer.worker.BlueskyBlobResolver.pdsEndpoint(did)
         val resp = com.mediaviewer.network.PlainHttp.get(
             "$pds/xrpc/com.atproto.repo.listRecords",
-            listOf("repo" to did, "collection" to COLLECTION, "limit" to "100")
+            query = listOf("repo" to did, "collection" to COLLECTION, "limit" to "100")
         )
         if (resp.code !in 200..299) error("HTTP ${resp.code}")
         val root = StellarJson.default.parseToJsonElement(resp.body.decodeToString()) as? JsonObject ?: return emptyList()

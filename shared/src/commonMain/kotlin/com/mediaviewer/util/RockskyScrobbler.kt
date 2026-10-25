@@ -263,7 +263,7 @@ object RockskyScrobbler {
                 while (true) {
                     val query = mutableListOf("repo" to did, "collection" to collection, "limit" to "100")
                     cursor?.let { query += "cursor" to it }
-                    val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.listRecords", query)
+                    val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.listRecords", query = query)
                     if (!response.isSuccessful) return false
                     val body = JSONObject(response.bodyString())
                     val records = body.optJSONArray("records")
@@ -524,7 +524,7 @@ object RockskyScrobbler {
     suspend fun statusPresent(did: String): Boolean? {
         return try {
             val pds = BlueskyBlobResolver.pdsEndpoint(did)
-            val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.getRecord", listOf("repo" to did, "collection" to STATUS, "rkey" to "self"))
+            val response = PlainHttp.get("$pds/xrpc/com.atproto.repo.getRecord", query = listOf("repo" to did, "collection" to STATUS, "rkey" to "self"))
             when {
                 response.isSuccessful -> true
                 response.code == 400 || response.code == 404 -> false

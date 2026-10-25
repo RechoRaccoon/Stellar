@@ -356,7 +356,7 @@ object EmojiCloud {
         do {
             val resp = com.mediaviewer.network.PlainHttp.get(
                 "$pds/xrpc/com.atproto.repo.listRecords",
-                listOfNotNull("repo" to did, "collection" to COLLECTION, "limit" to "100", cursor?.let { "cursor" to it })
+                query = listOfNotNull("repo" to did, "collection" to COLLECTION, "limit" to "100", cursor?.let { "cursor" to it })
             )
             if (resp.code !in 200..299) error("Emoji ${resp.code}")
             val root = StellarJson.default.parseToJsonElement(resp.body.decodeToString()) as? JsonObject ?: break

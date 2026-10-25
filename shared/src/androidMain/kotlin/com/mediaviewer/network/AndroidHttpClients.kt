@@ -118,27 +118,11 @@ object AndroidHttpClients {
         HttpProfile.DIRECT_SERVICE -> buildDirectServiceClient()
         HttpProfile.VIDEO -> buildVideoClient()
         HttpProfile.DOWNLOAD -> downloadClient
-        HttpProfile.FAVICON -> faviconClient
         else -> buildOkHttp(profile.userAgent)
     }
 
     /** Plain OkHttpClient for streaming downloads */
     val downloadClient: OkHttpClient by lazy { buildOkHttp() }
-
-    /** Cardyb favicon fetches only. Cardyb 400s every app request
-     *  while byte-identical fresh requests answer 200, and the app
-     *  resolves the good IPs — so the remaining difference lives in
-     *  the connection itself (a pooled/reused HTTP/2 connection, or
-     *  OkHttp's HTTP/2 framing). This client removes both variables:
-     *  zero idle connections (every fetch opens a fresh connection,
-     *  like a one-off request) and HTTP/1.1 only. Same endpoint, same
-     *  params, same headers — cardyb stays the only icon source. */
-    val faviconClient: OkHttpClient by lazy {
-        buildOkHttp().newBuilder()
-            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
-            .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
-            .build()
-    }
 }
 
 /** A content:// (or file://) Uri streamed as a request body. */

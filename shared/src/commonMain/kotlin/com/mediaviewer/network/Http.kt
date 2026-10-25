@@ -28,10 +28,6 @@ enum class HttpProfile(val userAgent: String) {
     VIDEO("MediaViewer/1.0 (ATProto client)"),
     /** Plain downloads and one-off requests (NetworkClient.downloadClient). */
     DOWNLOAD("MediaViewer/1.0"),
-    /** Cardyb favicon fetches: their own client on Android (fresh
-     *  connection per fetch, HTTP/1.1 only — see AndroidHttpClients).
-     *  Other platforms use their default engine for this profile. */
-    FAVICON("MediaViewer/1.0"),
 }
 
 /** A request body: raw bytes, a URL-encoded form, or a platform stream

@@ -311,7 +311,7 @@ class BlueskyRepository {
         fun didIn(text: String?): String? = text?.let { Regex("""did:(?:plc|web):[A-Za-z0-9._:%-]+""").find(it)?.value }
         // 1. Bluesky's public index (knows nearly every handle on the network).
         runCatching {
-            val r = PlainHttp.get("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle", listOf("handle" to handle))
+            val r = PlainHttp.get("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle", query = listOf("handle" to handle))
             if (r.isSuccessful) didIn(r.bodyString())?.let { return it }
         }
         // 2. The handle's own website.
@@ -4160,7 +4160,12 @@ class BlueskyRepository {
         val host = url.substringAfter("://").substringBefore("/").substringBefore(":").lowercase()
         if (host.isBlank() || host.contains(" ")) return FaviconFetch(null, null)
         val resp = try {
-            PlainHttp.getFavicon("https://cardyb.bsky.app/v1/favicon", listOf("url" to url, "fresh" to "true"))
+            // Named `query =` on purpose: PlainHttp.get has a (url, query,
+            // headers) and a (url, headers) overload, and a positional
+            // list binds to the headers one (it uses no default args),
+            // which sent `url:` and `fresh:` as HTTP headers with no query
+            // string — cardyb answered 400 for every link.
+            PlainHttp.get("https://cardyb.bsky.app/v1/favicon", query = listOf("url" to url, "fresh" to "true"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -4509,7 +4514,7 @@ class BlueskyRepository {
         val pds = BlueskyBlobResolver.pdsEndpoint(did)
         val resp = PlainHttp.get(
             "$pds/xrpc/com.atproto.repo.getRecord",
-            listOf("repo" to did, "collection" to com.mediaviewer.util.ProfileStyles.COLLECTION, "rkey" to com.mediaviewer.util.ProfileStyles.RKEY)
+            query = listOf("repo" to did, "collection" to com.mediaviewer.util.ProfileStyles.COLLECTION, "rkey" to com.mediaviewer.util.ProfileStyles.RKEY)
         )
         val text = resp.bodyString()
         if (!resp.isSuccessful) {
