@@ -43,6 +43,28 @@ import com.mediaviewer.util.rememberHapticTap
 import com.mediaviewer.viewmodel.MainViewModel
 
 /**
+ * The selection Tag popup's input, split into tags to add and tags to
+ * remove: a space separates tags, and a leading "-" marks a removal
+ * ("raccoon red_panda -bird" adds raccoon and red_panda, removes bird).
+ * Blank tokens and a lone "-" are skipped; duplicates collapse.
+ */
+private fun parseTagTokens(text: String): Pair<List<String>, List<String>> {
+    val adds = mutableListOf<String>()
+    val removes = mutableListOf<String>()
+    text.split(Regex("\\s+")).forEach { raw ->
+        if (raw.isEmpty()) return@forEach
+        if (raw.startsWith("-")) {
+            val clean = com.mediaviewer.tagging.normalizeTypedTag(raw.drop(1))
+            if (clean.isNotBlank() && clean !in removes) removes += clean
+        } else {
+            val clean = com.mediaviewer.tagging.normalizeTypedTag(raw)
+            if (clean.isNotBlank() && clean !in adds) adds += clean
+        }
+    }
+    return adds to removes
+}
+
+/**
  * Draws the supporter features' popups, the Launchpad apps and the floating
  * web pages over the rest of the app, and connects [LocalOverlays]' actions
  * to the ViewModel. Called once from AppRoot, inside its root Box (each
@@ -198,16 +220,31 @@ fun LocalOverlayHost(
             LocalOverlays.confirm = ConfirmRequest(
                 "Add Tag", "", "Add", tint, destructive = false,
                 input = "", inputPlaceholder = "Tag name",
-                // A leading "-" turns this into the Remove popup: the
-                // header and button follow the typed text live.
-                titleForText = { if (it.startsWith("-")) "Remove Tag" else "Add Tag" },
-                labelForText = { if (it.startsWith("-")) "Remove" else "Add" }
+                // The header and button follow the typed tags live:
+                // one add -> Add Tag, several adds -> Add Tags, any
+                // removal on its own -> Remove Tag(s), a mix -> Edit Tags.
+                titleForText = { text ->
+                    val (adds, removes) = parseTagTokens(text)
+                    val plural = if (adds.size + removes.size > 1) "s" else ""
+                    when {
+                        adds.isNotEmpty() && removes.isNotEmpty() -> "Edit Tags"
+                        removes.isNotEmpty() -> "Remove Tag$plural"
+                        adds.isNotEmpty() -> "Add Tag$plural"
+                        else -> "Add Tag"
+                    }
+                },
+                labelForText = { text ->
+                    val (adds, removes) = parseTagTokens(text)
+                    when {
+                        adds.isNotEmpty() && removes.isNotEmpty() -> "Edit"
+                        removes.isNotEmpty() -> "Remove"
+                        else -> "Add"
+                    }
+                }
             ) {
-                val raw = LocalOverlays.confirm?.text.orEmpty()
-                val removing = raw.startsWith("-")
-                val typed = com.mediaviewer.tagging.normalizeTypedTag(if (removing) raw.drop(1) else raw)
-                if (typed.isNotBlank()) {
-                    if (removing) viewModel.untagItems(items, typed) else viewModel.tagItems(items, typed)
+                val (adds, removes) = parseTagTokens(LocalOverlays.confirm?.text.orEmpty())
+                if (adds.isNotEmpty() || removes.isNotEmpty()) {
+                    viewModel.editTags(items, adds, removes)
                     PostSelection.clear()
                 }
             }

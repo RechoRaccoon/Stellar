@@ -7664,9 +7664,14 @@ class MainViewModel(
      *  Bluesky posts only (e621's tags are e621's own, and a post with no
      *  URI can't be saved). Shown first where the post is on screen,
      *  saved behind it. */
-    fun tagItems(items: List<MediaItem>, tag: String) {
+    /** The selection Tag popup's multi-tag edit: adds [adds] and removes
+     *  [removes] on every picked post, in one local pass and one save
+     *  pass. A tag named in both is removed (the "-" wins). */
+    fun editTags(items: List<MediaItem>, adds: List<String>, removes: List<String>) {
         if (_appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
-        val clean = com.mediaviewer.tagging.normalizeTypedTag(tag).takeIf { it.isNotBlank() } ?: return
+        val cleanAdds = adds.map { com.mediaviewer.tagging.normalizeTypedTag(it) }.filter { it.isNotBlank() }.distinct()
+        val cleanRemoves = removes.map { com.mediaviewer.tagging.normalizeTypedTag(it) }.filter { it.isNotBlank() }.distinct()
+        if (cleanAdds.isEmpty() && cleanRemoves.isEmpty()) return
         val picked = items.filter { it.postUri.isNotBlank() && it.e621PostId == null }
         if (picked.isEmpty()) return
         // Shown first, saved behind it.
@@ -7675,47 +7680,21 @@ class MainViewModel(
         picked.forEach { item ->
             val i = list.indexOfFirst { it.postUri == item.postUri }.takeIf { it >= 0 } ?: return@forEach
             val now = list[i].tags.split(" ").filter { it.isNotBlank() }
-            if (clean !in now) { list[i] = list[i].copy(tags = (now + clean).joinToString(" ")); changed = true }
+            val next = (now + cleanAdds.filterNot { it in now }) - cleanRemoves.toSet()
+            if (next != now) { list[i] = list[i].copy(tags = next.joinToString(" ")); changed = true }
         }
         if (changed) _mediaItems.value = list
         viewModelScope.launch(ioDispatcher) {
             var firstError: Throwable? = null
             picked.forEach { item ->
+                val url = item.mediaUrl.ifBlank { item.thumbUrl }
                 runCatching {
-                    taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, null, clean)
+                    cleanAdds.forEach { taggingRepo.editPostTag(item.postUri, item.postCid, url, null, it) }
+                    cleanRemoves.forEach { taggingRepo.editPostTag(item.postUri, item.postCid, url, it, null) }
                 }.onFailure { if (firstError == null) firstError = it }
             }
             tagVocabularyCache = null
-            firstError?.let { _errorMessage.value = "Couldn't save the tag: ${it.message}" }
-        }
-    }
-
-    /** tagItems' mirror: removes [tag] from every picked post (the
-     *  selection Tag popup's leading "-" path). Posts that don't carry
-     *  the tag are untouched; the dataset write for them is a no-op. */
-    fun untagItems(items: List<MediaItem>, tag: String) {
-        if (_appMode.value != AppMode.BLUESKY || !taggingRepo.isSupported) return
-        val clean = com.mediaviewer.tagging.normalizeTypedTag(tag).takeIf { it.isNotBlank() } ?: return
-        val picked = items.filter { it.postUri.isNotBlank() && it.e621PostId == null }
-        if (picked.isEmpty()) return
-        // Shown first, saved behind it.
-        val list = _mediaItems.value.toMutableList()
-        var changed = false
-        picked.forEach { item ->
-            val i = list.indexOfFirst { it.postUri == item.postUri }.takeIf { it >= 0 } ?: return@forEach
-            val now = list[i].tags.split(" ").filter { it.isNotBlank() }
-            if (clean in now) { list[i] = list[i].copy(tags = (now - clean).joinToString(" ")); changed = true }
-        }
-        if (changed) _mediaItems.value = list
-        viewModelScope.launch(ioDispatcher) {
-            var firstError: Throwable? = null
-            picked.forEach { item ->
-                runCatching {
-                    taggingRepo.editPostTag(item.postUri, item.postCid, item.mediaUrl.ifBlank { item.thumbUrl }, clean, null)
-                }.onFailure { if (firstError == null) firstError = it }
-            }
-            tagVocabularyCache = null
-            firstError?.let { _errorMessage.value = "Couldn't remove the tag: ${it.message}" }
+            firstError?.let { _errorMessage.value = "Couldn't save the tags: ${it.message}" }
         }
     }
 
