@@ -1498,7 +1498,7 @@ private fun SearchAllResults(
         }
         val tag = state.allTag
         if (tag != null && state.allTagged.isNotEmpty()) {
-            item(key = "all_tagged_h") { Header("Tagged", sub = tag.replace('_', ' '), onAll = { onOpenTag(tag) }) }
+            item(key = "all_tagged_h") { Header("Tagged", sub = tag, onAll = { onOpenTag(tag) }) }
             item(key = "all_tagged") { Thumbs(state.allTagged.distinctBy { it.postUri.ifBlank { it.id } }) { onOpenTaggedPost(it) } }
         }
         @Composable
