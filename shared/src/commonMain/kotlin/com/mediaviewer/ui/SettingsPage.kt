@@ -1244,8 +1244,16 @@ internal fun SettingsPageContent(
             PlatformFeatureGate(com.mediaviewer.platform.PlatformFeature.AI_TAGGING) {
                 SettingsBubble(liquidGlass, tint, backdrop) {
                     BubbleRow {
-                        RowLabel("Import Dataset", Modifier.weight(1f))
+                        RowLabel("Tag Datasets", Modifier.weight(1f))
                         PillButton("Import", { importLauncher.launch(arrayOf("application/json")) })
+                        Spacer(Modifier.width(6.dp))
+                        // Every dataset — yours, each imported one and the shared
+                        // one — as a single file of all their posts and tags.
+                        PillButton(
+                            "Export All",
+                            { exportTarget = com.mediaviewer.tagging.ALL_DATASETS_EXPORT_ID to "All Tag Datasets" },
+                            enabled = !exportWorking && (ownDatasetCount > 0 || importedDatasets.isNotEmpty())
+                        )
                     }
                     // Your own dataset first (what this device tagged, and tags
                     // added by hand), then every imported one — each with its

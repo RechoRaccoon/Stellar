@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import com.mediaviewer.i18n.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1196,7 +1197,10 @@ private fun RecentSearchesPage(
         return
     }
     val tap = rememberHapticTap()
-    val side = rememberLandscapeSidePadding()
+    // (Landscape: the whole width, exactly like the results — not a narrow
+    // centered column — with the searches two across, filling left, then right.)
+    val side = 0.dp
+    val wide = rememberLandscapeWidthDp() > 0
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = side, end = side, top = 10.dp, bottom = 96.dp),
@@ -1253,25 +1257,35 @@ private fun RecentSearchesPage(
                     modifier = Modifier.fillMaxWidth().padding(start = SEARCH_EDGE, top = 6.dp, bottom = 2.dp)
                 )
             }
-            items(queries, key = { "rq_" + it }) { q ->
-                val shape = RoundedCornerShape(20.dp)
-                val m = Modifier.padding(horizontal = SEARCH_EDGE).fillMaxWidth().clip(shape).clickable { tap(); onSearch(q) }
-                val row: @Composable () -> Unit = {
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(q, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Box(
-                            Modifier.size(30.dp).clip(CircleShape).clickable { tap(); com.mediaviewer.util.RecentAccountSearches.removeQuery(q) },
-                            contentAlignment = Alignment.Center
-                        ) { Icon(Icons.Default.Close, contentDescription = "Remove from recent searches", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(15.dp)) }
+            val perRow = if (wide) 2 else 1
+            items(queries.chunked(perRow), key = { "rq_" + it.first() }) { rowQueries ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = SEARCH_EDGE),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowQueries.forEach { q ->
+                        val shape = RoundedCornerShape(20.dp)
+                        val m = Modifier.weight(1f).clip(shape).clickable { tap(); onSearch(q) }
+                        val row: @Composable () -> Unit = {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.History, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text(q, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Box(
+                                    Modifier.size(30.dp).clip(CircleShape).clickable { tap(); com.mediaviewer.util.RecentAccountSearches.removeQuery(q) },
+                                    contentAlignment = Alignment.Center
+                                ) { Icon(Icons.Default.Close, contentDescription = "Remove from recent searches", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(15.dp)) }
+                            }
+                        }
+                        if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = tint, backdrop = backdrop) { row() }
+                        else Box(m.background(Color.White.copy(0.06f))) { row() }
                     }
+                    // An odd last search keeps its half of the row.
+                    if (rowQueries.size < perRow) Spacer(Modifier.weight((perRow - rowQueries.size).toFloat()))
                 }
-                if (liquidGlass) LiquidGlassSurface(m, shape = shape, tint = tint, backdrop = backdrop) { row() }
-                else Box(m.background(Color.White.copy(0.06f))) { row() }
             }
         }
     }
@@ -1380,7 +1394,8 @@ private fun BasicTextFieldWithPlaceholder(
     focusRequester: FocusRequester,
     onSearch: () -> Unit
 ) {
-    Box(Modifier.fillMaxWidth()) {
+    var boxWidth by remember { mutableStateOf(0) }
+    Box(Modifier.fillMaxWidth().onSizeChanged { boxWidth = it.width }) {
         val themeFamily = androidx.compose.material3.LocalTextStyle.current.fontFamily
         val fieldStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp).let { if (it.fontFamily == null) it.copy(fontFamily = themeFamily) else it }
         BasicTextField(
@@ -1393,7 +1408,14 @@ private fun BasicTextFieldWithPlaceholder(
             modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
         )
         if (value.isEmpty()) {
-            Text(placeholder, color = DimGray, fontSize = 13.sp)
+            // One line always: when the field gets squished (the side list
+            // dragged narrow), the word shrinks to fit instead of wrapping.
+            var size by remember(placeholder, boxWidth) { mutableStateOf(13f) }
+            Text(
+                placeholder, color = DimGray, fontSize = size.sp,
+                maxLines = 1, softWrap = false,
+                onTextLayout = { if (it.didOverflowWidth && size > 6f) size = (size - 0.5f).coerceAtLeast(6f) }
+            )
         }
     }
 }

@@ -2082,9 +2082,11 @@ private fun ProfileHeaderSection(
                 else androidx.compose.ui.graphics.lerp(coverTint, Color.White, 0.35f)
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = PROFILE_EDGE).padding(top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                // (Top-aligned: a long status wraps over as many lines as it
+                // needs, and the note sits beside the first one.)
+                verticalAlignment = Alignment.Top
             ) {
-                Icon(Icons.Filled.MusicNote, contentDescription = null, tint = linkColor, modifier = Modifier.size(14.dp))
+                Icon(Icons.Filled.MusicNote, contentDescription = null, tint = linkColor, modifier = Modifier.padding(top = 1.dp).size(14.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     buildAnnotatedString {
@@ -2093,8 +2095,7 @@ private fun ProfileHeaderSection(
                         withStyle(SpanStyle(color = linkColor)) { append(" by ") }
                         withStyle(SpanStyle(color = songColor)) { append(nowPlaying.artist) }
                     },
-                    fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                    fontSize = 12.sp, fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -2107,8 +2108,9 @@ private fun ProfileHeaderSection(
             LinkableBioText(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
                 modifier = Modifier.fillMaxWidth().then(
-                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = 10.dp, bottom = 4.dp)
-                    else Modifier.padding(horizontal = PROFILE_EDGE, vertical = 12.dp)
+                    // (Straight under a "Listening to" line there's no gap at all.)
+                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 10.dp, bottom = 4.dp)
+                    else Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 12.dp, bottom = 12.dp)
                 )
             )
         } else if (loadingProfile) {

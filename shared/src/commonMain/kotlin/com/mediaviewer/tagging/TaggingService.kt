@@ -111,6 +111,10 @@ interface TaggingService {
      * Edits one post's tags by hand (the Tags page): [oldTag] null adds
      * [newTag]; [newTag] null removes [oldTag]; both renames. A post that
      * isn't in the dataset yet is added to the device's own dataset.
+     * An added tag goes to this device's own dataset only; a removed (or
+     * renamed-away) tag is taken off the post in EVERY dataset, the shared
+     * one included, so a wrong tag in an imported dataset is fixed for
+     * every later export.
      * Returns the post's tags afterwards.
      */
     suspend fun editPostTag(postUri: String, cid: String, mediaUrl: String, oldTag: String?, newTag: String?): List<String> =
@@ -128,6 +132,10 @@ object AiTaggers {
     /** Its confidence: low, so it's listed after the post's real tags. */
     const val CONFIDENCE = 0.01f
 }
+
+/** Passed as the id to the VM's exportDataset to mean "every dataset
+ *  together" (Settings → Tag Datasets → Export All). */
+const val ALL_DATASETS_EXPORT_ID = "*all*"
 
 /** A tag as typed on the Tags page: trimmed, spaces become "_". */
 fun normalizeTypedTag(text: String): String =

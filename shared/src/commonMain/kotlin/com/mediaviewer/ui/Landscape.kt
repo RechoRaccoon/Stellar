@@ -15,6 +15,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isTertiaryPressed
@@ -367,23 +368,38 @@ fun Modifier.drawnAtScaleWrapped(scale: () -> Float): Modifier = this.then(
  * Two fingers pinched on this, or Ctrl + the mouse wheel (a trackpad pinch
  * on a computer arrives as that too), changes a size: [get] reads it, [set]
  * changes it ([save] true at the end of a pinch and for each wheel step);
- * Ctrl + a click calls [reset].
+ * Ctrl + a click, or a quick two-finger tap, calls [reset].
  * Two fingers here zoom instead of scrolling; one finger is left alone.
  */
 fun Modifier.pinchToScale(get: () -> Float, set: (Float, Boolean) -> Unit, reset: (() -> Unit)? = null): Modifier = this
     .pointerInput(Unit) {
         awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            val first = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
             var zoomed = false
+            // A two-finger tap (both fingers down together, barely moving, up
+            // quickly) is the touch version of Ctrl + a click: back to the usual size.
+            var twoFingers = false
+            var travelled = 0f
+            var pinched = 1f
+            var lastEventAt = first.uptimeMillis
+            val slop = viewConfiguration.touchSlop
             do {
                 val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                lastEventAt = event.changes.maxOf { it.uptimeMillis }
                 if (event.changes.count { it.pressed } >= 2) {
+                    twoFingers = true
                     val zoom = event.calculateZoom()
+                    travelled += event.calculatePan().getDistance()
+                    pinched *= zoom
                     if (zoom != 1f) { set(get() * zoom, false); zoomed = true }
                     event.changes.forEach { it.consume() }
                 }
             } while (event.changes.any { it.pressed })
             if (zoomed) set(get(), true)
+            if (twoFingers && reset != null && travelled <= slop * 2 && kotlin.math.abs(pinched - 1f) < 0.06f &&
+                lastEventAt - first.uptimeMillis < 400L) {
+                reset.invoke()
+            }
         }
     }
     .pointerInput(Unit) {

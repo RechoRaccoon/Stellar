@@ -9124,14 +9124,18 @@ class MainViewModel(
     val datasetExportState: StateFlow<DatasetExportState> = _datasetExportState
     private var datasetExportResetJob: Job? = null
 
-    /** Settings' Export beside a dataset: [datasetId] null = your own. */
+    /** Settings' Export beside a dataset: [datasetId] null = your own;
+     *  [com.mediaviewer.tagging.ALL_DATASETS_EXPORT_ID] = all of them together. */
     fun exportDataset(datasetId: String?, name: String, uri: com.mediaviewer.platform.PlatformUri) {
         if (_datasetExportState.value is DatasetExportState.Working) return
         datasetExportResetJob?.cancel()
         _datasetExportState.value = DatasetExportState.Working("Gathering tagged posts…")
         viewModelScope.launch(ioDispatcher) {
             try {
-                val posts = taggingRepo.exportDataset(datasetId)
+                // Export All: every dataset (this device's, every imported one
+                // and the shared one) as one, each post once with all its tags.
+                val posts = if (datasetId == com.mediaviewer.tagging.ALL_DATASETS_EXPORT_ID) taggingRepo.exportAllPosts()
+                    else taggingRepo.exportDataset(datasetId)
                 _datasetExportState.value = DatasetExportState.Working("Writing ${posts.size} posts…", posts.size)
                 val file = DatasetFile(
                     name = name.ifBlank { "Untitled Dataset" },
