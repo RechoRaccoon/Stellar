@@ -178,9 +178,10 @@ fun SearchOverlay(
     val focusRequester = remember { FocusRequester() }
     // (Coming back to results from a feed doesn't pop the keyboard up again.)
     LaunchedEffect(Unit) { if (state.query.isBlank() && state.filter != MainViewModel.SearchFilter.WEB) focusRequester.requestFocus() }
-    // Opening Tagged checks for the shared tag dataset (once a day); a new
-    // one (or the first) is offered in a popup over the page.
-    LaunchedEffect(state.filter) {
+    // Opening Tagged, and each search made in it, checks for the shared tag
+    // dataset (at most once a minute); a new one (or the first) is offered
+    // in a popup over the page.
+    LaunchedEffect(state.filter, state.query) {
         if (state.filter == MainViewModel.SearchFilter.LIKED_TAGS) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
     }
     // Picked posts don't outlive the search page or the tab they were
@@ -932,10 +933,12 @@ fun SearchOverlay(
         // matched a tag — but matching reads the on-device tag data, so
         // without the dataset nothing could ever match and a first-time
         // user was never offered it. The check itself only offers when
-        // the dataset is missing or out of date, and at most once a day,
+        // the dataset is missing or out of date, and at most once a minute,
         // so searching never nags.) The popup itself is drawn over the
         // whole app: see LocalOverlayHost.
-        LaunchedEffect(state.filter, state.hasSearched) {
+        // (Keyed by the query too, so every search asks — not just the first
+        // one after the page opened.)
+        LaunchedEffect(state.filter, state.hasSearched, state.query) {
             if (state.filter == MainViewModel.SearchFilter.ALL && state.hasSearched) com.mediaviewer.tagging.SharedTagDataset.onTaggedSearchOpened()
         }
     }

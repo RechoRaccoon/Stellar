@@ -67,11 +67,16 @@ object SharedTagDataset {
     private var job: Job? = null
 
     // Session-only memory (this object lives as long as the app runs):
-    // whether a check already found everything current this session, and
-    // which version's offer was dismissed. Nothing is timed — dismissing
-    // lasts the session, and restarting the app asks again.
-    private var sessionSettled = false
+    // which version's offer was dismissed, and when the published version
+    // was last looked up. Dismissing lasts the session for THAT version
+    // only — a newer one is offered again — and restarting asks again.
     private var dismissedVersion: String? = null
+    private var lastCheckedAt = 0L
+    // Looking up the manifest is tiny, but a search can fire many checks:
+    // one a minute is plenty. (A check that found everything current used
+    // to be remembered for the whole session, so a dataset updated while
+    // the app was open was never noticed until it was restarted.)
+    private const val RECHECK_MS = 60_000L
 
     fun init(context: PlatformContext) {
         if (prefs == null) prefs = context.sharedPreferences("shared_tag_dataset")
@@ -87,9 +92,9 @@ object SharedTagDataset {
      *  the session, and the next launch asks again. */
     fun onTaggedSearchOpened() {
         val p = prefs ?: return
-        if (checking || prompt != null || job?.isActive == true || sessionSettled) return
-        // Dismissed this session: the remembered manifest is enough to know.
-        if (dismissedVersion != null && manifest?.version == dismissedVersion) return
+        if (checking || prompt != null || job?.isActive == true) return
+        val now = com.mediaviewer.platform.currentTimeMillis()
+        if (now - lastCheckedAt < RECHECK_MS) return
         checking = true
         scope.launch {
             try {
@@ -100,16 +105,17 @@ object SharedTagDataset {
                     p.edit().remove("dataset_id").remove("version").apply()
                 }
                 val m = fetchManifest()
+                lastCheckedAt = now
                 // On the device but never noted (a manual import, or the
                 // app was closed before a long install noted itself):
                 // taken as is (see adopt) instead of offered endlessly.
                 if (installedDatasetId() == null) adopt(sets.orEmpty(), m)
                 manifest = m
-                if (m.posts > 0 && m.version != installedVersion()) {
-                    if (m.version != dismissedVersion) {
-                        withContext(Dispatchers.Main) { prompt = Prompt.Offer(installedVersion() != null, m.bytes, m.posts) }
-                    }
-                } else sessionSettled = true
+                // Only the version that was dismissed stays quiet: a newer
+                // one published since is offered.
+                if (m.posts > 0 && m.version != installedVersion() && m.version != dismissedVersion) {
+                    withContext(Dispatchers.Main) { prompt = Prompt.Offer(installedVersion() != null, m.bytes, m.posts) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -145,12 +151,15 @@ object SharedTagDataset {
         prompt = Prompt.Downloading(0f, "Starting…")
         job = scope.launch {
             try {
-                val m = manifest ?: fetchManifest().also { manifest = it }
+                val m = fetchManifest().also { manifest = it }
                 val total = m.bytes.coerceAtLeast(1L)
                 var done = 0L
                 val posts = ArrayList<TagExportedPost>(m.posts)
                 for (part in m.parts) {
-                    val resp = PlainHttp.get(BASE + part.file)
+                    // (The version in the address: a part keeps its name from
+                    // one version to the next, and GitHub's cache could hand
+                    // back the old one.)
+                    val resp = PlainHttp.get(BASE + part.file + "?v=" + m.version)
                     if (!resp.isSuccessful) error("The download stopped (${resp.code})")
                     parsePart(resp.bodyString(), posts)
                     done += part.bytes
@@ -184,7 +193,6 @@ object SharedTagDataset {
                 }
                 withContext(Dispatchers.Main) {
                     prompt = null
-                    sessionSettled = true
                     dismissedVersion = null
                     onInstalled?.invoke()
                 }
@@ -207,7 +215,9 @@ object SharedTagDataset {
     }
 
     private suspend fun fetchManifest(): Manifest {
-        val resp = PlainHttp.get(BASE + "manifest.json")
+        // The time in the address: GitHub keeps a file for about five minutes,
+        // so without it a dataset published just now could look unchanged.
+        val resp = PlainHttp.get(BASE + "manifest.json?t=" + com.mediaviewer.platform.currentTimeMillis())
         if (!resp.isSuccessful) error("No shared dataset yet (${resp.code})")
         val o = StellarJson.default.parseToJsonElement(resp.bodyString()) as? JsonObject ?: error("Unreadable manifest")
         val parts = (o["parts"] as? JsonArray).orEmpty().mapNotNull { e ->
