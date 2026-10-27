@@ -40,6 +40,7 @@ it through the account's PDS.
 | `com.rechoraccoon.stellar.home` | Profile Home tab rows and header style | Row (plus one `settings` record) |
 | `com.rechoraccoon.stellar.folder` | Public bookmark folders | Folder |
 | `com.rechoraccoon.stellar.emoji` | Custom emoji: name, folder, picture | Emoji |
+| `com.rechoraccoon.stellar.emojiLayout` | Emoji library arrangement: All order, folder order, per-folder order | Account (single record, key `self`) |
 
 ---
 
@@ -335,22 +336,59 @@ every device. Records are not encrypted.
 |---|---|---|
 | `$type` | string | Always `"com.rechoraccoon.stellar.emoji"`. |
 | `name` | string | Display name (read as `"emoji"` if blank). |
-| `image` | blob | Picture, as a standard blob object (see §1 "Video blobs" for the shape). `image/png`, or `image/gif` for an animated emoji. |
+| `image` | blob | Picture, as a standard blob object (see §1 "Video blobs" for the shape). `image/png`, or `image/gif` or animated `image/webp` for an animated emoji. |
 | `hash` | string | FNV-1a 64-bit hash of the picture bytes, 16 lowercase hex characters, zero-padded left. This is the emoji's identity for syncing. |
 | `folder` | string | Optional. Folder the emoji sits in, by the folder's **name** (not an id). Omitted when only in All. |
 | `createdAt` | string | ISO 8601. |
 
 There is **no `animated` field on the record**. Animation is read
-from the picture: `image.mimeType == "image/gif"`. `animated: true`
-appears only where something *points at* the emoji (a status's
-`emoji` list, a post or DM facet), and only when the picture is a
-GIF.
+from the picture: `image.mimeType == "image/gif"` or animated
+`image/webp`. `animated: true` appears only where something
+*points at* the emoji (a status's `emoji` list, a post or DM
+facet), and only when the picture is animated.
+
+
+### How the library is arranged — `com.rechoraccoon.stellar.emojiLayout`
+
+One record per account, key `self`, on the owner's PDS. It says how
+the library is arranged: the order of All, the order of the folders,
+and the order inside each folder, plus which emoji sit in which
+folders. The pictures themselves are still the per-emoji records
+above (the "All" database); this record only says where each one
+sits. It is keyed by picture hash, not emoji id, because ids differ
+between devices and hashes don't.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `$type` | string | Always `"com.rechoraccoon.stellar.emojiLayout"`. |
+| `data` | string | The arrangement as JSON text (not a nested object): `{"all": ["<hash>", …], "folders": [{"name": "<folder>", "emoji": ["<hash>", …]}, …]}`. An emoji can appear in any number of folders. |
+| `updatedAt` | string | ISO 8601. |
+
+Written to: `at://<did>/com.rechoraccoon.stellar.emojiLayout/self`
+
+How sync treats it:
+
+- No layout saved yet: this device's arrangement becomes the saved one.
+- First time a device meets a saved layout: the two are merged, so
+  nothing is lost (folders and folder membership from both sides).
+- After that, whichever side changed since the last sync wins: a
+  layout changed on another device is taken; a layout changed here
+  is uploaded.
+- When a layout exists, it decides the folders. A per-emoji record's
+  `folder` field is only read for libraries that have no layout yet.
+- Folders match by name. A local folder with no match is reused for
+  a layout folder with no match (a rename); any folder still left
+  over is deleted, and its emoji stay in All.
+- Deleting an emoji from a folder only takes it out of that folder.
+  Deleting a folder keeps its emoji in All. Only deleting from All
+  deletes the emoji everywhere, including other devices (its record
+  goes, and sync removes it from devices that still have it).
 
 ### Creating one
 
 1. Upload the picture with `POST /xrpc/com.atproto.repo.uploadBlob`:
-   `image/png`, or `image/gif` for an animated emoji. Keep the
-   returned blob object.
+   `image/png`, or `image/gif` or animated `image/webp` for an
+   animated emoji. Keep the returned blob object.
 2. Compute the hash: FNV-1a 64-bit over the picture bytes (offset
    basis `0xcbf29ce484222325`, prime `0x100000001b3`), rendered as
    16 lowercase hex characters, zero-padded left.
@@ -390,12 +428,11 @@ the emoji goes, plus a pointer saying which emoji it is:
 - **In a status**: the text carries the marker, and the status's
   `emoji` list points at it: `at` (character index of the marker),
   `did` (library owner), `cid` (picture blob CID), `name`,
-  `animated` (only when the picture is a GIF).
+  `animated` (only when the picture is animated: GIF or animated WebP).
 - **In a post or comment**: the text carries the marker, and the
   post's facets carry one facet of type
   `com.rechoraccoon.stellar.richtext.facet#emoji` over it (UTF-8 byte
-  offsets), with `did`, `rkey`, `cid`, `name` (and `animated` when a
-  GIF). The `app.bsky.richtext.facet` features union is open, so a
+  offsets), with `did`, `rkey`, `cid`, `name` (and `animated` when the picture is animated). The `app.bsky.richtext.facet` features union is open, so a
   PDS accepts a post facet with this custom `$type`. Stellar draws
   the picture there; other apps show the post without the emoji
   pictures.
@@ -416,7 +453,8 @@ the emoji goes, plus a pointer saying which emoji it is:
   emoji. Check the library first.
 - **Using a folder id for `folder`.** It is the folder's name.
 - **Expecting an `animated` field on the record.** There isn't one;
-  animation is read from the picture's mimeType.
+  animation is read from the picture's mimeType (`image/gif` or
+  animated `image/webp`).
 - **Writing the record with a hand-picked key via `putRecord`.** The
   app creates with `createRecord` and lets the PDS assign a
   timestamp key; keys double as the library order.
