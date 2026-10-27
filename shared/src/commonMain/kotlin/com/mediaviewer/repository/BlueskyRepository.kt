@@ -3439,8 +3439,30 @@ class BlueskyRepository {
         // quoted person's name — someone who usually isn't on the list. Only
         // keep tiles that are the member's own post (a quote with the
         // member's own photo/video attached still counts).
-        .flatMap { item -> parseFeedItemSafe(item).filter { it.author.did == item.post.author.did } }
+        .flatMap { item -> parseFeedItemSafe(item).filter { it.author.did == item.post.author.did && it.quoted == null } }
         .distinctBy { it.postUri }
+
+    /** The posts [feed]'s accounts reposted (plain reposts only: a quote is
+     *  someone's own post), each marked with who reposted it and when (see
+     *  MediaItem.repostedAt). Replies are left out, as everywhere in feeds. */
+    private fun hubListRepostedPosts(feed: List<BskyFeedItem>, onlyBy: String? = null): List<MediaItem> = feed
+        .filter { item ->
+            item.reason?.type?.contains("reasonRepost") == true && item.reply == null && item.post.record.reply == null &&
+                (onlyBy == null || item.reason.by?.did == onlyBy)
+        }
+        .flatMap { item -> repostMarked(item, parseFeedItemSafe(item)) }
+        .distinctBy { it.postUri }
+
+    /** [media] (parsed from the repost [item]) tagged with its reposter. */
+    private fun repostMarked(item: BskyFeedItem, media: List<MediaItem>): List<MediaItem> {
+        val by = item.reason?.by ?: return media
+        val reposter = AuthorInfo(
+            did = by.did, handle = by.handle, displayName = by.displayName?.takeIf { it.isNotBlank() } ?: by.handle,
+            avatarUrl = by.avatar, followingUri = by.viewer?.following, isFollowing = by.viewer?.following != null
+        )
+        val at = item.reason.indexedAt?.takeIf { it.isNotBlank() } ?: item.post.indexedAt
+        return media.map { it.copy(sentByAuthor = reposter, sentByMessage = "", sentByIsRepost = true, repostedAt = at) }
+    }
 
     /** The next page of a Hub list row's posts (AppView), for scrolling on. */
     suspend fun getHubListPostsPage(token: String, myDid: String, listUri: String, cursor: String): Result<Pair<List<MediaItem>, String?>> = runCatching {
@@ -3473,7 +3495,10 @@ class BlueskyRepository {
      *  (a new list, or one whose members are quiet), so the row can keep
      *  going further back. */
     suspend fun getHubListMemberPostsPage(
-        token: String, myDid: String, memberDid: String, cursor: String?, limit: Int = 15
+        token: String, myDid: String, memberDid: String, cursor: String?, limit: Int = 15,
+        /** Also what the member reposted (Feed Builder's Reposts), marked
+         *  as such and timed by the repost. */
+        includeReposts: Boolean = false
     ): Result<Pair<List<Pair<Long, MediaItem>>, String?>> = runCatching {
         val resp = viaAppView(token, myDid, "app.bsky.feed.getAuthorFeed") { a, auth ->
             a.getAuthorFeed(auth, memberDid, limit, cursor, "posts_no_replies")
@@ -3482,10 +3507,22 @@ class BlueskyRepository {
         val out = ArrayList<Pair<Long, MediaItem>>()
         val seen = HashSet<String>()
         for (item in body.feed) {
+            if (includeReposts && item.reason?.type?.contains("reasonRepost") == true && item.reason.by?.did == memberDid &&
+                item.reply == null && item.post.record.reply == null) {
+                val media = repostMarked(item, parseFeedItemSafe(item)).firstOrNull() ?: continue
+                if (!seen.add(media.postUri)) continue
+                val at = item.reason.indexedAt?.takeIf { it.isNotBlank() } ?: item.post.indexedAt
+                val t = at?.let { raw ->
+                    runCatching { com.mediaviewer.platform.parseIsoInstantMillis(raw) }.getOrNull()
+                        ?: runCatching { com.mediaviewer.platform.parseIsoOffsetDateTimeMillis(raw) }.getOrNull()
+                } ?: 0L
+                out += t to media
+                continue
+            }
             if (item.reason != null || item.reply != null || item.post.record.reply != null) continue
             if (item.post.author.did != memberDid) continue
             // Same rule as hubListOriginalPosts: no tiles under someone else's name.
-            val media = parseFeedItemSafe(item).firstOrNull { it.author.did == memberDid } ?: continue
+            val media = parseFeedItemSafe(item).firstOrNull { it.author.did == memberDid && it.quoted == null } ?: continue
             if (!seen.add(media.postUri)) continue
             val t = item.post.record.createdAt?.let { raw ->
                 runCatching { com.mediaviewer.platform.parseIsoInstantMillis(raw) }.getOrNull()
@@ -3594,7 +3631,7 @@ class BlueskyRepository {
      * comes in). A raw page can be mostly reposts/replies, so this keeps
      * reading (up to 5 pages) until there's a useful batch to show.
      */
-    suspend fun getListFeedOriginals(token: String, myDid: String, listUri: String, cursor: String? = null)
+    suspend fun getListFeedOriginals(token: String, myDid: String, listUri: String, cursor: String? = null, includeReposts: Boolean = false)
         : Result<Pair<List<MediaItem>, String?>> = runCatching {
         var c = cursor
         val out = ArrayList<MediaItem>()
@@ -3605,6 +3642,8 @@ class BlueskyRepository {
             if (!resp.isSuccessful) error("ListFeed ${resp.code()}: ${errorBodyText(resp)}")
             val body = resp.body() ?: error("ListFeed ${resp.code()}")
             out += hubListOriginalPosts(body.feed).withoutRecho(listUri)
+            // (A list's feed carries its members' reposts too: kept, marked, when asked for.)
+            if (includeReposts) out += hubListRepostedPosts(body.feed).withoutRecho(listUri)
             pages++
             c = body.cursor?.takeIf { it.isNotBlank() && it != cur }
             if (c == null || out.size >= 12 || pages >= 5) break
@@ -4538,7 +4577,7 @@ class BlueskyRepository {
                 out += com.mediaviewer.util.EmojiCloud.RemoteEmoji(
                     rkey = rec.uri.substringAfterLast('/'), name = text("name").orEmpty().ifBlank { "emoji" },
                     cid = cid, hash = text("hash").orEmpty(), folder = text("folder"),
-                    animated = (image["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "image/gif"
+                    animated = (image["mimeType"] as? kotlinx.serialization.json.JsonPrimitive)?.content.let { it == "image/gif" || it == "image/webp" }
                 )
             }
             cursor = body.cursor?.takeIf { body.records.isNotEmpty() }
@@ -4564,6 +4603,19 @@ class BlueskyRepository {
         val resp = api.createRecord("Bearer $token", BskyCreateRecordRequest(did, com.mediaviewer.util.EmojiCloud.COLLECTION, record))
         val body = resp.body() ?: error("Emoji ${resp.code()}: ${errorBodyText(resp).take(120)}")
         body.uri.substringAfterLast('/') to blob.ref.link
+    }
+
+    /** How the emoji library is arranged (EmojiCloud.Layout as JSON text), or null when none is saved. */
+    suspend fun getEmojiLayout(token: String, did: String): String? =
+        syncGetRecord(token, did, com.mediaviewer.util.EmojiCloud.LAYOUT_COLLECTION, "self")
+            ?.value?.get("data")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+
+    suspend fun putEmojiLayout(token: String, did: String, json: String) {
+        syncPutRecord(
+            token, did, com.mediaviewer.util.EmojiCloud.LAYOUT_COLLECTION, "self",
+            mapOf("\$type" to com.mediaviewer.util.EmojiCloud.LAYOUT_COLLECTION, "data" to json, "updatedAt" to com.mediaviewer.platform.nowIsoString()),
+            swap = null
+        )
     }
 
     suspend fun deleteEmojiRecord(token: String, did: String, rkey: String) = withContext(ioDispatcher) {
@@ -5850,6 +5902,9 @@ class BlueskyRepository {
                             if (!t.isNullOrBlank()) t else img.thumbnail?.takeIf { it.isNotBlank() } ?: img.fullsize
                         }
                         val quotedVideo = quotedEmbed?.takeIf { it.type.contains("video") }
+                        val quotedCount = quotedEmbed?.let { qe -> maxOf(qe.images?.size ?: 0, qe.items?.size ?: 0) } ?: 0
+                        val quotedAspect = (quotedVideo?.aspectRatio ?: quotedImage?.aspectRatio)
+                            ?.takeIf { it.height > 0 }?.let { it.width.toFloat() / it.height.toFloat() }
                         listOf(
                             MediaItem(
                                 id = post.cid,
@@ -5857,21 +5912,29 @@ class BlueskyRepository {
                                 thumbUrl = quotedVideo?.thumbnail ?: quotedImageThumb ?: "",
                                 isVideo = quotedVideo != null,
                                 videoPlaylistUrl = quotedVideo?.playlist, videoBlobCid = quotedVideo?.cid,
-                                // Interactions (like/repost/etc.) still act on the
-                                // outer quote-repost post itself, not the quoted
-                                // one — same as tapping "repost" on a quote post
-                                // in the real Bluesky app.
+                                // The quote post is the item: its author, its own
+                                // words and its own like / repost / reply counts and
+                                // actions (as in the real Bluesky app). The post it
+                                // quotes rides along in [quoted]; the picture above
+                                // stays the quoted post's, which is what grids show.
                                 postUri = post.uri, postCid = post.cid, feedContext = item.feedContext,
-                                author = quotedAuthor,
+                                author = author,
                                 likeUri = post.viewer?.like, repostUri = post.viewer?.repost,
                                 isLiked = post.viewer?.like != null, isReposted = post.viewer?.repost != null,
                                 likeCount = post.likeCount ?: 0, replyCount = post.replyCount ?: 0,
                                 repostCount = post.repostCount ?: 0,
                                 altText = quotedImage?.alt ?: "",
-                                text = quoted.value?.text ?: "",
+                                text = text,
                                 sentByAuthor = author, sentByMessage = text, sentByIsRepost = true,
-                                aspectRatio = (quotedVideo?.aspectRatio ?: quotedImage?.aspectRatio)
-                                    ?.takeIf { it.height > 0 }?.let { it.width.toFloat() / it.height.toFloat() },
+                                aspectRatio = quotedAspect,
+                                quoted = QuotedPost(
+                                    uri = quoted.uri.orEmpty(), cid = quoted.cid.orEmpty(), author = quotedAuthor,
+                                    text = quoted.value?.text ?: "",
+                                    mediaUrl = quotedVideo?.thumbnail ?: quotedImage?.fullsize ?: "",
+                                    thumbUrl = quotedVideo?.thumbnail ?: quotedImageThumb ?: "",
+                                    isVideo = quotedVideo != null, aspectRatio = quotedAspect,
+                                    mediaCount = quotedCount, altText = quotedImage?.alt ?: ""
+                                ),
                                 // Feature request #8: union of the outer
                                 // quote-repost post's own labels and the
                                 // quoted post's labels — either one being

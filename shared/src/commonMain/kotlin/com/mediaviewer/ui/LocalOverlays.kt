@@ -66,6 +66,8 @@ object LocalOverlays {
     /** A post whose "Edited" status was tapped: its version history. */
     var editHistoryFor by mutableStateOf<MediaItem?>(null)
     /** A just-saved post being filed into a bookmark folder. */
+    /** A quoted post (its URI) the Timeline's quote repost asked to open in front. */
+    var openQuotedPostUri by mutableStateOf<String?>(null)
     var bookmarkFolderFor by mutableStateOf<MediaItem?>(null)
     /** Selection mode's Save: several posts filed at once, in the order picked. */
     var bookmarkFolderForMany by mutableStateOf<List<MediaItem>?>(null)

@@ -98,12 +98,10 @@ internal fun LazyListScope.profileHomeRows(
         }
         return
     }
-    if (feeds.isEmpty()) item(key = "home_empty") {
-        // (Your own empty Home tab is just its Create button.)
-        // (As far below the filters as they are below the tabs.)
-        if (own) Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp), contentAlignment = Alignment.Center) {
-            LayoutPillButton("Create", liquidGlass, tint, null, { openHomeBuilder(LocalFeed()) })
-        } else Text(
+    // (Your own empty Home tab shows nothing at all: Create only appears
+    // once Customize is tapped, in the Home Layout above.)
+    if (feeds.isEmpty() && !own) item(key = "home_empty") {
+        Text(
             "Nothing here yet",
             color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 24.dp)

@@ -6588,6 +6588,8 @@ class MainViewModel(
                 signedIn { bskyRepo.createEmojiRecord(bskyToken, did, name, png, hash, folder) }
             override suspend fun delete(did: String, rkey: String) = signedIn { bskyRepo.deleteEmojiRecord(bskyToken, did, rkey) }
             override suspend fun fetch(did: String, cid: String) = bskyRepo.fetchBlob(did, cid)
+            override suspend fun getLayout(did: String) = signedIn { bskyRepo.getEmojiLayout(bskyToken, did) }
+            override suspend fun putLayout(did: String, json: String) = signedIn { bskyRepo.putEmojiLayout(bskyToken, did, json) }
         }
         // The shared tag dataset: downloaded into the tagging service as
         // one more imported dataset (see tagging/SharedTagDataset).
@@ -10514,7 +10516,11 @@ class MainViewModel(
         // reading a little further rather than showing an empty feed — but
         // as soon as a round has anything to show, it's shown (waiting for a
         // full page made rows take several round trips to appear).
-        while ((out.isEmpty() || (rounds == 0)) && rounds < 4 && cursors.any { it != "!" }) {
+        // A feed sorted by counts (or oldest first) needs a bigger pool than
+        // one page to put the right posts first, so its first read goes a
+        // few rounds deeper before sorting.
+        val wantsPool = feed.sort != "recent" && cursor == null
+        while ((out.isEmpty() || (rounds == 0) || (wantsPool && out.size < 60)) && rounds < 4 && cursors.any { it != "!" }) {
             rounds++
             val pages = coroutineScope {
                 sources.mapIndexed { i, src ->
@@ -10523,8 +10529,8 @@ class MainViewModel(
                         if (cur == "!") return@async Pair(emptyList<MediaItem>(), "!")
                         val c = cur.takeIf { it != "-" }
                         val page: Pair<List<MediaItem>, String?>? = when (src.kind) {
-                            "list" -> bskyRepo.getListFeedOriginals(bskyToken, me, src.value, c).getOrNull()
-                            "account" -> bskyRepo.getHubListMemberPostsPage(bskyToken, me, src.value, c, 30).getOrNull()
+                            "list" -> bskyRepo.getListFeedOriginals(bskyToken, me, src.value, c, includeReposts = feed.reposts).getOrNull()
+                            "account" -> bskyRepo.getHubListMemberPostsPage(bskyToken, me, src.value, c, 30, includeReposts = feed.reposts).getOrNull()
                                 ?.let { (posts, next) -> posts.map { it.second } to next }
                             "hashtag" -> bskyRepo.searchPostsDirect(bskyToken, me, "#" + src.value.removePrefix("#"), c).getOrNull()
                             // Posts known by their links (a tag's matches, a
@@ -10625,7 +10631,10 @@ class MainViewModel(
             turn?.let { awaitHubTurn(it) }
             result.onSuccess { (posts, next) ->
                 setHubList(key) { cur ->
-                    val all = if (more) cur.posts + posts else posts
+                    // (The whole row is put in the feed's order again each time
+                    // a page joins it: sorting only each page on its own left
+                    // "Most Liked" and the rest in page-sized runs.)
+                    val all = if (more) feed.sorted(cur.posts + posts) else posts
                     cur.copy(
                         loading = false, loadingMore = false, failed = false,
                         posts = all, members = all.map { it.author }.distinctBy { it.did },
@@ -10986,6 +10995,45 @@ class MainViewModel(
         _dmHiddenBehindFeed.value = fromDm
         _screenState.value = ScreenState.GRID
         loadExternalFeed(reset = true)
+    }
+
+    /** Tapping the quoted post inside a quote repost on the Timeline: that
+     *  post opens in front of the feed (Back, or swiping it away, returns to
+     *  the quote repost exactly where it was), the way a post shared in a DM
+     *  does. */
+    fun openQuotedPost(uri: String) {
+        if (uri.isBlank() || !_bskyLoggedIn.value) return
+        tapHaptic()
+        viewModelScope.launch(ioDispatcher) {
+            val items = filterHidden(runCatching { bskyRepo.getPostItems(bskyToken, _bskyDid.value, listOf(uri)) }.getOrNull().orEmpty())
+            if (items.isEmpty()) { showToast("Post unavailable"); return@launch }
+            withContext(Dispatchers.Main) {
+                if (profileFeedReturn == null || !isProfileFeedActive()) {
+                    profileFeedReturn = ProfileFeedReturn(
+                        _authorFeedState.value, _mediaItems.value, _currentIndex.value, feedCursor,
+                        activeFeedMode, activeFeedActorDid, _selectedFeedUri.value, _screenState.value
+                    )
+                }
+                val pseudo = AuthorInfo(_bskyDid.value, PROFILE_FEED_HANDLE_PREFIX + "stellar-quote://" + uri, "Quoted Post", null)
+                val cur = _authorFeedState.value
+                _authorFeedState.value = cur?.copy(author = pseudo) ?: AuthorFeedSavedState(
+                    author = pseudo, items = _mediaItems.value, currentIndex = _currentIndex.value,
+                    cursor = feedCursor, feedUri = _selectedFeedUri.value
+                )
+                feedLoadGeneration++
+                feedCursor = null
+                isLoadingMore = false
+                activeFeedMode = ActiveFeedMode.EXTERNAL
+                activeFeedActorDid = null
+                // (Just this one post: nothing to page through.)
+                externalFeedUri = null
+                _mediaItems.value = items
+                _currentIndex.value = 0
+                _navDirection.value = 0
+                _isLoading.value = false
+                _screenState.value = ScreenState.FEED
+            }
+        }
     }
 
     /** "Add" on a feed shared in a DM. */

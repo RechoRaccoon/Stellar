@@ -449,6 +449,7 @@
 "Deleted message": "已删除的消息",
 "Deletes \":{0}:\" everywhere.": "在所有地方删除\":{0}:\"。",
 "Deletes \"{0}\" and its {1} emoji.": "删除\"{0}\"及其中的 {1} 个表情。",
+"Deletes \"{0}\". Its {1} emoji stay in All.": "删除\"{0}\"。其中的 {1} 个表情会保留在\"全部\"中。",
 "Deletes \"{0}\". It's empty.": "删除\"{0}\"。它是空的。",
 "Deletes {0} emoji not in any folder.": "删除 {0} 个不在任何文件夹中的表情。",
 "Description": "描述",

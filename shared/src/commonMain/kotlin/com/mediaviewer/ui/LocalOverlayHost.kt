@@ -183,6 +183,14 @@ fun LocalOverlayHost(
             LocalOverlays.shareFeed = null
         }
     }
+    // A quote repost's quoted post, opened in front of the Timeline.
+    val quotedToOpen = LocalOverlays.openQuotedPostUri
+    LaunchedEffect(quotedToOpen) {
+        if (quotedToOpen != null) {
+            viewModel.openQuotedPost(quotedToOpen)
+            LocalOverlays.openQuotedPostUri = null
+        }
+    }
 
     // A feed opened from a DM sits in front of the DMs: Back returns to them.
     // (Going to the Hub instead leaves the DMs for good.)

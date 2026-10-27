@@ -157,28 +157,41 @@ data class LocalFeed(
     /** Also the blogs (Leaflet) and reviews (Popfeed) of the accounts it
      *  reads from — rows of their own under its posts. */
     val blogs: Boolean = false,
-    val reviews: Boolean = false
+    val reviews: Boolean = false,
+    /** Also what the accounts it reads from (its accounts, and its lists'
+     *  members) have reposted, in with its posts. */
+    val reposts: Boolean = false
 ) {
     val uri: String get() = LocalData.LOCAL_FEED_PREFIX + id
 
     /** Any kind of post at all (a feed can be just blogs and reviews). */
-    val showsPosts: Boolean get() = textPosts || images || horizontalVideos || verticalVideos || polls
+    val showsPosts: Boolean get() = textPosts || images || horizontalVideos || verticalVideos || polls || reposts
 
     /** Whether [item] is one of the kinds of posts this feed shows. */
-    fun keeps(item: com.mediaviewer.model.MediaItem): Boolean = when {
-        item.isPoll -> polls
-        item.isTextOnly -> textPosts
-        item.isVideo -> if (item.isHorizontalVideo) horizontalVideos else verticalVideos
-        else -> images
+    fun keeps(item: com.mediaviewer.model.MediaItem): Boolean {
+        val kindOn = when {
+            item.isPoll -> polls
+            item.isTextOnly -> textPosts
+            item.isVideo -> if (item.isHorizontalVideo) horizontalVideos else verticalVideos
+            else -> images
+        }
+        // A repost follows the kinds that are on too; with none of them on
+        // (a feed of just Reposts) every kind of repost is kept.
+        if (item.repostedAt != null) return reposts && (kindOn || !(textPosts || images || horizontalVideos || verticalVideos || polls))
+        return kindOn
     }
+
+    /** What an item's place in the order goes by: for a repost, when it
+     *  was reposted; otherwise when it was posted. */
+    private fun timeOf(item: com.mediaviewer.model.MediaItem): String = (item.repostedAt ?: item.createdAt).orEmpty()
 
     /** [items] in this feed's order. */
     fun sorted(items: List<com.mediaviewer.model.MediaItem>): List<com.mediaviewer.model.MediaItem> = when (sort) {
         "likes" -> items.sortedByDescending { it.likeCount }
         "reposts" -> items.sortedByDescending { it.repostCount }
         "replies" -> items.sortedByDescending { it.replyCount }
-        "oldest" -> items.sortedBy { it.createdAt.orEmpty().ifBlank { "~" } }
-        else -> items.sortedByDescending { it.createdAt.orEmpty() }
+        "oldest" -> items.sortedBy { timeOf(it).ifBlank { "~" } }
+        else -> items.sortedByDescending { timeOf(it) }
     }
 }
 

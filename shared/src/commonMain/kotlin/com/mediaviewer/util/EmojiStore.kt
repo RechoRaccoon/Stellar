@@ -75,10 +75,10 @@ expect class EmojiStore {
     /** A new, empty folder after the others; its id. */
     fun createFolder(name: String): Int
     fun renameFolder(id: Int, name: String)
-    /** The folder and every emoji in it. */
+    /** The folder only: its emoji stay in All (and in any other folder). */
     fun deleteFolder(id: Int)
     fun emojiCountIn(folderId: Int): Int
-    /** One emoji, everywhere. */
+    /** One emoji, everywhere (what deleting it from All does). */
     fun deleteEmoji(id: Int)
     /** Every emoji not in a folder; how many went. */
     fun deleteOrphanEmoji(): Int

@@ -461,20 +461,27 @@ fun MainFeedScreen(
     val commentViewerBlur = if (commentViewer != null) 26.dp else 0.dp
 
     // ── Keyboard shortcuts (every version, with a keyboard) ──
-    // Timeline: L / Space like, R repost, Q quote repost, S share, C comments, B save (bookmark),
-    // F follow / unfollow, ← → (or A / D) the previous / next picture of a
-    // multi-picture post and then the previous / next post, ↑ ↓ the previous /
-    // next post straight away, E Explore (as pinching in does). Explore: T back to the
-    // timeline, at the post it was on. Only while nothing's open over them;
-    // typing in a text field never triggers them (the field takes the keys).
+    // Timeline: L / Space like, R repost, Q quote repost, S share, C comments, B save (asks which
+    // folder(s), as saving a post does), F follow / unfollow, ← → (or A / D) the previous / next
+    // post, ↑ (or W) the previous post — or, on a multi-image post, open its pictures (then ← →
+    // / A D step through them and S or ↓ closes the picture again) — ↓ the next post, E Explore
+    // (as pinching in does). Explore: T back to the timeline, at the post it was on. Only while
+    // nothing's open over them; typing in a text field never triggers them (the field takes the
+    // keys, and the comment box switches them off while it has focus).
     val keyFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val shortcutsOn = shortcutsEnabled && (screenState == ScreenState.FEED || screenState == ScreenState.COMMENTS || screenState == ScreenState.GRID)
     // (A popup closing — Add To, Share To, Quote Repost — hands the keys back.)
     LaunchedEffect(screenState, shortcutsEnabled, popupOpen) {
-        if (shortcutsEnabled && !popupOpen && (screenState == ScreenState.FEED || screenState == ScreenState.GRID)) runCatching { keyFocus.requestFocus() }
+        if (shortcutsEnabled && !popupOpen && !TypingFocus.inCommentBox && (screenState == ScreenState.FEED || screenState == ScreenState.GRID)) runCatching { keyFocus.requestFocus() }
     }
-    val latestShortcutsOn by rememberUpdatedState(shortcutsOn)
+    // (Off while the comment box has the keys, so typing there is never
+    // taken for a shortcut; on again the moment it's let go of.)
+    val latestShortcutsOn by rememberUpdatedState(shortcutsOn && !TypingFocus.inCommentBox)
+    // (A press elsewhere still takes the keys back from the comment box.)
+    val latestShortcutsAllowed by rememberUpdatedState(shortcutsOn)
     val latestIndex by rememberUpdatedState(currentIndex)
+    val latestCurrentItem by rememberUpdatedState(currentItem)
+    val latestAppMode by rememberUpdatedState(appMode)
     Box(
         Modifier.fillMaxSize().background(OledBlack)
             // Any press on the timeline / Explore takes the keys back (so the
@@ -484,7 +491,7 @@ fun MainFeedScreen(
                 awaitPointerEventScope {
                     while (true) {
                         val e = awaitPointerEvent(PointerEventPass.Initial)
-                        if (e.type == PointerEventType.Press && latestShortcutsOn) runCatching { keyFocus.requestFocus() }
+                        if (e.type == PointerEventType.Press && latestShortcutsAllowed) runCatching { keyFocus.requestFocus() }
                     }
                 }
             }
@@ -501,22 +508,40 @@ fun MainFeedScreen(
                     Key.L, Key.Spacebar -> { FeedKeys.likes++; true }
                     Key.R -> { onToggleRepost(); true }
                     Key.Q -> { onQuoteRepost(); true }
-                    Key.S -> { onSendPost(); true }
+                    // (S closes a multi-image post's fullscreen picture first;
+                    // only with none open does it open Share With.)
+                    Key.S -> { if (FeedKeys.viewerOpen) { FeedKeys.viewerClose++; true } else { onSendPost(); true } }
                     Key.C -> { onSetScreen(if (state == ScreenState.COMMENTS) ScreenState.FEED else ScreenState.COMMENTS); true }
                     Key.F -> { onToggleFollow(); true }
-                    Key.B -> { onToggleBookmark(); true }
+                    // Bluesky: B asks which folder(s) it goes in, as saving a
+                    // post already does; e621 keeps its plain favorite toggle.
+                    Key.B -> {
+                        val cur = latestCurrentItem
+                        if (latestAppMode == AppMode.BLUESKY && cur != null && cur.postUri.isNotBlank()) LocalOverlays.bookmarkFolderFor = cur
+                        else onToggleBookmark()
+                        true
+                    }
+                    // ← → / A D go to the next / previous post, even from a
+                    // multi-image post; its pictures only step with one open.
                     Key.DirectionRight, Key.D -> {
-                        if (FeedKeys.imageCount > 1 && FeedKeys.imagePage < FeedKeys.imageCount - 1) { FeedKeys.imageStepDir = 1; FeedKeys.imageSteps++ }
-                        else onNavigateNext()
+                        if (!FeedKeys.viewerOpen) onNavigateNext()
+                        else if (FeedKeys.imagePage < FeedKeys.imageCount - 1) { FeedKeys.imageStepDir = 1; FeedKeys.imageSteps++ }
                         true
                     }
                     Key.DirectionLeft, Key.A -> {
-                        if (FeedKeys.imageCount > 1 && FeedKeys.imagePage > FeedKeys.imageFloor) { FeedKeys.imageStepDir = -1; FeedKeys.imageSteps++ }
-                        else onNavigatePrev()
+                        if (!FeedKeys.viewerOpen) onNavigatePrev()
+                        else if (FeedKeys.imagePage > 0) { FeedKeys.imageStepDir = -1; FeedKeys.imageSteps++ }
                         true
                     }
-                    Key.DirectionDown -> { onNavigateNext(); true }
-                    Key.DirectionUp -> { onNavigatePrev(); true }
+                    // ↓ closes an open picture too (the way back from ↑ / W).
+                    Key.DirectionDown -> { if (FeedKeys.viewerOpen) FeedKeys.viewerClose++ else onNavigateNext(); true }
+                    // ↑ / W open a multi-image post's pictures; ↑ is the
+                    // previous post anywhere else.
+                    Key.DirectionUp, Key.W -> {
+                        if (FeedKeys.imageGrid) { if (!FeedKeys.viewerOpen) FeedKeys.viewerOpenAsks++; true }
+                        else if (e.key == Key.DirectionUp) { onNavigatePrev(); true }
+                        else false
+                    }
                     Key.E -> { onPinchIn(); true }
                     else -> false
                 }
@@ -1155,7 +1180,7 @@ private fun FeedView(
                 },
                 label = "post"
             ) { idx ->
-                val item = mediaItems.getOrNull(idx) ?: return@AnimatedContent
+                val item = (mediaItems.getOrNull(idx) ?: return@AnimatedContent).forTimeline()
                 PostContent(
                     item             = item,
                     isCurrent        = idx == currentIndex,
@@ -1417,24 +1442,37 @@ private fun PostContent(
 
     // Back closes the fullscreen image first.
     com.mediaviewer.ui.compat.BackHandler(enabled = viewerIndex != null) { closeViewer() }
-    // The keyboard's ← → step through this post's pictures before moving to
-    // another post (see FeedKeys). A picture grid opens its first picture
-    // full screen, steps through them, and ← from the first closes it again.
+    // The keyboard (see FeedKeys): ↑ / W open a multi-image post's pictures,
+    // ← → / A D step through them while one is open, S / ↓ close it again.
+    // With none open, ← → go to the next / previous post instead.
     if (isCurrent) {
         val keyCount = if (item.isVideo || item.isTextOnly) 1 else item.mediaGroup.size
-        val keyPage = if (isImageGrid && viewerIndex == null) -1 else pagerState.currentPage
-        SideEffect { FeedKeys.imagePage = keyPage; FeedKeys.imageCount = keyCount; FeedKeys.imageFloor = if (isImageGrid) -1 else 0 }
+        SideEffect {
+            FeedKeys.imagePage = pagerState.currentPage; FeedKeys.imageCount = keyCount
+            FeedKeys.imageGrid = isImageGrid
+            FeedKeys.viewerOpen = isImageGrid && viewerIndex != null && !viewerClosing
+        }
         val seenSteps = remember { intArrayOf(FeedKeys.imageSteps) }
         LaunchedEffect(FeedKeys.imageSteps) {
             if (FeedKeys.imageSteps == seenSteps[0]) return@LaunchedEffect
             seenSteps[0] = FeedKeys.imageSteps
-            val target = (keyPage + FeedKeys.imageStepDir).coerceIn(-1, (keyCount - 1).coerceAtLeast(0))
+            if (!isImageGrid || viewerIndex == null) return@LaunchedEffect
+            val target = (pagerState.currentPage + FeedKeys.imageStepDir).coerceIn(0, (keyCount - 1).coerceAtLeast(0))
             FeedKeys.imagePage = target
-            when {
-                isImageGrid && target < 0 -> closeViewer()
-                isImageGrid && viewerIndex == null -> openViewer(target.coerceAtLeast(0))
-                else -> postScope.launch { pagerState.animateScrollToPage(target.coerceAtLeast(0)) }
-            }
+            postScope.launch { pagerState.animateScrollToPage(target) }
+        }
+        val seenOpens = remember { intArrayOf(FeedKeys.viewerOpenAsks) }
+        LaunchedEffect(FeedKeys.viewerOpenAsks) {
+            if (FeedKeys.viewerOpenAsks == seenOpens[0]) return@LaunchedEffect
+            seenOpens[0] = FeedKeys.viewerOpenAsks
+            // (Back on the picture it was last left on.)
+            if (isImageGrid && viewerIndex == null) openViewer(getSubImageIndex())
+        }
+        val seenCloses = remember { intArrayOf(FeedKeys.viewerClose) }
+        LaunchedEffect(FeedKeys.viewerClose) {
+            if (FeedKeys.viewerClose == seenCloses[0]) return@LaunchedEffect
+            seenCloses[0] = FeedKeys.viewerClose
+            if (isImageGrid) closeViewer()
         }
     }
     LaunchedEffect(pagerState, item.id) {
@@ -1823,7 +1861,16 @@ private fun PostContent(
             val mediaModifier = Modifier.fillMaxSize().graphicsLayer {
                 scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
             }.let { if (item.isBlocked || nsfwBlurred) it.blur(90.dp) else it }
-            if (item.isTextOnly) {
+            if (item.quoted != null) {
+                // A quote repost: the quoted post as a bubble of its own in the
+                // middle (its author above its picture / video or words); the
+                // quoter's words are the text bubble below, and the quoter is
+                // the author up top. Tapping it opens the quoted post in front.
+                QuotedPostCard(
+                    quoted = item.quoted, tint = dominantColor, blurred = item.isBlocked || nsfwBlurred,
+                    onOpen = { if (item.quoted.uri.isNotBlank() && menuCenter == null) LocalOverlays.openQuotedPostUri = item.quoted.uri }
+                )
+            } else if (item.isTextOnly) {
                 // Big Update #3: text-only posts get a liquid-glass card shaped
                 // like a piece of media, centered where an image would sit.
                 if (item.isPoll && PollFormat.parse(item.text) != null) {
@@ -2084,7 +2131,7 @@ private fun PostContent(
                     .then(if (landscape) Modifier.landscapeSideSafe() else Modifier)
             ) {
                 // Item 7: "Sent by" header shown above the regular post header for DM-shared posts
-                item.sentByAuthor?.let { sender ->
+                item.sentByAuthor?.takeUnless { item.quoted != null && item.sentByIsRepost }?.let { sender ->
                     SentByHeader(
                         sender = sender, message = item.sentByMessage,
                         expanded = sentByExpanded, onToggleExpanded = onToggleSentByExpanded,
@@ -2109,7 +2156,7 @@ private fun PostContent(
                     AuthorRow(item, appMode, onToggleFollow, onTapAuthor,
                         Modifier.fillMaxWidth()
                             // Sideways: right at the very top (no notch row there).
-                            .then(if (item.sentByAuthor == null) Modifier.padding(top = if (landscape) 6.dp else rememberTopCutoutClearance()) else Modifier),
+                            .then(if (item.sentByAuthor == null || (item.quoted != null && item.sentByIsRepost)) Modifier.padding(top = if (landscape) 6.dp else rememberTopCutoutClearance()) else Modifier),
                         liquidGlass = liquidGlass,
                         dominantColor = dominantColor,
                         backdrop = glassBackdrop,
@@ -2978,6 +3025,130 @@ private fun TextOnlyPostCard(
                                 onClick = onToggleTranslationView
                             )
                         } else Modifier
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** What the Timeline draws for [this]: a quote repost has no picture or video of
+ *  its own in the middle (the quoted post's is drawn inside [QuotedPostCard]),
+ *  and its words are the text bubble's. Everything else is as it is. */
+private fun MediaItem.forTimeline(): MediaItem {
+    if (quoted == null) return this
+    return copy(
+        mediaUrl = "", thumbUrl = "", isVideo = false, videoPlaylistUrl = null, mediaGroup = emptyList(),
+        isPoll = false, isTextshot = false, textshotImageUrl = "", captionText = text
+    )
+}
+
+/**
+ * The post a quote repost quotes, as a bubble in the middle of the Timeline:
+ * its author's icon and name on top, then its picture or video (a still with a
+ * play badge) and/or its words. It's edge to edge with the author row, text
+ * bubble and interaction bar (the same 10.dp in), and sits centered between
+ * them like the other cards. Tapping it opens the quoted post in front.
+ */
+@Composable
+private fun QuotedPostCard(quoted: QuotedPost, tint: Color, blurred: Boolean, onOpen: () -> Unit) {
+    val sideways = rememberLandscape()
+    val topClear = 104.dp
+    val bottomClear = 176.dp
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val cardWidth = if (sideways) minOf(maxWidth - 20.dp, 560.dp) else maxWidth - 20.dp
+        val maxCardHeight = (maxHeight - topClear - bottomClear).coerceAtLeast(160.dp)
+        val topClearPx = with(density) { topClear.roundToPx() }
+        val bottomClearPx = with(density) { bottomClear.roundToPx() }
+        val pad = 14.dp
+        val hasText = quoted.text.isNotBlank()
+        val innerWidth = cardWidth - pad * 2
+        // The picture's room: what's left of the card after the author line
+        // and (when there are words) a few lines of them.
+        val mediaMaxHeight = (maxCardHeight - pad * 2 - 46.dp - if (hasText) 92.dp else 0.dp).coerceAtLeast(120.dp)
+        val aspect = (quoted.aspectRatio ?: 1f).coerceIn(0.75f, 1.9f)
+        val mediaHeight = minOf(innerWidth / aspect, mediaMaxHeight)
+        LiquidGlassSurface(
+            modifier = Modifier
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                    val h = constraints.maxHeight
+                    val centered = (h - placeable.height) / 2
+                    val maxTop = (h - bottomClearPx - placeable.height).coerceAtLeast(topClearPx)
+                    val top = centered.coerceIn(topClearPx, maxTop)
+                    layout(constraints.maxWidth, h) {
+                        placeable.place((constraints.maxWidth - placeable.width) / 2, top)
+                    }
+                }
+                .width(cardWidth)
+                .heightIn(max = maxCardHeight)
+                .wrapContentHeight()
+                .quickTap(quoted.uri) { onOpen() },
+            shape = RoundedCornerShape(24.dp),
+            tint = tint
+        ) {
+            Column(Modifier.fillMaxWidth().padding(pad), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Whose post it is.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (quoted.author.avatarUrl != null) {
+                        AsyncImage(
+                            model = quoted.author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(32.dp).clip(AvatarShape)
+                        )
+                    } else {
+                        Box(
+                            Modifier.size(32.dp).clip(AvatarShape).background(Color.White.copy(0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) { Text(quoted.author.displayName.take(1).uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            quoted.author.displayName.ifBlank { quoted.author.handle }, color = Color.White, fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "@${quoted.author.handle}", color = Color.White.copy(0.7f), fontSize = 12.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Icon(Icons.Filled.FormatQuote, contentDescription = null, tint = Color.White.copy(0.5f), modifier = Modifier.size(20.dp))
+                }
+                // Its picture, or the still of its video.
+                if (quoted.hasMedia) {
+                    Box(
+                        Modifier.fillMaxWidth().height(mediaHeight).clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(0.28f))
+                    ) {
+                        AsyncImage(
+                            model = quoted.thumbUrl.ifBlank { quoted.mediaUrl }, contentDescription = quoted.altText.ifBlank { null },
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().then(if (blurred) Modifier.blur(60.dp) else Modifier)
+                        )
+                        if (quoted.isVideo) {
+                            Box(
+                                Modifier.align(Alignment.Center).size(50.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(0.45f)),
+                                contentAlignment = Alignment.Center
+                            ) { Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp)) }
+                        }
+                        if (quoted.mediaCount > 1) {
+                            Row(
+                                Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(0.55f)).padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Text("${quoted.mediaCount}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+                // Its words: a few lines under a picture, more when they're all there is.
+                if (hasText) {
+                    Text(
+                        quoted.text, color = Color.White.copy(0.95f),
+                        fontSize = if (quoted.hasMedia) 14.sp else 16.sp, lineHeight = if (quoted.hasMedia) 19.sp else 22.sp,
+                        maxLines = if (quoted.hasMedia) 4 else 14, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -4869,8 +5040,13 @@ private object FeedKeys {
      *  (kept by that post; ← → step through them before moving on). */
     var imagePage = 0
     var imageCount = 0
-    /** -1 for a picture grid (-1 = the grid itself, before its first picture). */
-    var imageFloor = 0
+    /** The post on screen is a multi-image post, and whether one of its
+     *  pictures is open full screen right now. */
+    var imageGrid = false
+    var viewerOpen = false
+    /** ↑ / W asked to open its pictures; S / ↓ asked to close them (counters). */
+    var viewerOpenAsks by mutableIntStateOf(0)
+    var viewerClose by mutableIntStateOf(0)
     /** ← / → asked for the previous / next picture (a counter, and which way). */
     var imageSteps by mutableIntStateOf(0)
     var imageStepDir = 0

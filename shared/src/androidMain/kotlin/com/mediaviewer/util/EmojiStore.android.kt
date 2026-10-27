@@ -225,26 +225,12 @@ actual class EmojiStore private constructor(context: Context) {
         commit(cur.copy(folders = cur.folders.map { if (it.id == id) it.copy(name = clean) else it }))
     }
 
-    /** Removes the folder itself *and* every emoji that was filed into it —
-     *  out of the master library, "All", and any other folder that also
-     *  had it (Item 6). Emoji this folder never had are untouched. */
+    /** Removes the folder only; its emoji stay in All (and in any other folder). */
     actual fun deleteFolder(id: Int): Unit = synchronized(lock) {
+        // Only the folder goes: its emoji stay in All (and in any other folder).
         val cur = state.index
-        val folder = cur.folders.firstOrNull { it.id == id } ?: return@synchronized
-        val toDelete = folder.emojiIds.toSet()
-        val deleted = cur.emojis.filter { it.id in toDelete }
-        commit(
-            cur.copy(
-                emojis = cur.emojis.filterNot { it.id in toDelete },
-                folders = cur.folders.filterNot { it.id == id }
-                    .map { f -> if (f.emojiIds.any { it in toDelete }) f.copy(emojiIds = f.emojiIds - toDelete) else f }
-            )
-        )
-        for (e in deleted) {
-            bitmapCache.remove(e.id)?.recycle()
-            imageBitmapCache.remove(e.id)
-            runCatching { fileFor(e).delete() }
-        }
+        if (cur.folders.none { it.id == id }) return@synchronized
+        commit(cur.copy(folders = cur.folders.filterNot { it.id == id }))
     }
 
     /** How many emoji deleting this folder would take down with it (Item 6) —

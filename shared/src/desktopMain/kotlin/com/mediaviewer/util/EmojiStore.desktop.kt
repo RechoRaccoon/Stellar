@@ -219,19 +219,12 @@ actual class EmojiStore private constructor() {
         commit(cur.copy(folders = cur.folders.map { if (it.id == id) it.copy(name = clean) else it }))
     }
 
-    /** Removes the folder and every emoji that was filed into it. */
+    /** Removes the folder only; its emoji stay in All. */
     actual fun deleteFolder(id: Int) {
+        // Only the folder goes: its emoji stay in All (and in any other folder).
         val cur = state.index
-        val folder = cur.folders.firstOrNull { it.id == id } ?: return
-        val gone = folder.emojiIds.toSet()
-        val deleted = cur.emojis.filter { it.id in gone }
-        commit(
-            cur.copy(
-                emojis = cur.emojis.filterNot { it.id in gone },
-                folders = cur.folders.filterNot { it.id == id }.map { f -> f.copy(emojiIds = f.emojiIds.filterNot { it in gone }) }
-            )
-        )
-        deleted.forEach { forget(it) }
+        if (cur.folders.none { it.id == id }) return
+        commit(cur.copy(folders = cur.folders.filterNot { it.id == id }))
     }
 
     actual fun emojiCountIn(folderId: Int): Int = state.index.folders.firstOrNull { it.id == folderId }?.emojiIds?.size ?: 0

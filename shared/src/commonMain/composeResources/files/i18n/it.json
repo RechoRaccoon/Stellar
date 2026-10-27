@@ -449,6 +449,7 @@
 "Deleted message": "Messaggio eliminato",
 "Deletes \":{0}:\" everywhere.": "Elimina \":{0}:\" ovunque.",
 "Deletes \"{0}\" and its {1} emoji.": "Elimina \"{0}\" e le sue {1} emoji.",
+"Deletes \"{0}\". Its {1} emoji stay in All.": "Elimina \"{0}\". Le sue {1} emoji restano in Tutti.",
 "Deletes \"{0}\". It's empty.": "Elimina \"{0}\". È vuota.",
 "Deletes {0} emoji not in any folder.": "Elimina {0} emoji che non sono in nessuna cartella.",
 "Description": "Descrizione",

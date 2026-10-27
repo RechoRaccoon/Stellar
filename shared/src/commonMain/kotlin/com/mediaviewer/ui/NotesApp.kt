@@ -273,7 +273,12 @@ internal fun MarkdownView(
 @Composable
 fun NotesPage(tint: Color, liquidGlass: Boolean, onClose: () -> Unit) {
     var open by remember { mutableStateOf<NoteEntry?>(null) }
-    var folder by remember { mutableStateOf<String?>(null) }
+    val appContext = LocalContext.current
+    // (Starts on the folder you were last on, on this device.)
+    var folder by remember { mutableStateOf(com.mediaviewer.util.LastFolders.notes(appContext)) }
+    val knownFolders = LocalData.noteFolders
+    if (folder != null && knownFolders.isNotEmpty() && knownFolders.none { it.id == folder }) folder = null
+    LaunchedEffect(folder) { if (folder == null || knownFolders.isNotEmpty()) com.mediaviewer.util.LastFolders.saveNotes(appContext, folder) }
     // Opened from a home-screen widget: straight to that note.
     val wanted = LocalOverlays.openNoteId
     LaunchedEffect(wanted) {

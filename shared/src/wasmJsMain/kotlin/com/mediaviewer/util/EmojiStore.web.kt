@@ -177,7 +177,7 @@ actual class EmojiStore private constructor() {
         load()
         val id = reserveId() ?: return null
         // (An animated emoji arrives as a GIF and is kept as one.)
-        val fileName = if (GifInfo.isGif(png)) "e_$id.gif" else "e_$id.png"
+        val fileName = if (GifInfo.isGif(png)) "e_$id.gif" else if (EmojiMedia.isAnimatedWebP(png)) "e_$id.webp" else "e_$id.png"
         val path = "$dir/$fileName"
         val ok = withContext(Dispatchers.Default) {
             runCatching { Image.makeFromEncoded(png); writeLocalFile(path, png) }.getOrDefault(false)
@@ -216,19 +216,12 @@ actual class EmojiStore private constructor() {
         commit(cur.copy(folders = cur.folders.map { if (it.id == id) it.copy(name = clean) else it }))
     }
 
-    /** Removes the folder and every emoji that was filed into it. */
+    /** Removes the folder only; its emoji stay in All. */
     actual fun deleteFolder(id: Int) {
+        // Only the folder goes: its emoji stay in All (and in any other folder).
         val cur = state.index
-        val folder = cur.folders.firstOrNull { it.id == id } ?: return
-        val gone = folder.emojiIds.toSet()
-        val deleted = cur.emojis.filter { it.id in gone }
-        commit(
-            cur.copy(
-                emojis = cur.emojis.filterNot { it.id in gone },
-                folders = cur.folders.filterNot { it.id == id }.map { f -> f.copy(emojiIds = f.emojiIds.filterNot { it in gone }) }
-            )
-        )
-        deleted.forEach { forget(it) }
+        if (cur.folders.none { it.id == id }) return
+        commit(cur.copy(folders = cur.folders.filterNot { it.id == id }))
     }
 
     actual fun emojiCountIn(folderId: Int): Int = state.index.folders.firstOrNull { it.id == folderId }?.emojiIds?.size ?: 0
@@ -330,6 +323,11 @@ actual class EmojiStore private constructor() {
         val bytes = readLocalFile(path)
         if (bytes != null && GifInfo.isGif(bytes)) {
             EmojiMedia.fromGif(bytes)?.let { gif -> return if (writeLocalFile("$dir/e_$id.gif", gif)) "e_$id.gif" else null }
+        }
+        // An animated WebP is kept as it is (re-encoding to PNG would flatten it
+        // to its first frame), as on Android; the picture then moves like a GIF.
+        if (bytes != null && EmojiMedia.isAnimatedWebP(bytes)) {
+            return if (writeLocalFile("$dir/e_$id.webp", bytes)) "e_$id.webp" else null
         }
         return if (decodeAndStore(path, id)) "e_$id.png" else null
     }

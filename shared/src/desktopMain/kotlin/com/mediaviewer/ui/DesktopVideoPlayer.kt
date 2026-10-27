@@ -133,7 +133,10 @@ internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = 
             }
             val channels = g.audioChannels
             val rate = g.sampleRate
-            if (!muted && channels > 0 && rate > 0) {
+            // A video that's muted (a profile's animated icon or banner) never
+            // touches the sound card: it runs on the wall clock, so another
+            // video opening or stalling its own audio line can't hold it up.
+            if (!muted && !silenced && channels > 0 && rate > 0) {
                 line = runCatching {
                     val fmt = AudioFormat(rate.toFloat(), 16, channels.coerceAtMost(2), true, ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN)
                     AudioSystem.getSourceDataLine(fmt).apply {
@@ -167,7 +170,7 @@ internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = 
 
         fun nowUs(): Long = when {
             !clockRunning -> clockBaseUs
-            line != null && audioStarted -> clockBaseUs + (line.longFramePosition - lineFramesAtBase) * 1_000_000L / rate
+            line != null && audioStarted && !silenced -> clockBaseUs + (line.longFramePosition - lineFramesAtBase) * 1_000_000L / rate
             else -> clockBaseUs + (System.nanoTime() - wallStartNs) / 1000L
         }
 
@@ -209,6 +212,8 @@ internal class DesktopVideoPlayer(val url: String, private val muted: Boolean = 
                 continue
             }
             val samples = f.samples
+            // (A muted video drops its sound, so nothing waits on the audio line.)
+            if (samples != null && (line == null || silenced)) continue
             if (samples != null && line != null) {
                 val buf = samples[0] as? ShortBuffer ?: continue
                 buf.rewind()

@@ -23,6 +23,26 @@ data class MediaGroupItem(
     val aspectRatio: Float? = null
 )
 
+/** The post a quote repost quotes (see [MediaItem.quoted]): who wrote it, its
+ *  words, and its first picture or video (as a still), enough to draw it as a
+ *  bubble inside the quoting post. */
+@Serializable
+data class QuotedPost(
+    val uri: String = "",
+    val cid: String = "",
+    val author: AuthorInfo = AuthorInfo("", "", "", null),
+    val text: String = "",
+    val mediaUrl: String = "",
+    val thumbUrl: String = "",
+    val isVideo: Boolean = false,
+    val aspectRatio: Float? = null,
+    /** How many pictures it has (the bubble shows the first). */
+    val mediaCount: Int = 0,
+    val altText: String = ""
+) {
+    val hasMedia: Boolean get() = mediaUrl.isNotBlank() || thumbUrl.isNotBlank() || isVideo
+}
+
 @Serializable
 data class MediaItem(
     val id: String = "",
@@ -134,7 +154,17 @@ data class MediaItem(
     val createdAt: String? = null,
     /** The post's facets, as posted — custom emoji facets included, so
      *  the feed can draw the pictures inline (see PostTextBubble). */
-    val facets: List<kotlinx.serialization.json.JsonElement>? = null
+    val facets: List<kotlinx.serialization.json.JsonElement>? = null,
+    /** Set on a post a feed picked up because someone on it reposted it
+     *  (Feed Builder's Reposts): when that repost was made (ISO). The
+     *  reposter is [sentByAuthor]. Null for every other post. */
+    val repostedAt: String? = null,
+    /** Set on a quote repost: the post it quotes. The quote post itself is the
+     *  item — [author] is who quoted, [text] their words, and the like /
+     *  repost / reply counts and actions are the quote post's own — while the
+     *  picture or video above ([mediaUrl], [thumbUrl], [isVideo]) is the quoted
+     *  post's, for grids. The Timeline draws it as a bubble from this. */
+    val quoted: QuotedPost? = null
 ) {
     // Crash fix: mediaUrl/thumbUrl/textshotImageUrl/labels are all declared
     // as non-null Kotlin types with defaults ("", "", "", emptyList()) — but
@@ -320,7 +350,9 @@ data class BskyPost(
     // Feature request #8: com.atproto.label.defs#label entries attached to
     // this post — both labeler-applied and self-applied labels arrive here
     // together. See MediaItem.isNsfwLabeled for how these get used.
-    val labels: List<BskyLabelView>? = null
+    val labels: List<BskyLabelView>? = null,
+    /** When the AppView indexed it (a repost's fallback time). */
+    val indexedAt: String? = null
 )
 
 /** One com.atproto.label.defs#label entry. `value` is Kotlin-safe naming for
@@ -499,7 +531,9 @@ data class BskyReply(val root: BskyPost? = null, val parent: BskyPost? = null)
 @Serializable
 data class BskyReason(
     @SerialName("\$type") val type: String = "",
-    val by: BskyProfile? = null
+    val by: BskyProfile? = null,
+    /** When the repost was made (a repost's own time, not the post's). */
+    val indexedAt: String? = null
 )
 
 @Serializable

@@ -449,6 +449,7 @@
 "Deleted message": "Удалённое сообщение",
 "Deletes \":{0}:\" everywhere.": "Удаляет «:{0}:» везде.",
 "Deletes \"{0}\" and its {1} emoji.": "Удаляет «{0}» и эмодзи в ней ({1}).",
+"Deletes \"{0}\". Its {1} emoji stay in All.": "Удаляет «{0}». Её эмодзи ({1}) останутся во «Всех».",
 "Deletes \"{0}\". It's empty.": "Удаляет «{0}». Папка пуста.",
 "Deletes {0} emoji not in any folder.": "Удаляет эмодзи вне папок ({0}).",
 "Description": "Описание",

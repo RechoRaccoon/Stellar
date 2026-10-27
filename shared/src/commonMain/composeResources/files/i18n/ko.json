@@ -449,6 +449,7 @@
 "Deleted message": "삭제된 메시지",
 "Deletes \":{0}:\" everywhere.": "\":{0}:\"을(를) 모든 곳에서 삭제해요.",
 "Deletes \"{0}\" and its {1} emoji.": "\"{0}\"과(와) 그 안의 이모지 {1}개를 삭제해요.",
+"Deletes \"{0}\". Its {1} emoji stay in All.": "\"{0}\"을(를) 삭제해요. 안의 이모지 {1}개는 전체에 남아요.",
 "Deletes \"{0}\". It's empty.": "\"{0}\"을(를) 삭제해요. 비어 있어요.",
 "Deletes {0} emoji not in any folder.": "어떤 폴더에도 없는 이모지 {0}개를 삭제해요.",
 "Description": "설명",

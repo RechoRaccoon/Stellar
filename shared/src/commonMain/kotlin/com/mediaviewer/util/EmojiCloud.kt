@@ -47,6 +47,22 @@ object EmojiCloud {
      *  the message is never "empty"). */
     const val HIDDEN = "\u2060"
 
+    /** The one record (key "self") holding how the library is arranged. */
+    const val LAYOUT_COLLECTION = "com.rechoraccoon.stellar.emojiLayout"
+
+    /**
+     * How a library is arranged, by picture hash (the same on every device,
+     * where emoji ids are not): the All tab's order, then the folders in
+     * their order, each with its own emoji in its own order. An emoji can be
+     * in any number of folders. The pictures themselves are the per-emoji
+     * records (the "All" database); this only says where each one sits.
+     */
+    @Serializable
+    data class Layout(val all: List<String> = emptyList(), val folders: List<LayoutFolder> = emptyList())
+
+    @Serializable
+    data class LayoutFolder(val name: String, val emoji: List<String> = emptyList())
+
     /** One emoji record on a PDS. [animated]: its picture is a GIF. */
     data class RemoteEmoji(
         val rkey: String, val name: String, val cid: String, val hash: String, val folder: String?,
@@ -63,6 +79,9 @@ object EmojiCloud {
         suspend fun create(did: String, name: String, png: ByteArray, hash: String, folder: String?): Pair<String, String>
         suspend fun delete(did: String, rkey: String)
         suspend fun fetch(did: String, cid: String): ByteArray
+        /** The saved [Layout] (as JSON text), or null when there isn't one yet. */
+        suspend fun getLayout(did: String): String?
+        suspend fun putLayout(did: String, json: String)
     }
     var remote: Remote? = null
 
@@ -109,6 +128,68 @@ object EmojiCloud {
         prefs?.edit()?.putString("known_$did", StellarJson.default.encodeToString(ListSerializer(String.serializer()), hashes.toList()))?.apply()
     }
 
+    private fun lastLayout(did: String): Layout? =
+        prefs?.getString("layout_$did", null)?.let { raw -> runCatching { StellarJson.default.decodeFromString(Layout.serializer(), raw) }.getOrNull() }
+
+    private fun saveLastLayout(did: String, layout: Layout) {
+        prefs?.edit()?.putString("layout_$did", StellarJson.default.encodeToString(Layout.serializer(), layout))?.apply()
+    }
+
+    /** This device's arrangement, by picture hash ([hashOfId]: emoji id → hash). */
+    private fun layoutOf(index: EmojiIndex, hashOfId: Map<Int, String>) = Layout(
+        all = index.emojis.mapNotNull { hashOfId[it.id] }.distinct(),
+        folders = index.folders.map { f -> LayoutFolder(f.name, f.emojiIds.mapNotNull { hashOfId[it] }.distinct()) }
+    )
+
+    private fun hashesById(store: EmojiStore): Map<Int, String> =
+        store.state.index.emojis.mapNotNull { e -> hashFor(store, e)?.let { e.id to it } }.toMap()
+
+    /** First contact between a device that already has an arrangement and an
+     *  account that has one saved: the saved one, plus whatever only this
+     *  device had (folders, and emoji in folders), so nothing is lost. */
+    private fun mergeLayouts(remote: Layout, local: Layout): Layout {
+        val folders = remote.folders.map { LayoutFolder(it.name, it.emoji) }.toMutableList()
+        for (lf in local.folders) {
+            val at = folders.indexOfFirst { it.name == lf.name }
+            if (at < 0) folders += lf else folders[at] = folders[at].copy(emoji = (folders[at].emoji + lf.emoji).distinct())
+        }
+        return Layout((remote.all + local.all).distinct(), folders)
+    }
+
+    /** Puts this device's folders, and the order of All and of each folder,
+     *  as [layout] says. Folders match by name; one left over on each side
+     *  is taken for a rename. An emoji this device doesn't have is skipped. */
+    private fun applyLayout(store: EmojiStore, layout: Layout) {
+        val local = store.state.index.folders
+        val matched = HashMap<Int, Int>() // layout folder position → local folder id
+        val used = HashSet<Int>()
+        layout.folders.forEachIndexed { i, rf ->
+            local.firstOrNull { it.id !in used && it.name == rf.name }?.let { matched[i] = it.id; used += it.id }
+        }
+        val spare = local.filter { it.id !in used }.toMutableList()
+        for (i in layout.folders.indices) {
+            if (i in matched) continue
+            if (spare.isNotEmpty()) {
+                val reuse = spare.removeAt(0)
+                store.renameFolder(reuse.id, layout.folders[i].name)
+                matched[i] = reuse.id
+            } else matched[i] = store.createFolder(layout.folders[i].name)
+        }
+        // (Only the folder goes: its emoji stay in All.)
+        spare.forEach { store.deleteFolder(it.id) }
+        val index = store.state.index
+        val idByHash = LinkedHashMap<String, Int>()
+        for (e in index.emojis) hashFor(store, e)?.let { h -> if (h !in idByHash) idByHash[h] = e.id }
+        val byId = index.emojis.associateBy { it.id }
+        val ordered = layout.all.mapNotNull { idByHash[it] }.distinct()
+        val inOrder = ordered.toHashSet()
+        val emojis = ordered.mapNotNull { byId[it] } + index.emojis.filter { it.id !in inOrder }
+        val folders = layout.folders.mapIndexed { i, rf ->
+            EmojiFolder(matched.getValue(i), rf.name, rf.emoji.mapNotNull { idByHash[it] }.distinct())
+        }
+        store.setIndex(EmojiIndex(emojis, folders))
+    }
+
     /** [sync] in the background, once a session (or again with [force],
      *  after the library changed). */
     fun requestSync(store: EmojiStore, did: String, force: Boolean = false) {
@@ -126,16 +207,35 @@ object EmojiCloud {
         // (Only ever [did]'s own library: each account keeps its own.)
         store.useAccount(did)
         store.load()
-        // Oldest first (record keys are times): emoji and folders brought in
-        // from another device arrive in the order they were added there,
-        // not reversed (the PDS lists newest first).
+        // Oldest first (record keys are times): emoji brought in from another
+        // device arrive in the order they were added there, not reversed (the
+        // PDS lists newest first).
         val records = r.list(did).sortedBy { it.rkey }
         val byHash = records.filter { it.hash.isNotBlank() }.groupBy { it.hash }
         val localByHash = LinkedHashMap<String, EmojiEntry>()
         for (e in store.state.index.emojis) hashFor(store, e)?.let { h -> if (h !in localByHash) localByHash[h] = e }
         val before = known(did)
         val up = uploaded(did)
+        // How the library is arranged on the PDS. (A failed read isn't "none":
+        // the arrangement is then left alone this time.)
+        val layoutRead = runCatching { r.getLayout(did) }
+        val layoutOk = layoutRead.isSuccess
+        val remoteLayout = layoutRead.getOrNull()?.let { raw ->
+            runCatching { StellarJson.default.decodeFromString(Layout.serializer(), raw) }.getOrNull()
+        }
 
+        // Here since the last sync but gone from the PDS: deleted from All on
+        // another device → it goes here too. (Not when the PDS looks empty
+        // but this device remembers a lot: more likely a failed read.)
+        if (records.isNotEmpty() || before.size <= 2) {
+            for ((hash, entry) in localByHash.toList()) {
+                if (hash in before && !byHash.containsKey(hash)) {
+                    store.state.index.emojis.filter { hashFor(store, it) == hash }.forEach { store.deleteEmoji(it.id) }
+                    localByHash.remove(hash)
+                    up.remove(hash)
+                }
+            }
+        }
         // On the PDS but not here: deleted here since the last sync → its
         // record goes; otherwise it was added on another device → it comes in.
         for ((hash, recs) in byHash) {
@@ -146,7 +246,9 @@ object EmojiCloud {
             } else {
                 val rec = recs.first()
                 val png = runCatching { r.fetch(did, rec.cid) }.getOrNull() ?: continue
-                val added = store.addPng(rec.name, png, rec.folder) ?: continue
+                // (With a saved arrangement, it decides the folders; the
+                // record's own folder name is only for libraries without one.)
+                val added = store.addPng(rec.name, png, if (remoteLayout != null) null else rec.folder) ?: continue
                 hashFor(store, added)?.let { localByHash[it] = added }
                 up[hash] = Uploaded(rec.rkey, rec.cid)
             }
@@ -167,7 +269,32 @@ object EmojiCloud {
             up[hash] = Uploaded(rkey, cid)
         }
         saveUploaded(did, up.filterKeys { it in localByHash })
-        saveKnown(did, localByHash.keys)
+        // (Only emoji that do have a record: one whose upload failed must not
+        // later look like something another device deleted.)
+        saveKnown(did, localByHash.keys.filter { it in up || byHash.containsKey(it) }.toSet())
+
+        // The arrangement: folders, their order, and the order inside each
+        // folder and All.
+        if (layoutOk) {
+            val lastSynced = lastLayout(did)
+            val localNow = layoutOf(store.state.index, hashesById(store))
+            suspend fun upload(l: Layout) { runCatching { r.putLayout(did, StellarJson.default.encodeToString(Layout.serializer(), l)) } }
+            when {
+                // Nothing saved yet: this device's arrangement becomes it.
+                remoteLayout == null -> if (localNow.all.isNotEmpty() || localNow.folders.isNotEmpty()) upload(localNow)
+                // First time this device meets a saved one: both are kept.
+                lastSynced == null -> {
+                    val merged = mergeLayouts(remoteLayout, localNow)
+                    applyLayout(store, merged)
+                    if (merged != remoteLayout) upload(merged)
+                }
+                // Changed on another device since: that arrangement is taken.
+                remoteLayout != lastSynced -> applyLayout(store, remoteLayout)
+                // Changed here: it's saved.
+                localNow != remoteLayout -> upload(localNow)
+            }
+            saveLastLayout(did, layoutOf(store.state.index, hashesById(store)))
+        }
     }
 
     /** [entry]'s record on [did]'s PDS, uploaded now if it isn't yet. */
@@ -301,7 +428,7 @@ object EmojiCloud {
         fun safe(name: String) = name.map { if (it in "/\\:*?\"<>|" || it.code < 32) '_' else it }.joinToString("").trim().ifBlank { "emoji" }
         fun fileName(i: Int, total: Int, e: EmojiEntry, data: ByteArray): String {
             val digits = total.toString().length
-            val ext = if (GifInfo.isGif(data)) "gif" else "png"
+            val ext = if (GifInfo.isGif(data)) "gif" else if (EmojiMedia.isAnimatedWebP(data)) "webp" else "png"
             return (i + 1).toString().padStart(digits, '0') + " " + safe(e.name) + "." + ext
         }
         val zip = ZipWriter()
@@ -371,7 +498,7 @@ object EmojiCloud {
                 val uri = (o["uri"] as? JsonPrimitive)?.content.orEmpty()
                 out += RemoteEmoji(
                     rkey = uri.substringAfterLast('/'), name = text("name").orEmpty().ifBlank { "emoji" },
-                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder"), animated = mime == "image/gif"
+                    cid = cid, hash = text("hash").orEmpty(), folder = text("folder"), animated = mime == "image/gif" || mime == "image/webp"
                 )
             }
             cursor = (root["cursor"] as? JsonPrimitive)?.content?.takeIf { records.isNotEmpty() }

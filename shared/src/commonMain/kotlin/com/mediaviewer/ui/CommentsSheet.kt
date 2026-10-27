@@ -632,6 +632,8 @@ fun CommentsSheet(
                                 // key's first press fills it in.
                                 if (field.text != commentText) field = androidx.compose.ui.text.input.TextFieldValue(commentText, androidx.compose.ui.text.TextRange(commentText.length))
                                 var focused by remember { mutableStateOf(false) }
+                                // (The box going away while it had the keys hands them back.)
+                                DisposableEffect(Unit) { onDispose { TypingFocus.inCommentBox = false } }
                                 var fieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                                 val mention = remember(field.text, field.selection) { mentionTokenAt(field) }
                                 var guess by remember { mutableStateOf<String?>(null) }
@@ -684,6 +686,8 @@ fun CommentsSheet(
                                         .focusRequester(commentFocus)
                                         .onFocusChanged {
                                             focused = it.isFocused
+                                            // (The Timeline's shortcuts step aside while typing.)
+                                            TypingFocus.inCommentBox = it.isFocused
                                             // Tapping back into the field
                                             // closes the menu (the keyboard
                                             // takes its place again).

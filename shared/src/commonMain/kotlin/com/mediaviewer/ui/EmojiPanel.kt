@@ -186,8 +186,13 @@ internal fun EmojiPanel(
 
     val folders = store.state.index.folders
     // null = the "All" tab.
-    var selectedFolderId by remember { mutableStateOf<Int?>(null) }
-    if (selectedFolderId != null && folders.none { it.id == selectedFolderId }) selectedFolderId = null
+    // (Starts on the folder you were last on, on this device.)
+    var selectedFolderId by remember { mutableStateOf(com.mediaviewer.util.LastFolders.emoji(context)) }
+    // (Not before the folders are in: an empty list is "not loaded yet", and must not lose the remembered one.)
+    if (selectedFolderId != null && folders.isNotEmpty() && folders.none { it.id == selectedFolderId }) selectedFolderId = null
+    LaunchedEffect(selectedFolderId) {
+        if (selectedFolderId == null || folders.isNotEmpty()) com.mediaviewer.util.LastFolders.saveEmoji(context, selectedFolderId)
+    }
 
     // Whose emoji are showing: null = your own.
     // (Starts over for each chat and each signed-in account, so another
@@ -287,7 +292,15 @@ internal fun EmojiPanel(
             dragStartIndex = null
             view.performHapticFeedback(com.mediaviewer.ui.compat.HapticFeedbackConstants.LONG_PRESS)
             when (item) {
-                is EmojiHeld.Emoji -> ask = EmojiAsk.DeleteEmoji(item.entry)
+                // In a folder, the trash only takes it out of that folder (it stays in
+                // All and in its other folders); from All it's deleted for good.
+                is EmojiHeld.Emoji -> {
+                    val inFolder = selectedFolderId
+                    if (inFolder != null) {
+                        val now = store.state.index
+                        store.setIndex(now.copy(folders = now.folders.map { f -> if (f.id == inFolder) f.copy(emojiIds = f.emojiIds - item.entry.id) else f }))
+                    } else ask = EmojiAsk.DeleteEmoji(item.entry)
+                }
                 is EmojiHeld.Folder -> ask = EmojiAsk.DeleteFolder(item.folder)
                 is EmojiHeld.Account -> {
                     EmojiAccounts.remove(selfDid, item.account.did)
@@ -711,7 +724,7 @@ internal fun EmojiPanel(
                 val n = store.emojiCountIn(a.folder.id)
                 ConfirmRequest(
                     "Delete Folder?",
-                    if (n == 0) "Deletes \"${a.folder.name}\". It's empty." else "Deletes \"${a.folder.name}\" and its $n emoji.",
+                    if (n == 0) "Deletes \"${a.folder.name}\". It's empty." else "Deletes \"${a.folder.name}\". Its $n emoji stay in All.",
                     "Delete", tint
                 ) {
                     store.deleteFolder(a.folder.id)

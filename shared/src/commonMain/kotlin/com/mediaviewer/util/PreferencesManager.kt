@@ -139,7 +139,7 @@ object PrefKeys {
     // going back a long way — gets rebuilt fresh from the network exactly
     // once instead of being trusted at all. Purely a local performance
     // cache, so there's nothing to actually migrate.
-    val PROFILE_TAB_CACHE_JSON = stringPreferencesKey("profile_tab_cache_json_v2")
+    val PROFILE_TAB_CACHE_JSON = stringPreferencesKey("profile_tab_cache_json_v3")
 
     // Feature request #7: experimental 3-wide variant of the Pinterest-style
     // masonry used by the Posts tab's All/Images filters (default is 2

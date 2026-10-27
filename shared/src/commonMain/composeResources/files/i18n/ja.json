@@ -449,6 +449,7 @@
 "Deleted message": "削除されたメッセージ",
 "Deletes \":{0}:\" everywhere.": "「:{0}:」をすべての場所から削除します。",
 "Deletes \"{0}\" and its {1} emoji.": "「{0}」と、その中の{1}個の絵文字を削除します。",
+"Deletes \"{0}\". Its {1} emoji stay in All.": "「{0}」を削除します。中の{1}個の絵文字は「すべて」に残ります。",
 "Deletes \"{0}\". It's empty.": "「{0}」を削除します。空のフォルダです。",
 "Deletes {0} emoji not in any folder.": "どのフォルダにも入っていない{0}個の絵文字を削除します。",
 "Description": "説明",
