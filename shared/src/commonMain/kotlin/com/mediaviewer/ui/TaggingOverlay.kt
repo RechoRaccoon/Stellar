@@ -142,6 +142,8 @@ fun TaggingOverlay(
             (state.isRunning || queueView) && (state.lastTaggedItem != null || currentItem != null) -> {
                 SteadyTaggingView(
                     state = state, done = queueView && queueDone,
+                    // (Opened from the tagging status: the same words as it, "Tagging 3 posts".)
+                    statusLabel = if (queueView) LocalOverlays.taggingStatusLabel else null,
                     liquidGlass = liquidGlass, tint = profileTint, backdrop = backdrop, onBack = onDismiss
                 )
             }
@@ -212,6 +214,7 @@ private class ShownPost(val item: com.mediaviewer.model.MediaItem, val tags: Lis
 private fun SteadyTaggingView(
     state: MainViewModel.TaggingUiState,
     done: Boolean,
+    statusLabel: String?,
     liquidGlass: Boolean,
     tint: Color,
     backdrop: GlassBackdrop?,
@@ -234,8 +237,23 @@ private fun SteadyTaggingView(
         shown = ShownPost(target, targetTags, aspect)
     }
     ActiveTaggingView(
-        item = shown.item, tags = shown.tags, knownAspect = shown.aspect, done = done,
+        item = shown.item, tags = shown.tags, knownAspect = shown.aspect, done = done, statusLabel = statusLabel,
         state = state, liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onBack = onBack
+    )
+}
+
+/** One line of text that shrinks (down to [minSp]) until all of it fits the
+ *  width it's given, instead of wrapping or being cut off. */
+@Composable
+private fun OneLineShrink(
+    text: String, maxSp: Float, minSp: Float, color: Color, fontWeight: FontWeight, modifier: Modifier = Modifier
+) {
+    var size by remember(text) { mutableStateOf(maxSp) }
+    Text(
+        text, color = color, fontSize = size.sp, fontWeight = fontWeight,
+        maxLines = 1, softWrap = false,
+        onTextLayout = { if (it.didOverflowWidth && size > minSp) size = (size - 1f).coerceAtLeast(minSp) },
+        modifier = modifier
     )
 }
 
@@ -252,6 +270,7 @@ private fun ActiveTaggingView(
     tags: List<String>?,
     knownAspect: Float?,
     done: Boolean,
+    statusLabel: String?,
     state: MainViewModel.TaggingUiState,
     liquidGlass: Boolean,
     tint: Color,
@@ -285,22 +304,27 @@ private fun ActiveTaggingView(
                 ) {
                     TaggingCloseBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack)
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        if (done) "Tagged" else "Tagging", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                        maxLines = 1, softWrap = false
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    if (done) Icon(Icons.Default.Check, contentDescription = null, tint = VoteGreen, modifier = Modifier.size(14.dp))
-                    else CircularProgressIndicator(Modifier.size(11.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
-                    Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
+                    // "Tagging 3 posts" + the spinner right after it: the words
+                    // shrink (never wrap) when the header is tight, and the
+                    // spinner stays beside them.
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        OneLineShrink(
+                            if (done) "Tagged" else (statusLabel ?: "Tagging"),
+                            maxSp = 15f, minSp = 9f, color = Color.White, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        if (done) Icon(Icons.Default.Check, contentDescription = null, tint = VoteGreen, modifier = Modifier.size(14.dp))
+                        else CircularProgressIndicator(Modifier.size(11.dp), color = Color.White.copy(alpha = 0.85f), strokeWidth = 1.5.dp)
+                    }
+                    Spacer(Modifier.width(8.dp))
                     Box(
-                        Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.08f))
+                        Modifier.widthIn(max = frameWidth * 0.38f).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.08f))
                             .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
-                        Text(
+                        OneLineShrink(
                             "${groupDigits(state.tagged)} Posts · ${formatBytes(state.datasetBytes)}",
-                            color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, fontWeight = FontWeight.Medium,
-                            maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            maxSp = 11f, minSp = 8f, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Medium
                         )
                     }
                 }

@@ -69,6 +69,11 @@ interface TaggingService {
     suspend fun exportAllPosts(exclude: Set<String> = emptySet()): List<TagExportedPost>
     /** [onProgress] hears 0–1 while a big one goes in. */
     suspend fun importDataset(name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit = {}): TagDatasetInfo
+    /** Brings imported dataset [id] up to [posts] in place, writing only what
+     *  differs (far less than importing the new version whole and deleting
+     *  the old one). Null when it can't: there's no dataset [id], or this
+     *  platform imports the long way. */
+    suspend fun updateDataset(id: String, name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit = {}): TagDatasetInfo? = null
     suspend fun listImportedDatasets(): List<TagDatasetInfo>
     suspend fun deleteDataset(id: String)
     /** One dataset's posts and the tags it gave them: an imported one by

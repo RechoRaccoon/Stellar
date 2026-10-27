@@ -1183,6 +1183,90 @@ private val RECENT_SLOT_WIDTH = 92.dp
 /** Search's edge: its search bar's (everything under it starts there too). */
 private val SEARCH_EDGE = 16.dp
 
+/** A section's title (People, Posts, Recent Searches...) with an optional
+ *  "See all" — one look for the results page and the recent-searches page. */
+@Composable
+private fun SearchSectionHeader(title: String, accent: Color, tap: () -> Unit, sub: String? = null, onAll: (() -> Unit)? = null) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        // (The sub takes all the leftover width itself: with a weighted
+        // Spacer beside it too, the two split the leftover, the sub's
+        // unfilled half is never handed over, and "See all" ends up
+        // stranded mid-row — worst on wide (landscape) screens.)
+        if (sub != null) Text(
+            "  ·  $sub", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+        ) else Spacer(Modifier.weight(1f))
+        if (onAll != null) Text(
+            "See all", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onAll() }.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+}
+
+/**
+ * The row of accounts under "People" — the one layout both the search
+ * results and the recent searches use: a big picture in its color ring, the
+ * display name, and the @handle under it. Both lines shrink until the whole
+ * text shows (never cut off with "…"). [onLongPress] (recent searches: take
+ * it off the list) is optional.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SearchPeopleRow(
+    people: List<AuthorInfo>,
+    keyPrefix: String,
+    tap: () -> Unit,
+    onOpen: (AuthorInfo) -> Unit,
+    onLongPress: ((AuthorInfo) -> Unit)? = null
+) {
+    com.mediaviewer.ui.compat.LazyRow(
+        // (Each picture sits centered in a slot wider than it, so the row is
+        // moved left by half the difference: the first picture's edge is the
+        // page's, and the gaps stay even.)
+        contentPadding = PaddingValues(horizontal = SEARCH_EDGE - (RECENT_SLOT_WIDTH - RECENT_AVATAR_SIZE) / 2),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(people, key = { keyPrefix + it.did }) { author ->
+            val ring = vividAccent(rememberAuthorProfileTint(author.did, author.avatarUrl))
+            Column(
+                Modifier.width(RECENT_SLOT_WIDTH).clip(RoundedCornerShape(14.dp))
+                    .combinedClickable(
+                        onClick = { tap(); onOpen(author) },
+                        onLongClick = if (onLongPress != null) ({ onLongPress(author) }) else null
+                    )
+                    .padding(vertical = 4.dp, horizontal = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    Modifier.size(RECENT_AVATAR_SIZE).clip(AvatarShape)
+                        .border(2.dp, ring.copy(alpha = 0.9f), AvatarShape)
+                        .padding(3.dp).clip(AvatarShape).background(Color.White.copy(0.1f))
+                ) {
+                    if (!author.avatarUrl.isNullOrBlank()) AsyncImage(
+                        model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
+                    ) else Icon(Icons.Default.Person, contentDescription = null, tint = DimGray, modifier = Modifier.align(Alignment.Center).size(30.dp))
+                }
+                Spacer(Modifier.height(5.dp))
+                // (People's own words: shrunk to fit, never translated.)
+                FitText(
+                    author.displayName.ifBlank { author.handle },
+                    modifier = Modifier.fillMaxWidth().height(17.dp),
+                    maxSize = 13.sp, minSize = 6.sp, singleLine = true, shadow = false
+                )
+                FitText(
+                    "@" + author.handle,
+                    modifier = Modifier.fillMaxWidth().height(14.dp),
+                    maxSize = 10.5.sp, minSize = 6.sp, color = DimGray, fontWeight = FontWeight.Normal, singleLine = true, shadow = false
+                )
+            }
+        }
+    }
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RecentSearchesPage(
@@ -1209,57 +1293,23 @@ private fun RecentSearchesPage(
         contentPadding = PaddingValues(start = side, end = side, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (recents.isNotEmpty()) item(key = "recent_people") {
-            androidx.compose.foundation.lazy.LazyRow(
-                // (Each picture sits centered in a slot 14dp wider than it, so
-                // the whole row is moved left by that much: the first
-                // picture's edge is the page's, and the gaps stay even.)
-                contentPadding = PaddingValues(horizontal = SEARCH_EDGE - (RECENT_SLOT_WIDTH - RECENT_AVATAR_SIZE) / 2),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(recents, key = { "rp_" + it.did }) { author ->
-                    val ring = vividAccent(rememberAuthorProfileTint(author.did, author.avatarUrl))
-                    Column(
-                        Modifier.width(RECENT_SLOT_WIDTH).clip(RoundedCornerShape(14.dp))
-                            .then(Modifier.combinedClickable(
-                                onClick = { tap(); onOpen(author) },
-                                onLongClick = {
-                                    tap()
-                                    LocalOverlays.confirm = ConfirmRequest(
-                                        "Remove from Recent Searches?", author.displayName.ifBlank { "@" + author.handle },
-                                        "Remove", tint, destructive = false
-                                    ) { com.mediaviewer.util.RecentAccountSearches.remove(author.did) }
-                                }
-                            ))
-                            .padding(vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Box(
-                            Modifier.size(RECENT_AVATAR_SIZE).clip(AvatarShape)
-                                .border(2.dp, ring.copy(alpha = 0.9f), AvatarShape)
-                                .padding(3.dp).clip(AvatarShape).background(Color.White.copy(0.1f))
-                        ) {
-                            if (author.avatarUrl != null) AsyncImage(
-                                model = author.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
-                            ) else Icon(Icons.Default.Person, contentDescription = null, tint = DimGray, modifier = Modifier.align(Alignment.Center).size(30.dp))
-                        }
-                        Spacer(Modifier.height(5.dp))
-                        // (The whole name, over two lines when it needs them.)
-                        Text(
-                            author.displayName.ifBlank { author.handle }, color = Color.White, fontSize = 12.sp, lineHeight = 14.sp,
-                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center
-                        )
+        if (recents.isNotEmpty()) {
+            item(key = "recent_people_h") { SearchSectionHeader("People", accent = tint, tap = tap) }
+            item(key = "recent_people") {
+                SearchPeopleRow(
+                    recents, keyPrefix = "rp_", tap = tap, onOpen = onOpen,
+                    onLongPress = { author ->
+                        tap()
+                        LocalOverlays.confirm = ConfirmRequest(
+                            "Remove from Recent Searches?", author.displayName.ifBlank { "@" + author.handle },
+                            "Remove", tint, destructive = false
+                        ) { com.mediaviewer.util.RecentAccountSearches.remove(author.did) }
                     }
-                }
+                )
             }
         }
         if (queries.isNotEmpty()) {
-            item(key = "recent_header") {
-                Text(
-                    "Recent Searches", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.fillMaxWidth().padding(start = SEARCH_EDGE, top = 6.dp, bottom = 2.dp)
-                )
-            }
+            item(key = "recent_header") { SearchSectionHeader("Recent Searches", accent = tint, tap = tap) }
             val perRow = if (wide) 2 else 1
             items(queries.chunked(perRow), key = { "rq_" + it.first() }) { rowQueries ->
                 Row(
@@ -1454,26 +1504,7 @@ private fun SearchAllResults(
     val accent = androidx.compose.ui.graphics.lerp(tint, Color.White, 0.5f)
 
     @Composable
-    fun Header(title: String, sub: String? = null, onAll: (() -> Unit)?) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            // (The sub takes all the leftover width itself: with a weighted
-            // Spacer beside it too, the two split the leftover, the sub's
-            // unfilled half is never handed over, and "See all" ends up
-            // stranded mid-row — worst on wide (landscape) screens.)
-            if (sub != null) Text(
-                "  ·  $sub", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-            ) else Spacer(Modifier.weight(1f))
-            if (onAll != null) Text(
-                "See all", color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { tap(); onAll() }.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-        }
-    }
+    fun Header(title: String, sub: String? = null, onAll: (() -> Unit)?) = SearchSectionHeader(title, accent, tap, sub, onAll)
 
     @Composable
     fun Thumbs(items: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
@@ -1518,39 +1549,9 @@ private fun SearchAllResults(
         if (state.accounts.isNotEmpty()) {
             item(key = "all_people_h") { Header("People", onAll = { onSeeAll(MainViewModel.SearchFilter.ACCOUNTS) }) }
             item(key = "all_people") {
-                com.mediaviewer.ui.compat.LazyRow(
-                    contentPadding = PaddingValues(horizontal = SEARCH_EDGE),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(state.accounts.size.coerceAtMost(20), key = { "all_person_" + state.accounts[it].author.did }) { i ->
-                        val a = state.accounts[i].author
-                        val ring = rememberAuthorProfileTint(a.did, a.avatarUrl)
-                        Column(
-                            // (No padding under it: the gap to the next row matches the others'.)
-                            Modifier.width(78.dp).clip(RoundedCornerShape(14.dp)).clickable { tap(); onOpenAccount(a) }.padding(top = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                Modifier.size(62.dp).clip(com.mediaviewer.ui.theme.AvatarShape)
-                                    .border(2.dp, vividAccent(ring), com.mediaviewer.ui.theme.AvatarShape)
-                                    .background(Color.White.copy(alpha = 0.08f))
-                            ) {
-                                if (!a.avatarUrl.isNullOrBlank()) coil3.compose.AsyncImage(
-                                    model = a.avatarUrl, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Text(
-                                a.displayName.ifBlank { a.handle }, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)
-                            )
-                            Text(
-                                "@" + a.handle, color = DimGray, fontSize = 10.sp, lineHeight = 12.sp,
-                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
+                SearchPeopleRow(
+                    state.accounts.take(20).map { it.author }, keyPrefix = "all_person_", tap = tap, onOpen = onOpenAccount
+                )
             }
         }
         if (state.posts.isNotEmpty()) {

@@ -502,6 +502,85 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
         return posts.values.map { it.copy(tags = tagsByPost[it.postUri] ?: emptyList()) }
     }
 
+    /** The statements a bulk import/update reuses for every post. */
+    private class ImportStatements(db: SQLiteDatabase) {
+        val insertPost = db.compileStatement(
+            "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)"
+        )
+        val insertSource = db.compileStatement("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)")
+        val insertTag = db.compileStatement("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)")
+        val raiseTag = db.compileStatement("UPDATE media_tags SET confidence = MAX(confidence, ?) WHERE post_uri = ? AND tag_name = ? AND manual = 0")
+        val insertTagSource = db.compileStatement("INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) VALUES (?, ?, ?)")
+        fun close() {
+            insertPost.close(); insertSource.close(); insertTag.close(); raiseTag.close(); insertTagSource.close()
+        }
+    }
+
+    /** One post's tags once each — the highest score. */
+    private fun bestTags(post: TagExportedPost): Map<String, Float> =
+        post.tags.groupBy { it.first }.mapValues { (_, l) -> l.maxOf { it.second } }
+
+    /** Writes [tags] onto a post for dataset [id]. [isNew]: the post was just
+     *  inserted, so none of its tags exist yet. */
+    private fun writeTags(db: SQLiteDatabase, st: ImportStatements, uri: String, tags: Map<String, Float>, id: String, isNew: Boolean) {
+        if (tags.isEmpty()) return
+        // A post that's already here: read its tags once, so the merge below
+        // only writes what actually changed. Writing every tag
+        // unconditionally — an UPDATE plus an existence-checked INSERT per
+        // tag — made updating the shared dataset ~a million statements.
+        // Hand tags count as full confidence (they're never raised or
+        // replaced, same as the statements did).
+        val current: HashMap<String, Float>? = if (isNew) null else {
+            val map = HashMap<String, Float>()
+            db.rawQuery("SELECT tag_name, confidence, manual FROM media_tags WHERE post_uri = ?", arrayOf(uri)).use { c ->
+                while (c.moveToNext()) map[c.getString(0)] = if (c.getInt(2) == 1) Float.POSITIVE_INFINITY else c.getFloat(1)
+            }
+            map
+        }
+        for ((tag, confidence) in tags) {
+            if (isNew) {
+                st.insertTag.clearBindings()
+                st.insertTag.bindString(1, uri); st.insertTag.bindString(2, tag); st.insertTag.bindDouble(3, confidence.toDouble())
+                st.insertTag.executeInsert()
+            } else {
+                val cur = current!![tag]
+                when {
+                    cur == null -> {
+                        st.insertTag.clearBindings()
+                        st.insertTag.bindString(1, uri); st.insertTag.bindString(2, tag); st.insertTag.bindDouble(3, confidence.toDouble())
+                        st.insertTag.executeInsert()
+                        current[tag] = confidence
+                    }
+                    cur < confidence -> {
+                        st.raiseTag.clearBindings()
+                        st.raiseTag.bindDouble(1, confidence.toDouble()); st.raiseTag.bindString(2, uri); st.raiseTag.bindString(3, tag)
+                        st.raiseTag.executeUpdateDelete()
+                        current[tag] = confidence
+                    }
+                    // else: already there at least as strong — nothing to write.
+                }
+            }
+            st.insertTagSource.clearBindings()
+            st.insertTagSource.bindString(1, uri); st.insertTagSource.bindString(2, tag); st.insertTagSource.bindString(3, id)
+            st.insertTagSource.executeInsert()
+        }
+    }
+
+    /** Adds one post (and its tags) to dataset [id]. */
+    private fun importPost(db: SQLiteDatabase, st: ImportStatements, post: TagExportedPost, id: String, importedAt: Long) {
+        st.insertPost.clearBindings()
+        st.insertPost.bindString(1, post.postUri)
+        st.insertPost.bindString(2, post.cid)
+        st.insertPost.bindString(3, post.mediaUrl)
+        st.insertPost.bindLong(4, importedAt)
+        st.insertPost.bindString(5, id)
+        val isNew = st.insertPost.executeInsert() != -1L
+        st.insertSource.clearBindings()
+        st.insertSource.bindString(1, post.postUri); st.insertSource.bindString(2, id)
+        st.insertSource.executeInsert()
+        writeTags(db, st, post.postUri, bestTags(post), id, isNew)
+    }
+
     /** Imports a friend's exported dataset as its own separate, independently
      *  deletable entry. Everything lands in the same liked_media/media_tags
      *  tables (so search treats every dataset as one); a post the device
@@ -528,83 +607,116 @@ class TagDatabase(context: Context) : SQLiteOpenHelper(context.applicationContex
                 arrayOf(id, name, importedAt)
             )
             var count = 0
-            val insertPost = db.compileStatement(
-                "INSERT OR IGNORE INTO liked_media (post_uri, cid, media_url, indexed_timestamp, dataset_id) VALUES (?, ?, ?, ?, ?)"
-            )
-            val insertSource = db.compileStatement("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)")
-            val insertTag = db.compileStatement("INSERT INTO media_tags (post_uri, tag_name, confidence) VALUES (?, ?, ?)")
-            val raiseTag = db.compileStatement("UPDATE media_tags SET confidence = MAX(confidence, ?) WHERE post_uri = ? AND tag_name = ? AND manual = 0")
-            val insertTagSource = db.compileStatement("INSERT OR IGNORE INTO tag_sources (post_uri, tag_name, dataset_id) VALUES (?, ?, ?)")
+            val st = ImportStatements(db)
             try {
                 val total = posts.size.coerceAtLeast(1)
                 posts.forEachIndexed { i, post ->
                     if (post.postUri.isBlank()) return@forEachIndexed
-                    insertPost.clearBindings()
-                    insertPost.bindString(1, post.postUri)
-                    insertPost.bindString(2, post.cid)
-                    insertPost.bindString(3, post.mediaUrl)
-                    insertPost.bindLong(4, importedAt)
-                    insertPost.bindString(5, id)
-                    val isNew = insertPost.executeInsert() != -1L
-                    insertSource.clearBindings()
-                    insertSource.bindString(1, post.postUri); insertSource.bindString(2, id)
-                    insertSource.executeInsert()
+                    importPost(db, st, post, id, importedAt)
                     count++
-                    // (One post's tags once each — the highest score.)
-                    val tags = post.tags.groupBy { it.first }.map { (t, l) -> t to l.maxOf { it.second } }
-                    // A post that's already here (an update, where most
-                    // posts are): read its tags once, so the merge below
-                    // only writes what actually changed. Writing every tag
-                    // unconditionally — an UPDATE plus an existence-checked
-                    // INSERT per tag — made updating the shared dataset
-                    // ~a million statements and a minutes-long install.
-                    // Hand tags count as full confidence (they're never
-                    // raised or replaced, same as the statements did).
-                    val current: HashMap<String, Float>? = if (isNew) null else {
-                        val map = HashMap<String, Float>()
-                        db.rawQuery("SELECT tag_name, confidence, manual FROM media_tags WHERE post_uri = ?", arrayOf(post.postUri)).use { c ->
-                            while (c.moveToNext()) map[c.getString(0)] = if (c.getInt(2) == 1) Float.POSITIVE_INFINITY else c.getFloat(1)
-                        }
-                        map
-                    }
-                    for ((tag, confidence) in tags) {
-                        if (isNew) {
-                            insertTag.clearBindings()
-                            insertTag.bindString(1, post.postUri); insertTag.bindString(2, tag); insertTag.bindDouble(3, confidence.toDouble())
-                            insertTag.executeInsert()
-                        } else {
-                            val cur = current!![tag]
-                            when {
-                                cur == null -> {
-                                    insertTag.clearBindings()
-                                    insertTag.bindString(1, post.postUri); insertTag.bindString(2, tag); insertTag.bindDouble(3, confidence.toDouble())
-                                    insertTag.executeInsert()
-                                    current[tag] = confidence
-                                }
-                                cur < confidence -> {
-                                    raiseTag.clearBindings()
-                                    raiseTag.bindDouble(1, confidence.toDouble()); raiseTag.bindString(2, post.postUri); raiseTag.bindString(3, tag)
-                                    raiseTag.executeUpdateDelete()
-                                    current[tag] = confidence
-                                }
-                                // else: already there at least as strong —
-                                // nothing to write.
-                            }
-                        }
-                        insertTagSource.clearBindings()
-                        insertTagSource.bindString(1, post.postUri); insertTagSource.bindString(2, tag); insertTagSource.bindString(3, id)
-                        insertTagSource.executeInsert()
-                    }
                     if (i % 500 == 0) onProgress(i.toFloat() / total)
                 }
             } finally {
-                insertPost.close(); insertSource.close(); insertTag.close(); raiseTag.close(); insertTagSource.close()
+                st.close()
             }
             db.setTransactionSuccessful()
             onProgress(1f)
             return TagDatasetInfo(id, name, importedAt, count)
         } finally {
             db.endTransaction()
+        }
+    }
+
+    /**
+     * Brings the imported dataset [id] up to date with [posts] IN PLACE, and
+     * writes only what differs. A new version of the shared dataset is the
+     * old one with a handful of tags changed, so importing it whole and
+     * then deleting the old copy (a second full pass, over every row) did
+     * hundreds of thousands of writes to end up where it started. Here each
+     * post costs one read; only a new post or a changed tag is written.
+     * Returns null when there's no dataset [id] (the caller imports fresh).
+     */
+    fun updateDataset(id: String, name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit = {}): TagDatasetInfo? {
+        val db = writableDatabase
+        val exists = db.rawQuery("SELECT 1 FROM datasets WHERE id = ?", arrayOf(id)).use { it.moveToFirst() }
+        if (!exists) return null
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            db.execSQL("UPDATE datasets SET name = ?, imported_at = ? WHERE id = ?", arrayOf(name, now, id))
+            // Every post this dataset had: what's left over afterwards is gone from the new version.
+            val before = HashSet<String>()
+            db.rawQuery("SELECT post_uri FROM post_sources WHERE dataset_id = ?", arrayOf(id)).use { c ->
+                while (c.moveToNext()) before.add(c.getString(0))
+            }
+            val st = ImportStatements(db)
+            var count = 0
+            try {
+                val total = posts.size.coerceAtLeast(1)
+                posts.forEachIndexed { i, post ->
+                    val uri = post.postUri
+                    if (uri.isBlank()) return@forEachIndexed
+                    count++
+                    if (!before.remove(uri)) {
+                        importPost(db, st, post, id, now)   // a post new in this version
+                    } else {
+                        val incoming = bestTags(post)
+                        val had = HashSet<String>()
+                        db.rawQuery("SELECT tag_name FROM tag_sources WHERE post_uri = ? AND dataset_id = ?", arrayOf(uri, id)).use { c ->
+                            while (c.moveToNext()) had.add(c.getString(0))
+                        }
+                        // New in this version: written like an import would.
+                        val added = incoming.filterKeys { it !in had }
+                        if (added.isNotEmpty()) writeTags(db, st, uri, added, id, isNew = false)
+                        // Gone from this version: this dataset stops giving the
+                        // tag, and it goes unless another dataset (or a hand
+                        // tag) still has it.
+                        for (tag in had) {
+                            if (tag in incoming) continue
+                            db.execSQL("DELETE FROM tag_sources WHERE post_uri = ? AND tag_name = ? AND dataset_id = ?", arrayOf(uri, tag, id))
+                            db.execSQL(
+                                "DELETE FROM media_tags WHERE post_uri = ? AND tag_name = ? AND manual = 0 AND NOT EXISTS " +
+                                    "(SELECT 1 FROM tag_sources s WHERE s.post_uri = media_tags.post_uri AND s.tag_name = media_tags.tag_name)",
+                                arrayOf(uri, tag)
+                            )
+                        }
+                    }
+                    if (i % 500 == 0) onProgress(i.toFloat() / total)
+                }
+            } finally {
+                st.close()
+            }
+            // Posts the new version no longer has: the same as [deleteDataset],
+            // one post at a time (there are few).
+            for (uri in before) removePostFromDataset(db, uri, id)
+            db.setTransactionSuccessful()
+            onProgress(1f)
+            return TagDatasetInfo(id, name, now, count)
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** What [deleteDataset] does to everything, done for one post. */
+    private fun removePostFromDataset(db: SQLiteDatabase, uri: String, id: String) {
+        db.execSQL("DELETE FROM tag_sources WHERE post_uri = ? AND dataset_id = ?", arrayOf(uri, id))
+        dropOrphanTags(db, "?", arrayOf(uri))
+        db.execSQL("DELETE FROM post_sources WHERE post_uri = ? AND dataset_id = ?", arrayOf(uri, id))
+        val other = db.rawQuery("SELECT dataset_id FROM post_sources WHERE post_uri = ? LIMIT 1", arrayOf(uri)).use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+        if (other != null) {
+            // Another dataset still has it: it moves over to that one.
+            db.execSQL("UPDATE liked_media SET dataset_id = ? WHERE post_uri = ? AND dataset_id = ?", arrayOf(other, uri, id))
+            return
+        }
+        val hasTags = db.rawQuery("SELECT 1 FROM media_tags WHERE post_uri = ? LIMIT 1", arrayOf(uri)).use { it.moveToFirst() }
+        if (hasTags) {
+            // Kept by its hand tags: this device's own now, and still needs the AI.
+            db.execSQL("UPDATE liked_media SET dataset_id = ?, ai_tagged = 0 WHERE post_uri = ?", arrayOf(LOCAL_DATASET_ID, uri))
+            db.execSQL("INSERT OR IGNORE INTO post_sources (post_uri, dataset_id) VALUES (?, ?)", arrayOf(uri, LOCAL_DATASET_ID))
+        } else {
+            db.execSQL("DELETE FROM liked_media WHERE post_uri = ?", arrayOf(uri))
         }
     }
 

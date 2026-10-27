@@ -168,12 +168,25 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                     val selecting = PostSelection.active
                     var moved = false
                     var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                    // Where each finger touched down: a second finger resting
+                    // (or tapping fast beside this one) is no reason to give up
+                    // on this tap — only a finger that actually travels is.
+                    // (Any second finger used to count as "moved" and drop
+                    // the touch, which left the tile's own tap free to open
+                    // the post in the middle of picking.)
+                    val starts = HashMap<androidx.compose.ui.input.pointer.PointerId, Offset>()
+                    starts[down.id] = down.position
                     val held = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                         while (true) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
-                            if (ev.changes.count { it.pressed } > 1) { moved = true; break }
-                            val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                            if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) { moved = true; break }
+                            for (ch in ev.changes) {
+                                if (!ch.pressed) continue
+                                val start = starts.getOrPut(ch.id) { ch.position }
+                                if ((ch.position - start).getDistance() > viewConfiguration.touchSlop) moved = true
+                            }
+                            if (moved) break
+                            val c = ev.changes.firstOrNull { it.id == down.id }
+                            if (c == null) break
                             if (!c.pressed) { up = c; break }
                         }
                     } == null
@@ -196,8 +209,10 @@ fun Modifier.postSelectable(item: MediaItem, shape: Shape = RectangleShape): Mod
                                 coords[0]?.takeIf { it.isAttached }?.let { reorder(latest, it.localToRoot(c.position)) }
                             }
                         }
-                    } else if (selecting) {
-                        up?.let { it.consume(); PostSelection.toggle(latest) }
+                    } else if (selecting || PostSelection.active) {
+                        // (Still picking when this touch ends — even if the last
+                        // pick was dropped meanwhile — a tap never opens.)
+                        up?.let { it.consume(); if (selecting) PostSelection.toggle(latest) }
                     }
                 } finally {
                     if (PostSelection.claimed == down.id) PostSelection.claimed = null

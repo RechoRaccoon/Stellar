@@ -142,6 +142,8 @@ class TaggingRepository(
     override suspend fun listImportedDatasets(): List<TagDatasetInfo> = withContext(Dispatchers.IO) { db.listImportedDatasets() }
 
     /** The list's per-row delete ("X"). */
+    override suspend fun updateDataset(id: String, name: String, posts: List<TagExportedPost>, onProgress: (Float) -> Unit): TagDatasetInfo? =
+        withContext(Dispatchers.IO) { db.updateDataset(id, name, posts, onProgress) }
     override suspend fun deleteDataset(id: String) = withContext(Dispatchers.IO) { db.deleteDataset(id) }
 
     /** Full backlog pass: pages through every liked post (Bluesky or e621,

@@ -1108,7 +1108,7 @@ fun ProfileOverlay(
                 profileHomeRows(
                     did = author.did, feeds = homeFeeds, own = isOwn, rows = feedRows,
                     liquidGlass = liquidGlass, tint = blended,
-                    onOpenPost = { key, i -> feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } },
+                    onOpenPost = { key, i -> if (!PostSelection.active) feedRows[key]?.posts?.let { if (i in it.indices) onTapItem(it, i) } },
                     onSeeAll = { key -> LocalOverlays.openHomeRowExplore?.invoke(key) },
                     rowScaled = sideways
                 )
@@ -3466,7 +3466,7 @@ private fun ThumbBox(item: MediaItem, tint: Color, shape: RoundedCornerShape, mo
             // square-grid tiles are flat — no rounded corners (the caller
             // passes a 0.dp shape) and no outline at all.
             .then(if (rounded) Modifier.tileRim(tint, shape, liquidGlass) else Modifier)
-            .clickable(onClick = { tap(); onClick() })
+            .clickable(onClick = { if (!PostSelection.active) { tap(); onClick() } })
     ) {
         // Bug fix: the NSFW cover used to be a solid, already-opaque black
         // box that was itself given a `.blur()` — blurring a flat single
@@ -3566,7 +3566,7 @@ private fun SwipeableThumbBox(
             // Fix (per feedback): flat tiles when the "Rounded grid tiles"
             // setting is off — same treatment as ThumbBox.
             .then(if (rounded) Modifier.tileRim(tint, shape, liquidGlass) else Modifier)
-            .clickable { tap(); onSeedSubImageIndex(item.id, pagerState.currentPage); onClick() }
+            .clickable { if (!PostSelection.active) { tap(); onSeedSubImageIndex(item.id, pagerState.currentPage); onClick() } }
     ) {
         // Bug fix: see ThumbBox's own comment above — blur the actual page
         // content, not a solid box laid on top of it, or the effect reads
@@ -4027,7 +4027,7 @@ private fun TimelineShapedTextTile(
                 .textPostFill(authorTint, shape)
                 .clip(shape)
                 .postSelectable(item, shape)
-                .clickable { tap(); onOpen() }
+                .clickable { if (!PostSelection.active) { tap(); onOpen() } }
                 .padding(horizontal = 18.dp, vertical = 26.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -4919,7 +4919,7 @@ private fun TextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: Color, o
             // picture's own aspect ratio (a square, normally) and the
             // picture fills it. Plain text keeps its padded, text-sized bubble.
             .then(if (emoji) Modifier.aspectRatio((item.aspectRatio ?: 1f).coerceIn(0.2f, 5f)) else Modifier)
-            .clickable(onClick = { tap(); onOpen() })
+            .clickable(onClick = { if (!PostSelection.active) { tap(); onOpen() } })
             .then(if (emoji) Modifier else Modifier.padding(16.dp))
     ) {
         val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
@@ -4965,7 +4965,7 @@ private fun CompactTextPostBubble(item: MediaItem, liquidGlass: Boolean, tint: C
             )
             // Textshot with emoji: bubble matches the picture's aspect ratio.
             .then(if (emoji) Modifier.aspectRatio((item.aspectRatio ?: 1f).coerceIn(0.2f, 5f)) else Modifier)
-            .clickable(onClick = { tap(); onOpen() })
+            .clickable(onClick = { if (!PostSelection.active) { tap(); onOpen() } })
             .then(if (emoji) Modifier else Modifier.padding(10.dp))
     ) {
         val blurNsfw = LocalHateFunBlurNsfw.current && item.isNsfwLabeled
@@ -7159,6 +7159,12 @@ fun PostResultTile(
     videoCards: Boolean = false,
     onClick: () -> Unit
 ) {
+    // While posts are being picked, a tile never opens its post — whatever
+    // reaches it (a stray tap, a second finger, a fast double tap) is
+    // dropped here. The picking itself is PostSelection's (see
+    // postSelectable), which handles the tap before this.
+    val openTile = onClick
+    val onClick: () -> Unit = { if (!PostSelection.active) openTile() }
     val mediaShape = RoundedCornerShape(14.dp)
     val textShape = RoundedCornerShape(12.dp)
     if (videoCards && filter == PostKindFilter.HORIZONTAL_VIDEOS) {

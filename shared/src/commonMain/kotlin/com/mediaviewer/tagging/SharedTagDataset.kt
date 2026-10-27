@@ -170,10 +170,15 @@ object SharedTagDataset {
                 }
                 withContext(Dispatchers.Main) { prompt = Prompt.Downloading(0.95f, "Adding it to your tags…") }
                 val svc = service ?: error("Tagging isn't available")
-                // The new copy goes in before the old one comes out, so
-                // search never goes empty in between.
                 val old = installedDatasetId()
                 var lastShown = -1
+                val onProgress: (Float) -> Unit = { f ->
+                    val pct = (f * 100).toInt()
+                    if (pct != lastShown) {
+                        lastShown = pct
+                        scope.launch(Dispatchers.Main) { if (job?.isActive == true) prompt = Prompt.Downloading(0.95f + 0.05f * f, "Adding it to your tags… $pct%") }
+                    }
+                }
                 // The install itself can't be cancelled — the database
                 // work is blocking and runs to completion either way — so
                 // the bookkeeping around it runs uncancellable too. Letting
@@ -181,14 +186,22 @@ object SharedTagDataset {
                 // unregistered, the old copy undeleted, and the saved
                 // version pointing at the old copy.
                 withContext(NonCancellable) {
-                    val info = svc.importDataset(NAME, posts) { f ->
-                        val pct = (f * 100).toInt()
-                        if (pct != lastShown) {
-                            lastShown = pct
-                            scope.launch(Dispatchers.Main) { if (job?.isActive == true) prompt = Prompt.Downloading(0.95f + 0.05f * f, "Adding it to your tags… $pct%") }
+                    // An update changes the copy already on the device in
+                    // place — only the posts and tags that differ are
+                    // written. (Importing the new version whole and then
+                    // deleting the old one meant two passes over every row.)
+                    var info = if (old != null) runCatching { svc.updateDataset(old, NAME, posts, onProgress) }.getOrNull() else null
+                    if (info == null) {
+                        // First install (or no in-place update here): a
+                        // fresh copy goes in before any old one comes out,
+                        // so search never goes empty in between.
+                        info = svc.importDataset(NAME, posts, onProgress)
+                        if (old != null && old != info.id) {
+                            // (Taking a whole copy out is a long step of its own.)
+                            withContext(Dispatchers.Main) { prompt = Prompt.Downloading(1f, "Removing the old version…") }
+                            runCatching { svc.deleteDataset(old) }
                         }
                     }
-                    if (old != null && old != info.id) runCatching { svc.deleteDataset(old) }
                     prefs?.edit()?.putString("dataset_id", info.id)?.putString("version", m.version)?.apply()
                 }
                 withContext(Dispatchers.Main) {
