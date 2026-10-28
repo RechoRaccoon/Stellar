@@ -30,6 +30,7 @@ import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
 import com.mediaviewer.ui.compat.BackHandler
@@ -196,9 +197,12 @@ fun PopupSheetHeader(
     counterOver: Boolean = false,
     /** A delete button at the top right, mirroring the X (two taps:
      *  the trash icon, then "Really?"). */
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    /** A clipboard button at the top right, mirroring the X. */
+    onCopy: (() -> Unit)? = null
 ) {
-    Box(modifier.fillMaxWidth().padding(start = 10.dp, end = if (onDelete != null) 10.dp else 16.dp, top = 10.dp, bottom = 4.dp)) {
+    Box(modifier.fillMaxWidth().padding(start = 10.dp, end = if (onDelete != null || onCopy != null) 10.dp else 16.dp, top = 10.dp, bottom = 4.dp)) {
+        if (onCopy != null) PopupCopyBubble(onCopy, Modifier.align(Alignment.CenterEnd))
         if (onDelete != null) PopupDeleteBubble("popup:$title", onDelete, Modifier.align(Alignment.CenterEnd))
         if (counter != null) {
             Text(
@@ -221,6 +225,21 @@ fun PopupSheetHeader(
             }
         }
         PopupCloseBubble(liquidGlass, tint, backdrop, onClose, Modifier.align(Alignment.CenterStart))
+    }
+}
+
+/** Round clipboard button, the X's twin on the right of a popup's header. */
+@Composable
+fun PopupCopyBubble(onCopy: () -> Unit, modifier: Modifier = Modifier) {
+    val tap = rememberHapticTap()
+    Box(
+        modifier.size(34.dp).clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.34f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+            .clickable { tap(); onCopy() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Default.ContentPaste, contentDescription = "Copy link", tint = Color.White, modifier = Modifier.size(18.dp))
     }
 }
 

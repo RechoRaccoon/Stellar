@@ -1063,6 +1063,7 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 },
                 onOpenListEntry    = viewModel::openListMembers,
                 onOpenFeed         = viewModel::openFeedFromSearch,
+                onOpenBlueskyLink  = viewModel::openBlueskyLink,
                 onClose            = viewModel::closeSearch
             )
         }

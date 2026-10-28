@@ -134,6 +134,9 @@ fun LocalOverlayHost(
         LocalOverlays.feedRows = viewModel.hubLists
         LocalOverlays.openProfile = { viewModel.openProfile(it) }
         LocalOverlays.backFromFeed = viewModel::backFromFeed
+        LocalOverlays.addOpenedFeed = { uri, name ->
+            viewModel.addFeedFromProfile(com.mediaviewer.model.ProfileListEntry(com.mediaviewer.model.ProfileListKind.FEED, uri, name))
+        }
         LocalOverlays.openMutualBlog = viewModel::openMutualBlog
         LocalOverlays.openMutualReview = viewModel::openMutualReview
         LocalOverlays.onPlaceBookmark = viewModel::placeBookmark

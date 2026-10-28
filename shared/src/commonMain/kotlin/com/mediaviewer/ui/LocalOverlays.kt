@@ -90,6 +90,8 @@ object LocalOverlays {
     var openProfile: ((AuthorInfo) -> Unit)? = null
     /** Back out of the Timeline / Explore (what the system Back does there). */
     var backFromFeed: (() -> Unit)? = null
+    /** An opened feed's Add button: (feed uri, name) → your feeds. */
+    var addOpenedFeed: ((String, String) -> Unit)? = null
     /** Settings → rounded square-grid tiles (for tiles drawn outside the
      *  pages that are handed it, like built feed rows). */
     var roundedGridTiles by mutableStateOf(false)

@@ -10957,6 +10957,44 @@ class MainViewModel(
     private val _searchHiddenBehindFeed = MutableStateFlow(false)
     val searchHiddenBehindFeed: StateFlow<Boolean> = _searchHiddenBehindFeed
 
+    private val bskyAppLink = Regex("""(?:https?://)?(?:www\.)?bsky\.app/profile/([^/\s?#]+)(?:/(post|feed)/([^/\s?#]+))?""", RegexOption.IGNORE_CASE)
+
+    /** Search bar: a bsky.app profile, post or feed link opens that profile,
+     *  post or feed in Stellar. Returns true when [text] was such a link
+     *  (so the caller skips the normal search). */
+    fun openBlueskyLink(text: String): Boolean {
+        val m = bskyAppLink.matchEntire(text.trim()) ?: return false
+        if (!_bskyLoggedIn.value) return false
+        val actor = m.groupValues[1]
+        val kind = m.groupValues[2].lowercase()
+        val rkey = m.groupValues[3]
+        if (kind == "feed" && rkey.isNotBlank()) {
+            viewModelScope.launch(ioDispatcher) {
+                var prof = bskyRepo.getFullProfile(bskyToken, actor)
+                if (prof.isFailure && isAuthError(prof.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                    prof = bskyRepo.getFullProfile(bskyToken, actor)
+                }
+                val did = prof.getOrNull()?.author?.did?.takeIf { it.isNotBlank() }
+                    ?: if (actor.startsWith("did:")) actor else null
+                if (did == null) { showToast("Couldn't open that feed"); return@launch }
+                val uri = "at://$did/app.bsky.feed.generator/$rkey"
+                val info = bskyRepo.getFeedGeneratorInfo(bskyToken, uri).getOrNull()
+                withContext(Dispatchers.Main) {
+                    openFeedFromSearch(ProfileListEntry(
+                        kind = ProfileListKind.FEED, uri = uri,
+                        name = info?.displayName.orEmpty().ifBlank { "Feed" },
+                        description = info?.description, avatarUrl = info?.avatar
+                    ))
+                }
+            }
+            return true
+        }
+        if (kind == "post" && rkey.isNotBlank()) openProfileFromLink(actor, rkey)
+        else if (kind.isBlank()) openProfileFromLink(actor, null)
+        else return false
+        return true
+    }
+
     /** A feed tapped in Search → Feeds: opens like one on a profile. */
     fun openFeedFromSearch(entry: ProfileListEntry) {
         if (!_bskyLoggedIn.value || entry.uri.isBlank()) return

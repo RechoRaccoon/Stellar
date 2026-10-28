@@ -152,6 +152,9 @@ fun SearchOverlay(
     onLoadTrending: () -> Unit = {},
     /** A trending topic tapped: opens Bluesky's own feed for it. */
     onOpenTrending: (com.mediaviewer.repository.BlueskyRepository.TrendingTopic) -> Unit = {},
+    /** A bsky.app profile / post / feed link typed in the bar: opens it in
+     *  Stellar. True when it was such a link (no search is run). */
+    onOpenBlueskyLink: (String) -> Boolean = { false },
     onClose: () -> Unit
 ) {
     // The bar "splits": the page opens looking exactly like the Hub's search
@@ -270,7 +273,9 @@ fun SearchOverlay(
     val kindForTab = if (isLiked) taggedKind else postsKind
     val gridScreen = if (isLiked) "search_tagged" else "search_posts"
     val submitSearch: () -> Unit = {
+        val typedLink = if (isWeb) null else state.query.trim()
         when {
+            typedLink != null && typedLink.contains("bsky.app/profile/") && onOpenBlueskyLink(typedLink) -> {}
             isWeb -> {
                 // The address bar: a web address opens as is; anything else
                 // is searched with the engine picked in Supporter Settings.

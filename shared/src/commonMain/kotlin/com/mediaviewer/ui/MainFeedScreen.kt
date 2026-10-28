@@ -3058,7 +3058,8 @@ private fun QuotedPostCard(quoted: QuotedPost, tint: Color, blurred: Boolean, on
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val cardWidth = if (sideways) minOf(maxWidth - 20.dp, 560.dp) else maxWidth - 20.dp
-        val maxCardHeight = (maxHeight - topClear - bottomClear).coerceAtLeast(160.dp)
+        // Centered on the screen itself, so the larger clearance applies both sides.
+        val maxCardHeight = (maxHeight - maxOf(topClear, bottomClear) * 2).coerceAtLeast(160.dp)
         val topClearPx = with(density) { topClear.roundToPx() }
         val bottomClearPx = with(density) { bottomClear.roundToPx() }
         val pad = 14.dp
@@ -3075,8 +3076,7 @@ private fun QuotedPostCard(quoted: QuotedPost, tint: Color, blurred: Boolean, on
                     val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                     val h = constraints.maxHeight
                     val centered = (h - placeable.height) / 2
-                    val maxTop = (h - bottomClearPx - placeable.height).coerceAtLeast(topClearPx)
-                    val top = centered.coerceIn(topClearPx, maxTop)
+                    val top = centered.coerceAtLeast(0)
                     layout(constraints.maxWidth, h) {
                         placeable.place((constraints.maxWidth - placeable.width) / 2, top)
                     }

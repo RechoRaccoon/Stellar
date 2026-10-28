@@ -5,6 +5,7 @@ import com.mediaviewer.ui.theme.AvatarShape
 import com.mediaviewer.ui.compat.navBarSpace
 
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Add
 
 import androidx.compose.material.icons.filled.Flag
 
@@ -1301,6 +1302,19 @@ fun ProfileOverlay(
                                     iconTint = if (isBlocking) Color(0xFFFF6B6B) else null
                                 ) { onToggleBlock(author) })
                             }
+                            // PDSls: this account's repo in the PDSls browser.
+                            add(BubbleAction(
+                                "PDSls",
+                                iconContent = { m, c ->
+                                    Box(m, contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "PDSls", color = c, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                            maxLines = 1, softWrap = false,
+                                            modifier = Modifier.wrapContentSize(unbounded = true)
+                                        )
+                                    }
+                                }
+                            ) { uriHandler.openUri("https://pdsls.dev/at/${author.did}") })
                         },
                         liquidGlass = liquidGlass, tint = blended, backdrop = backdrop,
                         onDismissRequest = { profileMoreOpen = false },
@@ -1842,6 +1856,22 @@ internal fun ProfileBackBubble(liquidGlass: Boolean, tint: Color, backdrop: Glas
     val base = Modifier.size(BACK_BUBBLE_SIZE).clip(shape).clickable { tap(); onClick() }
     val icon: @Composable () -> Unit = {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+    if (liquidGlass) {
+        LiquidGlassSurface(modifier = base, shape = shape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) { icon() }
+    } else {
+        Box(base.background(Color.Black.copy(0.6f)), contentAlignment = Alignment.Center) { icon() }
+    }
+}
+
+/** The Back bubble's twin: a plus that adds the opened feed to your feeds. */
+@Composable
+internal fun ProfileAddBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?, onClick: () -> Unit) {
+    val tap = rememberHapticTap()
+    val shape = CircleShape
+    val base = Modifier.size(BACK_BUBBLE_SIZE).clip(shape).clickable { tap(); onClick() }
+    val icon: @Composable () -> Unit = {
+        Icon(Icons.Default.Add, contentDescription = "Add Feed", tint = Color.White, modifier = Modifier.size(20.dp))
     }
     if (liquidGlass) {
         LiquidGlassSurface(modifier = base, shape = shape, tint = tint, backdrop = backdrop, contentAlignment = Alignment.Center) { icon() }
@@ -2829,10 +2859,15 @@ private fun PostKindRowWithFacets(
                         option == null && homeOn && customizeLabel != null -> ({
                             MediaFacetEnd(listOf(customizeLabel), if (customizing == true) 0 else -1) { onCustomize(customizing != true) }
                         })
-                        option != PostKindFilter.MEDIA || facets.isEmpty() -> null
+                        option != PostKindFilter.MEDIA -> null
                         else -> ({
-                            MediaFacetEnd(facets.map { it.label() }, facets.indexOf(selected)) { i ->
-                                onSelect(if (facets[i] == selected) PostKindFilter.MEDIA else facets[i])
+                            // Always there, Media picked or not: tapping one
+                            // picks Media along with that Images / Videos.
+                            val sideFacets = listOf(PostKindFilter.IMAGES, PostKindFilter.VIDEOS)
+                            val active = parent == PostKindFilter.MEDIA && !homeOn
+                            MediaFacetEnd(sideFacets.map { it.label() }, if (active) sideFacets.indexOf(selected) else -1) { i ->
+                                if (homeOn) onHome(false)
+                                onSelect(if (active && sideFacets[i] == selected) PostKindFilter.MEDIA else sideFacets[i])
                             }
                         })
                     }

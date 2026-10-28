@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaviewer.model.AppMode
+import com.mediaviewer.model.PROFILE_FEED_HANDLE_PREFIX
 import com.mediaviewer.model.isProfileFeed
 import com.mediaviewer.model.isSpecialFeed
 import com.mediaviewer.model.BskyFeedInfo
@@ -357,6 +358,12 @@ fun GridScreen(
         // with the Back button (centered on it) instead of on a row below it.
         val titleBesideBack = onBack != null && !sideways &&
             authorFeedState?.author?.let { appMode == AppMode.BLUESKY && it.isSpecialFeed() } == true
+        // An opened feed (not a folder, list or special page) that isn't in
+        // your feeds yet can be added from its own page.
+        val openedFeedUri = authorFeedState?.author?.takeIf { appMode == AppMode.BLUESKY && it.isProfileFeed() }
+            ?.handle?.removePrefix(PROFILE_FEED_HANDLE_PREFIX)
+            ?.takeIf { it.contains("/app.bsky.feed.generator/") && availableFeeds.none { f -> f.uri == it } }
+        val openedFeedName = authorFeedState?.author?.displayName.orEmpty().ifBlank { "Feed" }
         @Composable
         fun HeaderRows() {
             // ── Feeds (profile-style main tabs) / e621 tag search ─────────────
@@ -461,6 +468,13 @@ fun GridScreen(
                         kind = newKind
                     }
                 }
+                }
+            }
+            // Landscape: Add Feed, under the sub filters past another divider.
+            if (LocalSideList.current && openedFeedUri != null) {
+                SideListDivider(tint)
+                SideListButton("Add Feed", selected = false, liquidGlass = liquidGlass, tint = tint, small = true) {
+                    LocalOverlays.addOpenedFeed?.invoke(openedFeedUri, openedFeedName)
                 }
             }
         }
@@ -727,6 +741,9 @@ fun GridScreen(
             else if (floatingBack) ProfileBackBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop, onClick = onBack!!)
             Spacer(Modifier.weight(1f))
             if (PostSelection.active) SelectionCountBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop)
+            else if (floatingBack && openedFeedUri != null) ProfileAddBubble(liquidGlass = liquidGlass, tint = tint, backdrop = backdrop) {
+                LocalOverlays.addOpenedFeed?.invoke(openedFeedUri, openedFeedName)
+            }
         }
         // Back-to-top arrow, same as on profiles (glass that blurs the grid).
         androidx.compose.animation.AnimatedVisibility(

@@ -80,6 +80,7 @@ fun SendDmDialog(
     if (target == null) return
     var message by remember(target.id) { mutableStateOf("") }
     val tap = rememberHapticTap()
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val thumbUrl = target.thumbUrl.ifBlank { target.mediaUrl }
     val tint = dominantColor
     // Custom emoji, as in Quote Repost: the same star button (left of the
@@ -144,7 +145,18 @@ fun SendDmDialog(
                     title = "Share with",
                     subtitle = if (selected.isNotEmpty()) "· ${selected.size}" else null,
                     liquidGlass = liquidGlass, tint = tint, backdrop = backdrop,
-                    onClose = onDismiss
+                    onClose = onDismiss,
+                    onCopy = {
+                        // Profiles and feeds carry their bsky.app link in
+                        // `text`; a post's is built from its author + rkey.
+                        val link = if (target.id.startsWith(com.mediaviewer.viewmodel.MainViewModel.PROFILE_SHARE_PREFIX)) target.text
+                        else "https://bsky.app/profile/" + target.author.handle.ifBlank { target.author.did } +
+                            "/post/" + target.postUri.substringAfterLast('/')
+                        if (link.isNotBlank()) {
+                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(link))
+                            com.mediaviewer.ui.compat.showPlatformToast(com.mediaviewer.i18n.tr("Copied"))
+                        }
+                    }
                 )
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
