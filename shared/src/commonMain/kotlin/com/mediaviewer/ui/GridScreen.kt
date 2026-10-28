@@ -165,6 +165,12 @@ fun GridScreen(
     val tap = rememberHapticTap()
     var localTags  by remember(e621SearchTags) { mutableStateOf(e621SearchTags) }
     val tint = rememberSelfTint(selfAvatarUrl, NeutralGlassTint)
+    // An opened feed (not a folder, list or special page) that isn't in
+    // your feeds yet can be added from its own page.
+    val openedFeedUri = authorFeedState?.author?.takeIf { appMode == AppMode.BLUESKY && it.isProfileFeed() }
+        ?.handle?.removePrefix(PROFILE_FEED_HANDLE_PREFIX)
+        ?.takeIf { it.contains("/app.bsky.feed.generator/") && availableFeeds.none { f -> f.uri == it } }
+    val openedFeedName = authorFeedState?.author?.displayName.orEmpty().ifBlank { "Feed" }
     var kind by remember { mutableStateOf(PostKindFilter.ALL) }
     val gridScreen = "feed_grid"
     // Landscape: the slider's column count, and two layouts instead of three
@@ -358,12 +364,6 @@ fun GridScreen(
         // with the Back button (centered on it) instead of on a row below it.
         val titleBesideBack = onBack != null && !sideways &&
             authorFeedState?.author?.let { appMode == AppMode.BLUESKY && it.isSpecialFeed() } == true
-        // An opened feed (not a folder, list or special page) that isn't in
-        // your feeds yet can be added from its own page.
-        val openedFeedUri = authorFeedState?.author?.takeIf { appMode == AppMode.BLUESKY && it.isProfileFeed() }
-            ?.handle?.removePrefix(PROFILE_FEED_HANDLE_PREFIX)
-            ?.takeIf { it.contains("/app.bsky.feed.generator/") && availableFeeds.none { f -> f.uri == it } }
-        val openedFeedName = authorFeedState?.author?.displayName.orEmpty().ifBlank { "Feed" }
         @Composable
         fun HeaderRows() {
             // ── Feeds (profile-style main tabs) / e621 tag search ─────────────
