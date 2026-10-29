@@ -2735,12 +2735,12 @@ private fun ProfileAvatarGlass(
     /** A video icon (whose, and its blob), played over the picture. */
     videoDid: String? = null, videoCid: String? = null,
     onClick: (() -> Unit)? = null,
-    /** Live on Bluesky right now: the stream's link. The bubble is filled
-     *  and a "Live" button over the picture opens the stream. */
+    /** Live on Bluesky right now: the stream's link. When live, the bubble
+     *  fills solid with the profile color, and a "Live" button straddling
+     *  the picture's bottom edge opens the stream. */
     liveUrl: String? = null
 ) {
     val tapMod = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
-    val liveRed = Color(0xFFE5303A)
     @Composable
     fun AvatarImage() {
         // A video icon is only the video (no picture under or before it:
@@ -2759,26 +2759,30 @@ private fun ProfileAvatarGlass(
     Box(Modifier.size(size)) {
         if (liquidGlass) {
             LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
-                // (Live: the bubble itself is filled in.)
-                if (liveUrl != null) Box(Modifier.matchParentSize().background(liveRed.copy(alpha = 0.9f)))
+                // (Live: the bubble itself fills solid with the profile color.)
+                if (liveUrl != null) Box(Modifier.matchParentSize().background(tint))
                 Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
             }
         } else {
             Box(
                 Modifier.size(size).then(tapMod).clip(shape)
-                    .background(if (liveUrl != null) liveRed else Color.Black.copy(0.5f)).padding(5.dp)
+                    .background(if (liveUrl != null) tint else Color.Black.copy(0.5f)).padding(5.dp)
             ) { AvatarImage() }
         }
         if (liveUrl != null) {
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             val tap = rememberHapticTap()
+            // The badge's middle sits over the picture's bottom edge: shift it
+            // down by half its own measured height, never a guessed offset.
+            var badgeHeight by remember { mutableStateOf(0) }
             Box(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
+                Modifier.align(Alignment.BottomCenter)
                     .clip(RoundedCornerShape(50))
-                    .background(liveRed)
-                    .border(1.5.dp, Color.White, RoundedCornerShape(50))
+                    .background(tint)
                     .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
+                    .onSizeChanged { badgeHeight = it.height }
+                    .offset { IntOffset(0, badgeHeight / 2) },
                 contentAlignment = Alignment.Center
             ) {
                 Text("Live", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
