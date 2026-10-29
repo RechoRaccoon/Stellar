@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Menu
 
 import androidx.compose.ui.draw.alpha
 
+import androidx.compose.ui.unit.IntOffset
 
 import androidx.compose.ui.unit.IntSize
 
@@ -108,7 +109,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -2510,10 +2510,6 @@ private fun ProfileIdentityCentered(
     liveUrl: String? = null
 ) {
     val avatarSize = 88.dp
-    // (Live: room for the badge's lower half below the picture, measured
-    // from the badge itself — the header grows by it, so the section under
-    // the header can't cover the badge.)
-    var liveBadgeHalf by remember { mutableStateOf(0) }
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
         val gap = 8.dp.roundToPx()
         val edge = PROFILE_EDGE.roundToPx()
@@ -2524,8 +2520,7 @@ private fun ProfileIdentityCentered(
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar,
-                liveUrl = liveUrl,
-                onBadgeHeight = { liveBadgeHalf = it / 2 }
+                liveUrl = liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
         // Each side gets the room between the picture and the screen's edge.
@@ -2546,8 +2541,7 @@ private fun ProfileIdentityCentered(
         val lowerMid = bannerPx + avatar.height / 4
         val nameY = (lowerMid - name.height / 2).coerceAtLeast(bannerPx + gap / 2)
         val handleY = (lowerMid - handle.height / 2).coerceAtLeast(bannerPx + gap / 2)
-        val bottom = maxOf(avatarTop + avatar.height, nameY + name.height, handleY + handle.height) + gap +
-            (if (liveUrl != null) liveBadgeHalf else 0)
+        val bottom = maxOf(avatarTop + avatar.height, nameY + name.height, handleY + handle.height) + gap
         // The status bubble: its pointer just over the picture's top-right.
         val tipX = avatarX + (avatar.width * 0.80f).toInt()
         val tipY = avatarTop + (avatar.height * 0.20f).toInt()
@@ -2582,10 +2576,6 @@ private fun ProfileCompactIdentity(
     onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
 ) {
     val avatarSize = 88.dp
-    // (Live: room for the badge's lower half below the picture, measured
-    // from the badge itself — the row grows by it, so the bio section
-    // under this row can't cover the badge.)
-    var liveBadgeHalf by remember { mutableStateOf(0) }
     // The space between the banner and this row, and between this row and the bio.
     val sectionGap = 10.dp
     // (The picture's outline and the bio line up with the posts' left edge.)
@@ -2599,8 +2589,7 @@ private fun ProfileCompactIdentity(
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar,
-                liveUrl = profile?.liveUrl,
-                onBadgeHeight = { liveBadgeHalf = it / 2 }
+                liveUrl = profile?.liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
         val info = subcompose("info") {
@@ -2629,11 +2618,8 @@ private fun ProfileCompactIdentity(
                 }
             }
         }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0), minHeight = avatar.height))
-        // (The picture stays where it was: the badge's lower half is added
-        // below the row's height, not by moving the picture down.)
-        val baseHeight = maxOf(avatar.height, info.height)
-        val avatarY = (baseHeight - avatar.height) / 2
-        val height = baseHeight + (if (profile?.liveUrl != null) liveBadgeHalf else 0)
+        val height = maxOf(avatar.height, info.height)
+        val avatarY = (height - avatar.height) / 2
         // The status bubble: its pointer a little above and right of the
         // picture's top-right, floating over the banner.
         val tipX = (avatar.width * 0.86f).toInt()
@@ -2749,15 +2735,12 @@ private fun ProfileAvatarGlass(
     /** A video icon (whose, and its blob), played over the picture. */
     videoDid: String? = null, videoCid: String? = null,
     onClick: (() -> Unit)? = null,
-    /** Live on Bluesky right now: the stream's link. When live, the bubble
-     *  fills solid with the profile color, and a "Live" button straddling
-     *  the picture's bottom edge opens the stream. */
-    liveUrl: String? = null,
-    /** Reports the badge's measured height (px) so the header layouts can
-     *  reserve its lower half below the picture. */
-    onBadgeHeight: ((Int) -> Unit)? = null
+    /** Live on Bluesky right now: the stream's link. The bubble is filled
+     *  and a "Live" button over the picture opens the stream. */
+    liveUrl: String? = null
 ) {
     val tapMod = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
+    val liveRed = Color(0xFFE5303A)
     @Composable
     fun AvatarImage() {
         // A video icon is only the video (no picture under or before it:
@@ -2776,44 +2759,29 @@ private fun ProfileAvatarGlass(
     Box(Modifier.size(size)) {
         if (liquidGlass) {
             LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
-                // (Live: the bubble itself fills solid with the profile color.)
-                if (liveUrl != null) Box(Modifier.matchParentSize().background(tint))
+                // (Live: the bubble itself is filled in.)
+                if (liveUrl != null) Box(Modifier.matchParentSize().background(liveRed.copy(alpha = 0.9f)))
                 Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
             }
         } else {
             Box(
                 Modifier.size(size).then(tapMod).clip(shape)
-                    .background(if (liveUrl != null) tint else Color.Black.copy(0.5f)).padding(5.dp)
+                    .background(if (liveUrl != null) liveRed else Color.Black.copy(0.5f)).padding(5.dp)
             ) { AvatarImage() }
         }
         if (liveUrl != null) {
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             val tap = rememberHapticTap()
-            // The badge is an overlay over the picture, not a layout child
-            // that can be pushed or squished: a full-size transparent layer
-            // on top, with the pill background drawn behind the text in the
-            // same draw scope and shifted by the same layer — so the pill
-            // and the text can never separate. Its middle sits over the
-            // picture's bottom edge (half its own measured height down,
-            // never a guessed offset), and its height is reported up so the
-            // header layouts can reserve the lower half.
-            Box(Modifier.matchParentSize(), contentAlignment = Alignment.BottomCenter) {
-                Text(
-                    "Live",
-                    color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                    modifier = Modifier
-                        .drawBehind {
-                            drawRoundRect(
-                                color = tint,
-                                cornerRadius = CornerRadius(this.size.height / 2, this.size.height / 2),
-                                size = this.size
-                            )
-                        }
-                        .padding(horizontal = 10.dp, vertical = 2.dp)
-                        .onSizeChanged { onBadgeHeight?.invoke(it.height) }
-                        .graphicsLayer { translationY = this.size.height / 2 }
-                        .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
-                )
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(liveRed)
+                    .border(1.5.dp, Color.White, RoundedCornerShape(50))
+                    .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Live", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
