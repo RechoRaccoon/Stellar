@@ -108,6 +108,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -2788,21 +2789,31 @@ private fun ProfileAvatarGlass(
         if (liveUrl != null) {
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             val tap = rememberHapticTap()
-            // The badge's middle sits over the picture's bottom edge: shift
-            // the whole badge (bubble and text as one layer) down by half its
-            // own measured height, never a guessed offset. Its height is also
-            // reported up so the header layouts can reserve the lower half.
-            Box(
-                Modifier.align(Alignment.BottomCenter)
-                    .clip(RoundedCornerShape(50))
-                    .background(tint)
-                    .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
-                    .padding(horizontal = 10.dp, vertical = 2.dp)
-                    .onSizeChanged { onBadgeHeight?.invoke(it.height) }
-                    .graphicsLayer { translationY = this.size.height / 2 },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Live", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            // The badge is an overlay over the picture, not a layout child
+            // that can be pushed or squished: a full-size transparent layer
+            // on top, with the pill background drawn behind the text in the
+            // same draw scope and shifted by the same layer — so the pill
+            // and the text can never separate. Its middle sits over the
+            // picture's bottom edge (half its own measured height down,
+            // never a guessed offset), and its height is reported up so the
+            // header layouts can reserve the lower half.
+            Box(Modifier.matchParentSize(), contentAlignment = Alignment.BottomCenter) {
+                Text(
+                    "Live",
+                    color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = Modifier
+                        .drawBehind {
+                            drawRoundRect(
+                                color = tint,
+                                cornerRadius = CornerRadius(this.size.height / 2, this.size.height / 2),
+                                size = this.size
+                            )
+                        }
+                        .padding(horizontal = 10.dp, vertical = 2.dp)
+                        .onSizeChanged { onBadgeHeight?.invoke(it.height) }
+                        .graphicsLayer { translationY = this.size.height / 2 }
+                        .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
+                )
             }
         }
     }
