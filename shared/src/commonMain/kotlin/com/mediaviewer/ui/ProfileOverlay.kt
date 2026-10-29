@@ -2147,7 +2147,7 @@ private fun ProfileHeaderSection(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
                 modifier = Modifier.fillMaxWidth().then(
                     // (Straight under a "Listening to" line there's no gap at all.)
-                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 10.dp, bottom = 4.dp)
+                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else if (profile?.liveUrl != null) 10.dp - LIVE_BADGE_HEIGHT / 2 else 10.dp, bottom = 4.dp)
                     else Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 12.dp, bottom = 12.dp)
                 )
             )
@@ -2461,6 +2461,8 @@ private fun ProfileBannerOverlayLayout(
         val statusMaxH = (tipY + inset.roundToPx()).coerceAtLeast(0)
         // (It may grow over the name pills when a long status needs the room.)
         val statusPreferred = (statusRoom + avatarPlaceable.width - tipX).coerceAtLeast(0)
+        val liveBadge = if (liveUrl == null) null else subcompose("live") { ProfileLiveBadge(avatarColor, liveUrl) }
+            .firstOrNull()?.measure(androidx.compose.ui.unit.Constraints())
         val statusPlaceable = subcompose("status") {
             ProfileStatusBubble(
                 status = status, isOwn = isOwnProfile, tint = avatarColor, onClick = onOpenStatus,
@@ -2484,6 +2486,7 @@ private fun ProfileBannerOverlayLayout(
 
             // Avatar — left-aligned, top matching the display-name pill's top.
             avatarPlaceable.placeRelative(0, namesY)
+            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, namesY + avatarPlaceable.height - it.height / 2) }
 
             // Status — its pointer just over the avatar's top-right.
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
@@ -2550,9 +2553,12 @@ private fun ProfileIdentityCentered(
         }.firstOrNull()?.measure(
             androidx.compose.ui.unit.Constraints(maxWidth = (w - tipX - edge).coerceAtLeast(0), maxHeight = tipY.coerceAtLeast(0))
         )
+        val liveBadge = if (liveUrl == null) null else subcompose("live") { ProfileLiveBadge(avatarColor, liveUrl) }
+            .firstOrNull()?.measure(androidx.compose.ui.unit.Constraints())
         layout(w, bottom) {
             name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
+            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, avatarTop + avatar.height - it.height / 2) }
             handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
@@ -2576,6 +2582,7 @@ private fun ProfileCompactIdentity(
     onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
 ) {
     val avatarSize = 88.dp
+    val liveUrl = profile?.liveUrl
     // The space between the banner and this row, and between this row and the bio.
     val sectionGap = 10.dp
     // (The picture's outline and the bio line up with the posts' left edge.)
@@ -2589,9 +2596,11 @@ private fun ProfileCompactIdentity(
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
                 onClick = onOpenAvatar,
-                liveUrl = profile?.liveUrl
+                liveUrl = liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
+        val liveBadge = if (liveUrl == null) null else subcompose("live") { ProfileLiveBadge(avatarColor, liveUrl) }
+            .firstOrNull()?.measure(androidx.compose.ui.unit.Constraints())
         val info = subcompose("info") {
             Column(verticalArrangement = Arrangement.SpaceBetween) {
                 ShrinkToFitRow(Modifier.fillMaxWidth()) {
@@ -2618,8 +2627,11 @@ private fun ProfileCompactIdentity(
                 }
             }
         }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0), minHeight = avatar.height))
-        val height = maxOf(avatar.height, info.height)
-        val avatarY = (height - avatar.height) / 2
+        val baseHeight = maxOf(avatar.height, info.height)
+        val avatarY = (baseHeight - avatar.height) / 2
+        // (Room for the Live button's lower half; the bio's top padding
+        // gives that much back, so nothing moves.)
+        val height = maxOf(baseHeight, avatarY + avatar.height + (liveBadge?.let { it.height / 2 } ?: 0))
         // The status bubble: its pointer a little above and right of the
         // picture's top-right, floating over the banner.
         val tipX = (avatar.width * 0.86f).toInt()
@@ -2635,6 +2647,7 @@ private fun ProfileCompactIdentity(
         val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
+            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, avatarY + avatar.height - it.height / 2) }
             info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let {
                 val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
@@ -2740,7 +2753,8 @@ private fun ProfileAvatarGlass(
     liveUrl: String? = null
 ) {
     val tapMod = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
-    val liveRed = Color(0xFFE5303A)
+    // (Live fills with the profile's own color.)
+    val liveFill = tint
     @Composable
     fun AvatarImage() {
         // A video icon is only the video (no picture under or before it:
@@ -2760,32 +2774,38 @@ private fun ProfileAvatarGlass(
         if (liquidGlass) {
             LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
                 // (Live: the bubble itself is filled in.)
-                if (liveUrl != null) Box(Modifier.matchParentSize().background(liveRed.copy(alpha = 0.9f)))
+                if (liveUrl != null) Box(Modifier.matchParentSize().background(liveFill.copy(alpha = 0.9f)))
                 Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
             }
         } else {
             Box(
                 Modifier.size(size).then(tapMod).clip(shape)
-                    .background(if (liveUrl != null) liveRed else Color.Black.copy(0.5f)).padding(5.dp)
+                    .background(if (liveUrl != null) liveFill else Color.Black.copy(0.5f)).padding(5.dp)
             ) { AvatarImage() }
-        }
-        if (liveUrl != null) {
-            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-            val tap = rememberHapticTap()
-            Box(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(liveRed)
-                    .border(1.5.dp, Color.White, RoundedCornerShape(50))
-                    .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Live", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            }
         }
     }
 }
+
+/** The "Live" button over a live profile's icon (see [ProfileAvatarGlass]):
+ *  a rounded pill in the profile's color, centered on the icon's bottom
+ *  edge. Laid out by the profile layouts themselves (not inside the icon,
+ *  whose bounds would cut off its tap area), over whatever is there, and
+ *  tapping any part of it opens the stream. */
+@Composable
+private fun ProfileLiveBadge(tint: Color, url: String) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val tap = rememberHapticTap()
+    Box(
+        Modifier.height(LIVE_BADGE_HEIGHT).clip(RoundedCornerShape(50)).background(tint)
+            .clickable { tap(); runCatching { uriHandler.openUri(url) } }
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("Live", color = Color.White, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+private val LIVE_BADGE_HEIGHT = 16.dp
 
 /** Tapping copies [text] to the clipboard, with a "Copied" message. */
 @Composable
