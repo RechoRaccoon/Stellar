@@ -1844,6 +1844,39 @@ class BlueskyRepository {
         }
     }
 
+    /** Downloads one of a review's cover pictures ([url] must already have
+     *  passed the cover-URL filter) and uploads it to the signed-in account's
+     *  repo. Returns the blob as a record holds it, or null when anything
+     *  fails or the picture is too large (the review then keeps only the
+     *  URL string). */
+    private suspend fun uploadReviewCover(token: String, url: String): Map<String, Any>? = withContext(ioDispatcher) {
+        try {
+            val resp = PlainHttp.get(url)
+            if (!resp.isSuccessful) return@withContext null
+            val bytes = resp.body
+            if (bytes.isEmpty() || bytes.size > 1_000_000) return@withContext null
+            val mime = when {
+                bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
+                bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
+                bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+                    bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte() -> "image/webp"
+                else -> return@withContext null
+            }
+            val up = api.uploadBlob("Bearer $token", mime, bytes.toRequestBody(mime.toMediaType()))
+            val blob = up.body()?.blob?.takeIf { up.isSuccessful } ?: return@withContext null
+            mapOf(
+                "\$type" to "blob",
+                "ref" to mapOf("\$link" to blob.ref.link),
+                "mimeType" to blob.mimeType.ifBlank { mime },
+                "size" to blob.size
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun postPopfeedReview(token: String, did: String, target: TitleSearchResult, ratingOutOf10: Int, text: String, containsSpoilers: Boolean = false): Result<String> {
         // Identifiers come ONLY from the review target itself, i.e. from the
         // Popfeed record on the user's own PDS via the Popfeed lexicon.
@@ -1874,8 +1907,15 @@ class BlueskyRepository {
             "isRevisit" to false
         )
         if (text.isNotBlank()) record["text"] = text
-        target.posterUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }?.let { record["posterUrl"] = it }
-        target.backdropUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }?.let { record["backdropUrl"] = it }
+        val posterUrl = target.posterUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
+        val backdropUrl = target.backdropUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
+        posterUrl?.let { record["posterUrl"] = it }
+        backdropUrl?.let { record["backdropUrl"] = it }
+        // The review owns its pictures: each is uploaded as a blob of the
+        // account's own repo, so it cannot vanish with the record the URL
+        // pointed at. (A failure leaves the URL strings alone, as before.)
+        posterUrl?.let { uploadReviewCover(token, it) }?.let { record["poster"] = it }
+        backdropUrl?.let { uploadReviewCover(token, it) }?.let { record["backdrop"] = it }
         if (target.releaseDate.isNotBlank()) record["releaseDate"] = target.releaseDate
         if (target.genres.isNotEmpty()) record["genres"] = target.genres
         target.creator?.let { record["mainCredit"] = it }

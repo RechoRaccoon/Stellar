@@ -2395,6 +2395,8 @@ private fun ProfileBannerOverlayLayout(
     val nameGap = 6.dp
 
     // (Sideways, as close to the screen's edges as the posts below.)
+    // (Read here, in composition: a placement block cannot call a @Composable.)
+    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(
         Modifier.fillMaxSize().padding(horizontal = PROFILE_EDGE, vertical = inset)
     ) { constraints ->
@@ -2486,7 +2488,7 @@ private fun ProfileBannerOverlayLayout(
 
             // Avatar — left-aligned, top matching the display-name pill's top.
             avatarPlaceable.placeRelative(0, namesY)
-            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, liveBadgeTop(namesY, avatarPlaceable.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
+            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, liveBadgeTop(namesY, avatarPlaceable.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
 
             // Status — its pointer just over the avatar's top-right.
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
@@ -2513,6 +2515,7 @@ private fun ProfileIdentityCentered(
     liveUrl: String? = null
 ) {
     val avatarSize = 88.dp
+    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
         val gap = 8.dp.roundToPx()
         val edge = PROFILE_EDGE.roundToPx()
@@ -2558,7 +2561,7 @@ private fun ProfileIdentityCentered(
         layout(w, bottom) {
             name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
-            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, liveBadgeTop(avatarTop, avatar.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
+            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, liveBadgeTop(avatarTop, avatar.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
             handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
@@ -2587,6 +2590,7 @@ private fun ProfileCompactIdentity(
     val sectionGap = 10.dp
     // (The picture's outline and the bio line up with the posts' left edge.)
     val side = PROFILE_EDGE
+    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap)) { constraints ->
         val w = constraints.maxWidth
         val gap = 12.dp.roundToPx()
@@ -2647,7 +2651,7 @@ private fun ProfileCompactIdentity(
         val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
-            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, liveBadgeTop(avatarY, avatar.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
+            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, liveBadgeTop(avatarY, avatar.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
             info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let {
                 val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
