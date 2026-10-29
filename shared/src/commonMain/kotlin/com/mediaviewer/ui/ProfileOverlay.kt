@@ -2486,7 +2486,7 @@ private fun ProfileBannerOverlayLayout(
 
             // Avatar — left-aligned, top matching the display-name pill's top.
             avatarPlaceable.placeRelative(0, namesY)
-            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, namesY + avatarPlaceable.height - (it.height / 2 + 5.dp.roundToPx())) }
+            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, liveBadgeTop(namesY, avatarPlaceable.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
 
             // Status — its pointer just over the avatar's top-right.
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
@@ -2558,7 +2558,7 @@ private fun ProfileIdentityCentered(
         layout(w, bottom) {
             name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
-            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, avatarTop + avatar.height - (it.height / 2 + 5.dp.roundToPx())) }
+            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, liveBadgeTop(avatarTop, avatar.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
             handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
@@ -2647,7 +2647,7 @@ private fun ProfileCompactIdentity(
         val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
-            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, avatarY + avatar.height - (it.height / 2 + 5.dp.roundToPx())) }
+            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, liveBadgeTop(avatarY, avatar.width, it.width, it.height, 5.dp.toPx(), profileIconShape(author.did) == AvatarShape)) }
             info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let {
                 val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
@@ -2806,6 +2806,18 @@ private fun ProfileLiveBadge(tint: Color, url: String) {
 }
 
 private val LIVE_BADGE_HEIGHT = 16.dp
+
+/** Top of the Live button for an icon at [avatarTop] of [avatarSize] with a
+ *  [ring]-thick outline. On a round icon the button's vertical center is
+ *  where the outline's middle crosses the button's left and right ends, so
+ *  the outline visibly meets the button's sides at its center; a square
+ *  icon's outline is straight, so the center goes on its bottom outline. */
+private fun liveBadgeTop(avatarTop: Int, avatarSize: Int, badgeW: Int, badgeH: Int, ring: Float, round: Boolean): Int {
+    val rMid = avatarSize / 2f - ring / 2f
+    val hw = badgeW / 2f
+    val dy = if (round && hw < rMid) kotlin.math.sqrt(rMid * rMid - hw * hw) else rMid
+    return (avatarTop + avatarSize / 2f + dy - badgeH / 2f).toInt()
+}
 
 /** Tapping copies [text] to the clipboard, with a "Copied" message. */
 @Composable
