@@ -2486,7 +2486,7 @@ private fun ProfileBannerOverlayLayout(
 
             // Avatar — left-aligned, top matching the display-name pill's top.
             avatarPlaceable.placeRelative(0, namesY)
-            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, namesY + avatarPlaceable.height - it.height / 2) }
+            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, namesY + avatarPlaceable.height - (it.height * 0.65f).toInt()) }
 
             // Status — its pointer just over the avatar's top-right.
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
@@ -2558,7 +2558,7 @@ private fun ProfileIdentityCentered(
         layout(w, bottom) {
             name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
-            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, avatarTop + avatar.height - it.height / 2) }
+            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, avatarTop + avatar.height - (it.height * 0.65f).toInt()) }
             handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
@@ -2647,7 +2647,7 @@ private fun ProfileCompactIdentity(
         val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
-            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, avatarY + avatar.height - it.height / 2) }
+            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, avatarY + avatar.height - (it.height * 0.65f).toInt()) }
             info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let {
                 val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
