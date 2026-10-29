@@ -741,7 +741,14 @@ class BlueskyRepository {
             }.getOrNull() ?: "following",
             blockedEitherWay = body.viewer?.blockedBy == true || body.viewer?.blocking != null,
             blocksYou = body.viewer?.blockedBy == true,
-            links = body.links?.filter { it.url.isNotBlank() }?.take(MAX_PROFILE_LINKS) ?: emptyList()
+            links = body.links?.filter { it.url.isNotBlank() }?.take(MAX_PROFILE_LINKS) ?: emptyList(),
+            liveUrl = runCatching {
+                val st = body.status ?: return@runCatching null
+                if (st.isActive == false) return@runCatching null
+                val expires = st.expiresAt?.let { com.mediaviewer.platform.parseIsoInstantMillis(it) }
+                if (expires != null && expires <= com.mediaviewer.platform.currentTimeMillis()) return@runCatching null
+                st.embed?.external?.uri?.takeIf { it.isNotBlank() }
+            }.getOrNull()
         ).also { com.mediaviewer.util.BlockedAccounts.noteViewer(body.did, body.viewer) }
     }
 

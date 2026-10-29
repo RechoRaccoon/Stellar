@@ -2031,7 +2031,8 @@ private fun ProfileHeaderSection(
                 onEditProfile = onEditProfile,
                 status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
                 onOpenStatus = onOpenStatus,
-                onOpenAvatar = onOpenAvatar
+                onOpenAvatar = onOpenAvatar,
+                liveUrl = profile?.liveUrl
             )
             }
         }
@@ -2045,6 +2046,7 @@ private fun ProfileHeaderSection(
                     onToggleFollow = onToggleFollow, onClose = onClose, onEditProfile = onEditProfile,
                     status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
                     onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar,
+                    liveUrl = profile?.liveUrl,
                     showFollow = false
                 )
             }
@@ -2054,7 +2056,8 @@ private fun ProfileHeaderSection(
                 author = author, liquidGlass = liquidGlass, bannerColor = bannerColor, avatarColor = avatarColor,
                 isOwnProfile = isOwnProfile, bannerHeight = bannerHeight, backdrop = bannerBackdrop,
                 status = com.mediaviewer.util.ProfileStyles.statusOf(author.did),
-                onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar
+                onOpenStatus = onOpenStatus, onOpenAvatar = onOpenAvatar,
+                liveUrl = profile?.liveUrl
             )
             else -> {}
         }
@@ -2380,6 +2383,7 @@ private fun ProfileBannerOverlayLayout(
     status: com.mediaviewer.util.ProfileStatus? = null,
     onOpenStatus: () -> Unit = {},
     onOpenAvatar: () -> Unit = {},
+    liveUrl: String? = null,
     /** False (Profile Layout 2): Follow / Edit sits up by Back instead. */
     showFollow: Boolean = true
 ) {
@@ -2435,7 +2439,8 @@ private fun ProfileBannerOverlayLayout(
                 url = author.avatarUrl, size = avatarSizeDp, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
-                onClick = onOpenAvatar
+                onClick = onOpenAvatar,
+                liveUrl = liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(namesHeight, namesHeight))
         // (Always its own square: measured within a short row's height it
@@ -2501,7 +2506,8 @@ private val PROFILE_LAYOUT2_ROW = 124.dp
 private fun ProfileIdentityCentered(
     author: AuthorInfo, liquidGlass: Boolean, bannerColor: Color, avatarColor: Color, isOwnProfile: Boolean,
     bannerHeight: Dp, backdrop: GlassBackdrop?,
-    status: com.mediaviewer.util.ProfileStatus?, onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit
+    status: com.mediaviewer.util.ProfileStatus?, onOpenStatus: () -> Unit, onOpenAvatar: () -> Unit,
+    liveUrl: String? = null
 ) {
     val avatarSize = 88.dp
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
@@ -2513,7 +2519,8 @@ private fun ProfileIdentityCentered(
                 url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = backdrop,
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
-                onClick = onOpenAvatar
+                onClick = onOpenAvatar,
+                liveUrl = liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
         // Each side gets the room between the picture and the screen's edge.
@@ -2581,7 +2588,8 @@ private fun ProfileCompactIdentity(
                 url = author.avatarUrl, size = avatarSize, liquidGlass = liquidGlass, tint = avatarColor, backdrop = null,
                 shape = profileIconShape(author.did),
                 videoDid = author.did, videoCid = com.mediaviewer.util.ProfileStyles.of(author.did)?.iconVideo?.cid,
-                onClick = onOpenAvatar
+                onClick = onOpenAvatar,
+                liveUrl = profile?.liveUrl
             )
         }.first().measure(androidx.compose.ui.unit.Constraints.fixed(avatarSize.roundToPx(), avatarSize.roundToPx()))
         val info = subcompose("info") {
@@ -2726,9 +2734,13 @@ private fun ProfileAvatarGlass(
     shape: androidx.compose.ui.graphics.Shape = AvatarShape,
     /** A video icon (whose, and its blob), played over the picture. */
     videoDid: String? = null, videoCid: String? = null,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    /** Live on Bluesky right now: the stream's link. The bubble is filled
+     *  and a "Live" button over the picture opens the stream. */
+    liveUrl: String? = null
 ) {
     val tapMod = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
+    val liveRed = Color(0xFFE5303A)
     @Composable
     fun AvatarImage() {
         // A video icon is only the video (no picture under or before it:
@@ -2744,12 +2756,34 @@ private fun ProfileAvatarGlass(
             Box(Modifier.fillMaxSize().clip(shape).background(Color.White.copy(0.15f)))
         }
     }
-    if (liquidGlass) {
-        LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
-            Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
+    Box(Modifier.size(size)) {
+        if (liquidGlass) {
+            LiquidGlassSurface(modifier = Modifier.size(size).then(tapMod), shape = shape, tint = tint, backdrop = backdrop) {
+                // (Live: the bubble itself is filled in.)
+                if (liveUrl != null) Box(Modifier.matchParentSize().background(liveRed.copy(alpha = 0.9f)))
+                Box(Modifier.fillMaxSize().padding(5.dp)) { AvatarImage() } // thick rim
+            }
+        } else {
+            Box(
+                Modifier.size(size).then(tapMod).clip(shape)
+                    .background(if (liveUrl != null) liveRed else Color.Black.copy(0.5f)).padding(5.dp)
+            ) { AvatarImage() }
         }
-    } else {
-        Box(Modifier.size(size).then(tapMod).clip(shape).background(Color.Black.copy(0.5f)).padding(5.dp)) { AvatarImage() }
+        if (liveUrl != null) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            val tap = rememberHapticTap()
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(liveRed)
+                    .border(1.5.dp, Color.White, RoundedCornerShape(50))
+                    .clickable { tap(); runCatching { uriHandler.openUri(liveUrl) } }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Live", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
     }
 }
 

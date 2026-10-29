@@ -92,23 +92,11 @@ actual object FeedVideos {
 @Composable
 internal fun DesktopVideoSurface(player: DesktopVideoPlayer, modifier: Modifier, backdropKey: Any? = null, fill: Boolean = false) {
     var viewRect by remember { mutableStateOf(Rect.Zero) }
-    if (backdropKey != null && com.mediaviewer.ui.LiteGlass.LIVE) {
-        DisposableEffect(backdropKey) { onDispose { NativeVideoBackdrop.frames.remove(backdropKey) } }
-        // The frame under the glass controls, for their blur.
-        LaunchedEffect(player, backdropKey) {
-            snapshotFlow { player.frame to viewRect }.collect { (image, box) ->
-                if (image == null || box.width < 1f || box.height < 1f) return@collect
-                val ratio = player.aspectRatio.takeIf { it > 0f } ?: (box.width / box.height)
-                val fitW = minOf(box.width, box.height * ratio)
-                val fitH = fitW / ratio
-                val fit = Rect(
-                    box.left + (box.width - fitW) / 2f, box.top + (box.height - fitH) / 2f,
-                    box.left + (box.width + fitW) / 2f, box.top + (box.height + fitH) / 2f
-                )
-                NativeVideoBackdrop.frames[backdropKey] = NativeVideoBackdrop.Frame(image, fit)
-            }
-        }
-    }
+    // (No NativeVideoBackdrop frame here: the picture is drawn by Compose
+    // itself, so it is already part of what the glass panels blur. That
+    // map is global, so a frame left in it by a post video sitting under a
+    // profile page was drawn into the profile banner's glass, showing the
+    // post over the banner.)
     Canvas(modifier.then(if (fill) Modifier.clipToBounds() else Modifier).onGloballyPositioned {
         val p = it.positionInRoot()
         viewRect = Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height)

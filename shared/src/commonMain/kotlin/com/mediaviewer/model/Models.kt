@@ -1045,7 +1045,10 @@ data class ProfileData(
     /** They've blocked you. */
     val blocksYou: Boolean = false,
     /** The profile's links, in display order. */
-    val links: List<BskyProfileLinkView> = emptyList()
+    val links: List<BskyProfileLinkView> = emptyList(),
+    /** Bluesky's official "Live" status: the stream's link while this
+     *  account is live right now, otherwise null. */
+    val liveUrl: String? = null
 )
 
 /** An edit-profile link draft: what the Links editor hands to the save path.

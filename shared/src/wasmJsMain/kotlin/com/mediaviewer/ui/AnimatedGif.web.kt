@@ -20,7 +20,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Codec
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Data
+import org.jetbrains.skia.ImageInfo
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import com.mediaviewer.platform.JsBytes
+import com.mediaviewer.platform.jsGet
+import com.mediaviewer.platform.jsGetInt
+import com.mediaviewer.platform.jsGetString
+import com.mediaviewer.platform.toByteArray
+import com.mediaviewer.platform.toJsBytes
+import kotlinx.coroutines.await
 
 /** Decoded GIFs this session (a comment scrolled away and back plays at
  *  once). Small: a few recent GIFs only. */
@@ -35,7 +46,7 @@ actual fun AnimatedGifImage(url: String, contentDescription: String?, modifier: 
             runCatching {
                 val resp = PlainHttp.get(url)
                 if (!resp.isSuccessful) return@runCatching null
-                decodeGifFrames(resp.body, 90, 6_000_000L)
+                decodeAnimatedFrames(resp.body, 90, 6_000_000L)
             }.getOrNull()
         }
         if (decoded != null && decoded.isNotEmpty()) {
@@ -74,7 +85,7 @@ actual fun AnimatedGifBytes(key: String, load: suspend () -> ByteArray?, content
         val bytes = runCatching { load() }.getOrNull() ?: return@LaunchedEffect
         val decoded = withContext(Dispatchers.Default) {
             runCatching {
-                decodeGifFrames(bytes, 150, 400_000L)
+                decodeAnimatedFrames(bytes, 150, 600_000L)
             }.getOrNull()
         }
         if (decoded != null && decoded.isNotEmpty()) {
@@ -130,3 +141,112 @@ internal fun decodeGifFrames(bytes: ByteArray, maxFrames: Int, maxPixels: Long):
         data.close()
     }
 }
+
+
+/**
+ * Frames of an animated picture. An animated WebP goes through the
+ * browser's own decoder (the Skia build running here doesn't hand out its
+ * frames, which left every animated WebP emoji standing still); anything
+ * else, or a WebP the browser couldn't take apart, goes through Skia.
+ */
+internal suspend fun decodeAnimatedFrames(bytes: ByteArray, maxFrames: Int, maxPixels: Long): List<Pair<ImageBitmap, Int>> {
+    if (com.mediaviewer.util.EmojiMedia.isAnimatedWebP(bytes)) {
+        decodeWebPInBrowser(bytes, maxFrames, maxPixels)?.let { return it }
+    }
+    return decodeGifFrames(bytes, maxFrames, maxPixels)
+}
+
+private suspend fun decodeWebPInBrowser(bytes: ByteArray, maxFrames: Int, maxPixels: Long): List<Pair<ImageBitmap, Int>>? {
+    val res = runCatching { webpFramesInBrowser(bytes.toJsBytes(), maxFrames, maxPixels.toDouble()).await<JsAny?>() }.getOrNull() ?: return null
+    val w = jsGetInt(res, "w")
+    val h = jsGetInt(res, "h")
+    val delays = jsGetString(res, "delays")?.split(',')?.mapNotNull { it.toIntOrNull() } ?: return null
+    val frames = jsGet(res, "frames") ?: return null
+    if (w <= 0 || h <= 0 || delays.isEmpty()) return null
+    val out = ArrayList<Pair<ImageBitmap, Int>>(delays.size)
+    for (i in delays.indices) {
+        val px = runCatching { jsArrayAt(frames, i).unsafeCast<JsBytes>().toByteArray() }.getOrNull() ?: return null
+        if (px.size < w * h * 4) return null
+        val image = runCatching {
+            org.jetbrains.skia.Image.makeRaster(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL), px, w * 4).toComposeImageBitmap()
+        }.getOrNull() ?: return null
+        out += image to delays[i]
+    }
+    return out.takeIf { it.isNotEmpty() }
+}
+
+private fun jsArrayAt(a: JsAny, i: Int): JsAny = js("a[i]")
+
+/**
+ * Takes an animated WebP apart in the browser: each frame (an ANMF chunk)
+ * is wrapped as a WebP file of its own, decoded by the browser, and
+ * drawn onto a canvas the size of the whole picture with the file's own
+ * offset, blend and dispose rules; the canvas after each frame is one
+ * picture. Resolves to {w, h, delays: "ms,ms,…", frames: [RGBA bytes]} —
+ * every n-th frame when there are too many pixels to keep them all (each
+ * shown for the frames it stands for) — or null when it can't be done.
+ */
+private fun webpFramesInBrowser(bytes: JsBytes, maxFrames: Int, maxPixels: Double): kotlin.js.Promise<JsAny?> = js("""(async () => {
+    try {
+        const b = bytes;
+        const u24 = (o) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
+        const u32 = (o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+        const tag = (o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+        if (b.length < 30 || tag(0) !== 'RIFF' || tag(8) !== 'WEBP') return null;
+        let W = 0, H = 0;
+        const list = [];
+        let o = 12;
+        while (o + 8 <= b.length) {
+            const t = tag(o), size = u32(o + 4), body = o + 8;
+            if (body + size > b.length) break;
+            if (t === 'VP8X') { W = u24(body + 4) + 1; H = u24(body + 7) + 1; }
+            else if (t === 'ANMF') {
+                list.push({
+                    x: u24(body) * 2, y: u24(body + 3) * 2, w: u24(body + 6) + 1, h: u24(body + 9) + 1,
+                    d: u24(body + 12), flags: b[body + 15], start: body + 16, end: body + size
+                });
+            }
+            o = body + size + (size & 1);
+        }
+        if (!W || !H || list.length < 2 || W * H > 16000000) return null;
+        const count = Math.min(list.length, Math.max(1, maxFrames));
+        const fit = Math.max(1, Math.floor(maxPixels / (W * H)));
+        const step = Math.max(1, Math.ceil(count / fit));
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const frames = [];
+        const delays = [];
+        let prev = null;
+        for (let i = 0; i < count; i++) {
+            const f = list[i];
+            // (The frame before it, if it asked to be wiped when done.)
+            if (prev && (prev.flags & 1)) ctx.clearRect(prev.x, prev.y, prev.w, prev.h);
+            const payload = b.subarray(f.start, f.end);
+            const file = new Uint8Array(30 + payload.length);
+            const dv = new DataView(file.buffer);
+            file.set([0x52, 0x49, 0x46, 0x46], 0);
+            dv.setUint32(4, 22 + payload.length, true);
+            file.set([0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58], 8);
+            dv.setUint32(16, 10, true);
+            file[20] = 0x10;
+            file[24] = (f.w - 1) & 255; file[25] = ((f.w - 1) >> 8) & 255; file[26] = ((f.w - 1) >> 16) & 255;
+            file[27] = (f.h - 1) & 255; file[28] = ((f.h - 1) >> 8) & 255; file[29] = ((f.h - 1) >> 16) & 255;
+            file.set(payload, 30);
+            const bmp = await createImageBitmap(new Blob([file], { type: 'image/webp' }));
+            // (Bit 1 set: no blending, the frame replaces what's under it.)
+            if (f.flags & 2) ctx.clearRect(f.x, f.y, f.w, f.h);
+            ctx.drawImage(bmp, f.x, f.y);
+            if (bmp.close) bmp.close();
+            const ms = f.d < 20 ? 100 : f.d;
+            if (i % step === 0) {
+                const d = ctx.getImageData(0, 0, W, H).data;
+                frames.push(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
+                delays.push(0);
+            }
+            delays[delays.length - 1] += ms;
+            prev = f;
+        }
+        return { w: W, h: H, delays: delays.join(','), frames: frames };
+    } catch (e) { return null; }
+})()""")

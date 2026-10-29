@@ -914,6 +914,8 @@ private fun DmThreadView(
                     ReplyPreviewBar(
                         name = nameOf(target),
                         snippet = target.readableText.ifBlank { if (thread.embeddedPosts[target.id] != null) "Shared a post" else "Message" },
+                        rawText = target.text.takeIf { target.readableText.isNotBlank() },
+                        rawFacets = remember(target.id, target.facets) { target.facets?.map { it.toKx() } },
                         accent = accent, liquidGlass = liquidGlass, tint = profileTint, backdrop = barBackdrop,
                         onCancel = { tap(); replyTarget = null }
                     )
@@ -1155,6 +1157,7 @@ private fun Modifier.dmPinchZoom(): Modifier = this
 @Composable
 private fun ReplyPreviewBar(
     name: String, snippet: String, accent: Color,
+    rawText: String? = null, rawFacets: List<kotlinx.serialization.json.JsonElement>? = null,
     liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?,
     onCancel: () -> Unit
 ) {
@@ -1166,7 +1169,8 @@ private fun ReplyPreviewBar(
             Column(Modifier.weight(1f)) {
                 Text("Replying to $name", color = accent.copy(alpha = 1f).let { androidx.compose.ui.graphics.lerp(it, Color.White, 0.45f) },
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(snippet, color = Color.White.copy(0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (rawText != null) DmMessageText(rawText, rawFacets, Color.White.copy(0.75f), 12.sp, 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                else Text(snippet, color = Color.White.copy(0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Box(Modifier.size(30.dp).clip(CircleShape).clickable(onClick = onCancel), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.Close, contentDescription = "Cancel reply", tint = Color.White.copy(0.8f), modifier = Modifier.size(16.dp))
@@ -1318,11 +1322,28 @@ private fun DmBubble(
                             replyName ?: "Reply", color = androidx.compose.ui.graphics.lerp(replyTint, Color.White, 0.5f),
                             fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
                         )
-                        Text(
-                            if (quoted.isDeleted) "Deleted message" else quoted.readableText.ifBlank { "Shared a post" },
-                            color = Color.White.copy(0.7f), fontSize = 12.sp, lineHeight = 15.sp,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis
-                        )
+                        if (quoted.isDeleted) {
+                            Text(
+                                "Deleted message",
+                                color = Color.White.copy(0.7f), fontSize = 12.sp, lineHeight = 15.sp,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis
+                            )
+                        } else if (quoted.readableText.isBlank()) {
+                            Text(
+                                "Shared a post",
+                                color = Color.White.copy(0.7f), fontSize = 12.sp, lineHeight = 15.sp,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            // Custom emoji in the quoted message are drawn as
+                            // pictures, not as their ":name:".
+                            val quotedFacets = remember(quoted.id, quoted.facets) { quoted.facets?.map { it.toKx() } }
+                            DmMessageText(
+                                quoted.text, quotedFacets,
+                                Color.White.copy(0.7f), 12.sp, 15.sp,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(6.dp))
