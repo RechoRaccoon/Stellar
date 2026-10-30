@@ -1327,18 +1327,7 @@ private fun AtProtocolPageContent(
                             // should reflect the profile icon it's actually
                             // wrapped around.
                             val friendTint = if (friend.avatarUrl != null) rememberDominantColor(friend.avatarUrl) else dominantColor
-                            Box(
-                                Modifier.size(52.dp)
-                                    .then(if (liquidGlass) Modifier.glassPanel(true, shape = avatarShape, tint = friendTint) else Modifier.clip(avatarShape).background(Color.White.copy(0.1f))),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (friend.avatarUrl != null) {
-                                    AsyncImage(model = friend.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(46.dp).clip(avatarShape))
-                                } else {
-                                    Box(Modifier.size(46.dp).clip(avatarShape).background(Color.White.copy(0.15f)))
-                                }
-                            }
+                            AvatarBubble(friend.avatarUrl, friendTint, liquidGlass)
                             Spacer(Modifier.height(4.dp))
                             Text(friend.displayName, color = Color.White, fontSize = 10.sp, lineHeight = 11.sp,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1522,23 +1511,11 @@ private fun AtProtocolPageContent(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 otherAccounts.forEach { account ->
-                    val avatarShape = AvatarShape
                     Column(
                         Modifier.width(60.dp).clickable { onSwitchAccount(account.did) },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            Modifier.size(52.dp)
-                                .then(if (liquidGlass) Modifier.glassPanel(true, shape = avatarShape, tint = dominantColor) else Modifier.clip(avatarShape).background(Color.White.copy(0.1f))),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (account.avatarUrl != null) {
-                                AsyncImage(model = account.avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(46.dp).clip(avatarShape))
-                            } else {
-                                Box(Modifier.size(46.dp).clip(avatarShape).background(Color.White.copy(0.15f)))
-                            }
-                        }
+                        AvatarBubble(account.avatarUrl, dominantColor, liquidGlass)
                         Spacer(Modifier.height(4.dp))
                         Text(account.displayName.ifBlank { account.handle }, color = Color.White, fontSize = 10.sp, lineHeight = 11.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2222,6 +2199,34 @@ private fun LiveCoverBadge(text: String, modifier: Modifier = Modifier, dot: Col
     }
 }
 
+/** One person's profile icon the way the Hub's avatar rows render it
+ *  (Mutuals, Switch Accounts): a 52dp bubble — glass with the picture's own
+ *  tint when liquid glass is on, plain dim backing otherwise — with the
+ *  picture inset to 46dp inside it, so the bubble reads as a ring around
+ *  the icon. Used by the livestream card too, so every icon on the screen
+ *  is the same system, not a lookalike. */
+@Composable
+internal fun AvatarBubble(
+    avatarUrl: String?, tint: Color, liquidGlass: Boolean,
+    modifier: Modifier = Modifier, onClick: (() -> Unit)? = null
+) {
+    val avatarShape = AvatarShape
+    val tap = rememberHapticTap()
+    Box(
+        modifier.size(52.dp)
+            .then(if (liquidGlass) Modifier.glassPanel(true, shape = avatarShape, tint = tint) else Modifier.clip(avatarShape).background(Color.White.copy(0.1f)))
+            .then(if (onClick != null) Modifier.clickable { tap(); onClick() } else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        if (avatarUrl != null) {
+            AsyncImage(model = avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.size(46.dp).clip(avatarShape))
+        } else {
+            Box(Modifier.size(46.dp).clip(avatarShape).background(Color.White.copy(0.15f)))
+        }
+    }
+}
+
 /** Renders one livestream as the horizontal video card Stellar uses for
  *  videos (see the Horizontal layout): the stream's thumbnail at 16:9 with
  *  its Twitch / YouTube colored outline, "Live" and the platform as marker
@@ -2274,6 +2279,8 @@ internal fun LiveCard(
         is LiveCardSource.BlueskyLive -> source.stream.author
     }
     val viewers = (source as? LiveCardSource.Streamplace)?.stream?.viewerCount ?: 0
+    // Same bubble as the Mutuals row: the streamer's own picture tint.
+    val bubbleTint = if (accountAvatarUrl != null) rememberDominantColor(accountAvatarUrl) else tint
     val thumbShape = RoundedCornerShape(12.dp)
     Column(Modifier.width(width).clip(thumbShape).clickable { tap(); onClick() }) {
         Box(
@@ -2289,23 +2296,20 @@ internal fun LiveCard(
             LiveCoverBadge(badgeText, Modifier.align(Alignment.BottomEnd).padding(6.dp))
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(32.dp).clip(AvatarShape).background(Color.White.copy(0.1f)).clickable { tap(); onOpenProfile(author) }) {
-                if (accountAvatarUrl != null) AsyncImage(
-                    model = accountAvatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            AvatarBubble(accountAvatarUrl, bubbleTint, liquidGlass, onClick = { onOpenProfile(author) })
             Column(Modifier.weight(1f)) {
                 Text(
                     title.ifBlank { "Live now" }, color = Color.White, fontSize = 14.sp, lineHeight = 18.sp,
                     fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(3.dp))
-                Text(accountName, color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (viewers > 0) "$badgeText · $viewers watching" else badgeText,
-                    color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
+                Text(accountName, color = DimGray, fontSize = 12.sp, lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (viewers > 0) {
+                    Text(
+                        "$viewers watching",
+                        color = DimGray, fontSize = 12.sp, lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
