@@ -1844,6 +1844,111 @@ class BlueskyRepository {
         }
     }
 
+    /** What [repairReviewCovers] did. */
+    data class CoverRepairReport(
+        /** Reviews that got their cover back. */
+        val fixed: Int = 0,
+        /** Reviews with no cover of their own and no Backlog entry that has one. */
+        val unmatched: List<String> = emptyList(),
+        /** Reviews that already have their own poster blob. */
+        val alreadyOk: Int = 0,
+        /** Matches found whose rewrite failed. */
+        val failed: Int = 0,
+        /** Backlog entries that carry a poster blob (what a review can borrow). */
+        val backlogWithCover: Int = 0
+    )
+
+    private fun blobOf(obj: com.mediaviewer.json.JsonObject?, key: String): Map<String, Any>? {
+        val b = obj?.get(key)?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        val link = b.get("ref")?.takeIf { it.isJsonObject }?.asJsonObject?.let { firstStringField(it, "\$link") } ?: return null
+        val mime = firstStringField(b, "mimeType") ?: return null
+        val size = b.get("size")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong ?: 0L
+        return mapOf("\$type" to "blob", "ref" to mapOf("\$link" to link), "mimeType" to mime, "size" to size)
+    }
+
+    private fun jsonToPlain(e: com.mediaviewer.json.JsonElement?): Any? = when {
+        e == null || e.isJsonNull -> null
+        e.isJsonObject -> {
+            val m = LinkedHashMap<String, Any>()
+            for ((k, v) in e.asJsonObject.entrySet()) jsonToPlain(v)?.let { m[k] = it }
+            m
+        }
+        e.isJsonArray -> e.asJsonArray.map { jsonToPlain(it) ?: "" }
+        e.isJsonPrimitive -> {
+            val p = e.asJsonPrimitive
+            when {
+                p.isBoolean -> p.asBoolean
+                p.isNumber -> p.asDouble.let { d -> if (d == kotlin.math.floor(d) && kotlin.math.abs(d) < 9.0e15) d.toLong() else d }
+                else -> p.asString
+            }
+        }
+        else -> null
+    }
+
+    /** The same work in two records (a review and a Backlog entry): a
+     *  shared identifier decides; otherwise the same title and, when both
+     *  say, the same kind of work. */
+    private fun sameWorkRecords(a: com.mediaviewer.json.JsonObject, b: com.mediaviewer.json.JsonObject): Boolean {
+        fun sub(o: com.mediaviewer.json.JsonObject) = o.get("subject")?.takeIf { it.isJsonObject }?.asJsonObject ?: o
+        val ta = firstStringField(a, "creativeWorkType") ?: firstStringField(sub(a), "creativeWorkType")
+        val tb = firstStringField(b, "creativeWorkType") ?: firstStringField(sub(b), "creativeWorkType")
+        if (ta != null && tb != null && ta.lowercase() != tb.lowercase()) return false
+        val ia = (a.get("identifiers") ?: sub(a).get("identifiers"))?.takeIf { it.isJsonObject }?.asJsonObject
+        val ib = (b.get("identifiers") ?: sub(b).get("identifiers"))?.takeIf { it.isJsonObject }?.asJsonObject
+        if (ia != null && ib != null) {
+            for (k in identifierKeys) {
+                val x = firstStringField(ia, k) ?: continue
+                val y = firstStringField(ib, k) ?: continue
+                return x == y
+            }
+        }
+        val na = firstStringField(a, "title", "name") ?: firstStringField(sub(a), "title", "name") ?: return false
+        val nb = firstStringField(b, "title", "name") ?: firstStringField(sub(b), "title", "name") ?: return false
+        return na.equals(nb, ignoreCase = true)
+    }
+
+    /** Dev tool: gives the signed-in account's reviews that have no cover
+     *  blob of their own (a review written before reviews uploaded their
+     *  covers, whose picture was another record's blob that is gone) the
+     *  poster (and backdrop, if they have none) blob of the same title's
+     *  Backlog entry. The blob is then referenced by the review itself. */
+    suspend fun repairReviewCovers(token: String, did: String): Result<CoverRepairReport> = withContext(ioDispatcher) {
+        runCatching {
+            val backlog = ownRecords(did, "social.popfeed.feed.listItem").mapNotNull { rec ->
+                val o = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                if (!isBacklogRecord(o) || blobOf(o, "poster") == null) null else o
+            }
+            var fixed = 0
+            var ok = 0
+            var failed = 0
+            val unmatched = ArrayList<String>()
+            for (rec in ownRecords(did, "social.popfeed.feed.review")) {
+                val o = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                if (blobOf(o, "poster") != null) { ok++; continue }
+                val item = backlog.firstOrNull { sameWorkRecords(o, it) }
+                if (item == null) {
+                    unmatched += firstStringField(o, "title", "name") ?: firstStringField(o.get("subject")?.takeIf { it.isJsonObject }?.asJsonObject, "title", "name") ?: "Untitled"
+                    continue
+                }
+                @Suppress("UNCHECKED_CAST")
+                val record = (jsonToPlain(o) as? MutableMap<String, Any>) ?: continue
+                record["poster"] = blobOf(item, "poster")!!
+                firstStringField(item, "posterUrl")
+                    ?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
+                    ?.let { record["posterUrl"] = it }
+                if (blobOf(o, "backdrop") == null) {
+                    blobOf(item, "backdrop")?.let { record["backdrop"] = it }
+                    firstStringField(item, "backdropUrl")
+                        ?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
+                        ?.let { record["backdropUrl"] = it }
+                }
+                val rkey = rec.uri.substringAfterLast('/')
+                if (putRepoRecord(token, did, "social.popfeed.feed.review", rkey, record).isSuccess) fixed++ else failed++
+            }
+            CoverRepairReport(fixed, unmatched, ok, failed, backlog.size)
+        }
+    }
+
     /** Downloads one of a review's cover pictures ([url] must already have
      *  passed the cover-URL filter) and uploads it to the signed-in account's
      *  repo. Returns the blob as a record holds it, or null when anything

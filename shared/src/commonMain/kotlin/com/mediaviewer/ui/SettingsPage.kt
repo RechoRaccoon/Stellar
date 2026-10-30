@@ -1728,6 +1728,29 @@ internal fun SettingsPageContent(
                         }, color = DangerRed)
                     }
                     BubbleDivider()
+                    val repairContext = com.mediaviewer.ui.compat.LocalContext.current
+                    val repairScope = rememberCoroutineScope()
+                    var repairing by remember { mutableStateOf(false) }
+                    BubbleRow {
+                        RowLabel("Repair Review Covers", Modifier.weight(1f))
+                        PillButton(if (repairing) "Working…" else "Repair", {
+                            val run = com.mediaviewer.util.UiToggles.devRepairReviewCovers
+                            if (!repairing && run != null) {
+                                repairing = true
+                                repairScope.launch {
+                                    val message = runCatching { run() }.getOrElse { "Repair failed: ${it.message ?: "unknown error"}" }
+                                    repairing = false
+                                    com.mediaviewer.ui.compat.Toast.makeText(repairContext, message, com.mediaviewer.ui.compat.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        })
+                    }
+                    Text(
+                        "Gives your reviews that lost their cover the cover of the same title in your Popfeed Backlog. Add the title to your Backlog on Popfeed first.",
+                        color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+                    )
+                    BubbleDivider()
                     BubbleRow {
                         RowLabel("Hide Dev Tools", Modifier.weight(1f))
                         PillButton("Hide", { com.mediaviewer.util.UiToggles.updateDevToolsUnlocked(false) }, color = DangerRed)

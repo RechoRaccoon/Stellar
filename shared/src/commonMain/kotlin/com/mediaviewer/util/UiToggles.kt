@@ -380,6 +380,10 @@ object UiToggles {
     var devWelcomePreview by mutableStateOf(false)
     var devSupportPreview by mutableStateOf(false)
 
+    /** Dev Tools → Repair Review Covers: set by the view model (which holds
+     *  the sign-in); gives back what to tell the person. */
+    var devRepairReviewCovers: (suspend () -> String)? = null
+
     /** Bumped to send the Hub straight to Settings → Support Stellar (a
      *  profile's "Supporter" label); the Hub sets it back to 0. */
     var supportPageRequest by mutableStateOf(0)

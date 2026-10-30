@@ -3687,8 +3687,30 @@ class MainViewModel(
             cache[feedUri] == true
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Dev Tools → Repair Review Covers (see BlueskyRepository.repairReviewCovers):
+     *  what to tell the person afterwards. */
+    suspend fun repairReviewCovers(): String {
+        val did = _bskyDid.value
+        if (bskyToken.isBlank() || did.isBlank()) return "Sign in to Bluesky first"
+        var result = bskyRepo.repairReviewCovers(bskyToken, did)
+        if ((result.isFailure || (result.getOrNull()?.failed ?: 0) > 0) && refreshBskyTokenIfPossible()) {
+            result = bskyRepo.repairReviewCovers(bskyToken, did)
+        }
+        val r = result.getOrElse { return "Couldn't read your reviews: ${it.message ?: "unknown error"}" }
+        val parts = ArrayList<String>()
+        if (r.fixed > 0) parts += "Restored ${r.fixed} cover${if (r.fixed == 1) "" else "s"}"
+        if (r.failed > 0) parts += "${r.failed} couldn't be saved"
+        if (r.unmatched.isNotEmpty()) {
+            val names = r.unmatched.take(3).joinToString(", ")
+            parts += "No Backlog match for ${r.unmatched.size}: $names${if (r.unmatched.size > 3) "…" else ""}"
+        }
+        if (parts.isEmpty()) parts += if (r.alreadyOk > 0) "Every review already has its cover" else "No reviews found"
+        return parts.joinToString(". ")
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────
     init {
+        com.mediaviewer.util.UiToggles.devRepairReviewCovers = { repairReviewCovers() }
         // Feature (this session): a single collector, rather than touching
         // every one of this file's many `_screenState.value =
         // ScreenState.FEED` call sites individually (setScreen, login,

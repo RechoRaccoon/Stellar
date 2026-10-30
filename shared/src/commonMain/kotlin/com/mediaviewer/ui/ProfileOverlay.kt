@@ -923,7 +923,7 @@ fun ProfileOverlay(
                             postKindFilter, liquidGlass, blended, onSelectPostKindFilter,
                             home = homeAvailable, homeOn = homeShowing,
                             onHome = { ProfileHomeTab.showing[author.did] = it },
-                            customizing = if (isOwn && homeShowing) ProfileHomeTab.customizing[author.did] == true else null,
+                            customizing = if (isOwn && homeAvailable) ProfileHomeTab.customizing[author.did] == true else null,
                             onCustomize = { ProfileHomeTab.customizing[author.did] = it }
                         )
                     }
@@ -2147,7 +2147,7 @@ private fun ProfileHeaderSection(
                 text = bio, linkColor = linkColor, onOpenMention = onOpenMention, onResolveActor = onResolveActor,
                 modifier = Modifier.fillMaxWidth().then(
                     // (Straight under a "Listening to" line there's no gap at all.)
-                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else if (profile?.liveUrl != null) 10.dp - LIVE_BADGE_HEIGHT / 2 else 10.dp, bottom = 4.dp)
+                    if (layout == 4) Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 10.dp, bottom = 4.dp)
                     else Modifier.padding(start = PROFILE_EDGE, end = PROFILE_EDGE, top = if (nowPlaying != null) 0.dp else 12.dp, bottom = 12.dp)
                 )
             )
@@ -2395,8 +2395,6 @@ private fun ProfileBannerOverlayLayout(
     val nameGap = 6.dp
 
     // (Sideways, as close to the screen's edges as the posts below.)
-    // (Read here, in composition: a placement block cannot call a @Composable.)
-    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(
         Modifier.fillMaxSize().padding(horizontal = PROFILE_EDGE, vertical = inset)
     ) { constraints ->
@@ -2488,7 +2486,7 @@ private fun ProfileBannerOverlayLayout(
 
             // Avatar — left-aligned, top matching the display-name pill's top.
             avatarPlaceable.placeRelative(0, namesY)
-            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, liveBadgeTop(namesY, avatarPlaceable.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
+            liveBadge?.let { it.placeRelative((avatarPlaceable.width - it.width) / 2, liveBadgeTop(namesY, avatarPlaceable.width, it.height)) }
 
             // Status — its pointer just over the avatar's top-right.
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
@@ -2515,7 +2513,6 @@ private fun ProfileIdentityCentered(
     liveUrl: String? = null
 ) {
     val avatarSize = 88.dp
-    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
         val gap = 8.dp.roundToPx()
         val edge = PROFILE_EDGE.roundToPx()
@@ -2561,7 +2558,7 @@ private fun ProfileIdentityCentered(
         layout(w, bottom) {
             name.placeRelative(avatarX - gap - name.width, nameY)
             avatar.placeRelative(avatarX, avatarTop)
-            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, liveBadgeTop(avatarTop, avatar.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
+            liveBadge?.let { it.placeRelative(avatarX + (avatar.width - it.width) / 2, liveBadgeTop(avatarTop, avatar.width, it.height)) }
             handle.placeRelative(avatarX + avatar.width + gap, handleY)
             statusPlaceable?.let { it.placeRelative(tipX, tipY - it.height) }
         }
@@ -2590,7 +2587,6 @@ private fun ProfileCompactIdentity(
     val sectionGap = 10.dp
     // (The picture's outline and the bio line up with the posts' left edge.)
     val side = PROFILE_EDGE
-    val liveRoundIcon = profileIconShape(author.did) == AvatarShape
     androidx.compose.ui.layout.SubcomposeLayout(Modifier.fillMaxWidth().padding(start = side, end = side, top = sectionGap)) { constraints ->
         val w = constraints.maxWidth
         val gap = 12.dp.roundToPx()
@@ -2633,9 +2629,7 @@ private fun ProfileCompactIdentity(
         }.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (w - avatar.width - gap).coerceAtLeast(0), minHeight = avatar.height))
         val baseHeight = maxOf(avatar.height, info.height)
         val avatarY = (baseHeight - avatar.height) / 2
-        // (Room for the Live button's lower half; the bio's top padding
-        // gives that much back, so nothing moves.)
-        val height = maxOf(baseHeight, avatarY + avatar.height + (liveBadge?.let { it.height / 2 } ?: 0))
+        val height = baseHeight
         // The status bubble: its pointer a little above and right of the
         // picture's top-right, floating over the banner.
         val tipX = (avatar.width * 0.86f).toInt()
@@ -2651,7 +2645,7 @@ private fun ProfileCompactIdentity(
         val threeLines = 58.dp.roundToPx()
         layout(w, height) {
             avatar.placeRelative(0, avatarY)
-            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, liveBadgeTop(avatarY, avatar.width, it.width, it.height, 5.dp.toPx(), liveRoundIcon)) }
+            liveBadge?.let { it.placeRelative((avatar.width - it.width) / 2, liveBadgeTop(avatarY, avatar.width, it.height)) }
             info.placeRelative(avatar.width + gap, 0)
             statusPlaceable?.let {
                 val y = when (com.mediaviewer.util.UiToggles.statusPosition) {
@@ -2811,17 +2805,9 @@ private fun ProfileLiveBadge(tint: Color, url: String) {
 
 private val LIVE_BADGE_HEIGHT = 16.dp
 
-/** Top of the Live button for an icon at [avatarTop] of [avatarSize] with a
- *  [ring]-thick outline. On a round icon the button's vertical center is
- *  where the outline's middle crosses the button's left and right ends, so
- *  the outline visibly meets the button's sides at its center; a square
- *  icon's outline is straight, so the center goes on its bottom outline. */
-private fun liveBadgeTop(avatarTop: Int, avatarSize: Int, badgeW: Int, badgeH: Int, ring: Float, round: Boolean): Int {
-    val rMid = avatarSize / 2f - ring / 2f
-    val hw = badgeW / 2f
-    val dy = if (round && hw < rMid) kotlin.math.sqrt(rMid * rMid - hw * hw) else rMid
-    return (avatarTop + avatarSize / 2f + dy - badgeH / 2f).toInt()
-}
+/** Top of the Live button for an icon at [avatarTop] of [avatarSize]: its
+ *  bottom edge sits on the icon bubble's bottom edge. */
+private fun liveBadgeTop(avatarTop: Int, avatarSize: Int, badgeH: Int): Int = avatarTop + avatarSize - badgeH
 
 /** Tapping copies [text] to the clipboard, with a "Copied" message. */
 @Composable
@@ -2926,8 +2912,13 @@ private fun PostKindRowWithFacets(
                 SideListButton(
                     option?.label() ?: "Home", if (option == null) homeOn else option == parent && !homeOn, liquidGlass, tint, small = true,
                     trailing = when {
-                        option == null && homeOn && customizeLabel != null -> ({
-                            MediaFacetEnd(listOf(customizeLabel), if (customizing == true) 0 else -1) { onCustomize(customizing != true) }
+                        // Always there, Home picked or not (like Media's
+                        // Images / Videos): from another tab it opens Home
+                        // already being customized.
+                        option == null && customizeLabel != null -> ({
+                            MediaFacetEnd(listOf(customizeLabel), if (customizing == true && homeOn) 0 else -1) {
+                                if (!homeOn) { onHome(true); onCustomize(true) } else onCustomize(customizing != true)
+                            }
                         })
                         option != PostKindFilter.MEDIA -> null
                         else -> ({
