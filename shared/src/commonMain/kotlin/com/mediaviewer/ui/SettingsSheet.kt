@@ -2208,21 +2208,25 @@ private fun LiveCoverBadge(text: String, modifier: Modifier = Modifier, dot: Col
 @Composable
 internal fun AvatarBubble(
     avatarUrl: String?, tint: Color, liquidGlass: Boolean,
-    modifier: Modifier = Modifier, onClick: (() -> Unit)? = null
+    modifier: Modifier = Modifier, onClick: (() -> Unit)? = null,
+    // Same bubble, different size: the Mutuals rows use 52dp; the
+    // livestream card keeps its original 32dp. The picture stays inset
+    // 3dp inside either way, so the ring reads the same.
+    size: Dp = 52.dp
 ) {
     val avatarShape = AvatarShape
     val tap = rememberHapticTap()
     Box(
-        modifier.size(52.dp)
+        modifier.size(size)
             .then(if (liquidGlass) Modifier.glassPanel(true, shape = avatarShape, tint = tint) else Modifier.clip(avatarShape).background(Color.White.copy(0.1f)))
             .then(if (onClick != null) Modifier.clickable { tap(); onClick() } else Modifier),
         contentAlignment = Alignment.Center
     ) {
         if (avatarUrl != null) {
             AsyncImage(model = avatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(46.dp).clip(avatarShape))
+                modifier = Modifier.size(size - 6.dp).clip(avatarShape))
         } else {
-            Box(Modifier.size(46.dp).clip(avatarShape).background(Color.White.copy(0.15f)))
+            Box(Modifier.size(size - 6.dp).clip(avatarShape).background(Color.White.copy(0.15f)))
         }
     }
 }
@@ -2296,7 +2300,7 @@ internal fun LiveCard(
             LiveCoverBadge(badgeText, Modifier.align(Alignment.BottomEnd).padding(6.dp))
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AvatarBubble(accountAvatarUrl, bubbleTint, liquidGlass, onClick = { onOpenProfile(author) })
+            AvatarBubble(accountAvatarUrl, bubbleTint, liquidGlass, onClick = { onOpenProfile(author) }, size = 32.dp)
             Column(Modifier.weight(1f)) {
                 Text(
                     title.ifBlank { "Live now" }, color = Color.White, fontSize = 14.sp, lineHeight = 18.sp,
