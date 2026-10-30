@@ -2299,7 +2299,12 @@ internal fun LiveCard(
             LiveCoverBadge("Live", Modifier.align(Alignment.BottomStart).padding(6.dp), dot = LikeRed)
             LiveCoverBadge(badgeText, Modifier.align(Alignment.BottomEnd).padding(6.dp))
         }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // (No bottom padding: the card ends flush like the post tiles do, so
+        // the gap to the next row is just that row's header spacing — the
+        // same as every other row. A bottom pad here stacked on top of
+        // the next header's spacing and made this card's below-gap bigger
+        // than the gap above it.)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             AvatarBubble(accountAvatarUrl, bubbleTint, liquidGlass, onClick = { onOpenProfile(author) }, size = 32.dp)
             Column(Modifier.weight(1f)) {
                 Text(
