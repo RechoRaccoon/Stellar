@@ -98,9 +98,14 @@ internal fun LazyListScope.profileHomeRows(
         }
         return
     }
+    // Rows set to Hide When Empty that have nothing to show don't count:
+    // the first one that does gets the first row's spacing, and a tab with
+    // only empty ones says so like an empty tab does.
+    val firstShown = feeds.indexOfFirst { !builtFeedHidden(it, rows["home:$did:${it.id}"]) }
+    val allEmpty = feeds.isNotEmpty() && feeds.all { it.hideWhenEmpty && builtFeedKnownEmpty(it, rows["home:$did:${it.id}"]) }
     // (Your own empty Home tab shows nothing at all: Create only appears
     // once Customize is tapped, in the Home Layout above.)
-    if (feeds.isEmpty() && !own) item(key = "home_empty") {
+    if ((feeds.isEmpty() || allEmpty) && !own) item(key = "home_empty") {
         Text(
             "Nothing here yet",
             color = DimGray, fontSize = 13.sp, textAlign = TextAlign.Center,
@@ -128,7 +133,7 @@ internal fun LazyListScope.profileHomeRows(
                     // (Lined up with the profile's tabs and bio.)
                     // (First row only: no header top spacing, so the
                     // gap below the sub-tabs matches All's.)
-                    headerTop = if (index == 0) 0.dp else null,
+                    headerTop = if (index == firstShown) 0.dp else null,
                     headerEdge = PROFILE_EDGE,
                     listEdge = PROFILE_EDGE
                 )

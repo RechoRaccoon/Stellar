@@ -164,7 +164,13 @@ data class LocalFeed(
     /** Also whoever it reads from that is live right now (Streamplace, or a
      *  Twitch/YouTube \"Live Now\" badge) — a row of livestream cards under
      *  its posts. Off unless asked for. */
-    val livestreams: Boolean = false
+    val livestreams: Boolean = false,
+    /** Functionality → Hide When Empty: while it has nothing to show (no
+     *  posts, blogs, reviews or livestreams), its row is left out of the
+     *  Hub or profile Home tab altogether. Part of the feed's own spec, so
+     *  it syncs with the rest of it and, on a Home tab, reaches everyone
+     *  who views it. */
+    val hideWhenEmpty: Boolean = false
 ) {
     val uri: String get() = LocalData.LOCAL_FEED_PREFIX + id
 

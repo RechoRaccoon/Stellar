@@ -151,6 +151,30 @@ private fun styleSpacing(style: String): Dp = when (style) {
     else -> 6.dp
 }
 
+/** Whether a built feed has something to show: posts, or the blogs, reviews
+ *  or livestreams it was asked to include (see BuiltFeedWritings). */
+private fun builtFeedHasContent(feed: LocalFeed, state: MainViewModel.HubListState): Boolean =
+    state.posts.isNotEmpty() || state.blogs.isNotEmpty() || state.reviews.isNotEmpty() ||
+        (feed.livestreams && (state.liveStreams.isNotEmpty() || state.liveNow.isNotEmpty()))
+
+/** A feed that has been read in full and has nothing to show. (Not while it's
+ *  still loading, and not when the read failed: that isn't "empty".) */
+internal fun builtFeedKnownEmpty(feed: LocalFeed, state: MainViewModel.HubListState?): Boolean =
+    state != null && !state.loading && !state.failed && state.loadedAt > 0L && !builtFeedHasContent(feed, state)
+
+/**
+ * Functionality → Hide When Empty: whether [feed]'s row is left out of the
+ * Hub or a profile's Home tab. It stays out until it has something to show,
+ * so a row never appears just to vanish a moment later; a failed read keeps
+ * it in, so a broken feed isn't mistaken for an empty one.
+ */
+internal fun builtFeedHidden(feed: LocalFeed, state: MainViewModel.HubListState?): Boolean {
+    if (!feed.hideWhenEmpty) return false
+    if (state == null) return true
+    if (state.failed) return false
+    return !builtFeedHasContent(feed, state)
+}
+
 /**
  * A built feed (see [LocalFeed]) as a row: its posts side by side in the
  * feed's own style, [LocalFeed.rows] deep, more loading as it's scrolled to
@@ -184,6 +208,9 @@ fun BuiltFeedRow(
     LaunchedEffect(state?.failed, state?.loadedAt) {
         if (state?.failed == true) { kotlinx.coroutines.delay(20_000); onLoad() }
     }
+    // (Still composed while hidden, so it keeps loading and shows up the
+    // moment it has something. Not when it's being edited from here.)
+    if (onEdit == null && builtFeedHidden(feed, state)) return
     FeedRowTitle(title, tint, headerStyle, onEdit, edge = headerEdge, headerTop = headerTop, onSeeAll = if (state?.posts?.isNotEmpty() == true && feed.style != "avatars") onSeeAll else null)
     // (A feed row's posts aren't picked, even on a profile's Home tab.)
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
