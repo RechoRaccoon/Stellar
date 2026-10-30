@@ -160,7 +160,11 @@ data class LocalFeed(
     val reviews: Boolean = false,
     /** Also what the accounts it reads from (its accounts, and its lists'
      *  members) have reposted, in with its posts. */
-    val reposts: Boolean = false
+    val reposts: Boolean = false,
+    /** Also whoever it reads from that is live right now (Streamplace, or a
+     *  Twitch/YouTube \"Live Now\" badge) — a row of livestream cards under
+     *  its posts. Off unless asked for. */
+    val livestreams: Boolean = false
 ) {
     val uri: String get() = LocalData.LOCAL_FEED_PREFIX + id
 

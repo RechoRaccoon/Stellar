@@ -1746,7 +1746,7 @@ internal fun SettingsPageContent(
                         })
                     }
                     Text(
-                        "Gives your reviews that lost their cover the cover of the same title in your Popfeed Backlog. Add the title to your Backlog on Popfeed first.",
+                        "Gives your reviews that lost their cover the cover of the same title in your Popfeed Backlog. Add the title to your Backlog on Popfeed first. Also logs each review in its watched list so it shows up in Recent.",
                         color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
                         modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
                     )

@@ -3111,7 +3111,10 @@ class MainViewModel(
         val membersExhausted: Boolean = false,
         /** A built feed's blogs and reviews (see LocalFeed.blogs/reviews). */
         val blogs: List<FriendLeafletBlog> = emptyList(),
-        val reviews: List<FriendPopfeedReview> = emptyList()
+        val reviews: List<FriendPopfeedReview> = emptyList(),
+        /** A built feed's livestreams (see LocalFeed.livestreams): who it reads from is live right now. */
+        val liveStreams: List<StreamplaceLiveStream> = emptyList(),
+        val liveNow: List<BlueskyLiveNowStream> = emptyList()
     ) {
         val hasMore: Boolean get() = postsCursor != null || !membersExhausted
     }
@@ -3425,38 +3428,52 @@ class MainViewModel(
     val liveFriendsLoading: StateFlow<Boolean> = _liveFriendsLoading
     private var liveFriendsLoaded = false
 
-    /** Every followed DID — used only by the Live sections (Streamplace +
-     *  Bluesky Live Now), which are still scoped to "everyone you follow"
-     *  (unlike Reviews/Blogs, which moved to the Subscribe-list model this
-     *  session — see loadFriendsReviewsIfNeeded). No indexer/cache to check
-     *  first anymore, just a direct call. */
-    private suspend fun followedDidsForLiveSections(): Result<Set<String>> =
-        bskyRepo.getAllFollows(bskyToken, _bskyDid.value).map { list -> list.map { it.did }.toSet() }
+    /** One follows read shared by both Live sources (Streamplace and Bluesky
+     *  Live Now): the follows pages carry each account's Live Now status, so
+     *  one 1-3 request read answers both, and whichever loader asks second
+     *  gets the first's result instead of repeating it. Kept for 30s. */
+    private val liveSnapshotMutex = kotlinx.coroutines.sync.Mutex()
+    private var liveSnapshot: com.mediaviewer.repository.BlueskyRepository.FollowsSnapshot? = null
+    private var liveSnapshotAt = 0L
+    private suspend fun liveFollowsSnapshot(): Result<com.mediaviewer.repository.BlueskyRepository.FollowsSnapshot> =
+        liveSnapshotMutex.withLock {
+            val now = com.mediaviewer.platform.currentTimeMillis()
+            liveSnapshot?.takeIf { now - liveSnapshotAt < 30_000L }?.let { return@withLock Result.success(it) }
+            bskyRepo.getFollowsSnapshot(bskyToken, _bskyDid.value).onSuccess {
+                liveSnapshot = it; liveSnapshotAt = com.mediaviewer.platform.currentTimeMillis()
+            }
+        }
+    private fun invalidateLiveSnapshot() { liveSnapshotAt = 0L }
 
     fun loadLiveFriendsIfNeeded() {
         if (liveFriendsLoaded) return
         // Bug fix: same check-then-act race as loadFriendsReviewsIfNeeded's
         // own compareAndSet fix above — see that function's comment for the
         // full reasoning, which applies identically here now that this is
-        // also called both from startHubBackgroundWarmup's retry loop (IO
+        // also called both from startLiveWarmup's retry loop (IO
         // dispatcher) and the Hub's own composition (Main dispatcher) at
         // essentially the same moment on a Hub-first cold start.
         if (!_liveFriendsLoading.compareAndSet(false, true)) return
         viewModelScope.launch(ioDispatcher) {
-            // Bug fix + roadmap: same dmConversations-not-loaded-yet issue as
-            // Reviews above, and broadened to everyone the user follows
-            // rather than just DM contacts, per feedback.
-            // Same "don't cache a transient failure as done" fix as
-            // loadFriendsReviewsIfNeeded above — only mark loaded on an
-            // actually-successful follows fetch.
-            val followsResult = followedDidsForLiveSections()
-            if (followsResult.isSuccess) {
-                val dids = followsResult.getOrDefault(emptySet())
-                _liveFriends.value = if (dids.isEmpty()) emptyList()
-                    else streamplaceRepo.getLiveFriends(dids).getOrDefault(emptyList())
-                liveFriendsLoaded = true
+            try {
+                // The platform-wide live list doesn't depend on who's followed,
+                // so it's fetched at the same time as the follows list and
+                // filtered once both are in (it used to wait for the follows).
+                // Only latched as loaded on a genuine success of both.
+                val (follows, allLive) = coroutineScope {
+                    val f = async { liveFollowsSnapshot() }
+                    val l = async { streamplaceRepo.getAllLive() }
+                    f.await() to l.await()
+                }
+                if (follows.isSuccess) {
+                    val dids = follows.getOrThrow().follows.map { it.did }.toSet()
+                    // (A failed Streamplace read just means none shown, as before.)
+                    _liveFriends.value = allLive.getOrDefault(emptyList()).filter { it.authorDid in dids }
+                    liveFriendsLoaded = true
+                }
+            } finally {
+                _liveFriendsLoading.value = false
             }
-            _liveFriendsLoading.value = false
         }
     }
 
@@ -3466,7 +3483,7 @@ class MainViewModel(
     // the *IfNeeded functions so a future refresh gesture has something to
     // call without duplicating the fetch logic.
     fun refreshFriendsReviews() = loadFriendsReviewsIfNeeded(force = true)
-    fun refreshLiveFriends() { liveFriendsLoaded = false; loadLiveFriendsIfNeeded() }
+    fun refreshLiveFriends() { invalidateLiveSnapshot(); liveFriendsLoaded = false; loadLiveFriendsIfNeeded() }
 
     // Feature (this session): Bluesky's own native "Live Now" badge —
     // distinct from Streamplace above, this is an off-platform link (Twitch/
@@ -3490,19 +3507,22 @@ class MainViewModel(
         // own compareAndSet fix above — see that function's comment.
         if (!_blueskyLiveNowLoading.compareAndSet(false, true)) return
         viewModelScope.launch(ioDispatcher) {
-            // Same "don't cache a transient failure as done" principle as
-            // Reviews/Streamplace above — only latch loaded on genuine success.
-            val followsResult = followedDidsForLiveSections()
-            if (followsResult.isSuccess) {
-                val dids = followsResult.getOrDefault(emptySet()).toList()
-                _blueskyLiveNow.value = if (dids.isEmpty()) emptyList()
-                    else bskyRepo.getLiveNowStreams(bskyToken, dids).getOrDefault(emptyList())
-                blueskyLiveNowLoaded = true
+            try {
+                // Same "don't cache a transient failure as done" principle as
+                // Reviews/Streamplace above — only latch loaded on genuine
+                // success. Who's live comes straight off the follows pages
+                // (see BlueskyRepository.getFollowsSnapshot).
+                val snap = liveFollowsSnapshot()
+                if (snap.isSuccess) {
+                    _blueskyLiveNow.value = snap.getOrThrow().liveNow
+                    blueskyLiveNowLoaded = true
+                }
+            } finally {
+                _blueskyLiveNowLoading.value = false
             }
-            _blueskyLiveNowLoading.value = false
         }
     }
-    fun refreshBlueskyLiveNow() { blueskyLiveNowLoaded = false; loadBlueskyLiveNowIfNeeded() }
+    fun refreshBlueskyLiveNow() { invalidateLiveSnapshot(); blueskyLiveNowLoaded = false; loadBlueskyLiveNowIfNeeded() }
 
     /** A live stream currently expanded into the inline WebView player
      *  overlay (see LiveNowPlayerOverlay in SettingsSheet.kt) — generic over
@@ -3700,6 +3720,8 @@ class MainViewModel(
         val parts = ArrayList<String>()
         if (r.fixed > 0) parts += "Restored ${r.fixed} cover${if (r.fixed == 1) "" else "s"}"
         if (r.failed > 0) parts += "${r.failed} couldn't be saved"
+        if (r.logged > 0) parts += "Logged ${r.logged} review${if (r.logged == 1) "" else "s"} as watched"
+        if (r.logFailed > 0) parts += "${r.logFailed} couldn't be logged"
         if (r.unmatched.isNotEmpty()) {
             val names = r.unmatched.take(3).joinToString(", ")
             parts += "No Backlog match for ${r.unmatched.size}: $names${if (r.unmatched.size > 3) "…" else ""}"
@@ -3861,6 +3883,7 @@ class MainViewModel(
                 if (_bskyLoggedIn.value) {
                     _appMode.value = AppMode.BLUESKY
                     loadFeed()
+                    startLiveWarmup()     // Livestreams row first: a few small reads, in parallel with the rest
                     loadAvailableFeeds()
                     prefetchUserLists()   // preload so list picker opens instantly
                     startHubBackgroundWarmup() // item 6/this session: Mutuals/Reviews/Livestreams, see its own comment
@@ -3924,6 +3947,7 @@ class MainViewModel(
         prefs.setLastMode("BLUESKY")
         _screenState.value = ScreenState.FEED
         loadFeed()
+        startLiveWarmup()     // Livestreams row first: a few small reads, in parallel with the rest
         loadAvailableFeeds()
         prefetchUserLists()   // preload so list picker opens instantly
         startHubBackgroundWarmup()
@@ -7165,6 +7189,31 @@ class MainViewModel(
     // any other existing background call already does. Each loop backs off
     // and stops retrying once its data has actually loaded (or the user's
     // logged out), so a healthy app isn't left doing pointless work forever.
+    /** The Livestreams row's own warmup, started first (right after the
+     *  main feed is requested, ahead of everything else the Hub warms): it's
+     *  just a few small requests, run alongside the rest rather than before
+     *  them. Safe to call twice (a login after a cold start). */
+    private var liveWarmupJob: kotlinx.coroutines.Job? = null
+    private fun startLiveWarmup() {
+        if (liveWarmupJob?.isActive == true) return
+        liveWarmupJob = viewModelScope.launch(ioDispatcher) {
+            // Both sources share one follows read (see liveFollowsSnapshot),
+            // so launching them together costs one read, not two.
+            launch {
+                retryWithBackoff(isDone = { liveFriendsLoaded || !_bskyLoggedIn.value }) {
+                    loadLiveFriendsIfNeeded()
+                    while (_liveFriendsLoading.value) delay(300)
+                }
+            }
+            launch {
+                retryWithBackoff(isDone = { blueskyLiveNowLoaded || !_bskyLoggedIn.value }) {
+                    loadBlueskyLiveNowIfNeeded()
+                    while (_blueskyLiveNowLoading.value) delay(300)
+                }
+            }
+        }
+    }
+
     private fun startHubBackgroundWarmup() {
         // Blocked accounts first: everything else filters by them.
         loadBlockedAccounts()
@@ -7187,18 +7236,6 @@ class MainViewModel(
                 // would pile a new attempt on top of a still-running one.
                 loadFriendsReviewsIfNeeded()
                 while (_friendsReviewsLoading.value) delay(300)
-            }
-        }
-        viewModelScope.launch(ioDispatcher) {
-            retryWithBackoff(isDone = { liveFriendsLoaded || !_bskyLoggedIn.value }) {
-                loadLiveFriendsIfNeeded()
-                while (_liveFriendsLoading.value) delay(300)
-            }
-        }
-        viewModelScope.launch(ioDispatcher) {
-            retryWithBackoff(isDone = { blueskyLiveNowLoaded || !_bskyLoggedIn.value }) {
-                loadBlueskyLiveNowIfNeeded()
-                while (_blueskyLiveNowLoading.value) delay(300)
             }
         }
         viewModelScope.launch(ioDispatcher) {
@@ -10665,7 +10702,7 @@ class MainViewModel(
                     )
                 }
                 // (After the posts: a hashtag's accounts are whoever posted them.)
-                if (!more && (feed.blogs || feed.reviews)) loadFeedRowWritings(key, feed)
+                if (!more && (feed.blogs || feed.reviews || feed.livestreams)) loadFeedRowWritings(key, feed)
             }.onFailure {
                 setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
@@ -10693,6 +10730,19 @@ class MainViewModel(
             if (feed.sources.any { it.kind == "hashtag" }) _hubLists.value[key]?.posts?.forEach { dids += it.author.did }
             val pick = dids.filter { it.isNotBlank() && !com.mediaviewer.util.BlockedAccounts.isBlocking(it) }.take(20)
             if (pick.isEmpty()) return@launch
+            // Livestreams: which of these accounts are live right now — one
+            // small read each (Streamplace's live list, and a profile read
+            // for the Live Now badges; at most 20 accounts, one batch).
+            if (feed.livestreams) launch {
+                val pickSet = pick.toSet()
+                val (sp, bl) = coroutineScope {
+                    val a = async { streamplaceRepo.getLiveFriends(pickSet).getOrDefault(emptyList()) }
+                    val b = async { bskyRepo.getLiveNowStreams(bskyToken, pick).getOrDefault(emptyList()) }
+                    a.await() to b.await()
+                }
+                setHubList(key) { it.copy(liveStreams = sp, liveNow = bl) }
+            }
+            if (!feed.blogs && !feed.reviews) return@launch
             // Each account's blogs and reviews live on its own PDS: they're
             // read once per half hour per account, however many rows (or
             // refreshes) want them, so rows never add up to a burst of reads.

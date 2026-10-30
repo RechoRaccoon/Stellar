@@ -537,6 +537,7 @@ fun FeedBuilderPopup(
     var blogs by remember { mutableStateOf(initial.blogs) }
     var reviews by remember { mutableStateOf(initial.reviews) }
     var reposts by remember { mutableStateOf(initial.reposts) }
+    var livestreams by remember { mutableStateOf(initial.livestreams) }
     // Which "add" panel is open.
     var adding by remember { mutableStateOf("folders") }
     var input by remember { mutableStateOf("") }
@@ -714,6 +715,7 @@ fun FeedBuilderPopup(
                     LocalChip("Reposts", reposts, tint, { reposts = !reposts })
                     LocalChip("Blogs", blogs, tint, { blogs = !blogs })
                     LocalChip("Reviews", reviews, tint, { reviews = !reviews })
+                    LocalChip("Livestreams", livestreams, tint, { livestreams = !livestreams })
                 }
             }
 
@@ -748,14 +750,14 @@ fun FeedBuilderPopup(
                         name = name.ifBlank { "My Feed" }, sources = sources,
                         textPosts = textPosts, images = images, horizontalVideos = hVideos, verticalVideos = vVideos,
                         polls = polls, sort = sort, style = style, rows = rowCount,
-                        blogs = blogs, reviews = reviews, reposts = reposts
+                        blogs = blogs, reviews = reviews, reposts = reposts, livestreams = livestreams
                     )
                     val saved = if (onSave != null) onSave(feed) else LocalData.saveLocalFeed(feed)
                     onSaved(saved)
                     onClose()
                 },
                 Modifier.weight(1f),
-                enabled = sources.isNotEmpty() && (textPosts || images || hVideos || vVideos || polls || reposts || blogs || reviews)
+                enabled = sources.isNotEmpty() && (textPosts || images || hVideos || vVideos || polls || reposts || blogs || reviews || livestreams)
             )
         }
     }

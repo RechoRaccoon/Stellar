@@ -1463,6 +1463,63 @@ class BlueskyRepository {
         out.values.toList()
     }
 
+    /** Everyone [myDid] follows, plus which of them are showing a Bluesky
+     *  "Live Now" badge — read from the follows pages themselves (their
+     *  profile views carry `status`), so finding live accounts costs the
+     *  same 1-3 requests as the follows list instead of that plus a
+     *  getProfiles call per 25 follows. The block list is read alongside
+     *  the first page rather than before it. */
+    class FollowsSnapshot(val follows: List<AuthorInfo>, val liveNow: List<BlueskyLiveNowStream>)
+
+    suspend fun getFollowsSnapshot(token: String, myDid: String, cap: Int = 300): Result<FollowsSnapshot> = runCatching {
+        coroutineScope {
+            val blockedDeferred = async { getBlockedDids(token).getOrDefault(emptySet()) }
+            val out = LinkedHashMap<String, AuthorInfo>()
+            val live = ArrayList<BlueskyLiveNowStream>()
+            val liveRaw = ArrayList<BskyProfileBasic>()
+            var cursor: String? = null
+            do {
+                val resp = api.getFollows("Bearer $token", myDid, 100, cursor)
+                if (!resp.isSuccessful) error("getFollows ${resp.code()}: ${resp.message()}")
+                val body = resp.body() ?: break
+                body.follows.forEach {
+                    if (it.did != myDid) {
+                        out[it.did] = AuthorInfo(
+                            did = it.did, handle = it.handle,
+                            displayName = it.displayName?.takeIf { n -> n.isNotBlank() } ?: it.handle,
+                            avatarUrl = it.avatar
+                        )
+                        if (it.status != null) liveRaw += it
+                    }
+                }
+                cursor = body.cursor
+            } while (!cursor.isNullOrBlank() && out.size < cap)
+            val blocked = blockedDeferred.await()
+            blocked.forEach { out.remove(it) }
+            for (p in liveRaw) {
+                if (p.did in blocked) continue
+                runCatching { liveNowFromStatus(p.did, p.handle, p.displayName, p.avatar, p.status) }.getOrNull()?.let { live += it }
+            }
+            FollowsSnapshot(out.values.toList(), live)
+        }
+    }
+
+    /** A profile's `status` as a Live Now stream, or null when it isn't one
+     *  (no status, expired, or no link). */
+    private fun liveNowFromStatus(did: String, handle: String, displayName: String?, avatar: String?, status: BskyStatusView?): BlueskyLiveNowStream? {
+        status ?: return null
+        if (status.isActive == false) return null
+        val external = status.embed?.external ?: return null
+        if (external.uri.isBlank()) return null
+        return BlueskyLiveNowStream(
+            author = AuthorInfo(did = did, handle = handle, displayName = displayName ?: handle, avatarUrl = avatar),
+            title = external.title?.takeIf { it.isNotBlank() } ?: "Live now",
+            uri = external.uri,
+            thumbUrl = external.thumb,
+            platform = liveNowPlatformFor(external.uri)
+        )
+    }
+
     // getFriendsPopfeedReviews (the old N-parallel-requests-per-follow fan-out
     // for the Hub's "Latest Reviews" section) has been removed — it was dead
     // code with zero call sites (superseded by the Subscribe-list model, which fetches only
@@ -1855,7 +1912,11 @@ class BlueskyRepository {
         /** Matches found whose rewrite failed. */
         val failed: Int = 0,
         /** Backlog entries that carry a poster blob (what a review can borrow). */
-        val backlogWithCover: Int = 0
+        val backlogWithCover: Int = 0,
+        /** Reviews logged in their watched list by this run. */
+        val logged: Int = 0,
+        /** Reviews whose watched entry couldn't be created. */
+        val logFailed: Int = 0
     )
 
     private fun blobOf(obj: com.mediaviewer.json.JsonObject?, key: String): Map<String, Any>? {
@@ -1911,18 +1972,27 @@ class BlueskyRepository {
      *  blob of their own (a review written before reviews uploaded their
      *  covers, whose picture was another record's blob that is gone) the
      *  poster (and backdrop, if they have none) blob of the same title's
-     *  Backlog entry. The blob is then referenced by the review itself. */
+     *  Backlog entry. The blob is then referenced by the review itself.
+     *  Also logs every review in its watched list when it isn't there
+     *  already, so reviews show up in Popfeed's Recent. */
     suspend fun repairReviewCovers(token: String, did: String): Result<CoverRepairReport> = withContext(ioDispatcher) {
         runCatching {
-            val backlog = ownRecords(did, "social.popfeed.feed.listItem").mapNotNull { rec ->
-                val o = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-                if (!isBacklogRecord(o) || blobOf(o, "poster") == null) null else o
-            }
+            val allItems = ownRecords(did, "social.popfeed.feed.listItem").mapNotNull { rec ->
+                rec.value?.takeIf { it.isJsonObject }?.asJsonObject
+            }.toMutableList()
+            val backlog = allItems.filter { isBacklogRecord(it) && blobOf(it, "poster") != null }
             var fixed = 0
             var ok = 0
             var failed = 0
+            var logged = 0
+            var logFailed = 0
             val unmatched = ArrayList<String>()
-            for (rec in ownRecords(did, "social.popfeed.feed.review")) {
+            // Covers fixed this run, by review rkey — the logging pass below
+            // reuses them so a review fixed here gets logged with its cover.
+            val fixedCovers = HashMap<String, Map<String, Any>>()
+            val fixedBackdrops = HashMap<String, Map<String, Any>>()
+            val reviews = ownRecords(did, "social.popfeed.feed.review")
+            for (rec in reviews) {
                 val o = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
                 if (blobOf(o, "poster") != null) { ok++; continue }
                 val item = backlog.firstOrNull { sameWorkRecords(o, it) }
@@ -1932,20 +2002,50 @@ class BlueskyRepository {
                 }
                 @Suppress("UNCHECKED_CAST")
                 val record = (jsonToPlain(o) as? MutableMap<String, Any>) ?: continue
-                record["poster"] = blobOf(item, "poster")!!
+                val poster = blobOf(item, "poster")!!
+                record["poster"] = poster
                 firstStringField(item, "posterUrl")
                     ?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
                     ?.let { record["posterUrl"] = it }
+                var backdrop: Map<String, Any>? = null
                 if (blobOf(o, "backdrop") == null) {
-                    blobOf(item, "backdrop")?.let { record["backdrop"] = it }
+                    backdrop = blobOf(item, "backdrop")
+                    backdrop?.let { record["backdrop"] = it }
                     firstStringField(item, "backdropUrl")
                         ?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }
                         ?.let { record["backdropUrl"] = it }
                 }
                 val rkey = rec.uri.substringAfterLast('/')
-                if (putRepoRecord(token, did, "social.popfeed.feed.review", rkey, record).isSuccess) fixed++ else failed++
+                if (putRepoRecord(token, did, "social.popfeed.feed.review", rkey, record).isSuccess) {
+                    fixed++
+                    fixedCovers[rkey] = poster
+                    backdrop?.let { fixedBackdrops[rkey] = it }
+                } else failed++
             }
-            CoverRepairReport(fixed, unmatched, ok, failed, backlog.size)
+            // Logging pass: every review belongs in its watched list,
+            // whether or not it needed a cover fix.
+            for (rec in reviews) {
+                val o = rec.value?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val rkey = rec.uri.substringAfterLast('/')
+                val title = firstStringField(o, "title", "name")
+                    ?: firstStringField(o.get("subject")?.takeIf { it.isJsonObject }?.asJsonObject, "title", "name")
+                    ?: continue
+                val workType = popfeedWorkType(firstStringField(o, "creativeWorkType"))
+                val ids = runCatching { o.getAsJsonObject("identifiers") }.getOrNull() ?: com.mediaviewer.json.JsonObject()
+                val posterBlob = blobOf(o, "poster") ?: fixedCovers[rkey]
+                val backdropBlob = blobOf(o, "backdrop") ?: fixedBackdrops[rkey]
+                val genres = runCatching { o.getAsJsonArray("genres")?.mapNotNull { it.asString } ?: emptyList() }.getOrDefault(emptyList())
+                runCatching {
+                    addWatchedListItem(
+                        token, did, title, workType, ids, posterBlob, backdropBlob,
+                        firstStringField(o, "posterUrl"), firstStringField(o, "backdropUrl"),
+                        firstStringField(o, "releaseDate") ?: "",
+                        genres, firstStringField(o, "mainCredit"), firstStringField(o, "mainCreditRole"),
+                        allItems
+                    )
+                }.onSuccess { if (it) logged++ }.onFailure { logFailed++ }
+            }
+            CoverRepairReport(fixed, unmatched, ok, failed, backlog.size, logged, logFailed)
         }
     }
 
@@ -2019,13 +2119,28 @@ class BlueskyRepository {
         // The review owns its pictures: each is uploaded as a blob of the
         // account's own repo, so it cannot vanish with the record the URL
         // pointed at. (A failure leaves the URL strings alone, as before.)
-        posterUrl?.let { uploadReviewCover(token, it) }?.let { record["poster"] = it }
-        backdropUrl?.let { uploadReviewCover(token, it) }?.let { record["backdrop"] = it }
+        val posterBlob = posterUrl?.let { uploadReviewCover(token, it) }
+        val backdropBlob = backdropUrl?.let { uploadReviewCover(token, it) }
+        posterBlob?.let { record["poster"] = it }
+        backdropBlob?.let { record["backdrop"] = it }
         if (target.releaseDate.isNotBlank()) record["releaseDate"] = target.releaseDate
         if (target.genres.isNotEmpty()) record["genres"] = target.genres
         target.creator?.let { record["mainCredit"] = it }
         popfeedCreditRole(target.creatorRole)?.let { record["mainCreditRole"] = it }
-        return createRecord(token, did, "social.popfeed.feed.review", record)
+        val result = createRecord(token, did, "social.popfeed.feed.review", record)
+        // A review is a watched work: log it in the watched list too, or
+        // Popfeed's Recent (built from logged works) never shows it.
+        // Best-effort: logging must not fail the review itself.
+        if (result.isSuccess) {
+            runCatching {
+                addWatchedListItem(
+                    token, did, target.title, popfeedWorkType(target.mediaCategory), titleIdentifiers(target),
+                    posterBlob, backdropBlob, posterUrl, backdropUrl,
+                    target.releaseDate, target.genres, target.creator, popfeedCreditRole(target.creatorRole)
+                )
+            }
+        }
+        return result
     }
 
     // ── Popfeed backlog: add / find (review page + title page "Backlog") ───
@@ -2086,10 +2201,15 @@ class BlueskyRepository {
         return status == "backlog" || (status.isEmpty() && backlogListKeywords.any { listType.contains(it) })
     }
 
-    private fun sameWork(obj: com.mediaviewer.json.JsonObject, target: TitleSearchResult, ids: com.mediaviewer.json.JsonObject): Boolean {
+    private fun sameWork(obj: com.mediaviewer.json.JsonObject, target: TitleSearchResult, ids: com.mediaviewer.json.JsonObject): Boolean =
+        sameWorkFields(obj, target.title, popfeedWorkType(target.mediaCategory), target.mediaCategory != null, ids)
+
+    /** Same-work match on raw fields (see sameWork): the item's
+     *  creativeWorkType must match when both sides have one, else any shared
+     *  identifier decides, else the title. */
+    private fun sameWorkFields(obj: com.mediaviewer.json.JsonObject, title: String, workType: String, hasCategory: Boolean, ids: com.mediaviewer.json.JsonObject): Boolean {
         val type = firstStringField(obj, "creativeWorkType")?.lowercase()
-        val targetType = popfeedWorkType(target.mediaCategory)
-        if (type != null && target.mediaCategory != null && type != targetType) return false
+        if (type != null && hasCategory && type != workType) return false
         val recIds = runCatching { obj.getAsJsonObject("identifiers") }.getOrNull()
         if (recIds != null) {
             for (k in identifierKeys) {
@@ -2099,7 +2219,7 @@ class BlueskyRepository {
             }
         }
         val recTitle = firstStringField(obj, "title") ?: return false
-        return recTitle.equals(target.title, ignoreCase = true)
+        return recTitle.equals(title, ignoreCase = true)
     }
 
     /** The signed-in account's backlog entry (a listItem URI) for [target],
@@ -2176,6 +2296,80 @@ class BlueskyRepository {
         target.creator?.let { record["mainCredit"] = it }
         popfeedCreditRole(target.creatorRole)?.let { record["mainCreditRole"] = it }
         createRecord(token, did, "social.popfeed.feed.listItem", record).getOrThrow()
+    }
+
+    /** Logs a reviewed work in the signed-in account's watched list for its
+     *  kind (Watched Movies / Watched Shows / Played Games) — what Popfeed's
+     *  Recent is built from, so a review written here shows up there. Returns
+     *  true when a new entry was created, false when one already exists or
+     *  no watched list for the kind exists (other kinds are left alone, and
+     *  no list is invented). [existingItems] lets a caller that already read
+     *  the account's listItems pass them in (and gets the new entry appended,
+     *  so a run over many reviews can't log the same work twice). Callers
+     *  treat failures as best-effort: logging must never fail a review. */
+    private suspend fun addWatchedListItem(
+        token: String, did: String,
+        title: String, workType: String, ids: com.mediaviewer.json.JsonObject,
+        posterBlob: Map<String, Any>?, backdropBlob: Map<String, Any>?,
+        posterUrl: String?, backdropUrl: String?,
+        releaseDate: String, genres: List<String>, mainCredit: String?, mainCreditRole: String?,
+        existingItems: MutableList<com.mediaviewer.json.JsonObject>? = null
+    ): Boolean {
+        val watchedType = when (workType) {
+            "movie" -> "watched_movies"
+            "tv_show", "tv_season", "tv_episode", "episode", "ep" -> "watched_tv_shows"
+            "video_game" -> "played_video_games"
+            else -> return false
+        }
+        val items = existingItems ?: ownRecords(did, "social.popfeed.feed.listItem")
+            .mapNotNull { r -> r.value?.takeIf { it.isJsonObject }?.asJsonObject }
+            .toMutableList()
+        if (items.any { firstStringField(it, "listType")?.lowercase() == watchedType && sameWorkFields(it, title, workType, true, ids) }) return false
+        var listUri = items.firstOrNull { firstStringField(it, "listType")?.lowercase() == watchedType && firstStringField(it, "listUri") != null }
+            ?.let { firstStringField(it, "listUri") }
+        if (listUri == null) {
+            val lists = ownRecords(did, "social.popfeed.feed.list", maxPages = 3)
+            listUri = lists.firstOrNull { r ->
+                val o = r.value?.takeIf { it.isJsonObject }?.asJsonObject ?: return@firstOrNull false
+                firstStringField(o, "listType")?.lowercase() == watchedType
+            }?.uri
+        }
+        if (listUri == null) return false
+        val identifiers = LinkedHashMap<String, Any>()
+        for ((k, v) in ids.entrySet()) {
+            if (!v.isJsonPrimitive) continue
+            val p = v.asJsonPrimitive
+            when {
+                p.isString -> if (p.asString.isNotBlank()) identifiers[k] = p.asString
+                p.isNumber -> identifiers[k] = p.asLong
+            }
+        }
+        val record = mutableMapOf<String, Any>(
+            "\$type" to "social.popfeed.feed.listItem",
+            "identifiers" to identifiers,
+            "creativeWorkType" to workType,
+            "listUri" to listUri,
+            "listType" to watchedType,
+            "addedAt" to com.mediaviewer.platform.nowIsoString(),
+            "title" to title
+        )
+        posterBlob?.let { record["poster"] = it }
+        backdropBlob?.let { record["backdrop"] = it }
+        posterUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }?.let { record["posterUrl"] = it }
+        backdropUrl?.takeIf { com.mediaviewer.util.BlockedHosts.isAllowedCoverUrl(it) && !com.mediaviewer.util.BlockedHosts.isWikimediaUrl(it) }?.let { record["backdropUrl"] = it }
+        if (releaseDate.isNotBlank()) record["releaseDate"] = releaseDate
+        if (genres.isNotEmpty()) record["genres"] = genres
+        mainCredit?.let { record["mainCredit"] = it }
+        mainCreditRole?.let { record["mainCreditRole"] = it }
+        createRecord(token, did, "social.popfeed.feed.listItem", record).getOrThrow()
+        // So a multi-review run sees this one as already logged.
+        val marker = com.mediaviewer.json.JsonObject()
+        marker.addProperty("title", title)
+        marker.addProperty("listType", watchedType)
+        marker.addProperty("creativeWorkType", workType)
+        marker.add("identifiers", ids)
+        existingItems?.add(marker)
+        return true
     }
 
     /** Item 10: "after posting the review it should remove it from the

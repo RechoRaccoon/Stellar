@@ -944,7 +944,11 @@ data class BskyProfileBasic(
     val avatar: String? = null,
     /** Present on getBlocks/getFollows/getFollowers profile views: carries the
      *  block record URI (viewer.blocking) used to unblock from Settings. */
-    val viewer: BskyActorViewer? = null
+    val viewer: BskyActorViewer? = null,
+    /** The "Live Now" badge, when the AppView includes it on this view
+     *  (it does on getFollows' profile views) — lets the Hub find who's
+     *  live from the follows list itself, with no per-profile lookups. */
+    val status: BskyStatusView? = null
 )
 
 @Serializable

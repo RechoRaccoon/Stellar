@@ -189,7 +189,7 @@ fun BuiltFeedRow(
     androidx.compose.runtime.CompositionLocalProvider(LocalPostSelectable provides false) {
         if (feed.showsPosts) BuiltFeedPosts(feed, state, liquidGlass, onLoad, onLoadMore, onOpenPost, onOpenProfile, listEdge)
     }
-    if (feed.blogs || feed.reviews) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile, listEdge)
+    if (feed.blogs || feed.reviews || feed.livestreams) BuiltFeedWritings(feed, state, liquidGlass, onOpenProfile, listEdge)
 }
 
 /** A built feed's blogs and reviews (see LocalFeed.blogs/reviews): a row
@@ -198,12 +198,23 @@ fun BuiltFeedRow(
 private fun BuiltFeedWritings(feed: LocalFeed, state: MainViewModel.HubListState?, liquidGlass: Boolean, onOpenProfile: (AuthorInfo) -> Unit, listEdge: Dp = 16.dp) {
     val blogs = state?.blogs.orEmpty()
     val reviews = state?.reviews.orEmpty()
-    if (!feed.showsPosts && blogs.isEmpty() && reviews.isEmpty() && state != null && !state.loading) {
+    val live: List<LiveCardSource> = if (!feed.livestreams) emptyList()
+        else state?.liveStreams.orEmpty().map { LiveCardSource.Streamplace(it) } + state?.liveNow.orEmpty().map { LiveCardSource.BlueskyLive(it) }
+    if (!feed.showsPosts && blogs.isEmpty() && reviews.isEmpty() && live.isEmpty() && state != null && !state.loading) {
         Text(
             "Nothing here yet", color = DimGray, fontSize = 12.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = listEdge)
         )
         return
+    }
+    if (live.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        com.mediaviewer.ui.compat.LazyRow(
+            Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = listEdge),
+            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top
+        ) {
+            items(live.size) { i -> LiveCard(live[i], liquidGlass, { _, _, _ -> }, onOpenProfile) }
+        }
     }
     if (blogs.isNotEmpty()) {
         Spacer(Modifier.height(10.dp))

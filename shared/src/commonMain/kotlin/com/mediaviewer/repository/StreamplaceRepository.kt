@@ -39,6 +39,14 @@ class StreamplaceRepository {
             .mapNotNull { v -> runCatching { v.toLiveStream() }.getOrNull() }
     }
 
+    /** Every live stream on the platform, unfiltered — lets the Hub fetch
+     *  this alongside the follows list instead of after it. */
+    suspend fun getAllLive(): Result<List<StreamplaceLiveStream>> = runCatching {
+        val resp = api.getLiveUsers(limit = 100)
+        val body = resp.body() ?: error("Streamplace live users failed: ${resp.code()}")
+        body.streams.mapNotNull { v -> runCatching { v.toLiveStream() }.getOrNull() }
+    }
+
     private fun StreamplaceRawLivestreamView.toLiveStream(): StreamplaceLiveStream {
         // `record` is lexicon-typed "unknown" (the raw place.stream.livestream
         // record) — title is its one required field; thumb is an optional

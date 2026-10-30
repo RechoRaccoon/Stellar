@@ -2195,39 +2195,58 @@ private val YouTubeRed = Color(0xFFFF0000)
  *  a Bluesky-native "Live Now" badge. A sealed class instead of two parallel
  *  lists means the row can interleave/render them with one loop instead of
  *  duplicating the whole card block per source. */
-private sealed class LiveCardSource {
+internal sealed class LiveCardSource {
     data class Streamplace(val stream: com.mediaviewer.model.StreamplaceLiveStream) : LiveCardSource()
     data class BlueskyLive(val stream: com.mediaviewer.model.BlueskyLiveNowStream) : LiveCardSource()
 }
 
-/** Renders one Livestreams card for either source. Both sources now open
- *  the same in-app WebView player (see LiveNowPlayerOverlay) instead of
- *  Streamplace bouncing out to the system browser — Bluesky Live Now still
- *  resolves an actual embeddable-player URL first (Twitch/YouTube), while
- *  Streamplace just loads its own stream.place page directly since there's
- *  no known embed format for it to build. */
+/** How wide a livestream card is in a row: the horizontal video card's
+ *  shape (16:9 picture, the words under it), a little wider than the
+ *  200.dp "Horizontal" feed tiles so a title has room. */
+internal val LIVE_CARD_WIDTH = 240.dp
+
+/** The small marker pill on a livestream's picture — exactly the backing
+ *  and text size of the "Video" / image-count markers on Explore's tiles,
+ *  with an optional dot in front (the red one marking "live"). */
 @Composable
-private fun LiveCard(source: LiveCardSource, liquidGlass: Boolean, onOpenLivePlayer: (String, String, String) -> Unit, onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit) {
-    val cardShape = RoundedCornerShape(12.dp)
-    // Bug fix (per feedback — tapping a live card opened a broken in-app
-    // player UI instead of the actual stream): `onOpenLivePlayer` (still
-    // kept as a param so callers/MainActivity wiring don't need touching)
-    // is no longer called here at all — both sources now hand their real,
-    // direct stream URL straight to the system via LocalUriHandler, the
-    // same as any other outbound link in this app, opening in the user's
-    // actual Twitch/YouTube/Streamplace app or browser instead of this
-    // app's own WebView-based LiveNowPlayerOverlay. Bluesky Live Now
-    // specifically uses the stream's own `uri` here (its real page) rather
-    // than embedUrlFor's *embeddable-player* URL — that conversion only
-    // ever made sense for loading the stream inside this app's WebView, not
-    // for handing off to an external app/browser that already knows how to
-    // open the real page correctly on its own.
+private fun LiveCoverBadge(text: String, modifier: Modifier = Modifier, dot: Color? = null) {
+    Row(
+        modifier.clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 5.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (dot != null) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(dot))
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(text, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Renders one livestream as the horizontal video card Stellar uses for
+ *  videos (see the Horizontal layout): the stream's thumbnail at 16:9 with
+ *  its Twitch / YouTube colored outline, "Live" and the platform as marker
+ *  pills on the picture like the "Video" marker, and under it the streamer's
+ *  icon, the stream's title, their name and what it is. Both sources hand
+ *  their real, direct stream URL straight to the system via LocalUriHandler
+ *  (the user's actual Twitch/YouTube/Streamplace app or browser): Bluesky
+ *  Live Now uses the stream's own `uri` (its real page), not
+ *  embedUrlFor's embeddable-player URL, which only made sense for loading
+ *  the stream inside this app's WebView. [onOpenLivePlayer] is still a
+ *  param so callers' wiring doesn't need touching. */
+@Composable
+internal fun LiveCard(
+    source: LiveCardSource, liquidGlass: Boolean,
+    @Suppress("UNUSED_PARAMETER") onOpenLivePlayer: (String, String, String) -> Unit,
+    onOpenProfile: (com.mediaviewer.model.AuthorInfo) -> Unit,
+    width: Dp = LIVE_CARD_WIDTH
+) {
     val uriHandler = LocalUriHandler.current
+    val tap = rememberHapticTap()
     val (thumbUrl, title, accountName, accountAvatarUrl, tint, badgeText, onClick) = when (source) {
         is LiveCardSource.Streamplace -> {
             val s = source.stream
             val name = s.authorDisplayName ?: s.authorHandle
-            SevenTuple(s.thumbUrl, s.title.ifBlank { "Untitled stream" }, name, s.authorAvatarUrl, LikeRed, "LIVE") {
+            SevenTuple(s.thumbUrl, s.title.ifBlank { "Untitled stream" }, name, s.authorAvatarUrl, LikeRed, "Streamplace") {
                 uriHandler.openUri("https://stream.place/${s.authorHandle}")
             }
         }
@@ -2239,47 +2258,56 @@ private fun LiveCard(source: LiveCardSource, liquidGlass: Boolean, onOpenLivePla
                 com.mediaviewer.model.LiveNowPlatform.OTHER -> LikeRed
             }
             val badge = when (s.platform) {
-                com.mediaviewer.model.LiveNowPlatform.TWITCH -> "TWITCH"
-                com.mediaviewer.model.LiveNowPlatform.YOUTUBE -> "YOUTUBE"
-                com.mediaviewer.model.LiveNowPlatform.OTHER -> "LIVE"
+                com.mediaviewer.model.LiveNowPlatform.TWITCH -> "Twitch"
+                com.mediaviewer.model.LiveNowPlatform.YOUTUBE -> "YouTube"
+                com.mediaviewer.model.LiveNowPlatform.OTHER -> "Stream"
             }
             SevenTuple(s.thumbUrl, s.title, s.author.displayName, s.author.avatarUrl, tint, badge) {
                 uriHandler.openUri(s.uri)
             }
         }
     }
-    // Bug fix (per feedback — matches Blogs/Reviews now): the author
-    // icon+name used to float INSIDE the card as a BottomStart overlay,
-    // reflective via its own per-card GraphicsLayer backdrop recording. It
-    // now sits in its own small (non-reflective, same as Blogs/Reviews'
-    // HubAuthorBubble) bubble above the card instead, so that recording
-    // setup — nothing else in this card ever read from it — is gone too.
-    // The bubble above the card opens the author's profile, the same as
-    // Blogs' and Reviews' bubbles: Streamplace authors are AT-Protocol
-    // accounts too, so one is built from their DID and handle.
+    // The streamer's icon opens their profile (Streamplace authors are
+    // AT-Protocol accounts too, so one is built from their DID and handle).
     val author = when (source) {
         is LiveCardSource.Streamplace -> com.mediaviewer.model.AuthorInfo(did = source.stream.authorDid, handle = source.stream.authorHandle, displayName = accountName, avatarUrl = accountAvatarUrl)
         is LiveCardSource.BlueskyLive -> source.stream.author
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-    HubAuthorBubble(displayName = accountName, avatarUrl = accountAvatarUrl, liquidGlass = liquidGlass, tint = tint, cardWidth = 140.dp,
-        onClick = { onOpenProfile(author) })
-    Spacer(Modifier.height(6.dp))
-    Box(
-        Modifier.width(140.dp).height(140.dp)
-            .then(if (liquidGlass) Modifier.glassPanel(true, shape = cardShape, tint = tint) else Modifier.clip(cardShape).background(tint.copy(0.18f)))
-            .clickable(onClick = onClick)
-    ) {
-        if (thumbUrl != null) {
-            AsyncImage(model = thumbUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(cardShape))
-        } else {
-            Box(Modifier.fillMaxSize().clip(cardShape).background(Color.White.copy(0.08f)))
+    val viewers = (source as? LiveCardSource.Streamplace)?.stream?.viewerCount ?: 0
+    val thumbShape = RoundedCornerShape(12.dp)
+    Column(Modifier.width(width).clip(thumbShape).clickable { tap(); onClick() }) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(thumbShape)
+                .background(tint.copy(0.18f))
+                .border(2.dp, tint, thumbShape)
+        ) {
+            if (thumbUrl != null) {
+                AsyncImage(model = thumbUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(thumbShape))
+            }
+            LiveCoverBadge("Live", Modifier.align(Alignment.BottomStart).padding(6.dp), dot = LikeRed)
+            LiveCoverBadge(badgeText, Modifier.align(Alignment.BottomEnd).padding(6.dp))
         }
-        Box(Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(tint).padding(horizontal = 5.dp, vertical = 2.dp)) {
-            Text(badgeText, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(32.dp).clip(AvatarShape).background(Color.White.copy(0.1f)).clickable { tap(); onOpenProfile(author) }) {
+                if (accountAvatarUrl != null) AsyncImage(
+                    model = accountAvatarUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title.ifBlank { "Live now" }, color = Color.White, fontSize = 14.sp, lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(accountName, color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (viewers > 0) "$badgeText · $viewers watching" else badgeText,
+                    color = DimGray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
         }
-    }
     }
 }
 
