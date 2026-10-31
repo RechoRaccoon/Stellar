@@ -200,7 +200,11 @@ private const val GRAPHIC_MEDIA_DESCRIPTION = "Media that may be disturbing or i
 private data class ThreadPostState(
     val text: TextFieldValue,
     val images: List<Uri> = emptyList(),
-    val video: Uri? = null
+    val video: Uri? = null,
+    /** This post's video's custom thumbnail and alt text — the same two
+     *  extras a stand-alone video post has. */
+    val videoThumb: Uri? = null,
+    val videoAlt: TextFieldValue = TextFieldValue("")
 )
 
 /** Item 12: one live row of the blog editor. [id] is stable for the row's
@@ -527,9 +531,11 @@ fun ComposePostScreen(
         // Whatever was already attached to the single post carries over onto
         // the thread's first post rather than being dropped.
         threadPosts = computeThreadPosts(singleText.text, minPosts = if (overflowing) 1 else 2)
-            .mapIndexed { i, text -> ThreadPostState(TextFieldValue(text), images = if (i == 0) images else emptyList(), video = if (i == 0) videoUri else null) }
+            .mapIndexed { i, text -> ThreadPostState(TextFieldValue(text), images = if (i == 0) images else emptyList(), video = if (i == 0) videoUri else null, videoThumb = if (i == 0) videoThumbUri else null, videoAlt = if (i == 0) videoAlt else TextFieldValue("")) }
         images = emptyList()
         videoUri = null
+        videoThumbUri = null
+        videoAlt = TextFieldValue("")
         activeThreadIndex = threadPosts.lastIndex
         mode = ComposeMode.THREAD
         isBlogMode = false
@@ -555,7 +561,7 @@ fun ComposePostScreen(
     fun growTextIntoThread(fullText: String, floor: Int) {
         val oldMedia = threadPosts
         threadPosts = computeThreadPosts(fullText, minPosts = floor).mapIndexed { i, text ->
-            ThreadPostState(TextFieldValue(text), images = oldMedia.getOrNull(i)?.images ?: emptyList(), video = oldMedia.getOrNull(i)?.video)
+            oldMedia.getOrNull(i)?.copy(text = TextFieldValue(text)) ?: ThreadPostState(TextFieldValue(text))
         }
         activeThreadIndex = threadPosts.lastIndex
         mode = ComposeMode.THREAD
@@ -782,7 +788,7 @@ fun ComposePostScreen(
             threadPosts = threadPosts.toMutableList().also { list ->
                 val post = list[idx]
                 list[idx] = if (videoPick != null) {
-                    post.copy(video = videoPick, images = emptyList())
+                    post.copy(video = videoPick, images = emptyList(), videoThumb = null, videoAlt = TextFieldValue(""))
                 } else {
                     val room = (MAX_IMAGES - post.images.size).coerceAtLeast(0)
                     post.copy(images = (post.images + uris.filterNot { it in post.images }.take(room)).take(MAX_IMAGES))
@@ -813,6 +819,16 @@ fun ComposePostScreen(
         if (uri != null) videoThumbUri = uri
     }
 
+    // Same thing for a thread post's video: which post's thumbnail is being picked.
+    var thumbTargetIndex by remember { mutableStateOf(-1) }
+    val threadThumbnailPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val i = thumbTargetIndex
+        thumbTargetIndex = -1
+        if (uri != null && i in threadPosts.indices && threadPosts[i].video != null) {
+            threadPosts = threadPosts.toMutableList().also { it[i] = it[i].copy(videoThumb = uri) }
+        }
+    }
+
     LaunchedEffect(videoUri) {
         val uri = videoUri ?: return@LaunchedEffect
         val aspect = withContext(ioDispatcher) { probeVideoAspect(context, uri) }
@@ -821,15 +837,19 @@ fun ComposePostScreen(
     // The video starts uploading (and Bluesky starts processing it) as soon
     // as it's attached, so Post only has to publish it. Picking a custom
     // thumbnail restarts it — the thumbnail is part of the uploaded file.
-    LaunchedEffect(videoUri, videoThumbUri, mode) {
-        val uri = videoUri
-        if (uri == null || mode != ComposeMode.VIDEO) {
+    // In a thread, the most recently added video post is the one prepared
+    // ahead of time (any other is uploaded when the thread is posted).
+    val threadPrepared = if (mode == ComposeMode.THREAD) threadPosts.lastOrNull { it.video != null } else null
+    LaunchedEffect(videoUri, videoThumbUri, mode, threadPrepared?.video, threadPrepared?.videoThumb) {
+        val uri = if (mode == ComposeMode.THREAD) threadPrepared?.video else if (mode == ComposeMode.VIDEO) videoUri else null
+        val thumb = if (mode == ComposeMode.THREAD) threadPrepared?.videoThumb else videoThumbUri
+        if (uri == null) {
             LocalOverlays.cancelVideoUpload?.invoke()
             return@LaunchedEffect
         }
         // (A moment for a thumbnail pick right after the video.)
         kotlinx.coroutines.delay(400)
-        LocalOverlays.prepareVideoUpload?.invoke(uri, videoThumbUri)
+        LocalOverlays.prepareVideoUpload?.invoke(uri, thumb)
     }
 
     // ── Character budget for the field currently being typed in ────────
@@ -884,6 +904,8 @@ fun ComposePostScreen(
                 posts = threadPosts.map { post ->
                     ThreadPostDraft(
                         text = post.text.text.trimEnd(), images = post.images, video = post.video,
+                        videoThumbnailUri = if (post.video != null) post.videoThumb else null,
+                        videoAlt = if (post.video != null) post.videoAlt.text.trim() else "",
                         imageAlts = post.images.map { imageAlts[it].orEmpty() }
                     )
                 }
@@ -1205,7 +1227,7 @@ fun ComposePostScreen(
                                                 i == caretChunk -> TextFieldValue(text, TextRange(remainingCaret))
                                                 else -> TextFieldValue(text)
                                             }
-                                            ThreadPostState(tfv, images = old?.images ?: emptyList(), video = old?.video)
+                                            old?.copy(text = tfv) ?: ThreadPostState(tfv)
                                         }
                                         activeThreadIndex = caretChunk
                                     }
@@ -1220,13 +1242,45 @@ fun ComposePostScreen(
                             // up to 10 images or exactly one video per post.
                             if (post.video != null) {
                                 Spacer(Modifier.height(8.dp))
-                                ThreadVideoPreview(uri = post.video, onRemove = {
-                                    confirmRemoval = RemovalRequest("Remove this video?", "It'll be taken off this post.") {
-                                        threadPosts = threadPosts.toMutableList().also { list ->
-                                            list.getOrNull(index)?.let { list[index] = it.copy(video = null) }
+                                // Same video system as a stand-alone video post:
+                                // the video, a custom-thumbnail box, alt text and
+                                // the upload status.
+                                ThreadVideoPreview(
+                                    uri = post.video, thumbnailUri = post.videoThumb,
+                                    onTapThumbnail = {
+                                        thumbTargetIndex = index
+                                        threadThumbnailPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
+                                    onRemove = {
+                                        confirmRemoval = RemovalRequest("Remove this video?", "It'll be taken off this post.") {
+                                            threadPosts = threadPosts.toMutableList().also { list ->
+                                                list.getOrNull(index)?.let { list[index] = it.copy(video = null, videoThumb = null, videoAlt = TextFieldValue("")) }
+                                            }
                                         }
                                     }
-                                })
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                HubDivider("Alt Text")
+                                GrowingTextField(
+                                    value = post.videoAlt,
+                                    onValueChange = { v ->
+                                        threadPosts = threadPosts.toMutableList().also { list ->
+                                            list.getOrNull(index)?.let { list[index] = it.copy(videoAlt = capBudget(v, VIDEO_ALT_TEXT_LIMIT)) }
+                                        }
+                                    },
+                                    placeholder = "Describe this video…"
+                                )
+                                val upload = com.mediaviewer.util.VideoUpload
+                                if (post === threadPrepared && upload.stage != com.mediaviewer.util.VideoUpload.Stage.IDLE) {
+                                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        val busy = upload.stage == com.mediaviewer.util.VideoUpload.Stage.UPLOADING || upload.stage == com.mediaviewer.util.VideoUpload.Stage.PROCESSING || upload.stage == com.mediaviewer.util.VideoUpload.Stage.PREPARING
+                                        if (busy) {
+                                            CircularProgressIndicator(Modifier.size(12.dp), color = Color.White, strokeWidth = 1.5.dp)
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        Text(upload.label, color = if (upload.stage == com.mediaviewer.util.VideoUpload.Stage.READY) VoteGreen else DimGray, fontSize = 12.sp)
+                                    }
+                                }
                             } else if (post.images.isNotEmpty()) {
                                 Spacer(Modifier.height(8.dp))
                                 ImageGrid(
@@ -1692,7 +1746,7 @@ fun ComposePostScreen(
                                             val fullText = threadPosts.joinToString("") { it.text.text }
                                             threadPosts = computeThreadPosts(fullText, minPosts = threadPosts.size)
                                                 .mapIndexed { i, text ->
-                                                    ThreadPostState(TextFieldValue(text), images = oldMedia.getOrNull(i)?.images ?: emptyList(), video = oldMedia.getOrNull(i)?.video)
+                                                    oldMedia.getOrNull(i)?.copy(text = TextFieldValue(text)) ?: ThreadPostState(TextFieldValue(text))
                                                 }
                                             activeThreadIndex = activeThreadIndex.coerceAtMost(threadPosts.lastIndex)
                                         }
@@ -1810,7 +1864,7 @@ fun ComposePostScreen(
                 mode == ComposeMode.THREAD -> base.copy(
                     mode = "THREAD",
                     posts = threadPosts.map { p ->
-                        com.mediaviewer.util.DraftThreadPost(p.text.text, p.images.mapNotNull { keep(it) }, p.video?.let { keep(it) })
+                        com.mediaviewer.util.DraftThreadPost(p.text.text, p.images.mapNotNull { keep(it) }, p.video?.let { keep(it) }, p.videoThumb?.let { keep(it) }, p.videoAlt.text)
                     }
                 )
                 mode == ComposeMode.TEXTSHOT -> base.copy(
@@ -1848,7 +1902,7 @@ fun ComposePostScreen(
                 }
                 "THREAD" -> {
                     threadPosts = d.posts.map { p ->
-                        ThreadPostState(TextFieldValue(p.text), p.images.map { uri(it) }, p.video?.let { uri(it) })
+                        ThreadPostState(TextFieldValue(p.text), p.images.map { uri(it) }, p.video?.let { uri(it) }, p.videoThumb?.let { uri(it) }, TextFieldValue(p.videoAlt))
                     }.ifEmpty { listOf(ThreadPostState(TextFieldValue(""))) }
                     activeThreadIndex = 0
                     // Kept exactly as it was saved (no re-flowing).
@@ -2832,27 +2886,18 @@ private fun <T> List<T>.moved(from: Int, to: Int): List<T> {
     return toMutableList().also { it.add(to, it.removeAt(from)) }
 }
 
-/** Item 2: one thread post's attached video — a small 16:9 preview with a
- *  tap-to-remove affordance, same visual language as [ImageGrid]'s tiles. */
+/** One thread post's attached video — the exact same row a stand-alone video
+ *  post shows (video + custom-thumbnail box, both in the video's own aspect
+ *  ratio), plus an X to take the video off this post. */
 @Composable
-private fun ThreadVideoPreview(uri: Uri, onRemove: () -> Unit) {
-    val tap = rememberHapticTap()
+private fun ThreadVideoPreview(uri: Uri, thumbnailUri: Uri?, onTapThumbnail: () -> Unit, onRemove: () -> Unit) {
     val context = LocalContext.current
     var aspect by remember(uri) { mutableStateOf(16f / 9f) }
     LaunchedEffect(uri) { aspect = withContext(ioDispatcher) { probeVideoAspect(context, uri) } }
-    Box(
-        Modifier.fillMaxWidth(0.55f).aspectRatio(aspect).clip(RoundedCornerShape(10.dp))
-    ) {
-        // Tap the video to play it; the X removes it.
-        InlineVideoPlayer(uri, Modifier.fillMaxSize())
-        Box(
-            Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).clip(CircleShape)
-                .background(Color.Black.copy(0.5f)).clickable { tap(); onRemove() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Close, contentDescription = "Remove video", tint = Color.White, modifier = Modifier.size(16.dp))
-        }
-    }
+    VideoAndThumbnailRow(
+        videoUri = uri, thumbnailUri = thumbnailUri, aspect = aspect,
+        onTapThumbnail = onTapThumbnail, onRemove = onRemove
+    )
 }
 
 /** Video mode's attachment row: the picked video on the left, a same-
@@ -2863,12 +2908,24 @@ private fun ThreadVideoPreview(uri: Uri, onRemove: () -> Unit) {
 @Composable
 private fun VideoAndThumbnailRow(
     videoUri: Uri?, thumbnailUri: Uri?, aspect: Float,
-    onTapThumbnail: () -> Unit
+    onTapThumbnail: () -> Unit,
+    onRemove: (() -> Unit)? = null
 ) {
     if (videoUri == null) return
     val tap = rememberHapticTap()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        InlineVideoPlayer(videoUri, Modifier.weight(1f).aspectRatio(aspect).clip(RoundedCornerShape(10.dp)))
+        Box(Modifier.weight(1f).aspectRatio(aspect).clip(RoundedCornerShape(10.dp))) {
+            InlineVideoPlayer(videoUri, Modifier.fillMaxSize())
+            if (onRemove != null) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).clip(CircleShape)
+                        .background(Color.Black.copy(0.5f)).clickable { tap(); onRemove() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Remove video", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
         Box(
             Modifier.weight(1f).aspectRatio(aspect).clip(RoundedCornerShape(10.dp))
                 .background(Color.White.copy(0.06f)).clickable(onClick = { tap(); onTapThumbnail() }),

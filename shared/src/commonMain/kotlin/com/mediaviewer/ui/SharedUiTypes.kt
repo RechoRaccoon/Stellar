@@ -19,7 +19,11 @@ data class ThreadPostDraft(
     val images: List<com.mediaviewer.platform.PlatformUri> = emptyList(),
     val video: com.mediaviewer.platform.PlatformUri? = null,
     /** Alt text per picture, by index ("" = none). */
-    val imageAlts: List<String> = emptyList()
+    val imageAlts: List<String> = emptyList(),
+    /** This post's video: its custom thumbnail and alt text — the same two
+     *  extras a stand-alone video post has. */
+    val videoThumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
+    val videoAlt: String = ""
 )
 
 

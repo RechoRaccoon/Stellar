@@ -4686,7 +4686,10 @@ class BlueskyRepository {
         // Custom emoji (see richTextWithEmoji): the composer's / comment
         // box's emoji library, when the text being posted was typed with
         // it. Null posts exactly as before.
-        emojiStore: com.mediaviewer.util.EmojiStore? = null
+        emojiStore: com.mediaviewer.util.EmojiStore? = null,
+        // A ready-made embed (a video's app.bsky.embed.video) used instead of
+        // the pictures — how a thread post carries a video.
+        embedOverride: Map<String, Any>? = null
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
         val (richWords, richFacets) = richTextWithEmoji(text, emojiStore, did)
@@ -4695,7 +4698,8 @@ class BlueskyRepository {
             "text" to richWords,
             "createdAt" to com.mediaviewer.platform.nowIsoString()
         )
-        if (images.isNotEmpty()) record["embed"] = buildImagesEmbed(images, imageAlts)
+        if (embedOverride != null) record["embed"] = embedOverride
+        else if (images.isNotEmpty()) record["embed"] = buildImagesEmbed(images, imageAlts)
         if (reply != null) record["reply"] = mapOf(
             "root" to mapOf("uri" to reply.root.uri, "cid" to reply.root.cid),
             "parent" to mapOf("uri" to reply.parent.uri, "cid" to reply.parent.cid)
@@ -5524,12 +5528,30 @@ class BlueskyRepository {
         runCatching {
         val created = mutableListOf<BskyRef>()
         var root: BskyRef? = null
-        for (post in posts) {
-            val images = uploadImageBlobs(token, context, post.images)
-            val reply = root?.let { r -> BskyReplyRef(root = r, parent = created.last()) }
-            val ref = createPost(token, did, post.text, images, reply, imageAlts = post.imageAlts, selfLabels = selfLabels, emojiStore = emojiStore).getOrElse { throw it }
-            if (root == null) root = ref
-            created += ref
+        try {
+            for (post in posts) {
+                val reply = root?.let { r -> BskyReplyRef(root = r, parent = created.last()) }
+                val ref = if (post.video != null) {
+                    // A video post inside the thread goes through the very
+                    // same upload + embed path as a stand-alone video post
+                    // (thumbnail splice, alt text, aspect ratio, GIF handling).
+                    val uploaded = uploadedVideoFor(token, did, context, post.video, post.videoThumbnail)
+                    createPost(
+                        token, did, post.text, emptyList(), reply, selfLabels = selfLabels, emojiStore = emojiStore,
+                        embedOverride = buildVideoEmbed(uploaded, post.videoAlt)
+                    ).getOrElse { throw it }
+                } else {
+                    val images = uploadImageBlobs(token, context, post.images)
+                    createPost(token, did, post.text, images, reply, imageAlts = post.imageAlts, selfLabels = selfLabels, emojiStore = emojiStore).getOrElse { throw it }
+                }
+                if (root == null) root = ref
+                created += ref
+            }
+        } finally {
+            if (posts.any { it.video != null }) {
+                pendingVideo = null
+                com.mediaviewer.util.VideoUpload.set(com.mediaviewer.util.VideoUpload.Stage.IDLE)
+            }
         }
         created
     }
@@ -5541,7 +5563,12 @@ class BlueskyRepository {
     data class ThreadPostToSend(
         val text: String, val images: List<com.mediaviewer.platform.PlatformUri> = emptyList(),
         /** Alt text per picture, by index. */
-        val imageAlts: List<String> = emptyList()
+        val imageAlts: List<String> = emptyList(),
+        /** A video on this post (instead of pictures), with its optional
+         *  custom thumbnail and alt text. */
+        val video: com.mediaviewer.platform.PlatformUri? = null,
+        val videoThumbnail: com.mediaviewer.platform.PlatformUri? = null,
+        val videoAlt: String = ""
     )
 
     /** Renders [text] to a transparent-background/white-text square PNG
@@ -5787,6 +5814,33 @@ class BlueskyRepository {
         return jobStatus?.blob ?: error("Processing finished with no video")
     }
 
+    /** The uploaded video for [videoUri]: the upload [prepareVideoUpload]
+     *  started when there is one for this exact video + thumbnail (waiting
+     *  for it if it's still going), otherwise one fresh upload now. Shared by
+     *  stand-alone video posts and video posts inside a thread. */
+    private suspend fun uploadedVideoFor(
+        token: String, did: String, context: PlatformContext, videoUri: PlatformUri, thumbnailUri: PlatformUri?
+    ): UploadedVideo {
+        val key = videoKey(did, videoUri, thumbnailUri)
+        val prepared = pendingVideo?.takeIf { it.key == key && !it.failed }
+        return prepared?.let { p -> runCatching { p.job.await() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() }
+            // Nothing prepared (or it failed): one fresh try now.
+            ?: uploadVideo(token, did, context, videoUri, thumbnailUri)
+    }
+
+    /** The app.bsky.embed.video embed for [uploaded]. The aspectRatio is what
+     *  makes feed previews render at the right shape instead of square;
+     *  unknown dimensions are just left out. */
+    private fun buildVideoEmbed(uploaded: UploadedVideo, alt: String): Map<String, Any> {
+        val videoEmbed = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to uploaded.blob)
+        if (uploaded.width > 0 && uploaded.height > 0) {
+            videoEmbed["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
+        }
+        if (uploaded.isGif) videoEmbed["presentation"] = "gif"
+        alt.trim().take(VIDEO_ALT_MAX).takeIf { it.isNotEmpty() }?.let { videoEmbed["alt"] = it }
+        return videoEmbed
+    }
+
     /** Posts a video. Uses the upload started by [prepareVideoUpload] when
      *  there is one for this video (waiting for it if it's still going),
      *  otherwise uploads now. */
@@ -5799,22 +5853,10 @@ class BlueskyRepository {
         alt: String = ""
     ): Result<BskyRef> = withContext(ioDispatcher) {
         runCatching {
-            val key = videoKey(did, videoUri, thumbnailUri)
-            val prepared = pendingVideo?.takeIf { it.key == key && !it.failed }
-            val uploaded = prepared?.let { p -> runCatching { p.job.await() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() }
-                // Nothing prepared (or it failed): one fresh try now.
-                ?: uploadVideo(token, did, context, videoUri, thumbnailUri)
+            val uploaded = uploadedVideoFor(token, did, context, videoUri, thumbnailUri)
 
             val text = if (description.isBlank()) title else "$title\n\n$description"
-            // The video embed's aspectRatio is what makes feed previews
-            // render at the right shape instead of square; unknown
-            // dimensions are just left out.
-            val videoEmbed = mutableMapOf<String, Any>("\$type" to "app.bsky.embed.video", "video" to uploaded.blob)
-            if (uploaded.width > 0 && uploaded.height > 0) {
-                videoEmbed["aspectRatio"] = mapOf("width" to uploaded.width, "height" to uploaded.height)
-            }
-            if (uploaded.isGif) videoEmbed["presentation"] = "gif"
-            alt.trim().take(VIDEO_ALT_MAX).takeIf { it.isNotEmpty() }?.let { videoEmbed["alt"] = it }
+            val videoEmbed = buildVideoEmbed(uploaded, alt)
             val (richWords, richFacets) = richText(text)
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",

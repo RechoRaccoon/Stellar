@@ -1961,7 +1961,7 @@ class MainViewModel(
                 }
             }
             com.mediaviewer.ui.ComposeMode.THREAD -> runCatching {
-                val posts = draft.posts.map { com.mediaviewer.repository.BlueskyRepository.ThreadPostToSend(it.text, it.images, it.imageAlts) }
+                val posts = draft.posts.map { com.mediaviewer.repository.BlueskyRepository.ThreadPostToSend(it.text, it.images, it.imageAlts, it.video, it.videoThumbnailUri, it.videoAlt) }
                 bskyRepo.createThread(bskyToken, did, context, posts, draft.selfLabels, emojiStore = emojiStore).getOrElse { throw it }
             }
             com.mediaviewer.ui.ComposeMode.TEXTSHOT -> runCatching {

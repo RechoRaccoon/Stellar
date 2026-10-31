@@ -52,7 +52,10 @@ object Supporter {
 // ── Models (all on-device only) ──────────────────────────────────────────
 
 @Serializable
-data class DraftThreadPost(val text: String = "", val images: List<String> = emptyList(), val video: String? = null)
+data class DraftThreadPost(
+    val text: String = "", val images: List<String> = emptyList(), val video: String? = null,
+    val videoThumb: String? = null, val videoAlt: String = ""
+)
 
 /** A saved, unposted post: everything the composer needs to rebuild it. */
 @Serializable
