@@ -3186,12 +3186,14 @@ class MainViewModel(
         }
         val turn = hubTurn()
         viewModelScope.launch(ioDispatcher) {
+            var settled = false
             try {
             var result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getHubListContent(bskyToken, _bskyDid.value, uri)
             }
             awaitHubTurn(turn)
+            settled = true
             result.onSuccess { content ->
                 val posts = filterHidden(content.posts)
                 com.mediaviewer.platform.synchronizedCompat(hubListLock) { hubMemberFeeds.remove(uri) }
@@ -3214,7 +3216,10 @@ class MainViewModel(
             }.onFailure {
                 setHubList(uri) { it.copy(loading = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
-            } finally { releaseHubTurn(turn) }
+            } finally {
+                if (!settled) setHubList(uri) { it.copy(loading = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
+                releaseHubTurn(turn)
+            }
         }
     }
 
@@ -4381,6 +4386,18 @@ class MainViewModel(
                 delay(4000)
                 result = attempt()
             }
+            // A custom feed's server often fails or answers with nothing the
+            // first time (cold start, slow generator): one more try before
+            // showing an empty feed that only a restart would fix.
+            if (reset && generation == feedLoadGeneration &&
+                (result.isFailure || result.getOrNull()?.first?.isEmpty() == true)) {
+                delay(2500)
+                if (generation == feedLoadGeneration) {
+                    var again = attempt()
+                    if (again.isFailure && isAuthError(again.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) again = attempt()
+                    if (again.isSuccess || result.isFailure) result = again
+                }
+            }
             if (generation != feedLoadGeneration) {
                 // Superseded by a newer feed load — that one owns the flags.
                 if (!reset) isLoadingMore = false
@@ -4535,6 +4552,15 @@ class MainViewModel(
             var result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
             if (result.isFailure && isAuthError(result.exceptionOrNull()?.message)) {
                 if (refreshBskyTokenIfPossible()) result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
+            }
+            // A cold start often fails the first read: one more try shortly,
+            // rather than leaving the feeds list empty until a restart.
+            if (result.isFailure) {
+                delay(3000)
+                result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
+                if (result.isFailure && isAuthError(result.exceptionOrNull()?.message) && refreshBskyTokenIfPossible()) {
+                    result = bskyRepo.getSavedFeeds(bskyToken, _bskyDid.value)
+                }
             }
             result.onFailure { com.mediaviewer.platform.Log.w("Stellar", "Couldn't load your feeds: ${it.message}"); _feedsListReady.value = true }
             result.onSuccess { feeds ->
@@ -10571,6 +10597,10 @@ class MainViewModel(
         val me = _bskyDid.value
         val out = ArrayList<MediaItem>()
         var rounds = 0
+        // Whether any source answered / failed outright: a feed whose every
+        // read failed is a failed feed, not an empty one.
+        var anySucceeded = false
+        var anyFailed = false
         // A page can filter down to nothing (e.g. a videos-only feed): keep
         // reading a little further rather than showing an empty feed — but
         // as soon as a round has anything to show, it's shown (waiting for a
@@ -10585,13 +10615,19 @@ class MainViewModel(
                 sources.mapIndexed { i, src ->
                     async {
                         val cur = cursors[i]
-                        if (cur == "!") return@async Pair(emptyList<MediaItem>(), "!")
+                        if (cur == "!") return@async Triple(emptyList<MediaItem>(), "!", false)
                         val c = cur.takeIf { it != "-" }
+                        // One more try after a moment when a read fails.
+                        suspend fun <T> twice(block: suspend () -> Result<T>): T? {
+                            block().getOrNull()?.let { return it }
+                            delay(1200)
+                            return block().getOrNull()
+                        }
                         val page: Pair<List<MediaItem>, String?>? = when (src.kind) {
-                            "list" -> bskyRepo.getListFeedOriginals(bskyToken, me, src.value, c, includeReposts = feed.reposts).getOrNull()
-                            "account" -> bskyRepo.getHubListMemberPostsPage(bskyToken, me, src.value, c, 30, includeReposts = feed.reposts).getOrNull()
+                            "list" -> twice { bskyRepo.getListFeedOriginals(bskyToken, me, src.value, c, includeReposts = feed.reposts) }
+                            "account" -> twice { bskyRepo.getHubListMemberPostsPage(bskyToken, me, src.value, c, 30, includeReposts = feed.reposts) }
                                 ?.let { (posts, next) -> posts.map { it.second } to next }
-                            "hashtag" -> bskyRepo.searchPostsDirect(bskyToken, me, "#" + src.value.removePrefix("#"), c).getOrNull()
+                            "hashtag" -> twice { bskyRepo.searchPostsDirect(bskyToken, me, "#" + src.value.removePrefix("#"), c) }
                             // Posts known by their links (a tag's matches, a
                             // folder's posts): read 25 at a time, in order;
                             // the cursor is how far along.
@@ -10607,15 +10643,19 @@ class MainViewModel(
                             }
                             else -> null
                         }
-                        if (page == null) Pair(emptyList<MediaItem>(), "!") else Pair(page.first, page.second?.takeIf { it.isNotBlank() } ?: "!")
+                        if (page == null) Triple(emptyList<MediaItem>(), "!", src.kind in setOf("list", "account", "hashtag", "tag", "folder", "publicFolder"))
+                        else Triple(page.first, page.second?.takeIf { it.isNotBlank() } ?: "!", false)
                     }
                 }.awaitAll()
             }
+            if (pages.any { it.third }) anyFailed = true
+            if (pages.any { !it.third && it.second != "!" || it.first.isNotEmpty() }) anySucceeded = true
             cursors = pages.map { it.second }
             for (item in pages.flatMap { it.first }) {
                 if (feed.keeps(item) && item.postUri.isNotBlank() && seen.add(item.postUri)) out += item
             }
         }
+        if (out.isEmpty() && anyFailed && !anySucceeded) error("Couldn't read this feed's sources")
         // In the feed's own order (newest first unless it's sorted by counts).
         val sorted = feed.sorted(filterHidden(out))
         Pair(sorted, if (cursors.all { it == "!" }) null else cursors.joinToString("\u0001"))
@@ -10666,7 +10706,11 @@ class MainViewModel(
             val changed = feedRowSpecs[key] != feed
             if (!more) {
                 if (cur?.loading == true) return
-                val fresh = cur != null && !changed && !force && com.mediaviewer.platform.currentTimeMillis() - cur.loadedAt < 5 * 60_000L
+                // A failed read only holds for a moment (the row asks again
+                // after 20 s — that retry used to be turned away as "fresh",
+                // leaving the feed empty until the app was restarted).
+                val keepFor = if (cur?.failed == true) 10_000L else 5 * 60_000L
+                val fresh = cur != null && !changed && !force && com.mediaviewer.platform.currentTimeMillis() - cur.loadedAt < keepFor
                 if (fresh) return
                 feedRowSpecs[key] = feed
                 feedRowSeen[key] = HashSet()
@@ -10681,6 +10725,7 @@ class MainViewModel(
         // (A first page takes its turn among the Hub's rows; more pages don't.)
         val turn = if (more) null else hubTurn()
         viewModelScope.launch(ioDispatcher) {
+            var settled = false
             try {
             val seen = com.mediaviewer.platform.synchronizedCompat(hubListLock) { feedRowSeen.getOrPut(key) { HashSet() } }
             var result = if (feed.showsPosts) loadFeedSpecPage(feed, cursor, seen) else Result.success(Pair(emptyList<MediaItem>(), null))
@@ -10688,6 +10733,7 @@ class MainViewModel(
                 result = loadFeedSpecPage(feed, cursor, seen)
             }
             turn?.let { awaitHubTurn(it) }
+            settled = true
             result.onSuccess { (posts, next) ->
                 setHubList(key) { cur ->
                     // (The whole row is put in the feed's order again each time
@@ -10706,7 +10752,12 @@ class MainViewModel(
             }.onFailure {
                 setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
             }
-            } finally { turn?.let { releaseHubTurn(it) } }
+            } finally {
+                // Cancelled or crashed before it could report: don't leave
+                // the row "loading" for good (nothing would ever reload it).
+                if (!settled) setHubList(key) { it.copy(loading = false, loadingMore = false, failed = true, loadedAt = com.mediaviewer.platform.currentTimeMillis()) }
+                turn?.let { releaseHubTurn(it) }
+            }
         }
     }
 
