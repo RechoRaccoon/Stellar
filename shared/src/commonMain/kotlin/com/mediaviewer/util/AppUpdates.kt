@@ -45,6 +45,9 @@ object AppUpdates {
     /** Settings → Check for Updates. */
     var enabled by mutableStateOf(true)
         private set
+    /** Settings → Opt-in to Alpha Releases: prereleases count as updates too. */
+    var alphaEnabled by mutableStateOf(false)
+        private set
 
     private var prefs: SharedPreferences? = null
     private val scope = CoroutineScope(SupervisorJob() + com.mediaviewer.platform.ioDispatcher)
@@ -54,11 +57,17 @@ object AppUpdates {
         val p = context.sharedPreferences("app_updates")
         prefs = p
         enabled = p.getBoolean("enabled", true)
+        alphaEnabled = p.getBoolean("alpha", false)
     }
 
     fun updateEnabled(on: Boolean) {
         enabled = on
         prefs?.edit()?.putBoolean("enabled", on)?.apply()
+    }
+
+    fun updateAlphaEnabled(on: Boolean) {
+        alphaEnabled = on
+        prefs?.edit()?.putBoolean("alpha", on)?.apply()
     }
 
     /** Asked once per session when the app opens (the caller is a
@@ -121,15 +130,29 @@ object AppUpdates {
     private suspend fun latest(): Release? {
         // The newest published app release. (Not /releases/latest: the
         // shared tag dataset's "tag-datasets" release could be that one.)
+        // With alpha opt-in, prereleases count too — and since a hotfix
+        // can be published after an alpha started, the newest by version
+        // wins rather than the newest published. Without it, the first
+        // stable in the list, exactly as before.
         val resp = PlainHttp.get("https://api.github.com/repos/$REPO/releases?per_page=15", listOf("Accept" to "application/vnd.github+json"))
         if (!resp.isSuccessful) error("GitHub answered ${resp.code}")
         val list = StellarJson.default.parseToJsonElement(resp.bodyString()) as? JsonArray ?: return null
-        val o = list.firstOrNull { r ->
-            val ro = r as? JsonObject ?: return@firstOrNull false
+        fun tagOf(ro: JsonObject) = (ro["tag_name"] as? JsonPrimitive)?.content.orEmpty()
+        val candidates = list.mapNotNull { it as? JsonObject }.filter { ro ->
             fun flag(k: String) = (ro[k] as? JsonPrimitive)?.content == "true"
-            val t = (ro["tag_name"] as? JsonPrimitive)?.content.orEmpty()
-            !flag("draft") && !flag("prerelease") && t != TAG_DATASETS_RELEASE
-        } as? JsonObject ?: return null
+            !flag("draft") && (alphaEnabled || !flag("prerelease")) && tagOf(ro) != TAG_DATASETS_RELEASE
+        }
+        val o = (if (alphaEnabled) {
+            candidates.maxWithOrNull(Comparator { a, b ->
+                val va = tagOf(a).trim().removePrefix("v").removePrefix("V")
+                val vb = tagOf(b).trim().removePrefix("v").removePrefix("V")
+                when {
+                    isNewer(va, vb) -> 1
+                    isNewer(vb, va) -> -1
+                    else -> 0
+                }
+            })
+        } else candidates.firstOrNull()) ?: return null
         fun text(k: String) = (o[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val tag = text("tag_name") ?: return null
         val assets = (o["assets"] as? JsonArray).orEmpty().mapNotNull { a ->

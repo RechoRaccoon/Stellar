@@ -315,9 +315,11 @@ private fun SearchEngineBubble(liquidGlass: Boolean, tint: Color, backdrop: Glas
 
 /**
  * Settings → Data and Privacy → Check for Updates: whether Stellar looks
- * for a newer release on GitHub by itself (each time it opens), and Check
- * Now. See AppUpdates. Where a version can't check (the web), the
- * [VersionBubble] stands in its place instead.
+ * for a newer release on GitHub by itself (each time it opens), with a
+ * Check Now button beside its switch — and Opt-in to Alpha Releases,
+ * which counts prereleases as updates too. See AppUpdates. Where a
+ * version can't check (the web), the [VersionBubble] stands in its
+ * place instead.
  */
 @Composable
 private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBackdrop?) {
@@ -326,12 +328,7 @@ private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBack
     SettingsBubble(liquidGlass, tint, backdrop) {
         BubbleRow {
             RowLabel("Check for Updates", Modifier.weight(1f), sub = "v" + com.mediaviewer.AppVersion.NAME)
-            CompactSwitch(com.mediaviewer.util.AppUpdates.enabled) { com.mediaviewer.util.AppUpdates.updateEnabled(it) }
-        }
-        BubbleDivider()
-        BubbleRow {
-            RowLabel("Check Now", Modifier.weight(1f))
-            PillButton(if (checking) "Checking…" else "Check", {
+            PillButton(if (checking) "Checking…" else "Check Now", {
                 if (!checking) {
                     checking = true
                     com.mediaviewer.util.AppUpdates.check(context, force = true) { found, err ->
@@ -342,6 +339,13 @@ private fun UpdatesBubble(liquidGlass: Boolean, tint: Color, backdrop: GlassBack
                     }
                 }
             })
+            Spacer(Modifier.width(6.dp))
+            CompactSwitch(com.mediaviewer.util.AppUpdates.enabled) { com.mediaviewer.util.AppUpdates.updateEnabled(it) }
+        }
+        BubbleDivider()
+        BubbleRow {
+            RowLabel("Opt-in to Alpha Releases", Modifier.weight(1f))
+            CompactSwitch(com.mediaviewer.util.AppUpdates.alphaEnabled) { com.mediaviewer.util.AppUpdates.updateAlphaEnabled(it) }
         }
     }
 }
