@@ -1974,7 +1974,7 @@ class MainViewModel(
                 val uri = draft.videoUri
                 if (uri == null) Result.failure(IllegalStateException("No video attached"))
                 else runCatching {
-                    bskyRepo.createVideoPost(bskyToken, did, context, uri, draft.videoThumbnailUri, draft.videoTitle, draft.videoDescription, draft.selfLabels, alt = draft.videoAlt).getOrElse { throw it }
+                    bskyRepo.createVideoPost(bskyToken, did, context, uri, draft.videoThumbnailUri, draft.videoTitle, draft.videoDescription, draft.selfLabels, emojiStore = emojiStore, alt = draft.videoAlt).getOrElse { throw it }
                 }
             }
             // Item 10: posts a real social.popfeed.feed.review record (not

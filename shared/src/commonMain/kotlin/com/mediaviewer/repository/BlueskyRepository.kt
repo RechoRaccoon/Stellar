@@ -5849,6 +5849,10 @@ class BlueskyRepository {
         videoUri: com.mediaviewer.platform.PlatformUri, thumbnailUri: com.mediaviewer.platform.PlatformUri? = null,
         title: String, description: String,
         selfLabels: List<String> = emptyList(),
+        // Custom emoji (see richTextWithEmoji): the composer's / comment
+        // box's emoji library, when the text being posted was typed with
+        // it. Null posts exactly as before.
+        emojiStore: com.mediaviewer.util.EmojiStore? = null,
         /** The video's alt text (Bluesky's own, on the video embed). */
         alt: String = ""
     ): Result<BskyRef> = withContext(ioDispatcher) {
@@ -5857,7 +5861,7 @@ class BlueskyRepository {
 
             val text = if (description.isBlank()) title else "$title\n\n$description"
             val videoEmbed = buildVideoEmbed(uploaded, alt)
-            val (richWords, richFacets) = richText(text)
+            val (richWords, richFacets) = richTextWithEmoji(text, emojiStore, did)
             val record = mutableMapOf<String, Any>(
                 "\$type" to "app.bsky.feed.post",
                 "text" to richWords,

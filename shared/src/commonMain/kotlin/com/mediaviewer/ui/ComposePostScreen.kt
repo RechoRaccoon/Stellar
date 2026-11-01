@@ -328,6 +328,10 @@ fun ComposePostScreen(
     var videoAspect by remember { mutableStateOf(16f / 9f) }
     var videoTitle by remember { mutableStateOf(TextFieldValue("")) }
     var videoDescription by remember { mutableStateOf(TextFieldValue("")) }
+    // Which video field last took focus — the emoji menu's pick goes there,
+    // same as Textshot's textshotPostFocused (GrowingTextField only reports
+    // focus gained, so this survives the menu clearing focus).
+    var videoDescriptionFocused by remember { mutableStateOf(false) }
     var threadPosts by remember { mutableStateOf(listOf(ThreadPostState(TextFieldValue("")))) }
     var activeThreadIndex by remember { mutableStateOf(0) }
     // The camera-notch bubble works on this page too: a photo (or a VRM
@@ -739,6 +743,22 @@ fun ComposePostScreen(
             threadPosts = threadPosts.toMutableList().also { it[idx] = post.copy(text = capBudget(next, POST_CHAR_LIMIT)) }
             return
         }
+        if (mode == ComposeMode.VIDEO) {
+            if (videoDescriptionFocused) {
+                val t = videoDescription
+                val start = t.selection.min.coerceIn(0, t.text.length)
+                val end = t.selection.max.coerceIn(start, t.text.length)
+                val next = TextFieldValue(t.text.substring(0, start) + token + t.text.substring(end), TextRange(start + token.length))
+                videoDescription = capBudget(next, POST_CHAR_LIMIT - videoTitle.text.length - VIDEO_TEXT_GAP)
+            } else {
+                val t = videoTitle
+                val start = t.selection.min.coerceIn(0, t.text.length)
+                val end = t.selection.max.coerceIn(start, t.text.length)
+                val next = TextFieldValue(t.text.substring(0, start) + token + t.text.substring(end), TextRange(start + token.length))
+                videoTitle = capBudget(next, POST_CHAR_LIMIT - videoDescription.text.length - if (videoDescription.text.isBlank()) 0 else VIDEO_TEXT_GAP)
+            }
+            return
+        }
         if (mode == ComposeMode.TEXTSHOT && textshotPostFocused) {
             val t = textshotPostText
             val start = t.selection.min.coerceIn(0, t.text.length)
@@ -1108,14 +1128,18 @@ fun ComposePostScreen(
                             value = videoTitle,
                             onValueChange = { videoTitle = capBudget(it, POST_CHAR_LIMIT - videoDescription.text.length - if (videoDescription.text.isBlank()) 0 else VIDEO_TEXT_GAP) },
                             placeholder = "Title…",
-                            focusRequester = videoTitleFocusRequester
+                            onFocus = { videoDescriptionFocused = false },
+                            focusRequester = videoTitleFocusRequester,
+                            emojiStore = emojiStore
                         )
                         Spacer(Modifier.height(10.dp))
                         HubDivider("Description")
                         GrowingTextField(
                             value = videoDescription,
                             onValueChange = { videoDescription = capBudget(it, POST_CHAR_LIMIT - videoTitle.text.length - VIDEO_TEXT_GAP) },
-                            placeholder = "Description…"
+                            placeholder = "Description…",
+                            onFocus = { videoDescriptionFocused = true },
+                            emojiStore = emojiStore
                         )
                         Spacer(Modifier.height(12.dp))
                         VideoAndThumbnailRow(
@@ -1656,7 +1680,7 @@ fun ComposePostScreen(
                             // Custom emoji, as in DMs and Statuses: the same
                             // star button, right after the image button. It
                             // opens the emoji menu in the text-post modes
-                            // (single, thread, Textshot) — video, blog and
+                            // (single, thread, Textshot, video) — blog and
                             // review posts have nowhere to put an emoji
                             // facet. (A poll's question keeps any emoji
                             // picked before the poll was started; the button
@@ -1665,7 +1689,7 @@ fun ComposePostScreen(
                             GlassCircleButton(
                                 icon = Icons.Default.Star, contentDescription = "Emoji",
                                 liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop, size = 40.dp,
-                                enabled = (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT) && !pollOn,
+                                enabled = (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT || mode == ComposeMode.VIDEO) && !pollOn,
                                 onClick = { toggleEmojiPanel() }
                             )
                             // Item 2: Blog and Textshot are text buttons, not
@@ -1801,7 +1825,7 @@ fun ComposePostScreen(
             // ── Emoji menu — takes the keyboard's place (see the state block
             // near the top of this function). When a tab is being renamed it
             // is only the tab row, sitting right on top of the keyboard.
-            if (emojiPanelOpen && (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT)) {
+            if (emojiPanelOpen && (mode == ComposeMode.SINGLE || mode == ComposeMode.THREAD || mode == ComposeMode.TEXTSHOT || mode == ComposeMode.VIDEO)) {
                 EmojiPanel(
                     store = emojiStore,
                     height = emojiPanelHeight,
