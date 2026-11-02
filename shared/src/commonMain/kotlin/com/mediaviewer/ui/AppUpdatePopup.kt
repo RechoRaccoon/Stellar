@@ -36,8 +36,8 @@ import com.mediaviewer.util.rememberHapticTap
 
 /**
  * "A new version of Stellar is out": the release's notes, and Update (the
- * download and the system installer — or the release page on iOS), Later,
- * or Skip This Version. See AppUpdates.
+ * download and the system installer — or the release page on iOS) or
+ * Later. See AppUpdates.
  */
 @Composable
 fun AppUpdatePopup(tint: Color, modifier: Modifier = Modifier) {
@@ -92,9 +92,8 @@ fun AppUpdatePopup(tint: Color, modifier: Modifier = Modifier) {
                         contentAlignment = Alignment.Center
                     ) { Text(label, color = Color.White, fontSize = 13.sp, fontWeight = if (filled) FontWeight.Bold else FontWeight.SemiBold) }
                 }
-                Button("Skip", false, Modifier.weight(1f)) { AppUpdates.skip(release) }
                 Button("Later", false, Modifier.weight(1f)) { AppUpdates.later() }
-                Button(if (PlatformUpdater.canInstall) "Update" else "Open Release", true, Modifier.weight(1.3f)) { AppUpdates.install(context, release) }
+                Button(if (PlatformUpdater.canInstall) "Update" else "Open Release", true, Modifier.weight(1f)) { AppUpdates.install(context, release) }
             }
         }
     }
