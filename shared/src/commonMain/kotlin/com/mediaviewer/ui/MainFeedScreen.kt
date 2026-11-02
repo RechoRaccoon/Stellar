@@ -25,6 +25,7 @@ import com.mediaviewer.ui.theme.CircleShape
 import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
@@ -3245,20 +3246,27 @@ private fun AuthorRow(
  *  (so the post never sees it): a clear horizontal swipe is claimed — so the
  *  bubble's own tap/scroll don't also fire — and handed to [onSwipe] with its
  *  total distance, exactly like a swipe anywhere else on the post. */
-private fun Modifier.horizontalSwipeWatcher(onSwipe: (Float) -> Unit): Modifier = this.pointerInput(Unit) {
+private fun Modifier.horizontalSwipeWatcher(onSwipe: (Float) -> Unit, holdCancelsSwipe: Boolean = false): Modifier = this.pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         var totalX = 0f; var totalY = 0f
         var claimed = false
         var vertical = false
+        var held = false
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) break
             val d = change.positionChange()
             totalX += d.x; totalY += d.y
-            if (!claimed && !vertical) {
-                if (abs(totalX) > viewConfiguration.touchSlop && abs(totalX) > abs(totalY) * 1.2f) claimed = true
+            if (!claimed && !vertical && !held) {
+                // A drag that only starts after a hold is a selection drag
+                // (or another hold gesture), not a swipe: the text bubble's
+                // selection holds the pointer first, so a swipe must not
+                // steal it mid-selection. Other watchers keep the old
+                // behavior (holdCancelsSwipe = false).
+                if (holdCancelsSwipe && change.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) held = true
+                else if (abs(totalX) > viewConfiguration.touchSlop && abs(totalX) > abs(totalY) * 1.2f) claimed = true
                 else if (abs(totalY) > viewConfiguration.touchSlop) vertical = true
             }
             if (claimed) change.consume()
@@ -3322,25 +3330,23 @@ private fun PostTextBubble(
         if (reducedAnimations) progress.snapTo(target)
         else progress.animateTo(target, spring(dampingRatio = 0.86f, stiffness = 340f))
     }
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    val tap = rememberHapticTap()
     val bubbleModifier = modifier
         .tipAnchor("tl.text")
         .clip(shape)
-        .horizontalSwipeWatcher(onHorizontalSwipe)
-        .combinedClickable(
+        .horizontalSwipeWatcher(onHorizontalSwipe, holdCancelsSwipe = true)
+        .clickable(
             indication = null, interactionSource = remember { MutableInteractionSource() },
-            onClick = onToggle,
-            onLongClick = {
-                // The folder prompt isn't post text: only the post's own
-                // words (or its translation) copy out of the bubble.
-                if (text != centeredText && text.isNotBlank()) {
-                    tap()
-                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
-                    com.mediaviewer.ui.compat.showPlatformToast(com.mediaviewer.i18n.tr("Copied"))
-                }
-            }
+            onClick = onToggle
         )
+
+    // Only the visible copy is selectable: the bubble lays out both the
+    // one-line and the full text at once (cross-fading between them), so
+    // wrapping both would register the invisible copy for selection too.
+    @Composable
+    fun Selectable(whenSelected: Boolean, content: @Composable () -> Unit) {
+        if (whenSelected) SelectionContainer { content() }
+        else content()
+    }
 
     @Composable
     fun Body() {
@@ -3357,21 +3363,25 @@ private fun PostTextBubble(
                 Crossfade(text, animationSpec = tween(260), label = "bubbleTextOne") { t ->
                     // Custom emoji draw as pictures, as in DMs — never
                     // over the folder prompt (its text isn't the post's).
-                    DmMessageText(
-                        t, if (t == centeredText) null else facets,
-                        color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp,
-                        modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start
-                    )
-                }
-                Crossfade(text, animationSpec = tween(260), label = "bubbleTextFull") { t ->
-                    Column(Modifier.fillMaxWidth()) {
+                    Selectable(!expanded) {
                         DmMessageText(
                             t, if (t == centeredText) null else facets,
                             color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start
                         )
+                    }
+                }
+                Crossfade(text, animationSpec = tween(260), label = "bubbleTextFull") { t ->
+                    Column(Modifier.fillMaxWidth()) {
+                        Selectable(expanded) {
+                            DmMessageText(
+                                t, if (t == centeredText) null else facets,
+                                color = Color.White.copy(alpha = 0.95f), fontSize = 13.sp, lineHeight = 18.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = if (t == centeredText) TextAlign.Center else TextAlign.Start
+                            )
+                        }
                         if (stats != null && t != centeredText) PostStatsRow(stats, style)
                     }
                 }
