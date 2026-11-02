@@ -26,8 +26,6 @@ import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.selection.SelectionState
-import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
@@ -1579,10 +1577,11 @@ private fun PostContent(
 
     // (A tick when a pinch on the bar locks onto the standard size.)
     val barSnapTap = rememberHapticTap()
-    // Text-only post text selection: the card reports its selection here,
-    // so the outer gesture below can tell a selection hold apart from a
-    // long-press for the quick-action wheel.
-    val textSelectionState = rememberSelectionState()
+    // Text-only post text selection: the card's text reports whether a
+    // finger is down on the text itself, so the outer gesture below can
+    // tell a selection hold apart from a long-press for the quick-action
+    // wheel. (This Compose version has no SelectionState to hoist.)
+    var downOnCardText by remember { mutableStateOf(false) }
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { postBoxRootOrigin = it.positionInRoot() }
@@ -1714,7 +1713,7 @@ private fun PostContent(
                         while (true) {
                             val elapsed = com.mediaviewer.platform.currentTimeMillis() - downTime
                             if (!menuOpen && !longPressFired && !pointerCountEverTwo && !externallyClaimed && !strayed &&
-                                textSelectionState.selection == null &&
+                                !downOnCardText &&
                                 elapsed >= 450L && abs(stillDx) < 28f && abs(stillDy) < 28f) {
                                 longPressFired = true; haptic(context)
                                 menuCenter = downPos; menuOpen = true
@@ -1888,7 +1887,7 @@ private fun PostContent(
                     item.text, dominantColor, translationState, onToggleTranslationView,
                     emojiImageUrl = item.textshotImageUrl, emojiAspectRatio = item.aspectRatio,
                     facets = item.facets,
-                    selectionState = textSelectionState
+                    onTextPress = { downOnCardText = it }
                 )
             } else if (item.isVideo && item.videoPlaylistUrl != null) {
                 VideoPlayer(
@@ -2919,9 +2918,10 @@ private fun TextOnlyPostCard(
     emojiAspectRatio: Float? = null,
     /** The post's facets, as posted — custom emoji facets included. */
     facets: List<kotlinx.serialization.json.JsonElement>? = null,
-    /** Hoisted selection state, so the post's outer gesture can tell a
-     *  selection hold apart from a long-press for the quick-action wheel. */
-    selectionState: SelectionState? = null
+    /** Called with true while a finger is down on the card's text itself
+     *  (never consumes), so the post's outer gesture can tell a selection
+     *  hold apart from a long-press for the quick-action wheel. */
+    onTextPress: (Boolean) -> Unit = {}
 ) {
     // (Landscape: a card of a comfortable reading width, not the window's.)
     val sideways = rememberLandscape()
@@ -3012,21 +3012,41 @@ private fun TextOnlyPostCard(
                     .padding(horizontal = hPad, vertical = vPad).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                // Selectable, like the text bubble: the state is hoisted
-                // so the outer gesture stands down for selection holds (no
-                // quick-action wheel, no post swipe mid-select).
+                // Selectable, like the text bubble. The outer gesture
+                // stands down for holds on the text itself via the
+                // down-on-text flag (no quick-action wheel); selection
+                // drags claim the pointer, so no post swipe mid-select.
                 val textContent: @Composable () -> Unit = {
                     if (emojiSpans.isEmpty()) {
                         Text(
                             displayText,
                             color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
                             fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-                            modifier = if (toggleable) {
+                            modifier = (if (toggleable) {
                                 Modifier.clickable(
                                     indication = null, interactionSource = remember { MutableInteractionSource() },
                                     onClick = onToggleTranslationView
                                 )
-                            } else Modifier
+                            } else Modifier)
+                                .pointerInput(Unit) {
+                                    // Observes only, never consumes: reports
+                                    // whether this finger is down on the text
+                                    // itself, so the outer gesture can tell a
+                                    // selection hold apart from a long-press
+                                    // for the quick-action wheel.
+                                    awaitEachGesture {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        try {
+                                            onTextPress(true)
+                                            while (true) {
+                                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                                if (event.changes.none { it.pressed }) break
+                                            }
+                                        } finally {
+                                            onTextPress(false)
+                                        }
+                                    }
+                                }
                         )
                     } else {
                         // (DmMessageText falls back to plain text on its own
@@ -3035,17 +3055,35 @@ private fun TextOnlyPostCard(
                             displayText, facets,
                             color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
                             textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
-                            modifier = if (toggleable) {
+                            modifier = (if (toggleable) {
                                 Modifier.clickable(
                                     indication = null, interactionSource = remember { MutableInteractionSource() },
                                     onClick = onToggleTranslationView
                                 )
-                            } else Modifier
+                            } else Modifier)
+                                .pointerInput(Unit) {
+                                    // Observes only, never consumes: reports
+                                    // whether this finger is down on the text
+                                    // itself, so the outer gesture can tell a
+                                    // selection hold apart from a long-press
+                                    // for the quick-action wheel.
+                                    awaitEachGesture {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        try {
+                                            onTextPress(true)
+                                            while (true) {
+                                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                                if (event.changes.none { it.pressed }) break
+                                            }
+                                        } finally {
+                                            onTextPress(false)
+                                        }
+                                    }
+                                }
                         )
                     }
                 }
-                if (selectionState != null) SelectionContainer(state = selectionState) { textContent() }
-                else textContent()
+                SelectionContainer { textContent() }
             }
         }
     }
