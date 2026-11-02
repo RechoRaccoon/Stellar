@@ -1,0 +1,32 @@
+{
+ "format": 1,
+ "version": "1971c8a5246bf165",
+ "updatedAt": "2026-11-02T23:13:47Z",
+ "posts": 13253,
+ "tags": 633070,
+ "bytes": 16838064,
+ "parts": [
+  {
+   "file": "part-000.json",
+   "bytes": 7999371,
+   "sha256": "636be9a2bb032fa8797a4a9d598c7633b9629375e6d87c73fb9c7bdd1c89cd0b"
+  },
+  {
+   "file": "part-001.json",
+   "bytes": 7998917,
+   "sha256": "6aa32dae1f32bf32a97df29dd8b54041c892266acefa284545454cf189df5022"
+  },
+  {
+   "file": "part-002.json",
+   "bytes": 839776,
+   "sha256": "a6b4d62994a9f8f0699f5e5f80f749a0bd3215e4ef5cceac426d9c8b2a926c27"
+  }
+ ],
+ "sources": [
+  {
+   "file": "Shared.Dataset.13k.json",
+   "name": "Shared Dataset 13k",
+   "posts": 13253
+  }
+ ]
+}
