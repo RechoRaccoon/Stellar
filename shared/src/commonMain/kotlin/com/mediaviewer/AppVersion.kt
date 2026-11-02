@@ -11,5 +11,5 @@ package com.mediaviewer
  * keeps offering the update it already is.
  */
 object AppVersion {
-    const val NAME = "2.12.2.0"
+    const val NAME = "2.13.0.0"
 }
