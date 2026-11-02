@@ -26,6 +26,8 @@ import com.mediaviewer.ui.theme.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.SelectionState
+import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
@@ -1577,6 +1579,10 @@ private fun PostContent(
 
     // (A tick when a pinch on the bar locks onto the standard size.)
     val barSnapTap = rememberHapticTap()
+    // Text-only post text selection: the card reports its selection here,
+    // so the outer gesture below can tell a selection hold apart from a
+    // long-press for the quick-action wheel.
+    val textSelectionState = rememberSelectionState()
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { postBoxRootOrigin = it.positionInRoot() }
@@ -1708,6 +1714,7 @@ private fun PostContent(
                         while (true) {
                             val elapsed = com.mediaviewer.platform.currentTimeMillis() - downTime
                             if (!menuOpen && !longPressFired && !pointerCountEverTwo && !externallyClaimed && !strayed &&
+                                textSelectionState.selection == null &&
                                 elapsed >= 450L && abs(stillDx) < 28f && abs(stillDy) < 28f) {
                                 longPressFired = true; haptic(context)
                                 menuCenter = downPos; menuOpen = true
@@ -1880,7 +1887,8 @@ private fun PostContent(
                 } else TextOnlyPostCard(
                     item.text, dominantColor, translationState, onToggleTranslationView,
                     emojiImageUrl = item.textshotImageUrl, emojiAspectRatio = item.aspectRatio,
-                    facets = item.facets
+                    facets = item.facets,
+                    selectionState = textSelectionState
                 )
             } else if (item.isVideo && item.videoPlaylistUrl != null) {
                 VideoPlayer(
@@ -2910,7 +2918,10 @@ private fun TextOnlyPostCard(
     emojiImageUrl: String = "",
     emojiAspectRatio: Float? = null,
     /** The post's facets, as posted — custom emoji facets included. */
-    facets: List<kotlinx.serialization.json.JsonElement>? = null
+    facets: List<kotlinx.serialization.json.JsonElement>? = null,
+    /** Hoisted selection state, so the post's outer gesture can tell a
+     *  selection hold apart from a long-press for the quick-action wheel. */
+    selectionState: SelectionState? = null
 ) {
     // (Landscape: a card of a comfortable reading width, not the window's.)
     val sideways = rememberLandscape()
@@ -3001,33 +3012,40 @@ private fun TextOnlyPostCard(
                     .padding(horizontal = hPad, vertical = vPad).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                if (emojiSpans.isEmpty()) {
-                    Text(
-                        displayText,
-                        color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
-                        fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-                        modifier = if (toggleable) {
-                            Modifier.clickable(
-                                indication = null, interactionSource = remember { MutableInteractionSource() },
-                                onClick = onToggleTranslationView
-                            )
-                        } else Modifier
-                    )
-                } else {
-                    // (DmMessageText falls back to plain text on its own
-                    // when the spans are empty; here they aren't.)
-                    DmMessageText(
-                        displayText, facets,
-                        color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
-                        textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
-                        modifier = if (toggleable) {
-                            Modifier.clickable(
-                                indication = null, interactionSource = remember { MutableInteractionSource() },
-                                onClick = onToggleTranslationView
-                            )
-                        } else Modifier
-                    )
+                // Selectable, like the text bubble: the state is hoisted
+                // so the outer gesture stands down for selection holds (no
+                // quick-action wheel, no post swipe mid-select).
+                val textContent: @Composable () -> Unit = {
+                    if (emojiSpans.isEmpty()) {
+                        Text(
+                            displayText,
+                            color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
+                            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                            modifier = if (toggleable) {
+                                Modifier.clickable(
+                                    indication = null, interactionSource = remember { MutableInteractionSource() },
+                                    onClick = onToggleTranslationView
+                                )
+                            } else Modifier
+                        )
+                    } else {
+                        // (DmMessageText falls back to plain text on its own
+                        // when the spans are empty; here they aren't.)
+                        DmMessageText(
+                            displayText, facets,
+                            color = Color.White, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.37f).sp,
+                            textAlign = TextAlign.Center, fontWeight = FontWeight.Medium,
+                            modifier = if (toggleable) {
+                                Modifier.clickable(
+                                    indication = null, interactionSource = remember { MutableInteractionSource() },
+                                    onClick = onToggleTranslationView
+                                )
+                            } else Modifier
+                        )
+                    }
                 }
+                if (selectionState != null) SelectionContainer(state = selectionState) { textContent() }
+                else textContent()
             }
         }
     }
