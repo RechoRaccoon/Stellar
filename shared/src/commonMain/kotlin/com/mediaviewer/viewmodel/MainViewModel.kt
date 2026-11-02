@@ -2111,13 +2111,6 @@ class MainViewModel(
         } else if (_searchState.value.query.isNotBlank()) runSearch(_searchState.value.query)
     }
 
-    /** Search › All: what's typed, without searching yet (All searches
-     *  every kind at once, so only when the search key is pressed). */
-    fun setSearchQueryText(query: String) {
-        if (query.isBlank()) { runSearch(query); return }
-        _searchState.value = _searchState.value.copy(query = query)
-    }
-
     fun runSearch(query: String) {
         searchJob?.cancel()
         _searchState.value = _searchState.value.copy(query = query)

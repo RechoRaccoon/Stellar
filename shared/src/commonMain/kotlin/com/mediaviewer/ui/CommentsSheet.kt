@@ -824,6 +824,9 @@ fun CommentsSheet(
                 title = "Delete Comment?",
                 message = "This will permanently delete your comment.",
                 confirmLabel = "Delete",
+                // Tint-colored like the other popups in this sheet, not
+                // destructive red.
+                destructive = false,
                 liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
                 onConfirm = {
                     commentToDelete = null
@@ -843,9 +846,7 @@ fun CommentsSheet(
                 message = "Remove \"${tag.replace('_', ' ')}\" from this post?",
                 confirmLabel = "Delete",
                 // Like Add Tag and Rename Tag in this sheet, the confirm
-                // is tint-colored, not destructive red: removing a tag
-                // is reversible (it can just be added back), unlike
-                // deleting a comment.
+                // is tint-colored, not destructive red.
                 destructive = false,
                 liquidGlass = liquidGlass, tint = dominantColor, backdrop = backdrop,
                 onConfirm = { tagToDelete = null; LocalOverlays.editPostTag?.invoke(tag, null) },

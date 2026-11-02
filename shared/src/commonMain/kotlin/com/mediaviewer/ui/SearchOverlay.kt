@@ -111,8 +111,6 @@ fun SearchOverlay(
     /** The accounts among [tagSuggestions] ("@handle" → who). */
     tagSuggestionAccounts: Map<String, com.mediaviewer.model.AuthorInfo> = emptyMap(),
     onQueryChange: (String) -> Unit,
-    /** All: what's typed, without searching (it searches on the search key). */
-    onQueryTextChange: (String) -> Unit = onQueryChange,
     // Item 2: Liked tab's query text updates live (so the field shows what
     // you're typing + suggestions can react to it) but must NOT re-run the
     // actual dataset search until Enter/search is pressed — unlike the
@@ -387,7 +385,7 @@ fun SearchOverlay(
                         BasicTextFieldWithPlaceholder(
                             value = if (isWeb) webQuery else state.query,
                             onValueChange = if (isWeb) ({ webQuery = it }) else if (isTagInputFilter) onLikedQueryTextChange
-                                else if (state.filter == MainViewModel.SearchFilter.ALL) onQueryTextChange else onQueryChange,
+                                else onQueryChange,
                             // Item 1: just "Search" — no app-name text needed.
                             placeholder = if (isWeb) "Search the web" else "Search", focusRequester = focusRequester,
                             // Item 8: haptic tap when the keyboard's search

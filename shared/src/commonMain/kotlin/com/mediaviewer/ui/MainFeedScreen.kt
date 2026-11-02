@@ -3322,13 +3322,24 @@ private fun PostTextBubble(
         if (reducedAnimations) progress.snapTo(target)
         else progress.animateTo(target, spring(dampingRatio = 0.86f, stiffness = 340f))
     }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val tap = rememberHapticTap()
     val bubbleModifier = modifier
         .tipAnchor("tl.text")
         .clip(shape)
         .horizontalSwipeWatcher(onHorizontalSwipe)
-        .clickable(
+        .combinedClickable(
             indication = null, interactionSource = remember { MutableInteractionSource() },
-            onClick = onToggle
+            onClick = onToggle,
+            onLongClick = {
+                // The folder prompt isn't post text: only the post's own
+                // words (or its translation) copy out of the bubble.
+                if (text != centeredText && text.isNotBlank()) {
+                    tap()
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                    com.mediaviewer.ui.compat.showPlatformToast(com.mediaviewer.i18n.tr("Copied"))
+                }
+            }
         )
 
     @Composable

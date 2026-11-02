@@ -1040,7 +1040,6 @@ private fun AppRootContent(viewModel: MainViewModel, pendingProfileLink: String?
                 tagSuggestions     = tagSuggestions,
                 tagSuggestionAccounts = tagSuggestionAccounts,
                 onQueryChange      = viewModel::runSearch,
-                onQueryTextChange  = viewModel::setSearchQueryText,
                 onLikedQueryTextChange = viewModel::updateLikedQueryText,
                 onLikedSearchSubmit    = viewModel::submitLikedSearch,
                 e621LoggedIn       = e621LoggedIn,
